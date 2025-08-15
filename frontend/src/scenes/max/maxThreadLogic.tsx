@@ -32,7 +32,7 @@ import {
     ReasoningMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -43,6 +43,7 @@ import {
     isHumanMessage,
     isNotebookUpdateMessage,
     isReasoningMessage,
+    isTaskExecutionMessage,
 } from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
@@ -151,6 +152,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
+        setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
     }),
 
@@ -206,6 +208,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Trace ID is used for the conversation metrics in the UI
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
+
+        deepResearchMode: [
+            false, // TODO(DEEP_RESEARCH): this should be false before releasing, set to true for testing
+            {
+                setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache, props }) => ({
@@ -277,6 +286,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.billing_context = values.billingContext
                 }
 
+                if (values.deepResearchMode) {
+                    apiData.deep_research_mode = true
+                }
+
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
@@ -307,7 +320,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             if (!parsedResponse) {
                                 return
                             }
-
                             if (isHumanMessage(parsedResponse)) {
                                 actions.replaceMessage(values.threadRaw.length - 1, {
                                     ...parsedResponse,
@@ -565,6 +577,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         ) {
                             // Only preserve the latest reasoning message, and remove once reasoning is done
                             lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
+                        } else if (
+                            currentMessage.type === AssistantMessageType.TaskExecution &&
+                            previousMessage.type === AssistantMessageType.TaskExecution
+                        ) {
+                            // Only preserve the latest TaskExecutionMessage, replace the previous one
+                            lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
                         } else if (lastThreadSoFar) {
                             lastThreadSoFar.push(currentMessage)
                         }
@@ -575,28 +593,37 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
-                    const thinkingMessage: ReasoningMessage & ThreadMessage = {
-                        type: AssistantMessageType.Reasoning,
-                        content: getRandomThinkingMessage(),
-                        status: 'completed',
-                        id: 'loader',
-                    }
 
-                    if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
-                        // If now waiting for the current node to start streaming, add "Thinking" message
-                        // so that there's _some_ indication of processing
-                        if (finalMessageSoFar.type === AssistantMessageType.Human) {
-                            // If the last message was human, we need to add a new "ephemeral" AI group
-                            threadGrouped.push([thinkingMessage])
-                        } else {
-                            // Otherwise, add to the last group
-                            threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                    // Check if the last message is a TaskExecutionMessage with tasks not all completed
+                    const isActiveTaskExecution =
+                        isTaskExecutionMessage(finalMessageSoFar) &&
+                        finalMessageSoFar.tasks.some((task) => task.status !== 'completed' && task.status !== 'failed')
+
+                    // Don't show thinking message if there's an active TaskExecutionMessage
+                    if (!isActiveTaskExecution) {
+                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
+                            type: AssistantMessageType.Reasoning,
+                            content: getRandomThinkingMessage(),
+                            status: 'completed',
+                            id: 'loader',
                         }
-                    }
 
-                    // Special case for the thread in progress
-                    if (threadGrouped.length === 0) {
-                        threadGrouped.push([thinkingMessage])
+                        if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
+                            // If now waiting for the current node to start streaming, add "Thinking" message
+                            // so that there's _some_ indication of processing
+                            if (finalMessageSoFar.type === AssistantMessageType.Human) {
+                                // If the last message was human, we need to add a new "ephemeral" AI group
+                                threadGrouped.push([thinkingMessage])
+                            } else {
+                                // Otherwise, add to the last group
+                                threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                            }
+                        }
+
+                        // Special case for the thread in progress
+                        if (threadGrouped.length === 0) {
+                            threadGrouped.push([thinkingMessage])
+                        }
                     }
                 }
 
@@ -658,6 +685,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s) => [s.question],
             (question): SlashCommand[] =>
                 MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
+        ],
+
+        showDeepResearchModeToggle: [
+            (s) => [s.conversation, s.featureFlags],
+            (conversation, featureFlags) =>
+                // if a conversation is already marked as deep research, or has already started (has title/is in progress), don't show the toggle
+                !!featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] &&
+                conversation?.type !== ConversationType.DeepResearch &&
+                !conversation?.title &&
+                conversation?.status !== ConversationStatus.InProgress,
         ],
     }),
 

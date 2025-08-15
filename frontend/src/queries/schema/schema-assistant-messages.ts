@@ -33,8 +33,11 @@ export enum AssistantMessageType {
     Assistant = 'ai',
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
+    MultiVisualization = 'ai/multi_viz',
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
+    Planning = 'ai/planning',
+    TaskExecution = 'ai/task_execution',
 }
 
 export interface BaseAssistantMessage {
@@ -84,13 +87,16 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
-export interface VisualizationMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Visualization
+export interface VisualizationItem {
     /** @default '' */
     query: string
     plan?: string
     answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     initiator?: string
+}
+
+export interface VisualizationMessage extends BaseAssistantMessage, VisualizationItem {
+    type: AssistantMessageType.Visualization
 }
 
 export interface FailureMessage extends BaseAssistantMessage {
@@ -105,13 +111,58 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     tool_calls?: AssistantToolCall[]
 }
 
+export enum PlanningStepStatus {
+    Pending = 'pending',
+    InProgress = 'in_progress',
+    Completed = 'completed',
+}
+
+export interface PlanningStep {
+    description: string
+    status: PlanningStepStatus
+}
+
+export interface PlanningMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Planning
+    steps: PlanningStep[]
+}
+
+export enum TaskExecutionStatus {
+    Pending = 'pending',
+    InProgress = 'in_progress',
+    Completed = 'completed',
+    Failed = 'failed',
+}
+
+export interface TaskExecutionItem {
+    id: string
+    description: string
+    prompt: string
+    status: TaskExecutionStatus
+    artifact_ids?: string[]
+}
+
+export interface TaskExecutionMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.TaskExecution
+    tasks: TaskExecutionItem[]
+}
+
+export interface MultiVisualizationMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.MultiVisualization
+    visualizations: VisualizationItem[]
+    commentary?: string
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
+    | MultiVisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
     | NotebookUpdateMessage
+    | PlanningMessage
+    | TaskExecutionMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {

@@ -13,14 +13,21 @@ from pydantic import BaseModel, Field
 from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
+    AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
+    AssistantHogQLQuery,
     AssistantMessage,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
+    MultiVisualizationMessage,
+    PlanningMessage,
     ReasoningMessage,
     VisualizationMessage,
     NotebookUpdateMessage,
+    TaskExecutionMessage,
 )
 
 AIMessageUnion = Union[
@@ -29,6 +36,9 @@ AIMessageUnion = Union[
     FailureMessage,
     ReasoningMessage,
     AssistantToolCallMessage,
+    PlanningMessage,
+    TaskExecutionMessage,
+    MultiVisualizationMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
@@ -38,9 +48,30 @@ AssistantOutput = (
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
 
+# We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
+ASSISTANT_MESSAGE_TYPES = (
+    HumanMessage,
+    NotebookUpdateMessage,
+    AssistantMessage,
+    VisualizationMessage,
+    FailureMessage,
+    ReasoningMessage,
+    AssistantToolCallMessage,
+    PlanningMessage,
+    TaskExecutionMessage,
+    MultiVisualizationMessage,
+)
+
 
 def merge(_: Any | None, right: Any | None) -> Any | None:
     return right
+
+
+def append(left: Sequence, right: Sequence) -> Sequence:
+    """
+    Appends the right value to the state field.
+    """
+    return [*left, *right]
 
 
 def add_and_merge_messages(
@@ -112,12 +143,6 @@ class BaseState(BaseModel):
         """Returns a new instance with all fields reset to their default values."""
         return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
-
-class _SharedAssistantState(BaseState):
-    """
-    The state of the root node.
-    """
-
     start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
@@ -125,6 +150,12 @@ class _SharedAssistantState(BaseState):
     graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
     """
     Whether the graph was interrupted or resumed.
+    """
+
+
+class _SharedAssistantState(BaseState):
+    """
+    The state of the root node.
     """
 
     intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
@@ -186,9 +217,9 @@ class _SharedAssistantState(BaseState):
     """
     The user's query for summarizing sessions.
     """
-    notebook_id: Optional[str] = Field(default=None)
+    notebook_short_id: Optional[str] = Field(default=None)
     """
-    The ID of the notebook being used.
+    The short ID of the notebook being used.
     """
 
 
@@ -242,3 +273,26 @@ class AssistantNodeName(StrEnum):
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
+    DEEP_RESEARCH = "deep_research"
+
+
+class WithCommentary(BaseModel):
+    """
+    Use this class as a mixin to your tool calls, so that the `Assistant` class can parse the commentary from the tool call chunks stream.
+    """
+
+    commentary: str = Field(
+        description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
+    )
+
+
+class InsightArtifact(BaseModel):
+    """
+    An artifacts created by a task.
+    """
+
+    id: str
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery] | None = (
+        Field(default=None)
+    )  # TODO(DEEP_RESEARCH): remove None once we have integrated the Task Execution Agent
+    description: str

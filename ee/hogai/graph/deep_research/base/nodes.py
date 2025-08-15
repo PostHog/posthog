@@ -1,0 +1,106 @@
+from typing import Optional
+from uuid import uuid4
+
+from langchain_core.runnables import Runnable, RunnableConfig
+from langgraph.config import get_stream_writer
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.notebook.notebook_serializer import NotebookContext, NotebookSerializer
+from ee.hogai.utils.helpers import extract_content_from_ai_message
+from ee.hogai.utils.state import merge_message_chunk
+from posthog.models.notebook.notebook import Notebook
+from posthog.schema import NotebookUpdateMessage, ProsemirrorJSONContent
+from langchain_core.messages import AIMessageChunk
+from ee.hogai.graph.base import BaseAssistantNode
+
+
+class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchState]):
+    notebook: Notebook | None = None
+
+    def _get_model(self, instructions: str, previous_response_id: Optional[str] = None):
+        return MaxChatOpenAI(
+            model="o3",
+            streaming=True,
+            use_responses_api=True,
+            max_retries=3,
+            user=self._user,
+            team=self._team,
+            model_kwargs={
+                "instructions": instructions,
+                "previous_response_id": previous_response_id,
+            },
+            reasoning={
+                "effort": "low",  # TODO(DEEP_RESEARCH): test on "medium" and "high"
+                "summary": "auto",
+            },
+        )
+
+    async def _create_notebook(self) -> Notebook:
+        notebook = await Notebook.objects.acreate(
+            team=self._team,
+            created_by=self._user,
+            content={},
+        )
+        return notebook
+
+    async def _astream_notebook(
+        self,
+        chain: Runnable,
+        config: RunnableConfig,
+        stream_parameters: Optional[dict] = None,
+        context: Optional[NotebookContext] = None,
+    ) -> NotebookUpdateMessage:
+        notebook_update_message = None
+        writer = get_stream_writer()
+        chunk = AIMessageChunk(content="")
+        async for new_chunk in chain.astream(
+            stream_parameters or {},
+            config,
+        ):
+            chunk = merge_message_chunk(chunk, new_chunk)
+            notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
+            custom_message = self._message_to_langgraph_update(
+                notebook_update_message, DeepResearchNodeName.NOTEBOOK_PLANNING
+            )
+            writer(custom_message)
+
+        if not notebook_update_message:
+            raise ValueError("No notebook update message found.")
+
+        # We set the id to mark this as the last completed chunk
+        notebook_update_message.id = str(uuid4())
+
+        return notebook_update_message
+
+    async def _llm_chunk_to_notebook_update_message(
+        self, response: AIMessageChunk, context: Optional[NotebookContext] = None
+    ) -> NotebookUpdateMessage:
+        if not self.notebook:
+            self.notebook = await self._create_notebook()
+
+        content = extract_content_from_ai_message(response)
+
+        serializer = NotebookSerializer(context=context)
+        title = None
+        json_content = serializer.from_markdown_to_json(content)
+        if json_content.content:
+            try:
+                next_heading = next(node for node in json_content.content if node.type == "heading")
+                if next_heading:
+                    title = next_heading.content[0].text if next_heading.content else None
+            except StopIteration:
+                title = None
+
+        # TODO(DEEP_RESEARCH): this is for debugging, remove this before merging to prod
+        # with open("notebook_content.md", "w") as f:
+        #     f.write(content)
+        # with open("notebook_content.json", "w") as f:
+        #     f.write(json_content.model_dump_json(exclude_none=True))
+
+        self.notebook.title = title or "Deep Research Plan"
+        self.notebook.content = json_content.model_dump(exclude_none=True)
+        await self.notebook.asave()
+        return NotebookUpdateMessage(  # doesn't have an id because it's a partial update
+            notebook_id=str(self.notebook.short_id),
+            content=ProsemirrorJSONContent.model_validate(self.notebook.content),
+        )

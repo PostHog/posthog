@@ -10,6 +10,7 @@ from .sql.nodes import SQLGeneratorNode
 from .query_planner.nodes import QueryPlannerNode
 from .trends.nodes import TrendsGeneratorNode
 from .graph import AssistantGraph, InsightsAssistantGraph
+from .deep_research.graph import DeepResearchAssistantGraph
 from .insights.nodes import InsightSearchNode
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "AssistantGraph",
     "InsightsAssistantGraph",
     "InsightSearchNode",
+    "DeepResearchAssistantGraph",
 ]

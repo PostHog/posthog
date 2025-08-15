@@ -1,6 +1,6 @@
 import { offset } from '@floating-ui/react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextArea, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useState, useEffect } from 'react'
@@ -33,6 +33,7 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
+    showDeepResearchModeToggle?: boolean
 }
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
@@ -48,14 +49,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         textAreaRef,
         containerClassName,
         onSubmit,
+        showDeepResearchModeToggle,
     },
     ref
 ) {
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
+    const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -192,6 +194,18 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 </div>
                 <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                {showDeepResearchModeToggle && (
+                    <div className="flex justify-end gap-1 w-full p-1">
+                        <LemonSwitch
+                            checked={deepResearchMode}
+                            label="Think harder"
+                            disabled={threadLoading}
+                            onChange={(checked) => setDeepResearchMode(checked)}
+                            size="xxsmall"
+                            tooltip="This will make Max think harder about your question"
+                        />
+                    </div>
+                )}
             </div>
         </div>
     )

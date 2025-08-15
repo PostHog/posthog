@@ -1607,7 +1607,18 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/notebook"],
+            "enum": [
+                "human",
+                "tool",
+                "ai",
+                "ai/reasoning",
+                "ai/viz",
+                "ai/multi_viz",
+                "ai/failure",
+                "ai/notebook",
+                "ai/planning",
+                "ai/task_execution"
+            ],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -15853,6 +15864,29 @@
             "required": ["use_as_profile", "color", "accessories"],
             "type": "object"
         },
+        "MultiVisualizationMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "commentary": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai/multi_viz",
+                    "type": "string"
+                },
+                "visualizations": {
+                    "items": {
+                        "$ref": "#/definitions/VisualizationItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "visualizations"],
+            "type": "object"
+        },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
             "properties": {
@@ -16443,6 +16477,43 @@
             },
             "required": ["kind"],
             "type": "object"
+        },
+        "PlanningMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "steps": {
+                    "items": {
+                        "$ref": "#/definitions/PlanningStep"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/planning",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "steps"],
+            "type": "object"
+        },
+        "PlanningStep": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/PlanningStepStatus"
+                }
+            },
+            "required": ["description", "status"],
+            "type": "object"
+        },
+        "PlanningStepStatus": {
+            "enum": ["pending", "in_progress", "completed"],
+            "type": "string"
         },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
@@ -21914,6 +21985,9 @@
                     "$ref": "#/definitions/VisualizationMessage"
                 },
                 {
+                    "$ref": "#/definitions/MultiVisualizationMessage"
+                },
+                {
                     "$ref": "#/definitions/ReasoningMessage"
                 },
                 {
@@ -21927,6 +22001,12 @@
                 },
                 {
                     "$ref": "#/definitions/NotebookUpdateMessage"
+                },
+                {
+                    "$ref": "#/definitions/PlanningMessage"
+                },
+                {
+                    "$ref": "#/definitions/TaskExecutionMessage"
                 },
                 {
                     "additionalProperties": false,
@@ -23563,6 +23643,55 @@
             },
             "type": "object"
         },
+        "TaskExecutionItem": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/TaskExecutionStatus"
+                }
+            },
+            "required": ["id", "description", "prompt", "status"],
+            "type": "object"
+        },
+        "TaskExecutionMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "tasks": {
+                    "items": {
+                        "$ref": "#/definitions/TaskExecutionItem"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/task_execution",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "tasks"],
+            "type": "object"
+        },
+        "TaskExecutionStatus": {
+            "enum": ["pending", "in_progress", "completed", "failed"],
+            "type": "string"
+        },
         "TaxonomicFilterGroupType": {
             "enum": [
                 "metadata",
@@ -24428,6 +24557,39 @@
             "required": ["id", "distance"],
             "type": "object"
         },
+        "VisualizationItem": {
+            "additionalProperties": false,
+            "properties": {
+                "answer": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AssistantTrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantHogQLQuery"
+                        }
+                    ]
+                },
+                "initiator": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "query": {
+                    "default": "",
+                    "type": "string"
+                }
+            },
+            "required": ["query", "answer"],
+            "type": "object"
+        },
         "VisualizationMessage": {
             "additionalProperties": false,
             "properties": {
@@ -24465,7 +24627,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query", "answer"],
+            "required": ["answer", "query", "type"],
             "type": "object"
         },
         "VizSpecificOptions": {

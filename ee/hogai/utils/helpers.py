@@ -3,9 +3,9 @@ from typing import Optional, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.messages import (
+    BaseMessage,
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
-    AIMessage as LangchainAIMessage,
 )
 
 from ee.hogai.utils.types import AssistantMessageUnion
@@ -170,7 +170,7 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
     return ET.tostring(root, encoding="unicode")
 
 
-def extract_content_from_ai_message(response: LangchainAIMessage) -> str:
+def extract_content_from_ai_message(response: BaseMessage) -> str:
     """
     Extracts the content from a LangchainAIMessage, supporting both reasoning and non-reasoning responses.
     """
