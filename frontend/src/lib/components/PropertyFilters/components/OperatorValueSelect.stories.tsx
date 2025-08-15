@@ -23,7 +23,7 @@ const props = (overrides: {
     type?: PropertyType | undefined
     editable?: boolean
     startVisible?: boolean
-    operatorAllowList?: PropertyOperator[]
+    operatorAllowlist?: PropertyOperator[]
 }): OperatorValueSelectProps => ({
     type: undefined,
     propertyKey: 'the_property',
@@ -31,7 +31,7 @@ const props = (overrides: {
     propertyDefinitions: [makePropertyDefinition('the_property', overrides.type)],
     editable: overrides.editable ?? false,
     startVisible: overrides.startVisible,
-    operatorAllowlist: overrides.operatorAllowList,
+    operatorAllowlist: overrides.operatorAllowlist,
 })
 
 export function OperatorValueWithStringProperty(): JSX.Element {
@@ -111,7 +111,7 @@ export function OperatorValueMenuWithAllowlist(): JSX.Element {
                 {...props({
                     startVisible: true,
                     editable: true,
-                    operatorAllowList: [
+                    operatorAllowlist: [
                         PropertyOperator.IContains,
                         PropertyOperator.Exact,
                         PropertyOperator.NotIContains,
