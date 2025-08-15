@@ -27,6 +27,7 @@ import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityD
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
+import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import { urls } from 'scenes/urls'
@@ -38,6 +39,11 @@ import type { activityLogLogicType } from './activityLogLogicType'
 // Define which scopes should be expanded to include multiple scopes
 const SCOPE_EXPANSIONS: Partial<Record<ActivityScope, ActivityScope[]>> = {
     [ActivityScope.TAG]: [ActivityScope.TAG, ActivityScope.TAGGED_ITEM],
+    [ActivityScope.ORGANIZATION]: [
+        ActivityScope.ORGANIZATION,
+        ActivityScope.ORGANIZATION_MEMBERSHIP,
+        ActivityScope.ORGANIZATION_INVITE,
+    ],
 }
 
 export const activityLogTransforms = {
@@ -113,6 +119,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return notebookActivityDescriber
         case ActivityScope.TEAM:
             return teamActivityDescriber
+        case ActivityScope.ORGANIZATION:
+        case ActivityScope.ORGANIZATION_MEMBERSHIP:
+        case ActivityScope.ORGANIZATION_INVITE:
+            return organizationActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:

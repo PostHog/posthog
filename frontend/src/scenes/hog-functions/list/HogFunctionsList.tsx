@@ -239,7 +239,6 @@ export function HogFunctionList({
                 />
                 <HogFunctionOrderModal />
             </BindLogic>
-            <div className="mb-8" />
         </>
     )
 }
