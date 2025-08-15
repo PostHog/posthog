@@ -290,7 +290,7 @@ When processing the query:
 1. Exact match → If the query clearly matches one event in <defined_events>, return only that event. Example: “issues with toast errors” → ["toast error"]
 2. Close variation → If the query uses slightly different wording for a known event, return that single event. Example: “users being logged out unexpectedly” → ["logged_out"]
 3. Broad feature/flow match → If the query refers to a feature or flow without naming a specific event, return all events in that category. Example: “issues affecting sign ups" → all signup-related events e.g. ["sign_up_started", "signup complete", "email verification sent"]
-4. Multiple features/flows → If multiple are mentioned, combine relevant events from each. Example: “issues with notebooks and signups → notebook + signups events
+4. Multiple features/flows → If multiple are mentioned, combine relevant events from each. Example: "issues with notebooks and signups" → notebook + signups events
 5. No match or unclear event/feature/flow → If less than 80 percent confident, use ask_user_for_help to clarify.
 6. Use `final_answer` to return the final answer to the user. You do not need to offer additional assistance.
 
