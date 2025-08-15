@@ -7,6 +7,7 @@ from dagster import DailyPartitionsDefinition, BackfillPolicy
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     CLICKHOUSE_SETTINGS,
+    DAGSTER_DAILY_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
     drop_partitions_for_date_range,
@@ -14,6 +15,7 @@ from dags.web_preaggregated_utils import (
     WEB_ANALYTICS_CONFIG_SCHEMA,
     swap_partitions_from_staging,
     web_analytics_retry_policy_def,
+    check_for_concurrent_runs,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -134,16 +136,11 @@ def web_pre_aggregated_stats(
 web_pre_aggregate_job = dagster.define_asset_job(
     name="web_pre_aggregate_job",
     selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-    config={
-        "execution": {
-            "config": {
-                "multiprocess": {
-                    "max_concurrent": 1,
-                }
-            }
-        }
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
     },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
 
 
@@ -154,6 +151,11 @@ web_pre_aggregate_job = dagster.define_asset_job(
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationContext):
+    # Check for existing runs of the same job to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
 
     return dagster.RunRequest(
@@ -168,6 +170,11 @@ def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationCon
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationContext):
+    # Check for existing runs of the same job to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
     )
