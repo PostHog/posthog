@@ -15,7 +15,6 @@ import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -35,8 +34,9 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
-import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
+import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
@@ -47,7 +47,7 @@ export const scene: SceneExport = {
 }
 
 function NewSurveyButton(): JSX.Element {
-    const { loadSurveys } = useActions(surveysLogic)
+    const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
     const button = (
@@ -63,9 +63,7 @@ function NewSurveyButton(): JSX.Element {
 
     return (
         <MaxTool
-            name="create_survey"
-            description="Max can create surveys to collect qualitative feedback from your users on new or existing features."
-            displayName="Create survey"
+            identifier="create_survey"
             initialMaxPrompt="Create a survey to collect "
             suggestions={[
                 'Create an NPS survey for customers who completed checkout',
@@ -77,6 +75,16 @@ function NewSurveyButton(): JSX.Element {
                 user_id: user.uuid,
             }}
             callback={(toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+                addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: toolOutput.survey_id,
+                        source: SURVEY_CREATED_SOURCE.MAX_AI,
+                        created_successfully: !toolOutput?.error,
+                    },
+                })
+
                 if (toolOutput?.error || !toolOutput?.survey_id) {
                     posthog.captureException('survey-creation-failed', {
                         error: toolOutput.error,
@@ -172,14 +180,7 @@ function Surveys(): JSX.Element {
                     </div>
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
-                        <ProductIntroduction
-                            productName="Surveys"
-                            thingName="survey"
-                            description="Use surveys to gather qualitative feedback from your users on new or existing features."
-                            action={() => router.actions.push(urls.surveyTemplates())}
-                            isEmpty={surveys.length === 0}
-                            productKey={ProductKey.SURVEYS}
-                        />
+                        <SurveysEmptyState numOfSurveys={surveys.length} />
                     )}
                     {!shouldShowEmptyState && (
                         <>

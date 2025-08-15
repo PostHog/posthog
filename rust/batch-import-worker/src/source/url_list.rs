@@ -55,19 +55,18 @@ impl UrlList {
             .send()
             .await?
             .error_for_status()
-            .map_err(|e| Error::msg(format!("Failed to get headers for {}: {}", url, e)))?;
+            .map_err(|e| Error::msg(format!("Failed to get headers for {url}: {e}")))?;
 
         let accept_ranges = response
             .headers()
             .get("accept-ranges")
             .ok_or(Error::msg("Missing Accept-Ranges header"))?
             .to_str()
-            .map_err(|e| Error::msg(format!("Failed to parse Accept-Ranges header: {}", e)))?;
+            .map_err(|e| Error::msg(format!("Failed to parse Accept-Ranges header: {e}")))?;
 
         if accept_ranges != "bytes" {
             return Err(Error::msg(format!(
-                "Server does not support range requests for {}",
-                url
+                "Server does not support range requests for {url}"
             )));
         }
 
@@ -76,11 +75,11 @@ impl UrlList {
             .get("content-length")
             .ok_or(Error::msg("Missing Content-Length header"))?
             .to_str()
-            .map_err(|e| Error::msg(format!("Failed to parse Content-Length header: {}", e)))?;
+            .map_err(|e| Error::msg(format!("Failed to parse Content-Length header: {e}")))?;
 
         content_lenth
             .parse::<u64>()
-            .map_err(|e| Error::msg(format!("Failed to parse Content-Length as u64: {}", e)))?;
+            .map_err(|e| Error::msg(format!("Failed to parse Content-Length as u64: {e}")))?;
 
         Ok(())
     }
@@ -126,18 +125,17 @@ impl DataSource for UrlList {
             .headers()
             .get("content-length")
             .ok_or(Error::msg(format!(
-                "Could not get content length for {}",
-                key
+                "Could not get content length for {key}"
             )))
             .and_then(|header| {
                 header
                     .to_str()
-                    .map_err(|e| Error::msg(format!("Failed to parse content length: {}", e)))
+                    .map_err(|e| Error::msg(format!("Failed to parse content length: {e}")))
             })
             .and_then(|length| {
-                length.parse::<u64>().map_err(|e| {
-                    Error::msg(format!("Failed to parse content length as u64: {}", e))
-                })
+                length
+                    .parse::<u64>()
+                    .map_err(|e| Error::msg(format!("Failed to parse content length as u64: {e}")))
             })
             .map(Some)
     }
@@ -152,8 +150,7 @@ impl DataSource for UrlList {
                         return Err(e);
                     }
                     warn!(
-                        "Encountered error when fetching chunk: {:?}, remaining retries: {}",
-                        e, retries
+                        "Encountered error when fetching chunk: {e:?}, remaining retries: {retries}"
                     );
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     retries -= 1;
@@ -190,7 +187,7 @@ mod test {
             .await
             .unwrap();
         let keys = source.keys().await.unwrap();
-        println!("{:?}", keys);
+        println!("{keys:?}");
 
         assert_eq!(head.hits(), url_count);
     }

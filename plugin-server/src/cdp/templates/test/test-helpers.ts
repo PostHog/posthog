@@ -45,7 +45,7 @@ const compileObject = async (obj: any): Promise<any> => {
     } else if (typeof obj === 'string') {
         return await compileHog(`return f'${obj}'`)
     } else {
-        return undefined
+        return obj
     }
 }
 

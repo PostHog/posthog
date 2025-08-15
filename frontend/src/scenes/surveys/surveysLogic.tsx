@@ -5,16 +5,24 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import {
+    SURVEY_CREATED_SOURCE,
+    SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT,
+    SURVEY_PAGE_SIZE,
+    SurveyTemplate,
+} from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import { sanitizeSurvey } from 'scenes/surveys/utils'
 import type { surveysLogicType } from './surveysLogicType'
 
 export enum SurveysTabs {
@@ -100,7 +108,14 @@ function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Sur
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
+        values: [
+            userLogic,
+            ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+        ],
         actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
     actions({
@@ -193,6 +208,34 @@ export const surveysLogic = kea<surveysLogicType>([
                     searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
                 }
             },
+            createSurveyFromTemplate: async (surveyTemplate: SurveyTemplate) => {
+                const response = await api.surveys.create(
+                    sanitizeSurvey({
+                        ...surveyTemplate,
+                        name: surveyTemplate.templateType,
+                    })
+                )
+
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: response.id,
+                        source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
+                        template_type: surveyTemplate.templateType,
+                    },
+                })
+
+                // Navigate to the created survey
+                router.actions.push(urls.survey(response.id))
+
+                // Return updated data with the new survey
+                return {
+                    ...values.data,
+                    surveys: [response, ...values.data.surveys],
+                    surveysCount: values.data.surveysCount + 1,
+                }
+            },
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
@@ -268,6 +311,14 @@ export const surveysLogic = kea<surveysLogicType>([
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEYS_VIEWED,
+                metadata: {
+                    surveys_count: values.data.surveysCount,
+                },
+            })
+
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
             }
@@ -288,6 +339,12 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     selectors({
+        isOnNewEmptyStateExperiment: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return enabledFlags[FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2] === SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT.TEST
+            },
+        ],
         searchedSurveys: [
             (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],
             (data, searchTerm, filters) => {

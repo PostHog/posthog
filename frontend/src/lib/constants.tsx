@@ -166,6 +166,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
+    SURVEY_EMPTY_STATE_V2: 'survey-empty-states-v2', // owner: #team-surveys
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
@@ -188,6 +189,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_FUNNELS_USE_UDF: 'insight-funnels-use-udf', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TIME_TO_CONVERT: 'insight-funnels-use-udf-time-to-convert', // owner: @aspicer #team-product-analytics
+    QUERY_CACHE_USE_S3: 'query-cache-use-s3', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
@@ -221,6 +223,7 @@ export const FEATURE_FLAGS = {
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
     CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @danielbachhuber #team-crm
+    TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-crm
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
     RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
     RECORDINGS_BLOBBY_V2_LTS_REPLAY: 'use-blob-v2-lts', // owner: @pauldambra #team-replay
@@ -251,7 +254,6 @@ export const FEATURE_FLAGS = {
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-cdp
-    REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
     SCREENSHOT_EDITOR: 'screenshot-editor', // owner: @veryayskiy #team-replay
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse

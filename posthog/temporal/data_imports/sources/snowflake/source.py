@@ -2,11 +2,11 @@ from typing import cast
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldSelectConfig,
-    Type4,
+    SourceFieldInputConfigType,
     Option,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
@@ -19,8 +19,7 @@ from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     snowflake_source,
 )
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
-from posthog.warehouse.types import IncrementalField
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
 
 
 SnowflakeErrors = {
@@ -35,31 +34,35 @@ SnowflakeErrors = {
 @SourceRegistry.register
 class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.SNOWFLAKE
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SNOWFLAKE
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.SNOWFLAKE,
+            name=SchemaExternalDataSourceType.SNOWFLAKE,
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="account_id", label="Account id", type=Type4.TEXT, required=True, placeholder=""
+                        name="account_id",
+                        label="Account id",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldInputConfig(
                         name="database",
                         label="Database",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="snowflake_sample_data",
                     ),
                     SourceFieldInputConfig(
                         name="warehouse",
                         label="Warehouse",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="COMPUTE_WAREHOUSE",
                     ),
@@ -78,14 +81,14 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
                                         SourceFieldInputConfig(
                                             name="user",
                                             label="Username",
-                                            type=Type4.TEXT,
+                                            type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="User1",
                                         ),
                                         SourceFieldInputConfig(
                                             name="password",
                                             label="Password",
-                                            type=Type4.PASSWORD,
+                                            type=SourceFieldInputConfigType.PASSWORD,
                                             required=True,
                                             placeholder="",
                                         ),
@@ -101,21 +104,21 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
                                         SourceFieldInputConfig(
                                             name="user",
                                             label="Username",
-                                            type=Type4.TEXT,
+                                            type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="User1",
                                         ),
                                         SourceFieldInputConfig(
                                             name="private_key",
                                             label="Private key",
-                                            type=Type4.TEXTAREA,
+                                            type=SourceFieldInputConfigType.TEXTAREA,
                                             required=True,
                                             placeholder="",
                                         ),
                                         SourceFieldInputConfig(
                                             name="passphrase",
                                             label="Passphrase",
-                                            type=Type4.PASSWORD,
+                                            type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="",
                                         ),
@@ -127,12 +130,16 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
                     SourceFieldInputConfig(
                         name="role",
                         label="Role (optional)",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="ACCOUNTADMIN",
                     ),
                     SourceFieldInputConfig(
-                        name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
+                        name="schema",
+                        label="Schema",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="public",
                     ),
                 ],
             ),

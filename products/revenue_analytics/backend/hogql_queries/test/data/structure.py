@@ -6,6 +6,7 @@ REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT = RevenueAnalyticsEventItem(
     productProperty="product",
     couponProperty="coupon",
     subscriptionProperty="subscription",
+    subscriptionDropoffDays=45,
     revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
 )
 

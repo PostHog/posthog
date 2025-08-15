@@ -415,7 +415,9 @@ export class HogWatcherService {
             }
         })
 
-        await this.doStageChanges(changes)
+        if (changes.length > 0) {
+            await this.doStageChanges(changes)
+        }
     }
 
     public async observeResultsBuffered(result: CyclotronJobInvocationResult): Promise<void> {

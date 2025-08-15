@@ -145,6 +145,7 @@
                       "id",
                       "created_at",
                       "properties",
+                      "revenue_analytics",
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
@@ -1256,7 +1257,7 @@
                   "name": "query_duration_ms",
                   "schema_valid": true,
                   "table": null,
-                  "type": "float"
+                  "type": "integer"
               },
               "hogql_name": {
                   "chain": null,
@@ -1347,6 +1348,76 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "cpu_microseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cpu_microseconds",
+                  "id": null,
+                  "name": "cpu_microseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "RealTimeMicroseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "RealTimeMicroseconds",
+                  "id": null,
+                  "name": "RealTimeMicroseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3ListObjects": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3ListObjects",
+                  "id": null,
+                  "name": "S3ListObjects",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3HeadObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3HeadObject",
+                  "id": null,
+                  "name": "S3HeadObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObjectAttributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObjectAttributes",
+                  "id": null,
+                  "name": "S3GetObjectAttributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObject",
+                  "id": null,
+                  "name": "S3GetObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "ReadBufferFromS3Bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ReadBufferFromS3Bytes",
+                  "id": null,
+                  "name": "ReadBufferFromS3Bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "query_log",
@@ -1473,6 +1544,7 @@
                       "id",
                       "created_at",
                       "properties",
+                      "revenue_analytics",
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
@@ -2549,7 +2621,7 @@
                   "name": "query_duration_ms",
                   "schema_valid": true,
                   "table": null,
-                  "type": "float"
+                  "type": "integer"
               },
               "hogql_name": {
                   "chain": null,
@@ -2640,6 +2712,76 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "cpu_microseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cpu_microseconds",
+                  "id": null,
+                  "name": "cpu_microseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "RealTimeMicroseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "RealTimeMicroseconds",
+                  "id": null,
+                  "name": "RealTimeMicroseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3ListObjects": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3ListObjects",
+                  "id": null,
+                  "name": "S3ListObjects",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3HeadObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3HeadObject",
+                  "id": null,
+                  "name": "S3HeadObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObjectAttributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObjectAttributes",
+                  "id": null,
+                  "name": "S3GetObjectAttributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObject",
+                  "id": null,
+                  "name": "S3GetObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "ReadBufferFromS3Bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ReadBufferFromS3Bytes",
+                  "id": null,
+                  "name": "ReadBufferFromS3Bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "query_log",
