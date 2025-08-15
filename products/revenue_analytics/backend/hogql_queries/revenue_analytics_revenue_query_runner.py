@@ -203,7 +203,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
 
         return RevenueAnalyticsRevenueQueryResult(gross=gross_results, mrr=mrr_results)
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("to_query"):
             query = self.to_query()
 
