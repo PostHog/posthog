@@ -617,23 +617,17 @@ class DashboardsViewSet(
     # ******************************************
     @action(methods=["POST"], detail=True)
     def viewed(self, *args: Any, **kwargs: Any) -> Response:
-        from posthog.models.event.event_usage import log_event_usage
+        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
 
         insights = (
             Insight.objects.filter(dashboard_tiles__dashboard=self.get_object()).distinct().only("query_metadata")
         )
-
         for insight in insights.iterator(chunk_size=100):
-            if not insight.query_metadata or not insight.query_metadata.get("events", []):
-                continue
-            for event_name in insight.query_metadata["events"]:
-                if not event_name:
-                    continue
-                log_event_usage(
-                    event_name=event_name,
-                    team_id=self.team_id,
-                    user_id=self.request.user.pk,
-                )
+            log_event_usage_from_insight(
+                insight,
+                team_id=self.team_id,
+                user_id=self.request.user.pk,
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

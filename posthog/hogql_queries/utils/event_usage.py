@@ -1,7 +1,9 @@
 from typing import Optional
 
+from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.models import Insight
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
@@ -34,3 +36,21 @@ def log_event_usage(
         "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
     }
     KafkaProducer().produce(topic=KAFKA_APP_METRICS2, data=payload)
+
+
+def log_event_usage_from_insight(insight: Insight, team_id: int, user_id: Optional[int] = None):
+    if not insight.query_metadata or not insight.query_metadata.get("events", []):
+        return
+
+    for event_name in insight.query_metadata["events"]:
+        if not event_name:
+            continue
+        try:
+            log_event_usage(
+                event_name=event_name,
+                team_id=team_id,
+                user_id=user_id,
+            )
+        except Exception as e:
+            # fail silently
+            capture_exception(e)

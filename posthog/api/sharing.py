@@ -23,8 +23,8 @@ from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
-from posthog.models.event.event_usage import log_event_usage
 from posthog.schema import SharingConfigurationSettings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
@@ -387,19 +387,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
 
-            if resource.insight.query_metadata and resource.insight.query_metadata.get("events", []):
-                for event_name in resource.insight.query_metadata["events"]:
-                    if not event_name:
-                        continue
-                    try:
-                        log_event_usage(
-                            event_name=event_name,
-                            team_id=resource.team.pk,
-                            user_id=self.request.user.pk if self.request.user.is_authenticated else None,
-                        )
-                    except Exception as e:
-                        # fail silently
-                        capture_exception(e)
+            log_event_usage_from_insight(
+                resource.insight,
+                team_id=resource.team.pk,
+                user_id=self.request.user.pk if self.request.user.is_authenticated else None,
+            )
 
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
@@ -416,20 +408,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 Insight.objects.filter(dashboard_tiles__dashboard=resource.dashboard).distinct().only("query_metadata")
             )
             for insight in insights.iterator(chunk_size=100):
-                if not insight.query_metadata or not insight.query_metadata.get("events", []):
-                    continue
-                for event_name in insight.query_metadata["events"]:
-                    if not event_name:
-                        continue
-                    try:
-                        log_event_usage(
-                            event_name=event_name,
-                            team_id=resource.team.pk,
-                            user_id=self.request.user.pk if self.request.user.is_authenticated else None,
-                        )
-                    except Exception as e:
-                        # fail silently
-                        capture_exception(e)
+                log_event_usage_from_insight(
+                    insight,
+                    team_id=resource.team.pk,
+                    user_id=self.request.user.pk if self.request.user.is_authenticated else None,
+                )
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
