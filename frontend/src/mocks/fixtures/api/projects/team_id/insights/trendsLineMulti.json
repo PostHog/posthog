@@ -36,7 +36,8 @@
             "trendsFilter": {
                 "display": "ActionsLineGraph",
                 "resultCustomizationBy": "value"
-            }
+            },
+            "version": 2
         },
         "full": true
     },

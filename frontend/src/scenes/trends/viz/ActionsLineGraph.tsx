@@ -39,7 +39,6 @@ export function ActionsLineGraph({
         isStickiness,
         hasDataWarehouseSeries,
         showLegend,
-        hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
         showMultipleYAxes,
@@ -160,7 +159,6 @@ export function ActionsLineGraph({
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
-            hiddenLegendIndexes={hiddenLegendIndexes}
             datasets={finalDatasets}
             labels={labels}
             inSharedMode={inSharedMode}
@@ -215,7 +213,7 @@ export function ActionsLineGraph({
                               context.onDataPointClick(
                                   {
                                       breakdown: dataset.breakdownValues?.[index],
-                                      compare: dataset.compareLabels?.[index],
+                                      compare: dataset.compareLabels?.[index] || undefined,
                                       day,
                                   },
                                   indexedResults[0]

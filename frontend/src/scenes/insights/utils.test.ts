@@ -550,6 +550,20 @@ describe('getTrendDatasetKey()', () => {
 
         expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
     })
+
+    it('handles insights with non-array breakdown values', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Opera',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            breakdown_value: 'Opera',
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"breakdown_value":["Opera"]}')
+    })
 })
 
 describe('compareTopLevelSections()', () => {

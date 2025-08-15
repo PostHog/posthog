@@ -397,7 +397,8 @@
                     "name": "signed up",
                     "type": "events"
                 }
-            }
+            },
+            "version": 2
         },
         "full": true
     }
