@@ -9,7 +9,6 @@ import shutil
 from pathlib import Path
 from typing import Any, Optional
 
-import temporalio
 from temporalio import activity
 
 from posthog.temporal.common.logger import bind_contextvars, get_logger
@@ -780,7 +779,9 @@ async def commit_local_changes_activity(args: dict) -> dict[str, Any]:
                         # Commit the file
                         commit_message = f"Update {file_path} for task #{task_id}: {task_title}"
 
-                        logger.info(f"Attempting to commit file: {file_path} to repository: {repository} on branch: {branch_name}")
+                        logger.info(
+                            f"Attempting to commit file: {file_path} to repository: {repository} on branch: {branch_name}"
+                        )
                         logger.info(f"File size: {len(content)} characters")
                         logger.info(f"Commit message: {commit_message}")
 
@@ -803,7 +804,9 @@ async def commit_local_changes_activity(args: dict) -> dict[str, Any]:
                                     "html_url": result.get("html_url"),
                                 }
                             )
-                            logger.info(f"Successfully committed file {file_path} with commit SHA: {result.get('commit_sha')}")
+                            logger.info(
+                                f"Successfully committed file {file_path} with commit SHA: {result.get('commit_sha')}"
+                            )
                         else:
                             error_msg = result.get("error", "Unknown error")
                             logger.error(f"Failed to commit file {file_path} to {repository}: {error_msg}")

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { IconExternal } from '@posthog/icons'
@@ -17,17 +17,18 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
     const [error, setError] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
 
-    const fetchProgress = async (): Promise<void> => {
+    const fetchProgress = useCallback(async (): Promise<void> => {
         try {
             setError(null)
-            console.log(`Fetching progress for task ${task.id}`)
             const response = await api.get(`api/projects/@current/tasks/${task.id}/progress/`)
-            console.log('Progress response:', response)
             setProgress(response)
-            
+
             // Auto-refresh if still in progress
-            if (response.has_progress && response.status && 
-                [ProgressStatus.STARTED, ProgressStatus.IN_PROGRESS].includes(response.status)) {
+            if (
+                response.has_progress &&
+                response.status &&
+                [ProgressStatus.STARTED, ProgressStatus.IN_PROGRESS].includes(response.status)
+            ) {
                 setAutoRefresh(true)
             } else {
                 setAutoRefresh(false)
@@ -40,21 +41,23 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
         } finally {
             setLoading(false)
         }
-    }
+    }, [task])
 
     useEffect(() => {
         fetchProgress()
-    }, [task.id])
+    }, [task.id, fetchProgress])
 
     useEffect(() => {
-        if (!autoRefresh) return
+        if (!autoRefresh) {
+            return
+        }
 
         const interval = setInterval(fetchProgress, 3000) // Refresh every 3 seconds
         return () => clearInterval(interval)
-    }, [autoRefresh])
+    }, [autoRefresh, fetchProgress])
 
     const formatOutputLog = (log: string): string[] => {
-        return log.split('\n').filter(line => line.trim())
+        return log.split('\n').filter((line) => line.trim())
     }
 
     const getStatusColor = (status: ProgressStatus): string => {
@@ -99,11 +102,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
             <div className={`${className} p-3 bg-bg-light rounded border`}>
                 <div className="flex items-center justify-between">
                     <span className="text-sm text-danger">Error: {error}</span>
-                    <LemonButton 
-                        icon={<IconRefresh />} 
-                        size="xsmall" 
-                        onClick={fetchProgress}
-                    >
+                    <LemonButton icon={<IconRefresh />} size="xsmall" onClick={fetchProgress}>
                         Retry
                     </LemonButton>
                 </div>
@@ -135,7 +134,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                         {task.github_pr_url && (
                             <div className="flex items-center gap-2 text-sm">
                                 <span className="text-muted">Pull Request:</span>
-                                <LemonButton 
+                                <LemonButton
                                     icon={<IconExternal />}
                                     size="xsmall"
                                     type="primary"
@@ -158,9 +157,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                         <span className={`text-sm ${getStatusColor(progress.status!)}`}>
                             {getStatusIcon(progress.status!)} {progress.status}
                         </span>
-                        {autoRefresh && (
-                            <Spinner className="w-3 h-3" />
-                        )}
+                        {autoRefresh && <Spinner className="w-3 h-3" />}
                     </div>
                 </div>
 
@@ -169,12 +166,16 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                     <div className="mb-3">
                         <div className="flex justify-between text-xs text-muted mb-1">
                             <span>Progress</span>
-                            <span>{progress.completed_steps}/{progress.total_steps} steps</span>
+                            <span>
+                                {progress.completed_steps}/{progress.total_steps} steps
+                            </span>
                         </div>
-                        <LemonProgress 
-                            percent={progress.progress_percentage} 
-                            strokeColor={progress.status === ProgressStatus.FAILED ? 'var(--danger)' : undefined}
-                        />
+                        {progress.progress_percentage && (
+                            <LemonProgress
+                                percent={progress.progress_percentage}
+                                strokeColor={progress.status === ProgressStatus.FAILED ? 'var(--danger)' : undefined}
+                            />
+                        )}
                     </div>
                 )}
 
@@ -199,12 +200,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                     <div>
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-xs text-muted">Live Output:</span>
-                            <LemonButton 
-                                icon={<IconRefresh />} 
-                                size="xsmall" 
-                                onClick={fetchProgress}
-                                loading={loading}
-                            >
+                            <LemonButton icon={<IconRefresh />} size="xsmall" onClick={fetchProgress} loading={loading}>
                                 Refresh
                             </LemonButton>
                         </div>
@@ -223,7 +219,9 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                 {/* Timestamp Info */}
                 <div className="mt-3 pt-3 border-t border-border">
                     <div className="flex justify-between text-xs text-muted">
-                        <span>Started: {progress.created_at ? new Date(progress.created_at).toLocaleString() : 'Unknown'}</span>
+                        <span>
+                            Started: {progress.created_at ? new Date(progress.created_at).toLocaleString() : 'Unknown'}
+                        </span>
                         {progress.completed_at && (
                             <span>Completed: {new Date(progress.completed_at).toLocaleString()}</span>
                         )}

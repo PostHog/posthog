@@ -40,7 +40,10 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                             Connect a GitHub integration to enable repository selection.
                         </p>
                     </div>
-                    <LemonButton type="primary" onClick={() => window.open('/project/settings/environment-integrations', '_blank')}>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => window.open('/project/settings/environment-integrations', '_blank')}
+                    >
                         Configure GitHub Integration
                     </LemonButton>
                 </div>
@@ -57,17 +60,17 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                     onChange={(integrationId) => {
                         const integration = githubIntegrations.find((i: any) => i.id === integrationId)
                         const repoData = availableRepos.find((r: any) => r.integration_id === integrationId)
-                        
+
                         onChange({
                             ...value,
                             integrationId,
                             organization: repoData?.organization || integration?.config?.account?.name || 'GitHub',
-                            repository: repoData?.repositories[0] || ''
+                            repository: repoData?.repositories[0] || '',
                         })
                     }}
                     options={githubIntegrations.map((integration: any) => ({
                         value: integration.id,
-                        label: `${integration.display_name} (${integration.config?.account?.name || 'GitHub'})`
+                        label: `${integration.display_name} (${integration.config?.account?.name || 'GitHub'})`,
                     }))}
                     placeholder="Select GitHub integration..."
                 />
@@ -78,14 +81,16 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                     <label className="block text-sm font-medium mb-2">Repository</label>
                     <LemonSelect
                         value={value.repository}
-                        onChange={(repository) => onChange({
-                            ...value,
-                            repository,
-                            organization: selectedRepoData.organization
-                        })}
+                        onChange={(repository) =>
+                            onChange({
+                                ...value,
+                                repository,
+                                organization: selectedRepoData.organization,
+                            })
+                        }
                         options={selectedRepoData.repositories.map((repo: string) => ({
                             value: repo,
-                            label: `${selectedRepoData.organization}/${repo}`
+                            label: `${selectedRepoData.organization}/${repo}`,
                         }))}
                         placeholder="Select repository..."
                     />

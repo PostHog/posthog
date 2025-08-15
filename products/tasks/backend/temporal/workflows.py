@@ -216,7 +216,7 @@ class TaskProcessingWorkflow(PostHogWorkflow):
         Main workflow execution for processing issue status changes using hybrid approach.
 
         When an issue moves to 'todo', this workflow will:
-        1. Clone the GitHub repository locally for fast file operations  
+        1. Clone the GitHub repository locally for fast file operations
         2. Create a new branch using GitHub integration
         3. Run AI agent with local file access + GitHub MCP integration
         4. Scan local changes and commit via GitHub integration
@@ -284,10 +284,10 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                 ai_result = await workflow.execute_activity(
                     ai_agent_work_activity,
                     {
-                        "inputs": inputs, 
-                        "repo_path": repo_info["repo_path"], 
+                        "inputs": inputs,
+                        "repo_path": repo_info["repo_path"],
                         "repository": repo_info["repository"],
-                        "branch_name": repo_info["branch_name"]
+                        "branch_name": repo_info["branch_name"],
                     },
                     start_to_close_timeout=timedelta(minutes=30),  # Allow more time for AI work
                     retry_policy=RetryPolicy(
@@ -335,7 +335,9 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                     logger.error(error_msg)
                     return error_msg
 
-                logger.info(f"Changes committed successfully via GitHub API for issue {inputs.task_id}: {commit_result.get('message')}")
+                logger.info(
+                    f"Changes committed successfully via GitHub API for issue {inputs.task_id}: {commit_result.get('message')}"
+                )
 
                 # Step 6: Update issue with GitHub branch info
                 logger.info(f"Step 6: Updating issue {inputs.task_id} with GitHub branch info")

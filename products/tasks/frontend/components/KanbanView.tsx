@@ -95,8 +95,8 @@ export function KanbanView(): JSX.Element {
                                                 (column.id === TaskStatus.TODO || column.id === TaskStatus.BACKLOG)
                                                     ? 'bg-accent-light rounded'
                                                     : snapshot.isDraggingOver
-                                                    ? 'bg-danger-light rounded'
-                                                    : ''
+                                                      ? 'bg-danger-light rounded'
+                                                      : ''
                                             }`}
                                         >
                                             {column.tasks.map((task, index) => (
@@ -110,11 +110,7 @@ export function KanbanView(): JSX.Element {
                                                                 snapshot.isDragging ? 'rotate-3 shadow-lg' : ''
                                                             }`}
                                                         >
-                                                            <TaskCard
-                                                                task={task}
-                                                                draggable
-                                                                onClick={handleTaskClick}
-                                                            />
+                                                            <TaskCard task={task} draggable onClick={handleTaskClick} />
                                                         </div>
                                                     )}
                                                 </Draggable>

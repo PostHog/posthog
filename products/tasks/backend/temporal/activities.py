@@ -205,7 +205,9 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
         branch_name=branch_name,
     )
 
-    logger.info(f"Starting AI agent work for task {task_id} in local repo {repo_path} (GitHub: {repository}) on branch {branch_name}")
+    logger.info(
+        f"Starting AI agent work for task {task_id} in local repo {repo_path} (GitHub: {repository}) on branch {branch_name}"
+    )
 
     try:
         from django.apps import apps
@@ -353,135 +355,140 @@ async def _parse_claude_message_for_progress(message, turn_number: int) -> str:
         message_type = type(message).__name__
 
         # Handle different message types based on their actual structure
-        if message_type == 'SystemMessage':
+        if message_type == "SystemMessage":
             # Skip system init messages as they're not interesting
-            if hasattr(message, 'subtype') and message.subtype == 'init':
+            if hasattr(message, "subtype") and message.subtype == "init":
                 return f"🔧 Claude SDK initialized"
             return None
 
-        elif message_type == 'AssistantMessage':
+        elif message_type == "AssistantMessage":
             # Parse assistant messages for tool use and text content
-            if hasattr(message, 'content') and message.content:
+            if hasattr(message, "content") and message.content:
                 for content_block in message.content:
                     content_type = type(content_block).__name__
 
-                    if content_type == 'ToolUseBlock':
+                    if content_type == "ToolUseBlock":
                         # Extract tool information
-                        tool_name = getattr(content_block, 'name', 'unknown')
-                        tool_input = getattr(content_block, 'input', {})
+                        tool_name = getattr(content_block, "name", "unknown")
+                        tool_input = getattr(content_block, "input", {})
 
                         # Map tool names to emojis and descriptions
                         tool_icons = {
-                            'Task': '📋',
-                            'Read': '📖',
-                            'Write': '✍️',
-                            'Edit': '✏️',
-                            'MultiEdit': '✏️',
-                            'Bash': '⚡',
-                            'Glob': '🔍',
-                            'Grep': '🔎',
-                            'LS': '📁',
-                            'WebFetch': '🌐',
-                            'WebSearch': '🔍',
-                            'TodoWrite': '📋',
-                            'NotebookRead': '📓',
-                            'NotebookEdit': '📓'
+                            "Task": "📋",
+                            "Read": "📖",
+                            "Write": "✍️",
+                            "Edit": "✏️",
+                            "MultiEdit": "✏️",
+                            "Bash": "⚡",
+                            "Glob": "🔍",
+                            "Grep": "🔎",
+                            "LS": "📁",
+                            "WebFetch": "🌐",
+                            "WebSearch": "🔍",
+                            "TodoWrite": "📋",
+                            "NotebookRead": "📓",
+                            "NotebookEdit": "📓",
                         }
 
                         # Handle MCP tools
-                        if tool_name.startswith('mcp__posthog'):
-                            icon = '📊'
-                            tool_display = 'PostHog API'
-                        elif tool_name.startswith('mcp__github'):
-                            icon = '🐙'
-                            tool_display = 'GitHub API'
+                        if tool_name.startswith("mcp__posthog"):
+                            icon = "📊"
+                            tool_display = "PostHog API"
+                        elif tool_name.startswith("mcp__github"):
+                            icon = "🐙"
+                            tool_display = "GitHub API"
                         else:
-                            icon = tool_icons.get(tool_name, '🔧')
+                            icon = tool_icons.get(tool_name, "🔧")
                             tool_display = tool_name
 
                         # Extract parameters for more context
                         params = ""
                         if tool_input:
-                            if tool_name in ['Read', 'Write', 'Edit', 'MultiEdit']:
-                                file_path = tool_input.get('file_path', '')
+                            if tool_name in ["Read", "Write", "Edit", "MultiEdit"]:
+                                file_path = tool_input.get("file_path", "")
                                 if file_path:
                                     # Show just the filename
-                                    filename = file_path.split('/')[-1]
+                                    filename = file_path.split("/")[-1]
                                     params = f" {filename}"
-                            elif tool_name == 'Bash':
-                                command = tool_input.get('command', '')
+                            elif tool_name == "Bash":
+                                command = tool_input.get("command", "")
                                 if command:
                                     params = f" `{command[:40]}{'...' if len(command) > 40 else ''}`"
-                            elif tool_name in ['Glob', 'Grep']:
-                                pattern = tool_input.get('pattern', '')
+                            elif tool_name in ["Glob", "Grep"]:
+                                pattern = tool_input.get("pattern", "")
                                 if pattern:
                                     params = f" '{pattern}'"
-                            elif tool_name == 'TodoWrite':
-                                todos = tool_input.get('todos', [])
+                            elif tool_name == "TodoWrite":
+                                todos = tool_input.get("todos", [])
                                 if todos:
                                     params = f" ({len(todos)} items)"
 
                         return f"{icon} {tool_display}{params}"
 
-                    elif content_type == 'TextBlock':
+                    elif content_type == "TextBlock":
                         # Extract meaningful text content
-                        text = getattr(content_block, 'text', '')
+                        text = getattr(content_block, "text", "")
                         if text:
                             text_lower = text.lower()
                             # Look for high-level progress indicators
-                            if any(phrase in text_lower for phrase in ['starting', 'let me start', 'beginning', 'first']):
+                            if any(
+                                phrase in text_lower for phrase in ["starting", "let me start", "beginning", "first"]
+                            ):
                                 return f"🚀 {text[:80]}{'...' if len(text) > 80 else ''}"
-                            elif any(phrase in text_lower for phrase in ['completed', 'finished', 'done successfully']):
+                            elif any(phrase in text_lower for phrase in ["completed", "finished", "done successfully"]):
                                 return f"✅ {text[:80]}{'...' if len(text) > 80 else ''}"
-                            elif any(phrase in text_lower for phrase in ['creating', 'implementing', 'adding']):
+                            elif any(phrase in text_lower for phrase in ["creating", "implementing", "adding"]):
                                 return f"🔨 {text[:80]}{'...' if len(text) > 80 else ''}"
-                            elif any(phrase in text_lower for phrase in ['testing', 'running tests', 'checking']):
+                            elif any(phrase in text_lower for phrase in ["testing", "running tests", "checking"]):
                                 return f"🧪 {text[:80]}{'...' if len(text) > 80 else ''}"
-                            elif any(phrase in text_lower for phrase in ['error', 'failed', 'problem']):
+                            elif any(phrase in text_lower for phrase in ["error", "failed", "problem"]):
                                 return f"⚠️ {text[:80]}{'...' if len(text) > 80 else ''}"
-                            elif any(phrase in text_lower for phrase in ['looking', 'searching', 'finding']):
+                            elif any(phrase in text_lower for phrase in ["looking", "searching", "finding"]):
                                 return f"🔍 {text[:80]}{'...' if len(text) > 80 else ''}"
             return None
 
-        elif message_type == 'UserMessage':
+        elif message_type == "UserMessage":
             # Parse tool results from user messages
-            if hasattr(message, 'content') and message.content:
+            if hasattr(message, "content") and message.content:
                 for content_item in message.content:
-                    if isinstance(content_item, dict) and content_item.get('type') == 'tool_result':
-                        tool_content = content_item.get('content', '')
+                    if isinstance(content_item, dict) and content_item.get("type") == "tool_result":
+                        tool_content = content_item.get("content", "")
 
                         # Try to extract meaningful information from tool results
                         if isinstance(tool_content, str):
                             content_lower = tool_content.lower()
 
                             # Handle successful operations
-                            if 'successfully' in content_lower:
-                                if 'file' in content_lower and any(word in content_lower for word in ['updated', 'created', 'written']):
+                            if "successfully" in content_lower:
+                                if "file" in content_lower and any(
+                                    word in content_lower for word in ["updated", "created", "written"]
+                                ):
                                     return f"✅ File operation completed"
-                                elif 'todo' in content_lower:
+                                elif "todo" in content_lower:
                                     return f"✅ Todo list updated"
                                 else:
                                     return f"✅ Operation successful"
 
                             # Handle file edit results
-                            elif 'lines' in content_lower and ('added' in content_lower or 'updated' in content_lower):
+                            elif "lines" in content_lower and ("added" in content_lower or "updated" in content_lower):
                                 import re
-                                lines_match = re.search(r'(\d+)\s*lines?\s*(added|updated|changed)', tool_content)
+
+                                lines_match = re.search(r"(\d+)\s*lines?\s*(added|updated|changed)", tool_content)
                                 if lines_match:
                                     count = lines_match.group(1)
                                     action = lines_match.group(2)
                                     return f"📝 {action.title()} {count} lines"
 
                             # Handle command results
-                            elif 'exit status' in content_lower or 'exit code' in content_lower:
-                                if 'exit status 0' in content_lower or 'exit code 0' in content_lower:
+                            elif "exit status" in content_lower or "exit code" in content_lower:
+                                if "exit status 0" in content_lower or "exit code 0" in content_lower:
                                     return f"⚡ Command succeeded"
                                 else:
                                     return f"❌ Command failed"
 
                             # Handle search results
-                            elif tool_content.count('\n') > 5:  # Multiple results
-                                lines = tool_content.strip().split('\n')
+                            elif tool_content.count("\n") > 5:  # Multiple results
+                                lines = tool_content.strip().split("\n")
                                 return f"🔍 Found {len(lines)} results"
             return None
 
@@ -492,7 +499,9 @@ async def _parse_claude_message_for_progress(message, turn_number: int) -> str:
         return None
 
 
-async def _execute_claude_code_sdk(prompt: str, repo_path: str, repository: str, branch_name: str, github_token: str, progress=None) -> str:
+async def _execute_claude_code_sdk(
+    prompt: str, repo_path: str, repository: str, branch_name: str, github_token: str, progress=None
+) -> str:
     """Execute Claude Code SDK using Python SDK with local file access and GitHub MCP integration."""
     logger.info(f"Executing Claude Code SDK in local repo {repo_path} (GitHub: {repository}) on branch {branch_name}")
 
@@ -526,12 +535,13 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, repository: str,
                 try:
                     files = os.listdir(repo_path)
                     logger.info(f"Files in repository before Claude runs: {files[:10]}...")  # Show first 10 files
-                    
+
                     # Check git status before Claude runs
                     original_cwd = os.getcwd()
                     os.chdir(repo_path)
                     import subprocess
-                    git_status = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
+
+                    git_status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
                     logger.info(f"Git status before Claude runs: '{git_status.stdout.strip()}'")
                     os.chdir(original_cwd)
                 except Exception as e:
@@ -590,6 +600,7 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, repository: str,
                 if progress:
                     progress_msg = await _parse_claude_message_for_progress(message, message_count)
                     if progress_msg:
+
                         def append_progress(msg=progress_msg, count=message_count):
                             progress.append_output(msg)
                             progress.update_progress(f"Turn {count}", 0)
@@ -640,6 +651,7 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, repository: str,
                     # Log the raw message for debugging but don't spam progress
                     logger.debug(f"Unknown message type, raw message: {str(message)[:200]}")
                     if progress:
+
                         def append_unknown(count=message_count):
                             progress.append_output(f"💭 Claude processing (turn {count})")
 
@@ -648,29 +660,31 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, repository: str,
             logger.info(
                 f"Claude Code Python SDK execution completed, result length: {len(result_text)}, messages: {message_count}"
             )
-            
+
             # Debug: Check the repository state after Claude runs
             if os.path.exists(repo_path):
                 try:
                     original_cwd = os.getcwd()
                     os.chdir(repo_path)
-                    
+
                     # Check git status after Claude runs
-                    git_status_after = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
+                    git_status_after = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
                     logger.info(f"Git status after Claude runs: '{git_status_after.stdout.strip()}'")
-                    
+
                     # Check for any new or modified files
-                    git_diff = subprocess.run(['git', 'diff', '--name-only'], capture_output=True, text=True)
+                    git_diff = subprocess.run(["git", "diff", "--name-only"], capture_output=True, text=True)
                     logger.info(f"Git diff --name-only after Claude: '{git_diff.stdout.strip()}'")
-                    
+
                     # Check untracked files
-                    git_untracked = subprocess.run(['git', 'ls-files', '--others', '--exclude-standard'], capture_output=True, text=True)
+                    git_untracked = subprocess.run(
+                        ["git", "ls-files", "--others", "--exclude-standard"], capture_output=True, text=True
+                    )
                     logger.info(f"Untracked files after Claude: '{git_untracked.stdout.strip()}'")
-                    
+
                     os.chdir(original_cwd)
                 except Exception as e:
                     logger.warning(f"Failed to check repository state after Claude: {e}")
-            
+
             return result_text or "Claude Code execution completed successfully"
 
         except ImportError as e:
@@ -680,7 +694,6 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, repository: str,
     except Exception as e:
         logger.exception(f"Error executing Claude Code SDK: {str(e)}")
         raise
-
 
 
 @activity.defn

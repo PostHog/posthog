@@ -22,7 +22,7 @@ interface TaskFormData {
 
 export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.Element {
     const { createTask } = useActions(taskTrackerLogic)
-    
+
     const [formData, setFormData] = useState<TaskFormData>({
         title: '',
         description: '',
@@ -31,40 +31,48 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
         repositoryConfig: {
             integrationId: undefined,
             organization: undefined,
-            repository: undefined
-        }
+            repository: undefined,
+        },
     })
-    
+
     const [loading, setLoading] = useState(false)
     const [errors, setErrors] = useState<Record<string, string>>({})
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (): Promise<void> => {
         // Validate form
         const newErrors: Record<string, string> = {}
-        
+
         if (!formData.title.trim()) {
             newErrors.title = 'Title is required'
         }
-        
+
         if (!formData.description.trim()) {
             newErrors.description = 'Description is required'
         }
-        
+
         // Validate repository configuration (optional, but if provided, must be complete)
-        if (formData.repositoryConfig.integrationId || formData.repositoryConfig.organization || formData.repositoryConfig.repository) {
-            if (!formData.repositoryConfig.integrationId || !formData.repositoryConfig.organization || !formData.repositoryConfig.repository) {
+        if (
+            formData.repositoryConfig.integrationId ||
+            formData.repositoryConfig.organization ||
+            formData.repositoryConfig.repository
+        ) {
+            if (
+                !formData.repositoryConfig.integrationId ||
+                !formData.repositoryConfig.organization ||
+                !formData.repositoryConfig.repository
+            ) {
                 newErrors.repository = 'Please complete the repository configuration or leave it empty'
             }
         }
-        
+
         if (Object.keys(newErrors).length > 0) {
             setErrors(newErrors)
             return
         }
-        
+
         setLoading(true)
         setErrors({})
-        
+
         try {
             // Convert repository config to API format
             const taskData = {
@@ -75,12 +83,12 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                 github_integration: formData.repositoryConfig.integrationId || null,
                 repository_config: {
                     organization: formData.repositoryConfig.organization || '',
-                    repository: formData.repositoryConfig.repository || ''
-                }
+                    repository: formData.repositoryConfig.repository || '',
+                },
             }
-            
+
             await createTask(taskData)
-            
+
             // Reset form and close modal
             setFormData({
                 title: '',
@@ -90,10 +98,10 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                 repositoryConfig: {
                     integrationId: undefined,
                     organization: undefined,
-                    repository: undefined
-                }
+                    repository: undefined,
+                },
             })
-            
+
             onClose()
         } catch (error) {
             console.error('Failed to create task:', error)
@@ -103,7 +111,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
         }
     }
 
-    const handleCancel = () => {
+    const handleCancel = (): void => {
         // Reset form and close
         setFormData({
             title: '',
@@ -113,30 +121,25 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
             repositoryConfig: {
                 integrationId: undefined,
                 organization: undefined,
-                repository: undefined
-            }
+                repository: undefined,
+            },
         })
         setErrors({})
         onClose()
     }
 
     return (
-        <LemonModal 
-            isOpen={isOpen} 
-            onClose={handleCancel} 
-            title="Create New Task" 
+        <LemonModal
+            isOpen={isOpen}
+            onClose={handleCancel}
+            title="Create New Task"
             width={800}
             footer={
                 <div className="flex gap-2">
                     <LemonButton type="secondary" onClick={handleCancel}>
                         Cancel
                     </LemonButton>
-                    <LemonButton 
-                        type="primary" 
-                        onClick={handleSubmit}
-                        loading={loading}
-                        disabled={loading}
-                    >
+                    <LemonButton type="primary" onClick={handleSubmit} loading={loading} disabled={loading}>
                         Create Task
                     </LemonButton>
                 </div>
@@ -148,7 +151,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                         {errors.submit}
                     </div>
                 )}
-                
+
                 {/* Basic Information */}
                 <div className="space-y-4">
                     <div>
@@ -184,7 +187,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                                     { value: TaskStatus.TODO, label: 'To Do' },
                                     { value: TaskStatus.IN_PROGRESS, label: 'In Progress' },
                                     { value: TaskStatus.TESTING, label: 'Testing' },
-                                    { value: TaskStatus.DONE, label: 'Done' }
+                                    { value: TaskStatus.DONE, label: 'Done' },
                                 ]}
                             />
                         </div>
@@ -196,7 +199,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                                 onChange={(value) => setFormData({ ...formData, origin_product: value })}
                                 options={Object.entries(ORIGIN_PRODUCT_LABELS).map(([key, label]) => ({
                                     value: key as OriginProduct,
-                                    label
+                                    label,
                                 }))}
                             />
                         </div>

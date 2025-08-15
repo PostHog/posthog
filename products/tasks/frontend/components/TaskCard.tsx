@@ -1,4 +1,4 @@
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 import { IconGithub, IconBranch } from 'lib/lemon-ui/icons'
 import { Task, TaskStatus } from '../types'
 import { ORIGIN_PRODUCT_LABELS, ORIGIN_PRODUCT_COLORS } from '../constants'
@@ -40,16 +40,15 @@ export function TaskCard({ task, onScope, onClick, draggable = false }: TaskCard
                         </div>
                     )}
                     {task.github_pr_url && (
-                        <a
-                            href={task.github_pr_url}
+                        <Link
+                            to={task.github_pr_url}
                             target="_blank"
-                            rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-link hover:text-link-hover"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <span>↗</span>
                             <span>PR</span>
-                        </a>
+                        </Link>
                     )}
                 </div>
             )}
@@ -60,14 +59,14 @@ export function TaskCard({ task, onScope, onClick, draggable = false }: TaskCard
                     <div className="flex items-center gap-2 text-xs text-muted">
                         <span className="font-medium">Repos:</span>
                         {task.repository_scope === 'single' && task.primary_repository && (
-                            <span className="text-primary">{task.primary_repository.organization}/{task.primary_repository.repository}</span>
+                            <span className="text-primary">
+                                {task.primary_repository.organization}/{task.primary_repository.repository}
+                            </span>
                         )}
                         {task.repository_scope === 'multiple' && task.repository_list && (
                             <span className="text-primary">{task.repository_list.length} repositories</span>
                         )}
-                        {task.repository_scope === 'smart_select' && (
-                            <span className="text-primary">Smart Select</span>
-                        )}
+                        {task.repository_scope === 'smart_select' && <span className="text-primary">Smart Select</span>}
                     </div>
                 </div>
             )}

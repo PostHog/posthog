@@ -27,8 +27,8 @@ export interface Task {
     repository_scope?: 'single' | 'multiple' | 'smart_select'
     github_integration?: number
     repository_config?: any
-    repository_list?: Array<{organization: string, repository: string}>
-    primary_repository?: {organization: string, repository: string}
+    repository_list?: Array<{ organization: string; repository: string }>
+    primary_repository?: { organization: string; repository: string }
 }
 
 export interface KanbanColumn {

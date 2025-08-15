@@ -32,11 +32,7 @@ export function BacklogView(): JSX.Element {
             {backlogTasks.length === 0 && <div className="text-center py-8 text-muted">No tasks in backlog</div>}
 
             <TaskModal task={selectedTask} isOpen={!!selectedTask} onClose={closeTaskModal} />
-            <TaskCreateModal 
-                isOpen={isCreateModalOpen} 
-                onClose={closeCreateModal} 
-                teamId={user?.team?.id || 0} 
-            />
+            <TaskCreateModal isOpen={isCreateModalOpen} onClose={closeCreateModal} teamId={user?.team?.id || 0} />
         </div>
     )
 }

@@ -6,12 +6,9 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
-export interface GitHubIntegrationSettingsProps {
-    teamId: number
-}
-
-export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): JSX.Element {
-    const { integrations, integrationsLoading, githubRepositoriesLoading, getGitHubRepositories } = useValues(integrationsLogic)
+export function GitHubIntegrationSettings(): JSX.Element {
+    const { integrations, integrationsLoading, githubRepositoriesLoading, getGitHubRepositories } =
+        useValues(integrationsLogic)
     const { loadIntegrations, loadGitHubRepositories } = useActions(integrationsLogic)
 
     const githubIntegration = integrations?.find((integration: any) => integration.kind === 'github')
@@ -27,7 +24,7 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
         }
     }, [githubIntegration, loadGitHubRepositories])
 
-    const handleManageIntegration = () => {
+    const handleManageIntegration = (): void => {
         router.actions.push(urls.settings('environment-integrations'))
     }
 
@@ -48,7 +45,7 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
                                 Issues moved to "To Do" will automatically create branches and pull requests.
                             </p>
                         </div>
-                        
+
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <h4 className="font-medium flex items-center gap-2">
@@ -60,7 +57,9 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
                                         size="xsmall"
                                         type="secondary"
                                         icon={<IconRefresh />}
-                                        onClick={() => githubIntegration && loadGitHubRepositories(githubIntegration.id)}
+                                        onClick={() =>
+                                            githubIntegration && loadGitHubRepositories(githubIntegration.id)
+                                        }
                                         loading={githubRepositoriesLoading}
                                         tooltip="Refresh repositories"
                                     />
@@ -71,7 +70,10 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
                                         onClick={() => {
                                             const installationId = githubIntegration?.config?.installation_id
                                             if (installationId) {
-                                                window.open(`https://github.com/settings/installations/${installationId}`, '_blank')
+                                                window.open(
+                                                    `https://github.com/settings/installations/${installationId}`,
+                                                    '_blank'
+                                                )
                                             }
                                         }}
                                         tooltip="Manage repository access on GitHub"
@@ -86,9 +88,14 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
                             ) : repositories.length > 0 ? (
                                 <div className="space-y-1">
                                     {repositories.map((repo, index) => (
-                                        <div key={index} className="flex items-center gap-2 text-sm bg-accent-3000 rounded px-2 py-1">
+                                        <div
+                                            key={index}
+                                            className="flex items-center gap-2 text-sm bg-accent-3000 rounded px-2 py-1"
+                                        >
                                             <IconBranch className="text-muted" />
-                                            <span className="font-mono">{githubIntegration.config?.account?.name || 'GitHub'}/{repo}</span>
+                                            <span className="font-mono">
+                                                {githubIntegration.config?.account?.name || 'GitHub'}/{repo}
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
@@ -103,7 +110,10 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
                                             onClick={() => {
                                                 const installationId = githubIntegration?.config?.installation_id
                                                 if (installationId) {
-                                                    window.open(`https://github.com/settings/installations/${installationId}`, '_blank')
+                                                    window.open(
+                                                        `https://github.com/settings/installations/${installationId}`,
+                                                        '_blank'
+                                                    )
                                                 }
                                             }}
                                         >
@@ -113,12 +123,8 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
                                 </div>
                             )}
                         </div>
-                        
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconOpenInNew />}
-                            onClick={handleManageIntegration}
-                        >
+
+                        <LemonButton type="secondary" icon={<IconOpenInNew />} onClick={handleManageIntegration}>
                             Manage Integration
                         </LemonButton>
                     </div>
@@ -130,11 +136,7 @@ export function GitHubIntegrationSettings({ }: GitHubIntegrationSettingsProps): 
                                 Connect GitHub to enable automatic branch creation and pull requests for issues.
                             </p>
                         </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={handleManageIntegration}
-                            loading={integrationsLoading}
-                        >
+                        <LemonButton type="primary" onClick={handleManageIntegration} loading={integrationsLoading}>
                             Connect GitHub
                         </LemonButton>
                     </div>
