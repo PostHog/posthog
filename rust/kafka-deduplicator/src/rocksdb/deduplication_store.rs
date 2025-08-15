@@ -30,7 +30,7 @@ struct DeduplicationKey {
 
 impl DeduplicationKey {
     fn new(timestamp: u64, distinct_id: String, token: String, event_name: String) -> Self {
-        let formatted_key = format!("{}:{}:{}:{}", timestamp, distinct_id, token, event_name);
+        let formatted_key = format!("{timestamp}:{distinct_id}:{token}:{event_name}");
         Self {
             timestamp,
             distinct_id,
@@ -306,7 +306,7 @@ impl DeduplicationStore {
             // Since keys are formatted as "timestamp:distinct_id:token:event_name",
             // we can create an exclusive upper bound by using the timestamp followed by ":"
             // This ensures we delete all keys starting with timestamps less than last_key_timestamp
-            let last_key_bytes: Vec<u8> = format!("{}:", last_key_timestamp).as_bytes().to_vec();
+            let last_key_bytes: Vec<u8> = format!("{last_key_timestamp}:").as_bytes().to_vec();
 
             // Delete the first key
             self.store.delete_range(
@@ -648,9 +648,9 @@ mod tests {
         let events: Vec<EventData> = (0..100)
             .map(|i| EventData {
                 timestamp: base_timestamp + i,
-                distinct_id: format!("user{}{}", i, large_value),
-                token: format!("token{}{}", i, large_value),
-                event_name: format!("event{}{}", i, large_value),
+                distinct_id: format!("user{i}{large_value}"),
+                token: format!("token{i}{large_value}"),
+                event_name: format!("event{i}{large_value}"),
                 source: 1,
                 team_id: 100,
             })
@@ -724,9 +724,9 @@ mod tests {
         for i in 0..10 {
             let event = create_test_event_with_timestamp(
                 base_timestamp + i,
-                &format!("user{}", i),
+                &format!("user{i}"),
                 "token1",
-                &format!("event{}", i),
+                &format!("event{i}"),
                 1,
                 100,
             );

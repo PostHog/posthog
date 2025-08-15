@@ -2,6 +2,7 @@ from typing import Any
 
 from posthog.test.base import NonAtomicTestMigrations
 from posthog.warehouse.models import ExternalDataSource as ExternalDataSourceModel
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQuerySourceConfig,
     MSSQLSourceConfig,
@@ -31,7 +32,7 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
 
         self.bigquery_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceModel.Type.BIGQUERY,
+            source_type=ExternalDataSourceType.BIGQUERY,
             job_inputs={
                 "token_uri": "token_uri",
                 "dataset_id": "dataset_id",
@@ -47,7 +48,7 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         )
         self.mssql_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceModel.Type.MSSQL,
+            source_type=ExternalDataSourceType.MSSQL,
             job_inputs={
                 "host": "host",
                 "port": "1433",
@@ -68,7 +69,7 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         )
         self.mysql_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceModel.Type.MYSQL,
+            source_type=ExternalDataSourceType.MYSQL,
             job_inputs={
                 "host": "host",
                 "port": "1433",
@@ -89,7 +90,7 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         )
         self.postgres_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceModel.Type.POSTGRES,
+            source_type=ExternalDataSourceType.POSTGRES,
             job_inputs={
                 "host": "host",
                 "port": "1433",
@@ -110,7 +111,7 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         )
         self.snowflake_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceModel.Type.SNOWFLAKE,
+            source_type=ExternalDataSourceType.SNOWFLAKE,
             job_inputs={
                 "role": "role",
                 "user": "user",
@@ -126,7 +127,7 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         )
         self.vitally_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceModel.Type.VITALLY,
+            source_type=ExternalDataSourceType.VITALLY,
             job_inputs={
                 "region": "US",
                 "subdomain": "subdomain",
@@ -135,7 +136,7 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         )
         self.zendesk_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceModel.Type.ZENDESK,
+            source_type=ExternalDataSourceType.ZENDESK,
             job_inputs={
                 "zendesk_api_key": "api_key",
                 "zendesk_subdomain": "subdomain",

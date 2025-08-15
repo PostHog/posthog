@@ -276,17 +276,17 @@ fn generate_get_path(unit: &TestCase, payload: Vec<u8>) -> String {
 fn generate_post_path(unit: &TestCase) -> String {
     let compression = unit
         .compression_hint
-        .map(|c| format!("&compression={}", c))
+        .map(|c| format!("&compression={c}"))
         .unwrap_or("".to_string());
     let ver = unit
         .lib_version_hint
-        .map(|v| format!("&ver={}", v))
+        .map(|v| format!("&ver={v}"))
         .unwrap_or("".to_string());
     let unix_millis_sent_at = iso8601_str_to_unix_millis(&unit.title, unit.fixed_time);
 
     format!(
-        "{}/?_={}{}{}",
-        unit.base_path, unix_millis_sent_at, compression, ver,
+        "{}/?_={unix_millis_sent_at}{compression}{ver}",
+        unit.base_path,
     )
 }
 
@@ -310,9 +310,7 @@ pub async fn validate_response_success(title: &str, res: TestResponse) {
             quota_limited: None,
         }),
         cap_resp_details,
-        "test {}: non-OK CaptureResponse: {:?}",
-        title,
-        cap_resp_details,
+        "test {title}: non-OK CaptureResponse: {cap_resp_details:?}",
     );
 }
 
@@ -349,117 +347,99 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
     assert_eq!(
         DataType::AnalyticsMain,
         meta.data_type,
-        "mismatched Kafka topic assignment in case: {}",
-        title,
+        "mismatched Kafka topic assignment in case: {title}",
     );
-    assert_eq!(None, meta.session_id, "wrong session_id in case: {}", title,);
+    assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
 
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
-        "mismatched token in case: {}",
-        title,
+        "mismatched token in case: {title}",
     );
     assert_eq!(
         "019833ae-4913-7179-b6bc-019570abb1c9", &event.distinct_id,
-        "mismatched distinct_id in case: {}",
-        title,
+        "mismatched distinct_id in case: {title}",
     );
     assert_eq!(
         DEFAULT_TEST_TIME, &event.now,
-        "mismatched 'now' timestamp in case: {}",
-        title,
+        "mismatched 'now' timestamp in case: {title}",
     );
     assert_eq!(
         36_usize,
         event.uuid.to_string().len(),
-        "invalid UUID in case: {}",
-        title,
+        "invalid UUID in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
         event.sent_at,
-        "mismatched sent_at in case: {}",
-        title,
+        "mismatched sent_at in case: {title}",
     );
     assert!(
         !event.is_cookieless_mode,
-        "mismatched cookieless flag in case: {}",
-        title,
+        "mismatched cookieless flag in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!("failed to hydrate test event.data in case: {}", title);
+    let event_data_err_msg = format!("failed to hydrate test event.data in case: {title}");
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
         "$autocapture",
         event["event"].as_str().unwrap(),
-        "mismatched event.event in case: {}",
-        title,
+        "mismatched event.event in case: {title}",
     );
     assert_eq!(
         "2025-07-01T00:00:00Z",
         event["timestamp"].as_str().unwrap(),
-        "mismatched event.timestamp in case: {}",
-        title,
+        "mismatched event.timestamp in case: {title}",
     );
     assert_eq!(
         "019833ae-4913-7179-b6bc-019570abb1c9", event["distinct_id"],
-        "mismatched event.distinct_id in case: {}",
-        title,
+        "mismatched event.distinct_id in case: {title}",
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!("failed to extract event.properties in case: {}", title);
+    let err_msg = format!("failed to extract event.properties in case: {title}");
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
         68_usize,
         props.len(),
-        "mismatched event.properties length in case: {}",
-        title,
+        "mismatched event.properties length in case: {title}",
     );
     assert_eq!(
         "web", props["$lib"],
-        "mismatched event.properties.$lib in case: {}",
-        title,
+        "mismatched event.properties.$lib in case: {title}",
     );
     assert_eq!(
         "1.2.3", props["$lib_version"],
-        "mismatched event.properties.$lib_version in case: {}",
-        title,
+        "mismatched event.properties.$lib_version in case: {title}",
     );
     assert_eq!(
         "https://posthog.example.com/testing", props["$current_url"],
-        "mismatched event.properties.$current_url in case: {}",
-        title,
+        "mismatched event.properties.$current_url in case: {title}",
     );
     assert_eq!(
         Some(&Number::from(138)),
         props["$browser_version"].as_number(),
-        "mismatched event.properties.$browser_version in case: {}",
-        title,
+        "mismatched event.properties.$browser_version in case: {title}",
     );
     assert_eq!(
         Some(&Number::from(1157858)),
         props["$sdk_debug_current_session_duration"].as_number(),
-        "mismatched event.properties.$sdk_debug_current_session_duration in case: {}",
-        title,
+        "mismatched event.properties.$sdk_debug_current_session_duration in case: {title}",
     );
     assert_eq!(
         Some(false),
         props["$is_identified"].as_bool(),
-        "mismatched event.properties.$is_identified in case: {}",
-        title,
+        "mismatched event.properties.$is_identified in case: {title}",
     );
     assert_eq!(
         Some(true),
         props["$console_log_recording_enabled_server_side"].as_bool(),
-        "mismatched event.properties.$console_log_recording_enabled_server_side in case: {}",
-        title,
+        "mismatched event.properties.$console_log_recording_enabled_server_side in case: {title}",
     );
 }
 
@@ -471,8 +451,7 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
     assert_eq!(
         expected_event_count,
         got_events.len(),
-        "event count: expected {}, got {}",
-        expected_event_count,
+        "event count: expected {expected_event_count}, got {}",
         got_events.len(),
     );
 
@@ -484,101 +463,87 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
     assert_eq!(
         DataType::AnalyticsMain,
         meta.data_type,
-        "mismatched Kafka topic assignment in case: {}",
-        title,
+        "mismatched Kafka topic assignment in case: {title}",
     );
-    assert_eq!(None, meta.session_id, "wrong session_id in case: {}", title,);
+    assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
 
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3", &event.token,
-        "mismatched token in case: {}",
-        title,
+        "mismatched token in case: {title}",
     );
     assert_eq!(
         "known_user@example.com", &event.distinct_id,
-        "mismatched distinct_id in case: {}",
-        title,
+        "mismatched distinct_id in case: {title}",
     );
     assert_eq!(
         DEFAULT_TEST_TIME, &event.now,
-        "mismatched 'now' timestamp in case: {}",
-        title,
+        "mismatched 'now' timestamp in case: {title}",
     );
     assert_eq!(
         36_usize,
         event.uuid.to_string().len(),
-        "invalid UUID in case: {}",
-        title,
+        "invalid UUID in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
         event.sent_at,
-        "mismatched sent_at in case: {}",
-        title,
+        "mismatched sent_at in case: {title}",
     );
     assert!(
         !event.is_cookieless_mode,
-        "mismatched cookieless flag in case: {}",
-        title,
+        "mismatched cookieless flag in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!("failed to hydrate test event.data in case: {}", title);
+    let event_data_err_msg = format!("failed to hydrate test event.data in case: {title}");
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     // /engage/ events get post-processed into "$identify" events
     assert_eq!(
         "$identify",
         event["event"].as_str().unwrap(),
-        "mismatched event.event in case: {}",
-        title,
+        "mismatched event.event in case: {title}",
     );
     assert_eq!(
         "2025-07-01T11:00:00Z",
         event["timestamp"].as_str().unwrap(),
-        "mismatched event.timestamp in case: {}",
-        title,
+        "mismatched event.timestamp in case: {title}",
     );
     assert_eq!(
         "known_user@example.com", event["distinct_id"],
-        "mismatched event.distinct_id in case: {}",
-        title,
+        "mismatched event.distinct_id in case: {title}",
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!("failed to extract event.properties in case: {}", title);
+    let err_msg = format!("failed to extract event.properties in case: {title}");
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
         2_usize,
         props.len(),
-        "mismatched event.properties length in case: {}",
-        title,
+        "mismatched event.properties length in case: {title}",
     );
 
     assert_eq!(
         Some("01983d85-e613-7067-a70e-21bb63f8b8ee"),
         props["$anon_distinct_id"].as_str(),
-        "mismatched event.properties.$anon_distinct_id in case: {}",
-        title,
+        "mismatched event.properties.$anon_distinct_id in case: {title}",
     );
 
-    let err_msg = format!("failed to extract event.properties.$set in case: {}", title);
+    let err_msg = format!("failed to extract event.properties.$set in case: {title}");
     let set_props = props["$set"].as_object().expect(&err_msg);
     assert_eq!(
         Some("bar"),
         set_props["foo"].as_str(),
-        "mismatched event.properties.$set.foo in case: {}",
-        title,
+        "mismatched event.properties.$set.foo in case: {title}",
     );
     assert_eq!(
         Some(&Number::from(42)),
         set_props["baz"].as_number(),
-        "mismatched event.properties.$set.baz in case: {}",
-        title,
+        "mismatched event.properties.$set.baz in case: {title}",
     );
 }
 
@@ -590,8 +555,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     assert_eq!(
         expected_event_count,
         got_events.len(),
-        "event count: expected {}, got {}",
-        expected_event_count,
+        "event count: expected {expected_event_count}, got {}",
         got_events.len(),
     );
 
@@ -603,135 +567,110 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     assert_eq!(
         DataType::SnapshotMain,
         meta.data_type,
-        "mismatched Kafka topic assignment in case: {}",
-        title,
+        "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(
         Some("01983d9b-8639-78fa-ac26-b9e7bf716521".to_string()),
         meta.session_id,
-        "wrong session_id in case: {}",
-        title,
+        "wrong session_id in case: {title}",
     );
 
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
-        "mismatched token in case: {}",
-        title,
+        "mismatched token in case: {title}",
     );
     assert_eq!(
         "01983d90-510c-7970-a356-ecd2aa03cb22", &event.distinct_id,
-        "mismatched distinct_id in case: {}",
-        title,
+        "mismatched distinct_id in case: {title}",
     );
 
     assert_eq!(
         DEFAULT_TEST_TIME, &event.now,
-        "mismatched 'now' timestamp in case: {}",
-        title,
+        "mismatched 'now' timestamp in case: {title}",
     );
     assert_eq!(
         36_usize,
         event.uuid.to_string().len(),
-        "invalid UUID in case: {}",
-        title,
+        "invalid UUID in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
         event.sent_at,
-        "mismatched sent_at in case: {}",
-        title,
+        "mismatched sent_at in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!("failed to hydrate test event.data in case: {}", title);
+    let event_data_err_msg = format!("failed to hydrate test event.data in case: {title}");
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
         "$snapshot_items",
         event["event"].as_str().unwrap(),
-        "mismatched event.event in case: {}",
-        title,
+        "mismatched event.event in case: {title}",
     );
     assert_eq!(
         None,
         event["timestamp"].as_str(),
-        "mismatched event.timestamp in case: {}",
-        title,
+        "mismatched event.timestamp in case: {title}",
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!("failed to extract event.properties in case: {}", title);
+    let err_msg = format!("failed to extract event.properties in case: {title}");
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
         6_usize,
         props.len(),
-        "mismatched event.properties length in case: {}",
-        title,
+        "mismatched event.properties length in case: {title}",
     );
     assert_eq!(
         "web", props["$lib"],
-        "mismatched event.properties.$lib in case: {}",
-        title,
+        "mismatched event.properties.$lib in case: {title}",
     );
     assert_eq!(
         "01983d90-510c-7970-a356-ecd2aa03cb22", props["distinct_id"],
-        "mismatched event.properties.distinct_id in case: {}",
-        title,
+        "mismatched event.properties.distinct_id in case: {title}",
     );
     assert_eq!(
         "01983d9b-8639-78fa-ac26-b9e7bf716521", props["$session_id"],
-        "mismatched event.properties.$session_id in case: {}",
-        title,
+        "mismatched event.properties.$session_id in case: {title}",
     );
     assert_eq!(
         "01983d90-31f6-78cf-86c8-b26d0bdaaff0", props["$window_id"],
-        "mismatched event.properties.$window_id in case: {}",
-        title,
+        "mismatched event.properties.$window_id in case: {title}",
     );
 
     // introspect on $snapshot_data elements from replay event.properties
-    let err_msg = format!(
-        "failed to extract event.properties.$snapshot_data in case: {}",
-        title
-    );
+    let err_msg = format!("failed to extract event.properties.$snapshot_data in case: {title}");
     let snap_items = props["$snapshot_items"].as_array().expect(&err_msg);
     assert_eq!(
         22_usize,
         snap_items.len(),
-        "mismatched event.properties.$snapshot_items length in case: {}",
-        title,
+        "mismatched event.properties.$snapshot_items length in case: {title}",
     );
 
     // introspect on first data element of $snapshot_items array
-    let err_msg = format!(
-        "failed to extract event.properties.$snapshot_items[0] in case: {}",
-        title
-    );
+    let err_msg = format!("failed to extract event.properties.$snapshot_items[0] in case: {title}");
     let elem1 = snap_items[0].as_object().expect(&err_msg);
     assert_eq!(
         3_usize,
         elem1.len(),
-        "mismatched event.properties.$snapshot_items[0] in case: {}",
-        title,
+        "mismatched event.properties.$snapshot_items[0] in case: {title}",
     );
     assert!(
         elem1["data"].is_object(),
-        "event.properties.$snapshot_items[0].data should be an object in case: {}",
-        title,
+        "event.properties.$snapshot_items[0].data should be an object in case: {title}",
     );
     assert!(
         elem1["timestamp"].is_i64(),
-        "event.properties.$snapshot_items[0].timestamp should be a number in case: {}",
-        title,
+        "event.properties.$snapshot_items[0].timestamp should be a number in case: {title}",
     );
     assert!(
         elem1["type"].is_number(),
-        "event.properties.$snapshot_items[0].type should be a number in case: {}",
-        title,
+        "event.properties.$snapshot_items[0].type should be a number in case: {title}",
     );
 }
 
@@ -743,8 +682,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     assert_eq!(
         expected_event_count,
         got_events.len(),
-        "event count: expected {}, got {}",
-        expected_event_count,
+        "event count: expected {expected_event_count}, got {}",
         got_events.len(),
     );
 
@@ -756,130 +694,105 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     assert_eq!(
         DataType::AnalyticsMain,
         meta.data_type,
-        "mismatched Kafka topic assignment in case: {}",
-        title,
+        "mismatched Kafka topic assignment in case: {title}",
     );
-    assert_eq!(None, meta.session_id, "wrong session_id in case: {}", title,);
+    assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
 
     // introspect on extracted event attributes
     let event = &pageview.event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
-        "mismatched token on $pageview in case: {}",
-        title,
+        "mismatched token on $pageview in case: {title}",
     );
     assert_eq!(
         "someone@example.com", &event.distinct_id,
-        "mismatched distinct_id on $pageview in case: {}",
-        title,
+        "mismatched distinct_id on $pageview in case: {title}",
     );
     assert_eq!(
         DEFAULT_TEST_TIME, &event.now,
-        "mismatched 'now' timestamp $pageview in case: {}",
-        title,
+        "mismatched 'now' timestamp $pageview in case: {title}",
     );
     assert_eq!(
         36_usize,
         event.uuid.to_string().len(),
-        "invalid UUID on $pageview in case: {}",
-        title,
+        "invalid UUID on $pageview in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
         event.sent_at,
-        "mismatched sent_at on $pageview in case: {}",
-        title,
+        "mismatched sent_at on $pageview in case: {title}",
     );
     assert!(
         !event.is_cookieless_mode,
-        "mismatched cookieless flag on $pageview in case: {}",
-        title,
+        "mismatched cookieless flag on $pageview in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!(
-        "failed to hydrate test $pageview event.data in case: {}",
-        title
-    );
+    let event_data_err_msg =
+        format!("failed to hydrate test $pageview event.data in case: {title}");
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
         "$pageview",
         event["event"].as_str().unwrap(),
-        "mismatched event.event on batch event 1 in case: {}",
-        title,
+        "mismatched event.event on batch event 1 in case: {title}",
     );
     assert_eq!(
         "2025-07-01T02:55:00Z",
         event["timestamp"].as_str().unwrap(),
-        "mismatched event.timestamp on $pageview in case: {}",
-        title,
+        "mismatched event.timestamp on $pageview in case: {title}",
     );
     assert_eq!(
         "someone@example.com", event["distinct_id"],
-        "mismatched event.distinct_id on $pageview in case: {}",
-        title,
+        "mismatched event.distinct_id on $pageview in case: {title}",
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!(
-        "failed to extract event.properties on $pageview in case: {}",
-        title
-    );
+    let err_msg = format!("failed to extract event.properties on $pageview in case: {title}");
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
         64_usize,
         props.len(),
-        "mismatched event.properties length on $pageview in case: {}",
-        title,
+        "mismatched event.properties length on $pageview in case: {title}",
     );
     assert_eq!(
         "web", props["$lib"],
-        "mismatched event.properties.$lib on $pageview in case: {}",
-        title,
+        "mismatched event.properties.$lib on $pageview in case: {title}",
     );
     assert_eq!(
         "1.2.3", props["$lib_version"],
-        "mismatched event.properties.$lib_version on $pageview in case: {}",
-        title,
+        "mismatched event.properties.$lib_version on $pageview in case: {title}",
     );
     assert_eq!(
         "https://posthog.example.com/testing", props["$current_url"],
-        "mismatched event.properties.$current_url in case: {}",
-        title,
+        "mismatched event.properties.$current_url in case: {title}",
     );
     assert_eq!(
         Some(&Number::from(138)),
         props["$browser_version"].as_number(),
-        "mismatched event.properties.$browser_version in case: {}",
-        title,
+        "mismatched event.properties.$browser_version in case: {title}",
     );
     assert_eq!(
         Some(1753306906004_i64),
         props["$sdk_debug_session_start"].as_i64(),
-        "mismatched event.properties.$sdk_debug_session_start on $pageview in case: {}",
-        title,
+        "mismatched event.properties.$sdk_debug_session_start on $pageview in case: {title}",
     );
     assert_eq!(
         Some(true),
         props["$is_identified"].as_bool(),
-        "mismatched event.properties.$is_identified on $pageview in case: {}",
-        title,
+        "mismatched event.properties.$is_identified on $pageview in case: {title}",
     );
     assert_eq!(
         Some(1753306906.2_f64),
         props["$time"].as_f64(),
-        "mismatched event.properties.$time on $pageview in case: {}",
-        title,
+        "mismatched event.properties.$time on $pageview in case: {title}",
     );
 
     // introspect on extracted event.properties.$set_once map
-    let err_msg = format!(
-        "failed to extract event.properties.$set_once on $pageview in case: {}",
-        title
-    );
+    let err_msg =
+        format!("failed to extract event.properties.$set_once on $pageview in case: {title}");
     let set_once_props = event["properties"]["$set_once"]
         .as_object()
         .expect(&err_msg);
@@ -887,8 +800,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     assert_eq!(
         58_usize,
         set_once_props.len(),
-        "mismatched event.properties.$set_once length on $pageview in case: {}",
-        title,
+        "mismatched event.properties.$set_once length on $pageview in case: {title}",
     );
 
     // second event should be a $pageleave
@@ -899,127 +811,103 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     assert_eq!(
         DataType::AnalyticsMain,
         meta.data_type,
-        "mismatched Kafka topic assignment in case: {}",
-        title,
+        "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(
         None, meta.session_id,
-        "mismatched session_id in case: {}",
-        title,
+        "mismatched session_id in case: {title}",
     );
 
     // introspect on extracted event attributes
     let event = &pageleave.event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
-        "mismatched token on $pageleave in case: {}",
-        title,
+        "mismatched token on $pageleave in case: {title}",
     );
     assert_eq!(
         "someone@example.com", &event.distinct_id,
-        "mismatched distinct_id on $pageleave in case: {}",
-        title,
+        "mismatched distinct_id on $pageleave in case: {title}",
     );
     assert_eq!(
         DEFAULT_TEST_TIME, &event.now,
-        "mismatched 'now' timestamp $pageleave in case: {}",
-        title,
+        "mismatched 'now' timestamp $pageleave in case: {title}",
     );
     assert_eq!(
         36_usize,
         event.uuid.to_string().len(),
-        "invalid UUID on $pageleave in case: {}",
-        title,
+        "invalid UUID on $pageleave in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
         event.sent_at,
-        "mismatched sent_at on $pageleave in case: {}",
-        title,
+        "mismatched sent_at on $pageleave in case: {title}",
     );
     assert!(
         !event.is_cookieless_mode,
-        "mismatched cookieless flag on $pageleave in case: {}",
-        title,
+        "mismatched cookieless flag on $pageleave in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!(
-        "failed to hydrate test $pageleave event.data in case: {}",
-        title
-    );
+    let event_data_err_msg =
+        format!("failed to hydrate test $pageleave event.data in case: {title}");
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
         "$pageleave",
         event["event"].as_str().unwrap(),
-        "mismatched event.event on batch event 2 in case: {}",
-        title,
+        "mismatched event.event on batch event 2 in case: {title}",
     );
     assert_eq!(
         "2025-07-01T03:00:00Z",
         event["timestamp"].as_str().unwrap(),
-        "mismatched event.timestamp on $pageleave in case: {}",
-        title,
+        "mismatched event.timestamp on $pageleave in case: {title}",
     );
     assert_eq!(
         "someone@example.com", event["distinct_id"],
-        "mismatched event.distinct_id on $pageleave in case: {}",
-        title,
+        "mismatched event.distinct_id on $pageleave in case: {title}",
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!(
-        "failed to extract event.properties on $pageleave in case: {}",
-        title
-    );
+    let err_msg = format!("failed to extract event.properties on $pageleave in case: {title}");
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
         72_usize,
         props.len(),
-        "mismatched event.properties length on $pageleave in case: {}",
-        title,
+        "mismatched event.properties length on $pageleave in case: {title}",
     );
     assert_eq!(
         "web", props["$lib"],
-        "mismatched event.properties.$lib on $pageleave in case: {}",
-        title,
+        "mismatched event.properties.$lib on $pageleave in case: {title}",
     );
     assert_eq!(
         "1.2.3", props["$lib_version"],
-        "mismatched event.properties.$lib_version on $pageleave in case: {}",
-        title,
+        "mismatched event.properties.$lib_version on $pageleave in case: {title}",
     );
     assert_eq!(
         "https://posthog.example.com/testing", props["$current_url"],
-        "mismatched event.properties.$current_url in case: {}",
-        title,
+        "mismatched event.properties.$current_url in case: {title}",
     );
     assert_eq!(
         Some(&Number::from(138)),
         props["$browser_version"].as_number(),
-        "mismatched event.properties.$browser_version in case: {}",
-        title,
+        "mismatched event.properties.$browser_version in case: {title}",
     );
     assert_eq!(
         Some(1753305190397_i64),
         props["$sdk_debug_session_start"].as_i64(),
-        "mismatched event.properties.$sdk_debug_session_start on $pageleave in case: {}",
-        title,
+        "mismatched event.properties.$sdk_debug_session_start on $pageleave in case: {title}",
     );
     assert_eq!(
         Some(true),
         props["$is_identified"].as_bool(),
-        "mismatched event.properties.$is_identified on $pageleave in case: {}",
-        title,
+        "mismatched event.properties.$is_identified on $pageleave in case: {title}",
     );
     assert_eq!(
         Some(1753305291.695_f64),
         props["$time"].as_f64(),
-        "mismatched event.properties.$time on $pageleave in case: {}",
-        title,
+        "mismatched event.properties.$time on $pageleave in case: {title}",
     );
 }
 
@@ -1127,7 +1015,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
 
 // utility to compress capture payloads for testing
 fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
-    let err_msg = format!("failed to GZIP payload in case: {}", title);
+    let err_msg = format!("failed to GZIP payload in case: {title}");
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
 
     encoder.write_all(&data).expect(&err_msg);
@@ -1135,7 +1023,7 @@ fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
 }
 
 fn lz64_compress(title: &str, data: Vec<u8>) -> String {
-    let utf8_err_msg = format!("failed to convert raw_payload to UTF-8 in case: {}", title);
+    let utf8_err_msg = format!("failed to convert raw_payload to UTF-8 in case: {title}");
     let utf8_str = std::str::from_utf8(&data).expect(&utf8_err_msg);
     let utf16_bytes: Vec<u16> = utf8_str.encode_utf16().collect();
 
@@ -1144,10 +1032,7 @@ fn lz64_compress(title: &str, data: Vec<u8>) -> String {
 
 // format the sent_at value when included in GET URL query params
 fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
-    let err_msg = format!(
-        "failed to parse ISO8601 time into UNIX millis in case: {}",
-        title
-    );
+    let err_msg = format!("failed to parse ISO8601 time into UNIX millis in case: {title}");
     OffsetDateTime::parse(ts_str, &Iso8601::DEFAULT)
         .expect(&err_msg)
         .unix_timestamp()

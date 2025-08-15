@@ -339,8 +339,7 @@ async fn it_handles_malformed_json() -> Result<()> {
 
     assert!(
         response_text.contains("Failed to decode request: invalid JSON"),
-        "Unexpected error message: {:?}",
-        response_text
+        "Unexpected error message: {response_text:?}"
     );
     Ok(())
 }
@@ -1358,8 +1357,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let flag_value = json_data["featureFlags"]["complex-flag"].as_str().unwrap();
     assert!(
         ["control", "test"].contains(&flag_value),
-        "Expected either 'control' or 'test' variant, got {}",
-        flag_value
+        "Expected either 'control' or 'test' variant, got {flag_value}"
     );
 
     Ok(())
@@ -1658,7 +1656,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
         .await;
     if res.status() != StatusCode::OK {
         let text = res.text().await?;
-        panic!("Non-200 response \nBody: {}", text);
+        panic!("Non-200 response \nBody: {text}");
     }
     let json_data = res.json::<Value>().await?;
     assert!(json_data.get("supportedCompression").is_none());
@@ -3751,7 +3749,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -3790,7 +3788,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res_override.status() != StatusCode::OK {
         let status = res_override.status();
         let text = res_override.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_override = res_override.json::<Value>().await?;
@@ -3840,7 +3838,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res_reverse.status() != StatusCode::OK {
         let status = res_reverse.status();
         let text = res_reverse.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_reverse = res_reverse.json::<Value>().await?;
@@ -3975,7 +3973,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -4091,7 +4089,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -4129,7 +4127,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res_override.status() != StatusCode::OK {
         let status = res_override.status();
         let text = res_override.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_override = res_override.json::<Value>().await?;
@@ -4170,7 +4168,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res_false.status() != StatusCode::OK {
         let status = res_false.status();
         let text = res_false.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_false = res_false.json::<Value>().await?;

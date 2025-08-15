@@ -1718,7 +1718,12 @@ const api = {
 
             // Opt into the new /activity_log API
             if (
-                [ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION, ActivityScope.EXPERIMENT].includes(scopes[0]) ||
+                [
+                    ActivityScope.PLUGIN,
+                    ActivityScope.HOG_FUNCTION,
+                    ActivityScope.EXPERIMENT,
+                    ActivityScope.TAG,
+                ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
                 return api.activity

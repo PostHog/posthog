@@ -25,7 +25,7 @@ pub fn random_string(prefix: &str, length: usize) -> String {
         .take(length)
         .map(char::from)
         .collect();
-    format!("{}{}", prefix, suffix)
+    format!("{prefix}{suffix}")
 }
 
 pub async fn insert_new_team_in_redis(
@@ -87,10 +87,7 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(
-            format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, project_id),
-            payload,
-        )
+        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
         .await?;
 
     Ok(())
