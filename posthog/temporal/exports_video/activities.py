@@ -27,21 +27,16 @@ class BuildContextOut:
 @activity.defn
 def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     asset = ExportedAsset.objects.select_related("team", "dashboard", "insight").get(pk=exported_asset_id)
+    # recordings-only
+    if not (asset.export_context and asset.export_context.get("session_recording_id")):
+        raise RuntimeError("Video export supports session recordings only")
+
     access_token = get_public_access_token(asset, dt.timedelta(minutes=15))
-    if asset.insight:
-        url = absolute_uri(f"/exporter?token={access_token}&legend")
-        css, width, height = ".ExportedInsight", 800, 600
-    elif asset.dashboard:
-        url = absolute_uri(f"/exporter?token={access_token}")
-        css, width, height = ".InsightCard", 1920, 600
-    elif asset.export_context and asset.export_context.get("session_recording_id"):
-        ts = asset.export_context.get("timestamp") or 0
-        url = absolute_uri(f"/exporter?token={access_token}&t={ts}&fullscreen=true")
-        css = asset.export_context.get("css_selector", ".replayer-wrapper")
-        width = int(asset.export_context.get("width", 1400))
-        height = int(asset.export_context.get("height", 600))
-    else:
-        raise RuntimeError("Missing target for export")
+    ts = asset.export_context.get("timestamp") or 0
+    url = absolute_uri(f"/exporter?token={access_token}&t={ts}&fullscreen=true")
+    css = asset.export_context.get("css_selector", ".replayer-wrapper")
+    width = int(asset.export_context.get("width", 1400))
+    height = int(asset.export_context.get("height", 600))
 
     fmt = asset.export_format
     tmp_ext = "mp4" if fmt == "video/mp4" else "gif" if fmt == "image/gif" else "webm"

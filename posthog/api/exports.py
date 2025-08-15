@@ -136,14 +136,19 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         )
         if blocking_exports and not force_async:
             if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
-                # async enqueue via Temporal instead of Celery
+                # recordings-only
+                if not (instance.export_context and instance.export_context.get("session_recording_id")):
+                    raise serializers.ValidationError(
+                        {"export_format": ["Video export supports session recordings only."]}
+                    )
+
                 async def _start():
                     client = await temporal_connect(TEMPORAL_HOST, TEMPORAL_PORT, TEMPORAL_NAMESPACE)
                     await client.execute_workflow(
                         VideoExportWorkflow.run,
                         VideoExportInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=TEMPORAL_TASK_QUEUE,  # or a dedicated queue
+                        task_queue=TEMPORAL_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     )
