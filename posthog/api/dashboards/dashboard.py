@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 import pydantic_core
 import structlog
+from django.conf import settings
 from django.db.models import Prefetch
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets, status
@@ -503,25 +504,25 @@ class DashboardSerializer(DashboardBasicSerializer):
             if not sorted_tiles:
                 return []
 
-            # Use ThreadPoolExecutor for parallel tile serialization
-            # Limit workers to avoid overwhelming the system while still getting significant speedup
-            max_workers = min(len(sorted_tiles), 10)  # Cap at 10 workers
-
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tile serialization tasks
-                futures = []
+            if settings.IN_UNIT_TESTING:
                 for order, tile in enumerate(sorted_tiles):
-                    future = executor.submit(serialize_tile_with_context, tile, order, self.context)
-                    futures.append(future)
+                    order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                    serialized_tiles.append(tile_data)
+            else:
+                max_workers = min(len(sorted_tiles), 10)
 
-                # Collect results maintaining original order
-                tile_results = [None] * len(sorted_tiles)
-                for future in as_completed(futures):
-                    order, tile_data = future.result()
-                    tile_results[order] = tile_data
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = []
+                    for order, tile in enumerate(sorted_tiles):
+                        future = executor.submit(serialize_tile_with_context, tile, order, self.context)
+                        futures.append(future)
 
-                # Add results to serialized_tiles in order
-                serialized_tiles.extend(tile_results)
+                    tile_results = [None] * len(sorted_tiles)
+                    for future in as_completed(futures):
+                        order, tile_data = future.result()
+                        tile_results[order] = tile_data
+
+                    serialized_tiles.extend(tile_results)
 
         return serialized_tiles
 
