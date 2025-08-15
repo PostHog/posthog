@@ -182,20 +182,6 @@ class Command(BaseCommand):
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
-        # Ensure Playwright Chromium is installed when video export workflow is present
-        try:
-            if any(getattr(wf, "__name__", "") == "VideoExportWorkflow" for wf in workflows):
-                import sys
-                import subprocess
-                import os
-
-                env = os.environ.copy()
-                env.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/tmp/ms-playwright")
-                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, env=env)
-        except Exception:
-            # Don’t block other queues; video export activities will still error loudly if missing
-            pass
-
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
 
