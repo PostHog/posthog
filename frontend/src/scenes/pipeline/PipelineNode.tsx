@@ -27,23 +27,30 @@ export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineSta
     [PipelineTab.Sources]: PipelineStage.Source,
 }
 
-export const scene: SceneExport<PipelineNodeLogicProps> = {
-    component: PipelineNode,
-    logic: pipelineNodeLogic,
-    paramsToProps: ({ params: { stage, id } }: { params: { stage?: string; id?: string } }) => {
-        const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
-        if (!stage || !id) {
-            throw new Error('Loaded PipelineNode without either `stage` or `id` passed in')
-        }
+const paramsToProps = ({
+    params: { stage, id },
+}: {
+    params: { stage?: string; id?: string }
+}): PipelineNodeLogicProps => {
+    const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
+    if (!stage || !id) {
+        throw new Error('Loaded PipelineNode without either `stage` or `id` passed in')
+    }
 
-        return {
-            stage: PIPELINE_TAB_TO_NODE_STAGE[stage as PipelineTab] || null,
-            id: numericId && !isNaN(numericId) ? numericId : id,
-        }
-    },
+    return {
+        stage: PIPELINE_TAB_TO_NODE_STAGE[stage as PipelineTab] || null,
+        id: numericId && !isNaN(numericId) ? numericId : id,
+    }
 }
 
-export function PipelineNode({ stage, id }: PipelineNodeLogicProps): JSX.Element {
+export const scene: SceneExport = {
+    component: PipelineNode,
+    logic: pipelineNodeLogic,
+    paramsToProps,
+}
+
+export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
+    const { stage, id } = paramsToProps({ params })
     const { currentTab, node } = useValues(pipelineNodeLogic)
 
     if (!stage) {
@@ -101,7 +108,7 @@ export function PipelineNode({ stage, id }: PipelineNodeLogicProps): JSX.Element
                             label: capitalizeFirstLetter(tab),
                             key: tab,
                             content: content,
-                            link: stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
+                            link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
                         }) as LemonTab<PipelineNodeTab>
                 )}
             />

@@ -34,18 +34,15 @@ const paramsToProps = ({
     }
 }
 
-export const scene: SceneExport<PipelineNodeNewLogicProps> = {
+export const scene: SceneExport = {
     component: PipelineNodeNew,
     logic: pipelineNodeNewLogic,
     paramsToProps,
 }
 
-export function PipelineNodeNew({
-    stage,
-    pluginId,
-    batchExportDestination,
-    hogFunctionId,
-}: PipelineNodeNewLogicProps): JSX.Element {
+export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): JSX.Element {
+    const { stage, pluginId, batchExportDestination, hogFunctionId } = paramsToProps({ params })
+
     if (!stage) {
         return <NotFound object="pipeline app stage" />
     }
