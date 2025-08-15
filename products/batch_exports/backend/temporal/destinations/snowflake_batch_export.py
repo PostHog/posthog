@@ -574,6 +574,7 @@ class SnowflakeClient:
         table_name: str,
         table_stage_prefix: str,
         table_fields: list[SnowflakeField],
+        known_variant_columns: list[str],
     ) -> None:
         """Execute a COPY query in Snowflake to load any files PUT into the table.
 
@@ -583,10 +584,14 @@ class SnowflakeClient:
             connection: A SnowflakeConnection as returned by snowflake.connector.connect.
             table_name: The table we are COPY-ing files into.
         """
+        select_fields = ", ".join(
+            f'PARSE_JSON($1:"{field[0]}")' if field[0] in known_variant_columns else f'$1:"{field[0]}"'
+            for field in table_fields
+        )
         query = f"""
         COPY INTO "{table_name}"
         FROM (
-            SELECT {", ".join(f'"{field[0]}"' for field in table_fields)} FROM '@%"{table_name}"/{table_stage_prefix}'
+            SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
         )
         FILE_FORMAT = (TYPE = 'PARQUET')
         PURGE = TRUE
@@ -795,6 +800,7 @@ def _get_snowflake_table_settings(
             ("uuid", "STRING"),
             ("event", "STRING"),
             ("properties", "VARIANT"),
+            # should elements be string?
             ("elements", "VARIANT"),
             ("people_set", "VARIANT"),
             ("people_set_once", "VARIANT"),
@@ -864,7 +870,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet"
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
         )
 
     async def consume_chunk(self, data: bytes):
@@ -879,7 +885,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet"
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
         )
 
     async def _upload_current_buffer(self):
@@ -1138,6 +1144,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                         snow_stage_table if requires_merge else snow_table,
                         data_interval_end_str,
                         table_fields,
+                        known_variant_columns=known_variant_columns,
                     )
 
                     if requires_merge:
@@ -1247,9 +1254,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     producer_task=producer_task,
                     schema=record_batch_schema,
                     file_format="Parquet",
-                    compression=None,
-                    # TODO - try adding compression once Parquet is working
-                    # compression="zstd",
+                    compression="zstd",
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
@@ -1261,6 +1266,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     snow_stage_table if requires_merge else snow_table,
                     data_interval_end_str,
                     table_fields,
+                    known_variant_columns=known_variant_columns,
                 )
 
                 if requires_merge:
