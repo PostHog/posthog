@@ -294,14 +294,11 @@ export const personsLogic = kea<personsLogicType>([
                     : 'https://posthog.com/docs/api/persons',
         ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
+        currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
         defaultTab: [() => [], () => PersonsTabType.OVERVIEW],
-        currentTab: [
-            (s) => [s.activeTab, (s as any).defaultTab],
-            (activeTab: any, defaultTab: any) => activeTab || defaultTab,
-        ],
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],
-            (person: PersonType | null, location: any): Breadcrumb[] => {
+            (person, location): Breadcrumb[] => {
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
@@ -322,7 +319,7 @@ export const personsLogic = kea<personsLogicType>([
 
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.person],
-            (person: PersonType | null): SidePanelSceneContext => {
+            (person): SidePanelSceneContext => {
                 return {
                     activity_scope: ActivityScope.PERSON,
                     // TODO: Is this correct? It doesn't seem to work...
@@ -333,7 +330,7 @@ export const personsLogic = kea<personsLogicType>([
 
         exporterProps: [
             (s) => [s.listFilters, (_, { cohort }) => cohort],
-            (listFilters: PersonListParams, cohort: number | 'new' | undefined): TriggerExportProps[] => [
+            (listFilters, cohort: number | 'new' | undefined): TriggerExportProps[] => [
                 {
                     export_format: ExporterFormat.CSV,
                     export_context: {
@@ -344,13 +341,13 @@ export const personsLogic = kea<personsLogicType>([
                 },
             ],
         ],
-        urlId: [() => [(_, props) => props.urlId], (urlId: string | undefined) => urlId],
-        feedEnabled: [(s) => [s.featureFlags], (featureFlags: any) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
+        urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
         primaryDistinctId: [
             (s) => [s.person],
-            (person: PersonType | null): string | null => {
+            (person): string | null => {
                 // We do not track which distinct ID was created through identify, but we can try to guess
-                const nonUuidDistinctIds = person?.distinct_ids.filter((id: string) => id?.split('-').length !== 5)
+                const nonUuidDistinctIds = person?.distinct_ids.filter((id) => id?.split('-').length !== 5)
 
                 if (nonUuidDistinctIds && nonUuidDistinctIds?.length >= 1) {
                     /**
@@ -462,7 +459,7 @@ export const personsLogic = kea<personsLogicType>([
                 }
 
                 if (!activeTab) {
-                    actions.setActiveTab((values as any).defaultTab)
+                    actions.setActiveTab(values.defaultTab)
                 }
 
                 if (rawPersonDistinctId) {
@@ -484,7 +481,7 @@ export const personsLogic = kea<personsLogicType>([
                 }
 
                 if (!activeTab) {
-                    actions.setActiveTab((values as any).defaultTab)
+                    actions.setActiveTab(values.defaultTab)
                 }
 
                 if (rawPersonUUID) {

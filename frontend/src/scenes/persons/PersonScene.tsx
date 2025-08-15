@@ -315,7 +315,7 @@ export function PersonScene(): JSX.Element | null {
                                           <LemonSelect
                                               value={distinctId || primaryDistinctId}
                                               onChange={(value) => value && setDistinctId(value)}
-                                              options={person.distinct_ids.map((distinct_id: string) => ({
+                                              options={person.distinct_ids.map((distinct_id) => ({
                                                   label: distinct_id,
                                                   value: distinct_id,
                                               }))}
