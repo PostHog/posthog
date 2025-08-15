@@ -74,7 +74,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
-    def calculate(self) -> WebOverviewQueryResponse:
+    def _calculate(self) -> WebOverviewQueryResponse:
         pre_aggregated_response = self.get_pre_aggregated_response()
 
         response = (

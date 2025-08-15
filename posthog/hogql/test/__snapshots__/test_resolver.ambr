@@ -10697,6 +10697,9 @@
                   },
                   properties: {
                     hidden: False
+                  },
+                  revenue_analytics: {
+                    hidden: False
                   }
                 },
                 hidden: False

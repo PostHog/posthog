@@ -142,7 +142,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     The state of the root node.
     """
 
-    intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
+    intermediate_steps: Optional[Sequence[IntermediateStep]] = Field(default=None)
     """
     Actions taken by the query planner agent.
     """

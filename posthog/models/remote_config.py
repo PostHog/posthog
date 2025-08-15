@@ -20,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
@@ -472,7 +473,9 @@ def team_saved(sender, instance: "Team", created, **kwargs):
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    # Use transaction.on_commit to ensure cache update happens after DB transaction commits
+    # This prevents race condition where cache sees stale database state
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=PluginConfig)
