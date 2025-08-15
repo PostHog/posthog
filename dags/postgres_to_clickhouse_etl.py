@@ -465,6 +465,15 @@ def transform_organization_row(row: dict) -> dict:
         if row.get(field) is not None:
             row[field] = 1 if row[field] else 0
 
+    # Handle array fields that might be None or contain None elements
+    array_fields = ["domain_whitelist"]
+    for field in array_fields:
+        if row.get(field) is None:
+            row[field] = []
+        elif isinstance(row[field], list):
+            # Filter out None values from the array
+            row[field] = [item for item in row[field] if item is not None]
+
     return row
 
 
@@ -542,11 +551,14 @@ def transform_team_row(row: dict) -> dict:
     if row.get("drop_events_older_than") is not None:
         row["drop_events_older_than"] = int(row["drop_events_older_than"].total_seconds())
 
-    # Handle array fields that might be None
+    # Handle array fields that might be None or contain None elements
     array_fields = ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"]
     for field in array_fields:
         if row.get(field) is None:
             row[field] = []
+        elif isinstance(row[field], list):
+            # Filter out None values from the array
+            row[field] = [item for item in row[field] if item is not None]
 
     return row
 

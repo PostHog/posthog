@@ -26,6 +26,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/impact/ErrorTrackingImpactScene'),
             projectBased: true,
             name: 'Error tracking impact',
+            layout: 'app-raw',
         },
     },
     routes: {
