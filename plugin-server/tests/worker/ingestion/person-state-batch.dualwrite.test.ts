@@ -20,6 +20,69 @@ import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/pers
 jest.setTimeout(30000)
 jest.mock('~/utils/logger')
 
+interface DualWriteQueryResult {
+    rows: any[]
+}
+
+/**
+ * Assert that both primary and secondary queries return the same number of rows
+ */
+function expectRowCountsEqual(primary: DualWriteQueryResult, secondary: DualWriteQueryResult, expectedCount?: number) {
+    if (expectedCount !== undefined) {
+        expect(primary.rows.length).toBe(expectedCount)
+        expect(secondary.rows.length).toBe(expectedCount)
+    } else {
+        expect(primary.rows.length).toBe(secondary.rows.length)
+    }
+}
+
+/**
+ * Assert that primary and secondary query results are identical
+ */
+function expectRowsEqual(primary: DualWriteQueryResult, secondary: DualWriteQueryResult) {
+    expect(secondary.rows).toEqual(primary.rows)
+}
+
+/**
+ * Assert that both databases have the same count value from a COUNT query
+ */
+function expectCountsEqual(primary: DualWriteQueryResult, secondary: DualWriteQueryResult, expectedCount?: number) {
+    const primaryCount = Number(primary.rows[0].count)
+    const secondaryCount = Number(secondary.rows[0].count)
+
+    if (expectedCount !== undefined) {
+        expect(primaryCount).toBe(expectedCount)
+        expect(secondaryCount).toBe(expectedCount)
+    } else {
+        expect(primaryCount).toBe(secondaryCount)
+    }
+}
+
+/**
+ * Assert that properties match between primary and secondary for the first row
+ */
+function expectPropertiesEqual(primary: DualWriteQueryResult, secondary: DualWriteQueryResult) {
+    expect(primary.rows[0].properties).toEqual(secondary.rows[0].properties)
+}
+
+/**
+ * Execute the same query on both primary and secondary databases and return results
+ */
+async function queryBothDatabases(
+    postgres: PostgresRouter,
+    migrationPostgres: PostgresRouter,
+    query: string,
+    params: any[],
+    primaryTag: string,
+    secondaryTag: string
+): Promise<{ primary: DualWriteQueryResult; secondary: DualWriteQueryResult }> {
+    const [primary, secondary] = await Promise.all([
+        postgres.query(PostgresUse.PERSONS_READ, query, params, primaryTag),
+        migrationPostgres.query(PostgresUse.PERSONS_READ, query, params, secondaryTag),
+    ])
+    return { primary, secondary }
+}
+
 describe('DualWrite Person ingestion integration', () => {
     let hub: Hub
     let postgres: PostgresRouter
@@ -202,39 +265,29 @@ describe('DualWrite Person ingestion integration', () => {
             })
 
             // Verify person exists in both DBs
-            const primaryPerson = await postgres.query(
-                PostgresUse.PERSONS_READ,
+            const personResults = await queryBothDatabases(
+                postgres,
+                migrationPostgres,
                 'SELECT * FROM posthog_person WHERE team_id = $1 AND uuid = $2',
                 [team.id, person.uuid],
-                'verify-primary-service-create'
-            )
-            const secondaryPerson = await migrationPostgres.query(
-                PostgresUse.PERSONS_READ,
-                'SELECT * FROM posthog_person WHERE team_id = $1 AND uuid = $2',
-                [team.id, person.uuid],
+                'verify-primary-service-create',
                 'verify-secondary-service-create'
             )
 
-            expect(primaryPerson.rows.length).toBe(1)
-            expect(secondaryPerson.rows.length).toBe(1)
-            expect(primaryPerson.rows[0].properties).toEqual(secondaryPerson.rows[0].properties)
+            expectRowCountsEqual(personResults.primary, personResults.secondary, 1)
+            expectPropertiesEqual(personResults.primary, personResults.secondary)
 
             // Verify distinct ID exists in both DBs
-            const primaryDistinct = await postgres.query(
-                PostgresUse.PERSONS_READ,
+            const distinctResults = await queryBothDatabases(
+                postgres,
+                migrationPostgres,
                 'SELECT * FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
                 [team.id, distinctId],
-                'verify-primary-service-distinct'
-            )
-            const secondaryDistinct = await migrationPostgres.query(
-                PostgresUse.PERSONS_READ,
-                'SELECT * FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
-                [team.id, distinctId],
+                'verify-primary-service-distinct',
                 'verify-secondary-service-distinct'
             )
 
-            expect(primaryDistinct.rows.length).toBe(1)
-            expect(secondaryDistinct.rows.length).toBe(1)
+            expectRowCountsEqual(distinctResults.primary, distinctResults.secondary, 1)
 
             // Flush store to Kafka
             await flushPersonStoreToKafka(hub, context.personStore, Promise.resolve())
@@ -279,21 +332,16 @@ describe('DualWrite Person ingestion integration', () => {
             expect(person.uuid).not.toBe(uuid) // Different UUID since different distinctId
 
             // Verify two persons exist in both DBs (original + new one)
-            const primaryCount = await postgres.query(
-                PostgresUse.PERSONS_READ,
+            const countResults = await queryBothDatabases(
+                postgres,
+                migrationPostgres,
                 'SELECT COUNT(*) FROM posthog_person WHERE team_id = $1',
                 [team.id],
-                'verify-primary-conflict-count'
-            )
-            const secondaryCount = await migrationPostgres.query(
-                PostgresUse.PERSONS_READ,
-                'SELECT COUNT(*) FROM posthog_person WHERE team_id = $1',
-                [team.id],
+                'verify-primary-conflict-count',
                 'verify-secondary-conflict-count'
             )
 
-            expect(Number(primaryCount.rows[0].count)).toBe(2)
-            expect(Number(secondaryCount.rows[0].count)).toBe(2)
+            expectCountsEqual(countResults.primary, countResults.secondary, 2)
 
             await flushPersonStoreToKafka(hub, context.personStore, Promise.resolve())
         })
@@ -324,38 +372,28 @@ describe('DualWrite Person ingestion integration', () => {
             ).rejects.toThrow('Simulated secondary failure during service create')
 
             // Verify no person was created in either DB
-            const primaryPersons = await postgres.query(
-                PostgresUse.PERSONS_READ,
+            const personCounts = await queryBothDatabases(
+                postgres,
+                migrationPostgres,
                 'SELECT COUNT(*) FROM posthog_person WHERE team_id = $1',
                 [team.id],
-                'verify-primary-service-rollback'
-            )
-            const secondaryPersons = await migrationPostgres.query(
-                PostgresUse.PERSONS_READ,
-                'SELECT COUNT(*) FROM posthog_person WHERE team_id = $1',
-                [team.id],
+                'verify-primary-service-rollback',
                 'verify-secondary-service-rollback'
             )
 
-            expect(Number(primaryPersons.rows[0].count)).toBe(0)
-            expect(Number(secondaryPersons.rows[0].count)).toBe(0)
+            expectCountsEqual(personCounts.primary, personCounts.secondary, 0)
 
             // Verify no distinct IDs were created in either DB
-            const primaryDistinct = await postgres.query(
-                PostgresUse.PERSONS_READ,
+            const distinctCounts = await queryBothDatabases(
+                postgres,
+                migrationPostgres,
                 'SELECT COUNT(*) FROM posthog_persondistinctid WHERE team_id = $1',
                 [team.id],
-                'verify-primary-service-distinct-rollback'
-            )
-            const secondaryDistinct = await migrationPostgres.query(
-                PostgresUse.PERSONS_READ,
-                'SELECT COUNT(*) FROM posthog_persondistinctid WHERE team_id = $1',
-                [team.id],
+                'verify-primary-service-distinct-rollback',
                 'verify-secondary-service-distinct-rollback'
             )
 
-            expect(Number(primaryDistinct.rows[0].count)).toBe(0)
-            expect(Number(secondaryDistinct.rows[0].count)).toBe(0)
+            expectCountsEqual(distinctCounts.primary, distinctCounts.secondary, 0)
 
             await flushPersonStoreToKafka(hub, context.personStore, Promise.resolve())
         })
@@ -1643,21 +1681,16 @@ describe('DualWrite Person ingestion integration', () => {
                 await repository.addPersonlessDistinctId(team.id, personlessDistinctId)
 
                 // Verify personless distinct ID exists in both DBs
-                const primaryPersonless = await postgres.query(
-                    PostgresUse.PERSONS_READ,
+                const personlessResults = await queryBothDatabases(
+                    postgres,
+                    migrationPostgres,
                     'SELECT distinct_id FROM posthog_personlessdistinctid WHERE distinct_id = $1 AND team_id = $2',
                     [personlessDistinctId, team.id],
-                    'verify-primary-personless-before'
-                )
-                const secondaryPersonless = await migrationPostgres.query(
-                    PostgresUse.PERSONS_READ,
-                    'SELECT distinct_id FROM posthog_personlessdistinctid WHERE distinct_id = $1 AND team_id = $2',
-                    [personlessDistinctId, team.id],
+                    'verify-primary-personless-before',
                     'verify-secondary-personless-before'
                 )
 
-                expect(primaryPersonless.rows.length).toBe(1)
-                expect(secondaryPersonless.rows.length).toBe(1)
+                expectRowCountsEqual(personlessResults.primary, personlessResults.secondary, 1)
 
                 // Create person with previously personless distinct ID - explicitly set version 1
                 const createResult = await repository.createPerson(
@@ -2416,27 +2449,23 @@ describe('DualWrite Person ingestion integration', () => {
                 await flushPersonStoreToKafka(hub, mergeService.getContext().personStore, acks)
 
                 // Verify complex operation completed atomically across both DBs
-                const primaryPerson = await postgres.query(
-                    PostgresUse.PERSONS_READ,
+                const personResults = await queryBothDatabases(
+                    postgres,
+                    migrationPostgres,
                     'SELECT uuid, properties FROM posthog_person WHERE team_id = $1',
                     [team.id],
-                    'verify-primary-complex-merge'
-                )
-                const secondaryPerson = await migrationPostgres.query(
-                    PostgresUse.PERSONS_READ,
-                    'SELECT uuid, properties FROM posthog_person WHERE team_id = $1',
-                    [team.id],
+                    'verify-primary-complex-merge',
                     'verify-secondary-complex-merge'
                 )
 
-                expect(primaryPerson.rows.length).toBe(1)
-                expect(primaryPerson.rows[0].properties).toMatchObject({
+                expectRowCountsEqual(personResults.primary, personResults.secondary, 1)
+                expect(personResults.primary.rows[0].properties).toMatchObject({
                     prop1: 'value1',
                     prop2: 'value2',
                     merged: true,
                     complexProp: 'complex value',
                 })
-                expect(secondaryPerson.rows).toEqual(primaryPerson.rows)
+                expectRowsEqual(personResults.primary, personResults.secondary)
 
                 // Verify both distinct IDs point to merged person
                 const primaryDistincts = await postgres.query(
@@ -2669,20 +2698,16 @@ describe('DualWrite Person ingestion integration', () => {
                 expect(Number(secondaryPersons.rows[0].count)).toBe(1)
 
                 // Verify both DBs have same state
-                const primaryPerson = await postgres.query(
-                    PostgresUse.PERSONS_READ,
+                const personResults = await queryBothDatabases(
+                    postgres,
+                    migrationPostgres,
                     'SELECT uuid, properties FROM posthog_person WHERE team_id = $1 AND uuid = $2',
                     [team.id, uuid],
-                    'get-primary-collision-person'
-                )
-                const secondaryPerson = await migrationPostgres.query(
-                    PostgresUse.PERSONS_READ,
-                    'SELECT uuid, properties FROM posthog_person WHERE team_id = $1 AND uuid = $2',
-                    [team.id, uuid],
+                    'get-primary-collision-person',
                     'get-secondary-collision-person'
                 )
 
-                expect(secondaryPerson.rows).toEqual(primaryPerson.rows)
+                expectRowsEqual(personResults.primary, personResults.secondary)
             })
         })
 
