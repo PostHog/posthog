@@ -109,7 +109,7 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
     },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',
-        description: 'Find issues affecting your conversion, activation, or any other events',
+        description: 'Find impactful issues affecting your conversion, activation, or any other events',
         product: Scene.ErrorTracking,
         flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
     },
