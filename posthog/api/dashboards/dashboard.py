@@ -602,38 +602,37 @@ async def serialize_tile_async(tile, order: int, base_context: dict) -> dict:
         tile.layouts = json.loads(tile.layouts)
 
     try:
-        # For tiles with insights, use the async insight serialization
-        if tile.insight:
-            # Create insight serializer with isolated context
-            insight_serializer = InsightSerializer(tile.insight, context=context)
+        # Use the regular DashboardTileSerializer for full compatibility
+        serializer = DashboardTileSerializer(tile, many=False, context=context)
+        tile_data = await sync_to_async(lambda: serializer.data)()
 
-            # Use the async insight_result method for S3 operations
-            insight_result = await insight_serializer.ainsight_result(tile.insight)
+        # For tiles with insights, enhance with async S3 operations if needed
+        if tile.insight and hasattr(InsightSerializer, "ainsight_result"):
+            try:
+                # Get the insight serializer to potentially use async methods
+                insight_serializer = InsightSerializer(tile.insight, context=context)
 
-            # Build tile data manually to avoid double serialization
-            tile_data = {
-                "id": tile.id,
-                "insight": {
-                    "id": tile.insight.id,
-                    "name": tile.insight.name,
-                    "result": insight_result.result,
-                    "last_refresh": insight_result.last_refresh,
-                    "is_cached": insight_result.is_cached,
-                    "query_status": insight_result.query_status,
-                    # Add other insight fields as needed
-                },
-                "layouts": tile.layouts,
-                "color": tile.color,
-                "order": order,
-                "last_refresh": insight_result.last_refresh,
-                "is_cached": insight_result.is_cached,
-            }
-            return tile_data
-        else:
-            # For non-insight tiles (text tiles), use sync serialization
-            serializer = DashboardTileSerializer(tile, many=False, context=context)
-            data = await sync_to_async(lambda: serializer.data)()
-            return data
+                # Use async insight result for better S3 performance
+                insight_result = await insight_serializer.ainsight_result(tile.insight)
+
+                # Update the tile data with async results
+                if tile_data.get("insight"):
+                    tile_data["insight"]["result"] = insight_result.result
+                    tile_data["insight"]["last_refresh"] = insight_result.last_refresh
+                    tile_data["insight"]["is_cached"] = insight_result.is_cached
+                    tile_data["insight"]["query_status"] = insight_result.query_status
+                    tile_data["last_refresh"] = insight_result.last_refresh
+                    tile_data["is_cached"] = insight_result.is_cached
+            except Exception as e:
+                # If async fails, keep the sync result
+                logger.warning(
+                    "async_insight_result_failed",
+                    tile_id=tile.id,
+                    error=str(e),
+                    exc_info=e,
+                )
+
+        return tile_data
 
     except pydantic_core.ValidationError as e:
         # Handle broken query objects gracefully (original logic)
@@ -738,7 +737,7 @@ class DashboardsViewSet(
 
     @action(detail=True, methods=["get"], url_path="async")
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard_async", method="GET")
-    async def retrieve_async(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def retrieve_async(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Async version of retrieve with concurrent S3 calls for dashboard tiles.
 
         This endpoint provides significant performance improvements for dashboards with many tiles
@@ -746,39 +745,60 @@ class DashboardsViewSet(
 
         Access via: /api/environments/{team_id}/dashboards/{id}/async/
         """
-        dashboard = await sync_to_async(self.get_object)()
-        dashboard.last_accessed_at = now()
-        await sync_to_async(dashboard.save)(update_fields=["last_accessed_at"])
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
 
-        # Get serializer context
-        context = await sync_to_async(self.get_serializer_context)()
+        async def _async_retrieve():
+            dashboard = await sync_to_async(self.get_object)()
+            dashboard.last_accessed_at = now()
+            await sync_to_async(dashboard.save)(update_fields=["last_accessed_at"])
 
-        # Create serializer instance
-        serializer = DashboardSerializer(dashboard, context=context)
+            # Get serializer context
+            context = await sync_to_async(self.get_serializer_context)()
 
-        # Use the async get_tiles method for concurrent S3 operations
-        tiles_data = await serializer.aget_tiles(dashboard)
+            # Create serializer instance
+            serializer = DashboardSerializer(dashboard, context=context)
 
-        # Get other dashboard data synchronously (since they don't involve S3)
-        filters_data = serializer.get_filters(dashboard)
-        variables_data = serializer.get_variables(dashboard)
+            # Use the async get_tiles method for concurrent S3 operations
+            tiles_data = await serializer.aget_tiles(dashboard)
 
-        # Build response data manually to use our async tile data
-        data = {
-            "id": dashboard.id,
-            "name": dashboard.name,
-            "description": dashboard.description,
-            "pinned": dashboard.pinned,
-            "created_at": dashboard.created_at,
-            "is_shared": dashboard.is_sharing_enabled,
-            "deleted": dashboard.deleted,
-            "creation_mode": dashboard.creation_mode,
-            "tiles": tiles_data,
-            "filters": filters_data,
-            "variables": variables_data,
-            "last_refresh": dashboard.last_refresh,
-            # Add other dashboard fields as needed to match original response
-        }
+            # Get other dashboard data (wrap in sync_to_async for ORM calls)
+            filters_data = await sync_to_async(serializer.get_filters)(dashboard)
+            variables_data = await sync_to_async(serializer.get_variables)(dashboard)
+
+            # Build response data manually to use our async tile data
+            data = {
+                "id": dashboard.id,
+                "name": dashboard.name,
+                "description": dashboard.description,
+                "pinned": dashboard.pinned,
+                "created_at": dashboard.created_at,
+                "is_shared": dashboard.is_sharing_enabled,
+                "deleted": dashboard.deleted,
+                "creation_mode": dashboard.creation_mode,
+                "tiles": tiles_data,
+                "filters": filters_data,
+                "variables": variables_data,
+                "last_refresh": dashboard.last_refresh,
+                # Add other dashboard fields as needed to match original response
+            }
+
+            return data
+
+        # Use a thread pool executor to run async code without conflicts
+        def run_async_in_thread():
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(_async_retrieve())
+            finally:
+                loop.close()
+
+        # Execute in a separate thread to avoid CurrentThreadExecutor issues
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(run_async_in_thread)
+            data = future.result()
 
         return Response(data)
 

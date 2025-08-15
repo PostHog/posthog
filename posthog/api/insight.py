@@ -1,3 +1,4 @@
+import asyncio
 import json
 from functools import lru_cache
 import logging
@@ -1133,7 +1134,7 @@ When set, the specified dashboard's filters and date range override will be appl
         ]
     )
     @monitor(feature=Feature.INSIGHT, endpoint="insight_async", method="GET")
-    async def retrieve_async(self, request, *args, **kwargs):
+    def retrieve_async(self, request, *args, **kwargs):
         """Async version of insight retrieve with concurrent S3 cache operations.
 
         This endpoint provides performance improvements for insights with S3 caching
@@ -1141,55 +1142,61 @@ When set, the specified dashboard's filters and date range override will be appl
 
         Access via: /api/environments/{team_id}/insights/{id}/async/
         """
-        instance = await sync_to_async(self.get_object)()
-        serializer_context = await sync_to_async(self.get_serializer_context)()
 
-        dashboard_tile: Optional[DashboardTile] = None
-        dashboard_id = request.query_params.get("from_dashboard", None)
-        if dashboard_id is not None:
-            dashboard_tile = await sync_to_async(
-                lambda: DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=instance.id)
-                .select_related("dashboard")
-                .first()
-            )()
+        async def _async_retrieve():
+            instance = await sync_to_async(self.get_object)()
+            serializer_context = await sync_to_async(self.get_serializer_context)()
 
-        if dashboard_tile is not None:
-            # context is used in the to_representation method to report filters used
-            serializer_context.update({"dashboard": dashboard_tile.dashboard})
+            dashboard_tile: Optional[DashboardTile] = None
+            dashboard_id = request.query_params.get("from_dashboard", None)
+            if dashboard_id is not None:
+                dashboard_tile = await sync_to_async(
+                    lambda: DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=instance.id)
+                    .select_related("dashboard")
+                    .first()
+                )()
 
-        # Create serializer and use async insight result method
-        serializer = InsightSerializer(instance, context=serializer_context)
+            if dashboard_tile is not None:
+                # context is used in the to_representation method to report filters used
+                serializer_context.update({"dashboard": dashboard_tile.dashboard})
 
-        # Use the async insight_result method for S3 operations
-        insight_result = await serializer.ainsight_result(instance)
+            # Create serializer and use async insight result method
+            serializer = InsightSerializer(instance, context=serializer_context)
 
-        # Build serialized data manually using async result
-        serialized_data = {
-            "id": instance.id,
-            "short_id": instance.short_id,
-            "name": instance.name,
-            "derived_name": instance.derived_name,
-            "description": instance.description,
-            "result": insight_result.result,
-            "last_refresh": insight_result.last_refresh,
-            "is_cached": insight_result.is_cached,
-            "query_status": insight_result.query_status,
-            "created_at": instance.created_at,
-            "updated_at": instance.updated_at,
-            "query": instance.query,
-            # Add other fields as needed to match original response
-        }
+            # Use the async insight_result method for S3 operations
+            insight_result = await serializer.ainsight_result(instance)
 
-        if dashboard_tile is not None:
-            serialized_data["color"] = dashboard_tile.color
-            layouts = dashboard_tile.layouts
-            # workaround because DashboardTiles layouts were migrated as stringified JSON :/
-            if isinstance(layouts, str):
-                layouts = json.loads(layouts)
+            # Build serialized data manually using async result
+            serialized_data = {
+                "id": instance.id,
+                "short_id": instance.short_id,
+                "name": instance.name,
+                "derived_name": instance.derived_name,
+                "description": instance.description,
+                "result": insight_result.result,
+                "last_refresh": insight_result.last_refresh,
+                "is_cached": insight_result.is_cached,
+                "query_status": insight_result.query_status,
+                "created_at": instance.created_at,
+                "updated_at": instance.updated_at,
+                "query": instance.query,
+                # Add other fields as needed to match original response
+            }
 
-            serialized_data["layouts"] = layouts
+            if dashboard_tile is not None:
+                serialized_data["color"] = dashboard_tile.color
+                layouts = dashboard_tile.layouts
+                # workaround because DashboardTiles layouts were migrated as stringified JSON :/
+                if isinstance(layouts, str):
+                    layouts = json.loads(layouts)
 
-        return Response(serialized_data)
+                serialized_data["layouts"] = layouts
+
+            return serialized_data
+
+        # Run the async code and return the Response
+        data = asyncio.run(_async_retrieve())
+        return Response(data)
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
