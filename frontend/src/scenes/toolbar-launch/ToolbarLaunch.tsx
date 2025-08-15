@@ -1,3 +1,4 @@
+import { LemonBanner } from '@posthog/lemon-ui'
 import './ToolbarLaunch.scss'
 
 import { IconFlag, IconPieChart, IconSearch, IconTestTube, IconToolbar } from '@posthog/icons'
@@ -10,8 +11,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { SceneContent, SceneSection, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SceneContent, SceneDivider, SceneSection, SceneTitleSection } from '~/layout/scenes/SceneContent'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -83,7 +83,7 @@ export function ToolbarLaunch(): JSX.Element {
                     </LemonBanner>
                 </SceneSection>
 
-                <SceneSection title="Features" description="The toolbar launches PostHog right in your app or website.">
+                <SceneSection title="" description="" hideTitleAndDescription>
                     <div className="grid grid-cols-2 gap-4 max-w-[800px] mb-6 mt-4 mx-auto">
                         {features.map((feature) => (
                             <FeatureHighlight key={feature.title} {...feature} />

@@ -60,9 +60,9 @@ export function SceneSection({
     if (isLoading) {
         return (
             <div className={cn('flex flex-col gap-4', className)}>
-                {(title || description) && (
+                {!hideTitleAndDescription && (
                     <div className="flex flex-col gap-0">
-                        {title && <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>}
+                        <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
                         {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                     </div>
                 )}
@@ -77,9 +77,9 @@ export function SceneSection({
 
     return (
         <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>
-            {(title || description) && (
+            {!hideTitleAndDescription && (
                 <div className="flex flex-col gap-0">
-                    {title && <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>}
+                    <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
                     {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                 </div>
             )}
