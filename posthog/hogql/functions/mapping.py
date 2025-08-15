@@ -1644,7 +1644,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS["languageCodeToName"] = HogQLFunctionMeta(
         ast.Constant(value=LANGUAGE_NAMES),
         ast.Constant(value="Unknown"),
     ],
-    signatures=[((StringType(),), StringType())]
+    signatures=[((StringType(),), StringType())],
 )
 
 # Permitted HogQL aggregations
