@@ -101,6 +101,8 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesHourlyTable,
     WebStatsCombinedTable,
     WebBouncesCombinedTable,
+    WebPreAggregatedStatsTable,
+    WebPreAggregatedBouncesTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -160,6 +162,10 @@ class Database(BaseModel):
     web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
     web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
     web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
+
+    # V2 Pre-aggregated tables (will replace the above tables after we backfill)
+    web_pre_aggregated_stats: WebPreAggregatedStatsTable = WebPreAggregatedStatsTable()
+    web_pre_aggregated_bounces: WebPreAggregatedBouncesTable = WebPreAggregatedBouncesTable()
 
     # Revenue analytics tables
     persons_revenue_analytics: PersonsRevenueAnalyticsTable = PersonsRevenueAnalyticsTable()
