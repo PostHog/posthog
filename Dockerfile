@@ -142,7 +142,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 
 # Install runtime deps for video export (ffmpeg for MP4/GIF transcoding)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
+    ffmpeg=7:5.1.6-0+deb12u1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Pre-install Playwright's Chromium into the image so workers can launch a browser at runtime
