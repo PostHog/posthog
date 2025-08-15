@@ -170,6 +170,42 @@ export function EventDefinitionsTable(): JSX.Element {
                     onChange={(v) => setFilters({ event: v || '' })}
                     value={filters.event}
                 />
+                <SceneDivider />
+                <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
+                    Looking for{' '}
+                    {filters.event_type === 'event_custom'
+                        ? 'custom '
+                        : filters.event_type === 'event_posthog'
+                          ? 'PostHog '
+                          : ''}
+                    event usage statistics?{' '}
+                    <Link
+                        to={urls.insightNewHogQL({
+                            query:
+                                'SELECT event, count()\n' +
+                                'FROM events\n' +
+                                'WHERE {filters}\n' +
+                                (filters.event_type === 'event_custom'
+                                    ? "AND event NOT LIKE '$%'\n"
+                                    : filters.event_type === 'event_posthog'
+                                      ? "AND event LIKE '$%'\n"
+                                      : '') +
+                                'GROUP BY event\n' +
+                                'ORDER BY count() DESC',
+                            filters: { dateRange: { date_from: '-24h' } },
+                        })}
+                    >
+                        Query with SQL
+                    </Link>
+                </LemonBanner>
+            </div>
+            <div className={cn('flex justify-between items-center gap-2', !newSceneLayout && 'mb-4')}>
+                <LemonInput
+                    type="search"
+                    placeholder="Search for events"
+                    onChange={(v) => setFilters({ event: v || '' })}
+                    value={filters.event}
+                />
                 <div className="flex items-center gap-2">
                     <span>Type:</span>
                     <LemonSelect
@@ -184,6 +220,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     />
                 </div>
             </div>
+
             <LemonTable
                 columns={columns}
                 data-attr="events-definition-table"
