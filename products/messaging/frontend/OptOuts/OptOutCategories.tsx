@@ -8,7 +8,6 @@ import { useActions, useValues } from 'kea'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
 import { NewCategoryModal } from './NewCategoryModal'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 interface MessageCategory {
     id: string
@@ -50,7 +49,7 @@ export function OptOutCategories(): JSX.Element {
                                 <div className="text-xs text-muted">{category.description}</div>
                             </div>
                             <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
-                                {capitalizeFirstLetter(category.category_type)}
+                                {category.category_type.toUpperCase()}
                             </LemonTag>
                         </div>
                         <More
