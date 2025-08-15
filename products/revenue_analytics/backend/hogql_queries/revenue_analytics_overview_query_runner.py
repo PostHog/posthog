@@ -104,7 +104,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
             ),
         )
 
-    def calculate(self):
+    def _calculate(self):
         response = execute_hogql_query(
             query_type="revenue_analytics_overview_query",
             query=self.to_query(),

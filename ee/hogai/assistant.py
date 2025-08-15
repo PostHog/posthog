@@ -56,6 +56,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -75,19 +76,19 @@ from posthog.schema import (
 )
 from posthog.sync import database_sync_to_async
 
-VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
+VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
     AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
     AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
-VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]] = {
+VISUALIZATION_NODES_TOOL_CALL_MODE: dict[MaxNodeName, type[AssistantNode]] = {
     **VISUALIZATION_NODES,
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
-STREAMING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
+STREAMING_NODES: set[MaxNodeName] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
@@ -100,14 +101,14 @@ STREAMING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES: set[AssistantNodeName | TaxonomyNodeName] = STREAMING_NODES | {
+VERBOSE_NODES: set[MaxNodeName] = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
     TaxonomyNodeName.TOOLS_NODE,
 }
 """Nodes that can send messages to the client."""
 
-THINKING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
+THINKING_NODES: set[MaxNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
@@ -164,8 +165,6 @@ class Assistant:
                 self._graph = AssistantGraph(team, user).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
                 self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
-            case _:
-                raise ValueError(f"Invalid assistant mode: {mode}")
         self._chunks = AIMessageChunk(content="")
         self._tool_call_partial_state = tool_call_partial_state
         self._state = None
@@ -363,7 +362,7 @@ class Assistant:
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: AssistantNodeName | TaxonomyNodeName, input: AssistantState
+        self, node_name: MaxNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
             case AssistantNodeName.QUERY_PLANNER | TaxonomyNodeName.LOOP_NODE:
@@ -463,14 +462,14 @@ class Assistant:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
         # this needs full type annotation otherwise mypy complains
-        visualization_nodes: (
-            dict[AssistantNodeName, type[AssistantNode]] | dict[AssistantNodeName, type[SchemaGeneratorNode]]
-        ) = VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
+        visualization_nodes: dict[MaxNodeName, type[AssistantNode]] | dict[MaxNodeName, type[SchemaGeneratorNode]] = (
+            VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
+        )
         if intersected_nodes := state_update.keys() & visualization_nodes.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
-            node_name: AssistantNodeName | TaxonomyNodeName = intersected_nodes.pop()
+            node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if not isinstance(node_val, PartialAssistantState):
                 return None
@@ -501,7 +500,7 @@ class Assistant:
         if not isinstance(langchain_message, AIMessageChunk):
             return None
 
-        node_name: AssistantNodeName | TaxonomyNodeName = langgraph_state["langgraph_node"]
+        node_name: MaxNodeName = langgraph_state["langgraph_node"]
 
         # Check for reasoning content first (for all nodes that support it)
         if reasoning := langchain_message.additional_kwargs.get("reasoning"):
