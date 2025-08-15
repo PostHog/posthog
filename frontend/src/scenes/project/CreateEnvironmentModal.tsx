@@ -34,7 +34,10 @@ export function CreateEnvironmentModal({
     }
     const handleSubmit = (): void => {
         createTeam({ name, is_demo: false })
-        reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
+        const teams = Array.isArray(currentOrganization?.teams) 
+            ? currentOrganization.teams 
+            : currentOrganization?.teams?.results || []
+        reportProjectCreationSubmitted(teams.length, name.length)
     }
 
     // Anytime the team changes close the modal as it indicates we have created a new team

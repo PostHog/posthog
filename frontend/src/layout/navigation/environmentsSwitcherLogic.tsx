@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -24,9 +24,11 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
     path(['layout', 'navigation', 'environmentsSwitcherLogic']),
     connect(() => ({
         values: [userLogic, ['user'], teamLogic, ['currentTeam'], organizationLogic, ['currentOrganization']],
+        actions: [organizationLogic, ['loadCurrentOrganizationProjects', 'loadCurrentOrganizationTeams']],
     })),
     actions({
         setEnvironmentSwitcherSearch: (input: string) => ({ input }),
+        loadMoreProjectsAndTeams: () => ({}),
     }),
     reducers({
         environmentSwitcherSearch: [
@@ -42,10 +44,17 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
             (currentOrganization, currentTeam): TeamBasicTypeWithProjectName[] => {
                 const collection: TeamBasicTypeWithProjectName[] = []
                 if (currentOrganization) {
+                    const projects = Array.isArray(currentOrganization.projects) 
+                        ? currentOrganization.projects 
+                        : currentOrganization.projects?.results || []
+                    const teams = Array.isArray(currentOrganization.teams) 
+                        ? currentOrganization.teams 
+                        : currentOrganization.teams?.results || []
+                    
                     const projectIdToName = Object.fromEntries(
-                        currentOrganization.projects.map((project) => [project.id, project.name])
+                        projects.map((project) => [project.id, project.name])
                     )
-                    for (const team of currentOrganization.teams) {
+                    for (const team of teams) {
                         collection.push({
                             ...team,
                             project_name: projectIdToName[team.project_id],
@@ -89,12 +98,15 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
                 if (!currentOrganization) {
                     return []
                 }
-                const collection: ProjectBasicType[] = currentOrganization.projects.slice()
+                const projects = Array.isArray(currentOrganization.projects) 
+                    ? currentOrganization.projects 
+                    : currentOrganization.projects?.results || []
+                const collection: ProjectBasicType[] = projects.slice()
                 collection.sort((a, b) => {
                     // Sorting logic: 1. first by whether the project is the current project, 2. then by project name
-                    if (a.id === currentTeam?.id) {
+                    if (a.id === currentTeam?.project_id) {
                         return -1
-                    } else if (b.id === currentTeam?.id) {
+                    } else if (b.id === currentTeam?.project_id) {
                         return 1
                     }
                     return a.name.localeCompare(b.name)
@@ -136,4 +148,13 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        loadMoreProjectsAndTeams: async () => {
+            // Load all projects and teams if not already loaded
+            await Promise.all([
+                actions.loadCurrentOrganizationProjects({ limit: 1000, offset: 0 }),
+                actions.loadCurrentOrganizationTeams({ limit: 1000, offset: 0 }),
+            ])
+        },
+    })),
 ])

@@ -43,6 +43,7 @@ export function ProjectDropdownMenu({
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { loadCurrentOrganizationTeams } = useActions(organizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
@@ -50,7 +51,19 @@ export function ProjectDropdownMenu({
     }
 
     return isAuthenticatedTeam(currentTeam) ? (
-        <PopoverPrimitive>
+        <PopoverPrimitive
+            onOpenChange={(open) => {
+                if (open) {
+                    // Check if we have paginated data structure, if so, load more
+                    const teams = currentOrganization?.teams
+                    const hasTeamsPagination = teams && typeof teams === 'object' && 'next' in teams && teams.next
+                    
+                    if (hasTeamsPagination) {
+                        loadCurrentOrganizationTeams({ limit: 1000, offset: 0 })
+                    }
+                }
+            }}
+        >
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="tree-navbar-project-dropdown-button"
@@ -77,7 +90,9 @@ export function ProjectDropdownMenu({
                                         AvailableFeature.ORGANIZATIONS_PROJECTS,
                                         showCreateProjectModal,
                                         {
-                                            currentUsage: currentOrganization?.teams?.length,
+                                            currentUsage: (Array.isArray(currentOrganization?.teams) 
+                                                ? currentOrganization.teams 
+                                                : currentOrganization?.teams?.results || [])?.length,
                                         }
                                     )
                                 }
@@ -141,7 +156,9 @@ export function ProjectDropdownMenu({
                         </Label>
                         <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
 
-                        {currentOrganization?.teams
+                        {(Array.isArray(currentOrganization?.teams) 
+                            ? currentOrganization.teams 
+                            : currentOrganization?.teams?.results || [])
                             .filter((team) => team.id !== currentTeam?.id)
                             .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
                             .map((team) => {
