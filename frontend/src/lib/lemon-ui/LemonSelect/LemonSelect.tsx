@@ -15,6 +15,7 @@ import {
 } from '../LemonMenu/LemonMenu'
 import { PopoverProps } from '../Popover'
 import { TooltipProps } from '../Tooltip'
+import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
 
 // Select options are basically menu items that handle onClick and active state internally
 interface LemonSelectOptionBase extends Omit<LemonMenuItemBase, 'active' | 'status'> {
@@ -76,7 +77,8 @@ export interface LemonSelectPropsBase<T>
     placeholder?: string
     size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
-    visible?: boolean
+    visible?: LemonDropdownProps['visible']
+    startVisible?: LemonDropdownProps['startVisible']
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -114,6 +116,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     menu,
     renderButtonContent,
     visible,
+    startVisible,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -143,6 +146,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
             visible={visible}
+            startVisible={startVisible}
         >
             <LemonButton
                 className={clsx(className, 'LemonSelect')}
