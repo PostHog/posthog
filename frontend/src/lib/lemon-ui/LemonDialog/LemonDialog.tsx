@@ -191,12 +191,21 @@ export const LemonFormDialog = ({
         <Form
             logic={lemonDialogLogic}
             formKey="form"
-            onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>): void => {
-                if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
-                    void onSubmit(form)
-                    ref?.current?.closeDialog()
-                }
-            }}
+            onKeyDown={
+                props.shouldAwaitSubmit
+                    ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
+                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                              void onSubmit(form)
+                              ref?.current?.closeDialog()
+                          }
+                      }
+                    : (e: React.KeyboardEvent<HTMLFormElement>): void => {
+                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                              void onSubmit(form)
+                              ref?.current?.closeDialog()
+                          }
+                      }
+            }
         >
             <LemonDialog
                 ref={ref}
