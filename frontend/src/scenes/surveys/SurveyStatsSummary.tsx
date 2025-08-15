@@ -289,10 +289,14 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
 
     return (
         <SurveyStatsContainer>
-            {filterSurveyStatsByDistinctId ? (
-                <UsersCount stats={processedSurveyStats} rates={surveyRates} />
-            ) : (
-                <ResponsesCount stats={processedSurveyStats} rates={surveyRates} />
+            {surveyRates && (
+                <>
+                    {filterSurveyStatsByDistinctId ? (
+                        <UsersCount stats={processedSurveyStats} rates={surveyRates} />
+                    ) : (
+                        <ResponsesCount stats={processedSurveyStats} rates={surveyRates} />
+                    )}
+                </>
             )}
             <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
         </SurveyStatsContainer>

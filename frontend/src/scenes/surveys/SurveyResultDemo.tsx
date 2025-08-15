@@ -53,7 +53,7 @@ function DemoDataTable(): JSX.Element {
 
     // Transform demo data into table format
     const tableData = useMemo(() => {
-        return surveyDemoData.demoResults.map((row, index) => {
+        return surveyDemoData.demoResults.map((row: any, index: number) => {
             const responseData: Record<string, any> = {}
 
             // Add question responses
