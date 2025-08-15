@@ -142,6 +142,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return {
                 "id": obj.id,
                 "short_id": obj.short_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
+            return {
+                "id": obj.id,
                 "name": obj.name,
                 "team_id": obj.team_id,
             }
@@ -214,6 +218,16 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
+    },
+    "Organization": {
+        "name": "organization name",
+        "enforce_2fa": "two-factor authentication requirement",
+        "members_can_invite": "member invitation permissions",
+        "members_can_use_personal_api_keys": "personal API key permissions",
+        "allow_publicly_shared_resources": "public sharing permissions",
+        "is_member_join_email_enabled": "member join email notifications",
+        "session_cookie_age": "session cookie age",
+        "default_experiment_stats_method": "default experiment stats method",
     },
 }
 
@@ -348,6 +362,15 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "customer_id",
         "customer_trust_scores",
         "personalization",
+        "members",
+        "memberships",
+        "available_product_features",
+        "domain_whitelist",
+        "setup_section_2_completed",
+        "plugins_access_level",
+        "is_hipaa",
+        "is_ai_data_processing_approved",
+        "never_drop_data",
     ],
     "BatchExport": [
         "latest_runs",
@@ -559,7 +582,7 @@ def dict_changes_between(
 def log_activity(
     *,
     organization_id: Optional[UUID],
-    team_id: int,
+    team_id: Optional[int],
     user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,

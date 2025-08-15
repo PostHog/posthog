@@ -179,6 +179,39 @@ export const cohortsModel = kea<cohortsModelType>([
                 }
             },
         },
+        // Update allCohorts state to keep breadcrumbs in sync when cohorts are modified
+        // The cohortsById selector depends on allCohorts, not cohorts
+        allCohorts: {
+            updateCohort: (state, { cohort }) => {
+                if (!cohort) {
+                    return state
+                }
+                return {
+                    ...state,
+                    results: state.results.map((existingCohort) =>
+                        existingCohort.id === cohort.id ? cohort : existingCohort
+                    ),
+                }
+            },
+            cohortCreated: (state, { cohort }) => {
+                if (!cohort) {
+                    return state
+                }
+                return {
+                    ...state,
+                    results: [cohort, ...state.results],
+                }
+            },
+            deleteCohort: (state, { cohort }) => {
+                if (!cohort.id) {
+                    return state
+                }
+                return {
+                    ...state,
+                    results: state.results.filter((c) => c.id !== cohort.id),
+                }
+            },
+        },
     }),
     selectors({
         cohortsById: [
