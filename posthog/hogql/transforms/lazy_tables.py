@@ -214,7 +214,11 @@ class LazyTableResolver(TraversingVisitor):
             # TODO: the code below needs a good refactor... it's very repetitive
             for table_type in reversed(table_types):
                 if isinstance(table_type, ast.LazyJoinType):
-                    from_table = get_long_table_name(select_type, table_type.table_type)
+                    if isinstance(table_type.table_type, ast.VirtualTableType):
+                        from_table = get_long_table_name(select_type, table_type.table_type.table_type)
+                    else:
+                        from_table = get_long_table_name(select_type, table_type.table_type)
+
                     to_table = get_long_table_name(select_type, table_type)
                     if to_table not in joins_to_add:
                         joins_to_add[to_table] = LazyJoinToAdd(

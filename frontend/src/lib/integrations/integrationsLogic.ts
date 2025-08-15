@@ -1,4 +1,4 @@
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -7,7 +7,7 @@ import { fromParamsGivenUrl } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { IntegrationKind, IntegrationType } from '~/types'
+import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 import { ICONS } from './utils'
@@ -111,7 +111,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         handleGithubCallback: async ({ searchParams }) => {
             const { state, installation_id } = searchParams
 
@@ -175,8 +175,27 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
 
         deleteIntegration: async ({ id }) => {
-            await api.integrations.delete(id)
-            actions.loadIntegrations()
+            const integration = values.integrations?.find((x) => x.id === id)
+            if (!integration) {
+                return
+            }
+
+            LemonDialog.open({
+                title: `Do you want to disconnect from this ${integration.kind} integration?`,
+                description:
+                    'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
+                primaryButton: {
+                    children: 'Yes, disconnect',
+                    status: 'danger',
+                    onClick: async () => {
+                        await api.integrations.delete(id)
+                        actions.loadIntegrations()
+                    },
+                },
+                secondaryButton: {
+                    children: 'No thanks',
+                },
+            })
         },
     })),
     afterMount(({ actions }) => {
@@ -210,6 +229,28 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (preflight) => {
                 // TODO: Change this to be based on preflight or something
                 return preflight?.slack_service?.available
+            },
+        ],
+
+        domainGroupedEmailIntegrations: [
+            (s) => [s.integrations],
+            (integrations): EmailIntegrationDomainGroupedType[] => {
+                const domainGroupedIntegrations: Record<string, EmailIntegrationDomainGroupedType> = {}
+
+                integrations
+                    ?.filter((x) => x.kind === 'email')
+                    .forEach((integration) => {
+                        const domain = integration.config.domain
+                        if (!domainGroupedIntegrations[domain]) {
+                            domainGroupedIntegrations[domain] = {
+                                domain,
+                                integrations: [],
+                            }
+                        }
+                        domainGroupedIntegrations[domain].integrations.push(integration)
+                    })
+
+                return Object.values(domainGroupedIntegrations)
             },
         ],
     }),

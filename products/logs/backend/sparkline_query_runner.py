@@ -12,7 +12,7 @@ from products.logs.backend.logs_query_runner import (
 
 
 class SparklineQueryRunner(LogsQueryRunner):
-    def calculate(self) -> LogsQueryResponse:
+    def _calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = execute_hogql_query(

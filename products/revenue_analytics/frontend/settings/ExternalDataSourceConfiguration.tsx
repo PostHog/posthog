@@ -26,7 +26,7 @@ export function ExternalDataSourceConfiguration({
 
     return (
         <div>
-            <h3 className="mb-2">Data Warehouse Sources Configuration</h3>
+            <h3 className="mb-2">Data warehouse sources configuration</h3>
             <p className="mb-4">
                 PostHog can display revenue data in our Revenue Analytics product from the following data warehouse
                 sources. You can enable/disable each source to stop it from being used for revenue data. You can also
@@ -99,8 +99,11 @@ export function ExternalDataSourceConfiguration({
                             )
 
                             return (
-                                <span className="flex flex-row items-center gap-2">
-                                    Joined to <code>persons</code> via:
+                                <span className="flex flex-row items-center gap-2 my-2">
+                                    <span>
+                                        Joined to <code>persons</code> via:
+                                    </span>
+
                                     {join ? (
                                         <LemonButton
                                             type="secondary"
@@ -113,6 +116,7 @@ export function ExternalDataSourceConfiguration({
                                         <LemonButton
                                             type="secondary"
                                             size="small"
+                                            icon={<IconPlus />}
                                             onClick={() =>
                                                 // This is all very hardcoded, but it's the exact kind of join we want to add
                                                 // and that we're expecting in the backend.

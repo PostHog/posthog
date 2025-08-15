@@ -73,7 +73,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
 
             return select_query
 
-    def calculate(self) -> WebPageURLSearchQueryResponse:
+    def _calculate(self) -> WebPageURLSearchQueryResponse:
         query = self._get_hogql_query()
         limit = self.query.limit or PAGE_URL_SEARCH_DEFAULT_LIMIT
 

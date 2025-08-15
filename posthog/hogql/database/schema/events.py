@@ -16,6 +16,10 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
+from posthog.hogql.database.schema.revenue_analytics import (
+    RawPersonsRevenueAnalyticsTable,
+    join_with_persons_revenue_analytics_table,
+)
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -23,6 +27,11 @@ class EventsPersonSubTable(VirtualTable):
         "id": StringDatabaseField(name="person_id", nullable=False),
         "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
         "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
+        "revenue_analytics": LazyJoin(
+            from_field=["person_id"],
+            join_table=RawPersonsRevenueAnalyticsTable(),
+            join_function=join_with_persons_revenue_analytics_table,
+        ),
     }
 
     def to_printed_clickhouse(self, context):

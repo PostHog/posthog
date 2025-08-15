@@ -6,7 +6,7 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action
 from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 
-class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
+class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
     """
     Retrieves the event or action taxonomy for the last 30 days: properties and N-most
     frequent property values for a property.
@@ -26,7 +26,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

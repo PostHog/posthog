@@ -12,7 +12,7 @@ from posthog.warehouse.types import ExternalDataSourceType
 # This is required because we can't instantiate the base class directly
 # since it doesn't implement two abstract methods
 class RevenueAnalyticsQueryRunnerImpl(RevenueAnalyticsQueryRunner):
-    def calculate(self):
+    def _calculate(self):
         raise NotImplementedError()
 
     def to_query(self):

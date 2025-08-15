@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
@@ -32,7 +32,7 @@ class VolumeOptions:
     resolution: int
 
 
-class ErrorTrackingQueryRunner(QueryRunner):
+class ErrorTrackingQueryRunner(AnalyticsQueryRunner):
     query: ErrorTrackingQuery
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
@@ -428,7 +428,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return ast.And(exprs=exprs)
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),

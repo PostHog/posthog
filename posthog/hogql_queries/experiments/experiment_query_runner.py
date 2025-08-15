@@ -260,7 +260,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         return sorted_results
 
-    def calculate(self) -> ExperimentQueryResponse:
+    def _calculate(self) -> ExperimentQueryResponse:
         try:
             sorted_results = self._evaluate_experiment_query()
 

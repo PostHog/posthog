@@ -1,24 +1,38 @@
-import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { integrationsLogic } from './integrationsLogic'
 
 export function IntegrationView({
     integration,
     suffix,
     schema,
-    isVerificationRequired,
-    isVerified,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
     schema?: CyclotronJobInputSchemaType
-    isVerificationRequired?: boolean
-    isVerified?: boolean
 }): JSX.Element {
+    const { deleteIntegration } = useActions(integrationsLogic)
+
     const errors = (integration.errors && integration.errors?.split(',')) || []
+
+    suffix = suffix || (
+        <div className="flex flex-row gap-2">
+            <LemonButton
+                type="secondary"
+                status="danger"
+                onClick={() => deleteIntegration(integration.id)}
+                icon={<IconTrash />}
+            >
+                Disconnect
+            </LemonButton>
+        </div>
+    )
 
     return (
         <div className="rounded border bg-surface-primary">
@@ -30,19 +44,6 @@ export function IntegrationView({
                             <span>
                                 Connected to <strong>{integration.display_name}</strong>
                             </span>
-                            {isVerificationRequired && (
-                                <Tooltip
-                                    title={
-                                        isVerified
-                                            ? 'This channel is ready to use'
-                                            : 'You cannot send messages from this channel until it has been verified'
-                                    }
-                                >
-                                    <LemonTag type={isVerified ? 'success' : 'warning'}>
-                                        {isVerified ? 'Verified' : 'Unverified'}
-                                    </LemonTag>
-                                </Tooltip>
-                            )}
                         </div>
                         {integration.created_by ? (
                             <UserActivityIndicator

@@ -114,7 +114,7 @@ GROUP BY "context.columns.url"
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         response = self.paginator.execute_hogql_query(
             query_type="stats_table_query",

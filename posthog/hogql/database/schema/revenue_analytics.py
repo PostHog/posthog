@@ -28,7 +28,7 @@ def join_with_persons_revenue_analytics_table(
         constraint=ast.JoinConstraint(
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
                 right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
             ),
             constraint_type="ON",
@@ -112,6 +112,10 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
                                                 "timestamp",
                                             ]
                                         ),
+                                        # For POE, we *should* be able to use the events.timestamp field
+                                        # but that's not possible given Clickhouse's limitations on what you can do in a subquery
+                                        # We should figure out a way to do this in the future
+                                        # "toDate(events.timestamp) - INTERVAL {interval} DAY" if is_poe else "today() - INTERVAL {interval} DAY",
                                         right=parse_expr("today() - INTERVAL 30 DAY"),
                                     ),
                                 ],

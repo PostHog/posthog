@@ -611,7 +611,7 @@ GROUP BY session_id, breakdown_value
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion

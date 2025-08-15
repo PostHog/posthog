@@ -4,7 +4,7 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -42,7 +42,7 @@ from .adapters.base import QueryContext, MarketingSourceAdapter
 logger = structlog.get_logger(__name__)
 
 
-class MarketingAnalyticsTableQueryRunner(QueryRunner):
+class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner):
     query: MarketingAnalyticsTableQuery
     response: MarketingAnalyticsTableQueryResponse
     cached_response: CachedMarketingAnalyticsTableQueryResponse
@@ -143,7 +143,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         return main_query
 
-    def calculate(self) -> MarketingAnalyticsTableQueryResponse:
+    def _calculate(self) -> MarketingAnalyticsTableQueryResponse:
         """Execute the query and return results with pagination support"""
         from posthog.hogql.query import execute_hogql_query
 

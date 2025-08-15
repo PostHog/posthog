@@ -109,6 +109,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "email":
+            return self.config.get("email", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -1007,17 +1009,25 @@ class EmailIntegration:
         return MailjetProvider()
 
     @classmethod
-    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+    def create_native_integration(cls, config: dict, team_id: int, created_by: Optional[User] = None) -> Integration:
+        email_address: str = config["email"]
+        name: str = config["name"]
+        domain: str = email_address.split("@")[1]
+
         mailjet = MailjetProvider()
+
+        # TODO: Look for integration belonging to the team with the same domain
         mailjet.create_email_domain(domain, team_id=team_id)
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
-            integration_id=domain,
+            integration_id=email_address,
             defaults={
                 "config": {
+                    "email": email_address,
                     "domain": domain,
+                    "name": name,
                     "mailjet_verified": False,
                     "aws_ses_verified": False,
                 },
@@ -1062,12 +1072,15 @@ class EmailIntegration:
         verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
 
         if verification_result.get("status") == "success":
-            updated_config = {"mailjet_verified": True}
-
-            # Merge the new config with existing config
-            updated_config = {**self.integration.config, **updated_config}
-            self.integration.config = updated_config
-            self.integration.save()
+            # We can validate all other integrations with the same domain
+            other_integrations = Integration.objects.filter(
+                team_id=self.integration.team_id,
+                kind="email",
+                config__domain=domain,
+            )
+            for integration in other_integrations:
+                integration.config["mailjet_verified"] = True
+                integration.save()
 
         return verification_result
 

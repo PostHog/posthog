@@ -12,9 +12,6 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
-)
 
 SOURCE_VIEW_SUFFIX = "product_revenue_view"
 EVENTS_VIEW_SUFFIX = "product_events_revenue_view"
@@ -79,6 +76,10 @@ class RevenueAnalyticsProductView(RevenueAnalyticsBaseView):
 
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.temporal.data_imports.sources.stripe.constants import (
+            PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+        )
+
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSourceType.STRIPE:
             return []

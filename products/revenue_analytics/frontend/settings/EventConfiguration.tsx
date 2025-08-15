@@ -1,5 +1,5 @@
 import { IconInfo, IconTrash } from '@posthog/icons'
-import { LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -24,17 +24,23 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
         updateEventProductProperty,
         updateEventRevenueProperty,
         updateEventSubscriptionProperty,
+        updateEventSubscriptionDropoffDays,
         save,
     } = useActions(revenueAnalyticsSettingsLogic)
 
     return (
         <div>
-            <h3 className="mb-2">Event Configuration</h3>
-            <p className="mb-4">
+            <h3 className="mb-2">Event configuration</h3>
+            <p className="mb-2">
                 PostHog can display revenue data in our Revenue Analytics product from any event. You can configure as
                 many events as you want, and specify the revenue property and currency for each event individually.
             </p>
-            <div className="flex flex-col mb-1 items-end w-full">
+            <p className="mb-2">
+                You can also configure several properties for each event, such as the product property (to break down
+                revenue by product), the coupon property (to break down revenue by coupon), and the subscription
+                property (to properly calculate ARPU and LTV).
+            </p>
+            <div className="flex flex-col mt-2 mb-1 items-end w-full">
                 <div className="flex flex-row w-full gap-1 justify-end my-2">
                     <TaxonomicPopover
                         type="primary"
@@ -213,6 +219,39 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                         value={item.subscriptionProperty}
                                         placeholder="Choose property"
                                     />
+                                </div>
+                            )
+                        },
+                    },
+
+                    {
+                        key: 'subscriptionDropoffDays',
+                        dataIndex: 'subscriptionDropoffDays',
+                        title: 'Subscription dropoff in days',
+                        tooltip:
+                            "The number of days we still consider a subscription to be active after the last event. This is useful to avoid the current month's data to look as if most of the subscriptions have churned since we might not have an event for the current month.",
+                        render: (_, item: RevenueAnalyticsEventItem) => {
+                            return (
+                                <div className="flex flex-row items-center w-full my-1 gap-2">
+                                    <LemonInput
+                                        type="number"
+                                        min={1}
+                                        max={365}
+                                        value={item.subscriptionProperty ? item.subscriptionDropoffDays : undefined}
+                                        onChange={(value) => {
+                                            if (Number.isNaN(value) || !value || value < 1 || value > 365) {
+                                                value = 45
+                                            }
+
+                                            updateEventSubscriptionDropoffDays(item.eventName, Number(value))
+                                        }}
+                                        disabledReason={
+                                            !item.subscriptionProperty
+                                                ? 'Only available when subscription property is set'
+                                                : undefined
+                                        }
+                                    />
+                                    <span>days</span>
                                 </div>
                             )
                         },

@@ -8,10 +8,6 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.types import ExternalDataSourceType
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-)
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     StringDatabaseField,
@@ -117,6 +113,11 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
 
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.temporal.data_imports.sources.stripe.constants import (
+            CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+            INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+        )
+
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSourceType.STRIPE:
             return []

@@ -22,9 +22,12 @@ export interface DnsRecord {
     recordHostname: string
 }
 
-export interface DomainFormType {
-    domain: string
+export interface EmailSenderFormType {
+    email: string
+    name: string
 }
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
 
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'messaging', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
@@ -37,38 +40,44 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     forms(({ actions }) => ({
         emailSender: {
             defaults: {
-                domain: '',
+                email: '',
+                name: '',
             },
-            errors: ({ domain }) => {
-                let domainError = undefined
-                if (!domain) {
-                    domainError = 'Domain is required'
+            errors: ({ email, name }) => {
+                let emailError = undefined
+                if (!email) {
+                    emailError = 'Email is required'
                 }
-                const domainRegex = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/i
-                if (!domainRegex.test(domain)) {
-                    domainError = 'Invalid domain format'
+                if (!EMAIL_REGEX.test(email)) {
+                    emailError = 'Invalid email format'
                 }
                 return {
-                    domain: domainError,
+                    email: emailError,
+                    name: !name ? 'Name is required' : undefined,
                 }
             },
-            submit: async () => {
-                actions.submitDomain()
+            submit: async (config) => {
+                try {
+                    const integration = await api.integrations.create({
+                        kind: 'email',
+                        config: config,
+                    })
+                    actions.loadIntegrations()
+                    actions.setIntegration(integration)
+                    actions.verifyDomain()
+                    return config
+                } catch (error) {
+                    console.error(error)
+                    actions.setEmailSenderManualErrors({
+                        email: JSON.stringify(error),
+                    })
+                    throw error
+                }
             },
         },
     })),
-    loaders(({ actions, values }) => ({
+    loaders(({ values }) => ({
         integration: {
-            submitDomain: async () => {
-                const integration = await api.integrations.create({
-                    kind: 'email',
-                    config: {
-                        domain: values.emailSender.domain,
-                    },
-                })
-                actions.loadIntegrations()
-                return integration
-            },
             setIntegration: (integration?: IntegrationType) => integration,
         },
         verification: {
@@ -84,11 +93,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         ],
     }),
     listeners(({ props, values, actions }) => ({
-        setIntegrationSuccess: () => {
-            // After setting a pre-existing integration, verify the domain
-            actions.verifyDomain()
-        },
-        submitDomainSuccess: () => {
+        submitEmailSenderSuccess: () => {
             // After creating the integration, verify the domain
             actions.verifyDomain()
         },
@@ -103,6 +108,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     afterMount(({ props, actions }) => {
         if (props.integration) {
             actions.setIntegration(props.integration)
+            actions.verifyDomain()
         }
     }),
 ])

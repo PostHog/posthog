@@ -119,7 +119,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
 
         return query
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("to_query"):
             query = self.to_query()
 

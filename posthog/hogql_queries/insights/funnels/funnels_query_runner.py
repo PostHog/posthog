@@ -20,7 +20,7 @@ from posthog.hogql_queries.insights.funnels.funnel_time_to_convert_udf import Fu
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
 from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrendsUDF
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class, use_udf
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -34,7 +34,7 @@ from posthog.schema import (
 )
 
 
-class FunnelsQueryRunner(QueryRunner):
+class FunnelsQueryRunner(AnalyticsQueryRunner):
     query: FunnelsQuery
     response: FunnelsQueryResponse
     cached_response: CachedFunnelsQueryResponse
@@ -79,7 +79,7 @@ class FunnelsQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery:
         return self.funnel_actor_class.actor_query()
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         timings = []
 

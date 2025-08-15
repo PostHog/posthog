@@ -20,7 +20,7 @@ from posthog.hogql.property import entity_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.action.action import Action
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -48,7 +48,7 @@ DEFAULT_ENTITY = RetentionEntity(
 )
 
 
-class RetentionQueryRunner(QueryRunner):
+class RetentionQueryRunner(AnalyticsQueryRunner):
     query: RetentionQuery
     response: RetentionQueryResponse
     cached_response: CachedRetentionQueryResponse
@@ -542,7 +542,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return date
 
-    def calculate(self) -> RetentionQueryResponse:
+    def _calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

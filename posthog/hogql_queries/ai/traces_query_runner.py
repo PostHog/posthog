@@ -11,7 +11,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
@@ -48,7 +48,7 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TracesQueryRunner(QueryRunner):
+class TracesQueryRunner(AnalyticsQueryRunner):
     query: TracesQuery
     response: TracesQueryResponse
     cached_response: CachedTracesQueryResponse
@@ -62,7 +62,7 @@ class TracesQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100

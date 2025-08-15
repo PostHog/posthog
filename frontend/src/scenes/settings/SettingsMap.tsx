@@ -43,8 +43,7 @@ import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriend
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
-import { OtherIntegrations } from './environment/OtherIntegrations'
-import { INTEGRATION_KINDS } from '~/types'
+import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
@@ -508,11 +507,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: (
-                    <OtherIntegrations
-                        integrationKinds={INTEGRATION_KINDS.filter((kind) => !['slack', 'linear'].includes(kind))}
-                    />
-                ),
+                component: <IntegrationsList omitKinds={['slack', 'linear']} />,
             },
             {
                 id: 'integration-ip-allowlist',

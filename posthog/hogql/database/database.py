@@ -393,15 +393,17 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
-    # TODO: POE is not well supported yet, that part is a stub
-    with timings.measure("revenue"):
-        field_name = "$virt_revenue"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
-    with timings.measure("revenue_last_30_days"):
-        field_name = "$virt_revenue_last_30_days"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+    # :KLUDGE: Currently calculated at runtime via the `revenue_analytics` table,
+    # it'd be wise to make these computable fields in the future, but that's a big uplift
+    revenue_fields = ["revenue", "revenue_last_30_days"]
+    with timings.measure("revenue_analytics_virtual_fields"):
+        for field in revenue_fields:
+            with timings.measure(field):
+                field_name = f"$virt_{field}"
+                chain = ["revenue_analytics", field]
+
+                database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
+                poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 
 TableStore = dict[str, Table | TableGroup]
