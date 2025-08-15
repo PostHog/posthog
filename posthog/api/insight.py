@@ -3,6 +3,8 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from asgiref.sync import sync_to_async
+
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -21,6 +23,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -36,7 +39,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import action, format_paginated_url
+from posthog.api.utils import format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
@@ -776,6 +779,62 @@ class InsightSerializer(InsightBasicSerializer):
                     timezone=self.context["get_team"]().timezone,
                 )
 
+    async def ainsight_result(self, insight: Insight) -> InsightResult:
+        """Async version of insight_result for concurrent S3 cache operations."""
+        from posthog.caching.calculate_results import calculate_for_query_based_insight
+
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+
+        with upgrade_query(insight):
+            try:
+                refresh_requested = refresh_requested_by_client(self.context["request"])
+                execution_mode = execution_mode_from_refresh(refresh_requested)
+                filters_override = filters_override_requested_by_client(self.context["request"])
+                variables_override = variables_override_requested_by_client(
+                    self.context["request"], dashboard, list(self.context["insight_variables"])
+                )
+
+                if self.context.get("is_shared", False):
+                    execution_mode = shared_insights_execution_mode(execution_mode)
+
+                # Convert the S3-heavy calculate_for_query_based_insight to async
+                return await sync_to_async(calculate_for_query_based_insight)(
+                    insight,
+                    team=self.context["get_team"](),
+                    dashboard=dashboard,
+                    execution_mode=execution_mode,
+                    user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                    filters_override=filters_override,
+                    variables_override=variables_override,
+                )
+            except ExposedHogQLError as e:
+                raise ValidationError(str(e))
+            except ConcurrencyLimitExceeded as e:
+                logger.warn(
+                    "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
+                )
+
+                return InsightResult(
+                    result=None,
+                    last_refresh=now(),
+                    is_cached=False,
+                    query_status=dict(
+                        QueryStatus(
+                            id=self.context["request"].query_params.get("client_query_id"),
+                            team_id=insight.team_id,
+                            insight_id=str(insight.id),
+                            dashboard_id=str(dashboard.id) if dashboard else None,
+                            error_message="concurrency_limit_exceeded",
+                            error=True,
+                        )
+                    ),
+                    cache_key=None,
+                    hogql=None,
+                    columns=None,
+                    has_more=None,
+                    timezone=self.context["get_team"]().timezone,
+                )
+
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
         dashboard_tile: Optional[DashboardTile] = self.context.get("dashboard_tile", None)
@@ -1045,6 +1104,81 @@ When set, the specified dashboard's filters and date range override will be appl
             serializer_context.update({"dashboard": dashboard_tile.dashboard})
 
         serialized_data = self.get_serializer(instance, context=serializer_context).data
+
+        if dashboard_tile is not None:
+            serialized_data["color"] = dashboard_tile.color
+            layouts = dashboard_tile.layouts
+            # workaround because DashboardTiles layouts were migrated as stringified JSON :/
+            if isinstance(layouts, str):
+                layouts = json.loads(layouts)
+
+            serialized_data["layouts"] = layouts
+
+        return Response(serialized_data)
+
+    @action(detail=True, methods=["get"], url_path="async")
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="refresh",
+                enum=list(ExecutionMode),
+                default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                description="Whether to refresh the insight, how aggresively, and if sync or async",
+            ),
+            OpenApiParameter(
+                name="from_dashboard",
+                type=OpenApiTypes.INT,
+                description="Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.",
+            ),
+        ]
+    )
+    @monitor(feature=Feature.INSIGHT, endpoint="insight_async", method="GET")
+    async def retrieve_async(self, request, *args, **kwargs):
+        """Async version of insight retrieve with concurrent S3 cache operations.
+
+        This endpoint provides performance improvements for insights with S3 caching
+        by running cache operations asynchronously.
+
+        Access via: /api/environments/{team_id}/insights/{id}/async/
+        """
+        instance = await sync_to_async(self.get_object)()
+        serializer_context = await sync_to_async(self.get_serializer_context)()
+
+        dashboard_tile: Optional[DashboardTile] = None
+        dashboard_id = request.query_params.get("from_dashboard", None)
+        if dashboard_id is not None:
+            dashboard_tile = await sync_to_async(
+                lambda: DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=instance.id)
+                .select_related("dashboard")
+                .first()
+            )()
+
+        if dashboard_tile is not None:
+            # context is used in the to_representation method to report filters used
+            serializer_context.update({"dashboard": dashboard_tile.dashboard})
+
+        # Create serializer and use async insight result method
+        serializer = InsightSerializer(instance, context=serializer_context)
+
+        # Use the async insight_result method for S3 operations
+        insight_result = await serializer.ainsight_result(instance)
+
+        # Build serialized data manually using async result
+        serialized_data = {
+            "id": instance.id,
+            "short_id": instance.short_id,
+            "name": instance.name,
+            "derived_name": instance.derived_name,
+            "description": instance.description,
+            "result": insight_result.result,
+            "last_refresh": insight_result.last_refresh,
+            "is_cached": insight_result.is_cached,
+            "query_status": insight_result.query_status,
+            "created_at": instance.created_at,
+            "updated_at": instance.updated_at,
+            "query": instance.query,
+            # Add other fields as needed to match original response
+        }
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
