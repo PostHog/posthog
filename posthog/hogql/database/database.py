@@ -78,7 +78,7 @@ from posthog.hogql.database.schema.persons import (
     join_with_persons_table,
 )
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
-from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
+from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -145,7 +145,7 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
-    query_log: QueryLogTable = QueryLogTable()
+    query_log: QueryLogArchiveTable = QueryLogArchiveTable()
     app_metrics: AppMetrics2Table = AppMetrics2Table()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
@@ -174,7 +174,7 @@ class Database(BaseModel):
         RawErrorTrackingIssueFingerprintOverridesTable()
     )
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
-    raw_query_log: RawQueryLogTable = RawQueryLogTable()
+    raw_query_log: RawQueryLogArchiveTable = RawQueryLogArchiveTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
     # logs table for logs product
     logs: LogsTable = LogsTable()
@@ -393,15 +393,17 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
-    # TODO: POE is not well supported yet, that part is a stub
-    with timings.measure("revenue"):
-        field_name = "$virt_revenue"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
-    with timings.measure("revenue_last_30_days"):
-        field_name = "$virt_revenue_last_30_days"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+    # :KLUDGE: Currently calculated at runtime via the `revenue_analytics` table,
+    # it'd be wise to make these computable fields in the future, but that's a big uplift
+    revenue_fields = ["revenue", "revenue_last_30_days"]
+    with timings.measure("revenue_analytics_virtual_fields"):
+        for field in revenue_fields:
+            with timings.measure(field):
+                field_name = f"$virt_{field}"
+                chain = ["revenue_analytics", field]
+
+                database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
+                poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 
 TableStore = dict[str, Table | TableGroup]

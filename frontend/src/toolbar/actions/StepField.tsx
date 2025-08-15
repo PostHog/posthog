@@ -5,7 +5,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { cssEscape } from 'lib/utils/cssEscape'
-import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+import { URL_MATCHING_HINTS } from 'products/actions/frontend/utils/hints'
 
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { ActionStepForm } from '~/toolbar/types'

@@ -52,7 +52,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             // We only want to report direct views on the insights page.
             if (
                 !insightSceneLogic.isMounted() ||
-                insightSceneLogic.values.activeScene !== 'Insight' ||
+                insightSceneLogic.values.activeSceneId !== 'Insight' ||
                 insightSceneLogic.values.insight?.short_id !== values.insight?.short_id
             ) {
                 return
