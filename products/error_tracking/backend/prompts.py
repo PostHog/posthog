@@ -253,7 +253,7 @@ Error tracking in PostHog works with these core concepts:
 2. **Exceptions**: Individual `$exception` events that get grouped into issues
 3. **Sessions**: A grouping of events that occur during a user's interaction with the application, which can include exceptions. Sessions rotate after 30 minutes of inactivity or every 24 hours, whichever comes sooner.
 
-Given we know the events and issues that occurred in every session it is possible to calculate an odds ratio to asses the impact of certain issues on event occurrences.
+Given we know the events and issues that occurred in every session it is possible to calculate an odds ratio to assess the impact of certain issues on event occurrences.
 
 """
 
