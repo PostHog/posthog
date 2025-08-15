@@ -11,6 +11,10 @@ import { ActivityTab, Breadcrumb } from '~/types'
 import type { activitySceneLogicType } from './ActivitySceneType'
 import { EventsScene } from './explore/EventsScene'
 import { LiveEventsTable } from './live/LiveEventsTable'
+import { SceneContent } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { cn } from 'lib/utils/css-classes'
 
 const ACTIVITY_TABS: LemonTab<ActivityTab>[] = [
     {
@@ -66,12 +70,18 @@ const activitySceneLogic = kea<activitySceneLogicType>([
 export function ActivityScene(): JSX.Element {
     const { tab } = useValues(activitySceneLogic)
     const { setTab } = useActions(activitySceneLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <>
+        <SceneContent>
             <PageHeader tabbedPage />
-            <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={ACTIVITY_TABS} />
-        </>
+            <LemonTabs
+                activeKey={tab}
+                onChange={(t) => setTab(t)}
+                tabs={ACTIVITY_TABS}
+                className={cn(newSceneLayout && '-mt-4 [&>ul]:-mx-4 [&>ul]:px-4')}
+            />
+        </SceneContent>
     )
 }
 
