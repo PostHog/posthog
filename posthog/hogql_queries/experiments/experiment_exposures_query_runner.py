@@ -146,7 +146,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         return exposure_query
 
-    def calculate(self) -> ExperimentExposureQueryResponse:
+    def _calculate(self) -> ExperimentExposureQueryResponse:
         try:
             # Adding experiment specific tags to the tag collection
             # This will be available as labels in Prometheus
