@@ -611,6 +611,8 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
     # Determine funnel order type - default to "ordered" for backward compatibility
     funnel_order_type = funnel_metric.funnel_order_type or "ordered"
 
+    # Handle empty datasets to prevent "Parameters list to aggregate functions cannot be empty" error
+    # When there are no events, groupArray returns an empty array which causes issues
     expression = f"""
     if(
         length(
@@ -621,12 +623,15 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
                     'first_touch',
                     '{funnel_order_type}',
                     array(array('')),
-                    arraySort(t -> t.1, groupArray(tuple(
-                        toFloat({timestamp_field}),
-                        {uuid_field},
-                        array(''),
-                        arrayFilter(x -> x != 0, [{step_conditions_str}])
-                    )))
+                    if(count() > 0,
+                        arraySort(t -> t.1, groupArray(tuple(
+                            toFloat({timestamp_field}),
+                            {uuid_field},
+                            array(''),
+                            arrayFilter(x -> x != 0, [{step_conditions_str}])
+                        ))),
+                        array()
+                    )
                 )
             )
         ) > 0,
