@@ -8,7 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { wizardLogic } from './wizardLogic'
 
-export const scene: SceneExport<{}> = {
+export const scene: SceneExport = {
     component: Wizard,
     logic: wizardLogic,
 }

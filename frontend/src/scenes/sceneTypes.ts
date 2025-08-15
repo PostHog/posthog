@@ -120,7 +120,7 @@ export enum Scene {
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
 
-export interface SceneExport<T> {
+export interface SceneExport<T = {}> {
     /** component to render for this scene */
     component: SceneComponent<T>
     /** logic to mount for this scene */
