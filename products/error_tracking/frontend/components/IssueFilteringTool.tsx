@@ -97,9 +97,6 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
         }
     }
 
-    // TODO: come back and re-enable this tool
-    return null
-
     return (
         <MaxTool
             identifier="filter_error_tracking_issues"
