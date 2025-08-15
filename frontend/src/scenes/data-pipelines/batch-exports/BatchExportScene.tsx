@@ -86,7 +86,7 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport<(typeof batchExportSceneLogic)['props']> = {
+export const scene: SceneExport = {
     component: BatchExportScene,
     logic: batchExportSceneLogic,
     paramsToProps: ({ params: { id, service } }): (typeof batchExportSceneLogic)['props'] => ({
