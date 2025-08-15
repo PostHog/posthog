@@ -213,13 +213,9 @@ def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, As
         if context:
             context.log.info("Database 'models' created/verified successfully")
     except Exception as e:
-        if "already exists" in str(e).lower():
-            if context:
-                context.log.info("Database 'models' already exists")
-        else:
-            if context:
-                context.log.exception(f"Error creating database: {e}")
-            raise
+        if context:
+            context.log.exception(f"Error creating database: {e}")
+        raise
 
 
 def create_clickhouse_tables(
@@ -233,21 +229,6 @@ def create_clickhouse_tables(
     """
     # First ensure the database exists
     create_database_if_not_exists(context)
-
-    # Verify database exists by listing databases
-    if context:
-        context.log.info("Verifying database exists...")
-    try:
-        result = sync_execute("SHOW DATABASES")
-        databases = [row[0] for row in result]
-        if context:
-            context.log.info(f"Available databases: {databases}")
-        if "models" not in databases:
-            raise Exception("Database 'models' was not created successfully")
-    except Exception as e:
-        if context:
-            context.log.exception(f"Error verifying database: {e}")
-        raise
 
     # Only drop tables if explicitly requested (e.g., schema changes)
     if force_recreate:
