@@ -26,7 +26,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     @action(methods=["GET"], detail=False)
-    def total_rows_stats(self, request: Request, **kwargs) -> Response:
+    def total_row_stats(self, request: Request, **kwargs) -> Response:
+        """
+        Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
+        Used by the frontend data warehouse scene to display usage information.
+        """
         billing_interval = ""
         billing_period_start = None
         billing_period_end = None
@@ -42,50 +46,32 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             if org_billing and org_billing.get("billing_period"):
                 billing_period = org_billing["billing_period"]
-                try:
-                    billing_period_start = parser.parse(billing_period["current_period_start"])
-                    billing_period_end = parser.parse(billing_period["current_period_end"])
-                except (ValueError, TypeError, KeyError) as e:
-                    logger.warning("Failed to parse billing period dates", exc_info=e)
-                    billing_period_start = None
-                    billing_period_end = None
+                billing_period_start = parser.parse(billing_period["current_period_start"])
+                billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_interval = billing_period.get("interval", "month")
 
                 usage_summary = org_billing.get("usage_summary", {})
-                if isinstance(usage_summary, dict) and "rows_synced" in usage_summary:
-                    rows_synced_data = usage_summary["rows_synced"]
-                    if isinstance(rows_synced_data, dict):
-                        billing_tracked_rows = rows_synced_data.get("usage", 0)
-                    else:
-                        billing_tracked_rows = 0
-                else:
-                    billing_tracked_rows = 0
+                billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
                 billing_available = True
 
-                # Only query database if we have valid billing period dates
-                if billing_period_start and billing_period_end:
-                    all_external_jobs = ExternalDataJob.objects.filter(
-                        team_id=self.team_id,
-                        created_at__gte=billing_period_start,
-                        created_at__lt=billing_period_end,
-                        billable=True,
-                    )
-                    total_db_rows = all_external_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
+                all_external_jobs = ExternalDataJob.objects.filter(
+                    team_id=self.team_id,
+                    created_at__gte=billing_period_start,
+                    created_at__lt=billing_period_end,
+                    billable=True,
+                )
+                total_db_rows = all_external_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
 
-                    pending_billing_rows = max(0, total_db_rows - billing_tracked_rows)
-                    rows_synced = billing_tracked_rows + pending_billing_rows
+                pending_billing_rows = max(0, total_db_rows - billing_tracked_rows)
 
-                    data_modeling_jobs = DataModelingJob.objects.filter(
-                        team_id=self.team_id,
-                        created_at__gte=billing_period_start,
-                        created_at__lt=billing_period_end,
-                    )
-                    materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
-                else:
-                    # Fallback when billing period dates are invalid
-                    rows_synced = billing_tracked_rows
-                    materialized_rows = 0
-                    pending_billing_rows = 0
+                rows_synced = billing_tracked_rows + pending_billing_rows
+
+                data_modeling_jobs = DataModelingJob.objects.filter(
+                    team_id=self.team_id,
+                    created_at__gte=billing_period_start,
+                    created_at__lt=billing_period_end,
+                )
+                materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
             else:
                 logger.info("No billing period information available, using defaults")
