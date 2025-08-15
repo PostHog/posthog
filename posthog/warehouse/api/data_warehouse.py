@@ -16,6 +16,9 @@ from posthog.cloud_utils import get_cached_instance_license
 
 logger = structlog.get_logger(__name__)
 
+# TODO: review this limit on standup. Should there be a limit, or should it be from the frontend?
+MAX_RECENT_ACTIVITY_RESULTS = 50
+
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
@@ -93,5 +96,79 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "totalRows": rows_synced,
                 "trackedBillingRows": billing_tracked_rows,
                 "pendingBillingRows": pending_billing_rows,
+            },
+        )
+
+    @action(methods=["GET"], detail=False)
+    def recent_activity(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            limit_param = request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS))
+            limit = int(limit_param)
+            if limit <= 0:
+                limit = MAX_RECENT_ACTIVITY_RESULTS
+            limit = min(limit, MAX_RECENT_ACTIVITY_RESULTS)
+        except (ValueError, TypeError):
+            limit = MAX_RECENT_ACTIVITY_RESULTS
+
+        external_jobs = (
+            ExternalDataJob.objects.filter(team_id=self.team_id)
+            .select_related("schema", "pipeline")
+            .order_by("-created_at")[:limit]
+        )
+
+        modeling_jobs = (
+            DataModelingJob.objects.filter(team_id=self.team_id)
+            .select_related("saved_query")
+            .order_by("-created_at")[:limit]
+        )
+
+        activities: list[dict[str, Any]] = []
+
+        for job in external_jobs:
+            schema_name = job.schema.name if job.schema else "Unknown"
+            source_name = job.pipeline.source_type if job.pipeline else "Unknown"
+
+            activities.append(
+                {
+                    "id": str(job.id),
+                    "type": "external_data_sync",
+                    "name": f"{source_name} - {schema_name}",
+                    "status": job.status,
+                    "rows": job.rows_synced or 0,
+                    "created_at": job.created_at,
+                    "finished_at": job.finished_at,
+                    "latest_error": job.latest_error,
+                    "schema_id": str(job.schema.id) if job.schema and job.schema.id else None,
+                    "source_id": str(job.pipeline.id) if job.pipeline and job.pipeline.id else None,
+                    "workflow_run_id": job.workflow_run_id,
+                }
+            )
+
+        for job in modeling_jobs:
+            model_name = job.saved_query.name if job.saved_query else "Unknown"
+            activities.append(
+                {
+                    "id": str(job.id),
+                    "type": "materialized_view",
+                    "name": f"Materialized View - {model_name}",
+                    "status": job.status,
+                    "rows": job.rows_materialized or 0,
+                    "created_at": job.created_at,
+                    "finished_at": job.finished_at if hasattr(job, "finished_at") else None,
+                    "latest_error": job.error,
+                    "model_name": model_name,
+                    "workflow_run_id": job.workflow_run_id,
+                }
+            )
+
+        activities.sort(key=lambda x: x["created_at"], reverse=True)
+        activities = activities[:limit]
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "activities": activities,
+                "total_count": len(activities),
+                "limit": limit,
             },
         )
