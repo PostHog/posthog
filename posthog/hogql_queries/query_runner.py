@@ -17,6 +17,7 @@ from posthog.clickhouse.client.limit import (
     get_api_personal_rate_limiter,
     get_app_org_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -36,6 +37,7 @@ from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    AnalyticsQueryResponseBase,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
@@ -760,8 +762,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return LimitContext.QUERY
         return self.limit_context
 
-    @abstractmethod
     def calculate(self) -> R:
+        return self._calculate()
+
+    @abstractmethod
+    def _calculate(self) -> R:
         raise NotImplementedError()
 
     def enqueue_async_calculation(
@@ -949,6 +954,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     task_id=self.query_id,
                     team_id=self.team.id,
                     is_api=get_query_tag_value("access_method") == "personal_api_key",
+                    limit=get_org_app_concurrency_limit(self.team.organization_id),
                 ):
                     with get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
@@ -1132,7 +1138,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.__post_init__()
 
 
-class QueryRunnerWithHogQLContext(QueryRunner):
+# Type constraint for analytics query responses
+AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
+
+
+class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
+    """
+    QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
+    """
+
+    def calculate(self) -> AR:
+        response = self._calculate()
+        if not self.modifiers.timings:
+            response.timings = None
+        return response
+
+
+class QueryRunnerWithHogQLContext(AnalyticsQueryRunner):
     database: Database
     hogql_context: HogQLContext
 

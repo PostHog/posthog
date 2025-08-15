@@ -36,7 +36,7 @@ export const STATIC_TOOLS: ToolRegistration[] = [
                 const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
                 const startTime = performance.now()
                 const checkPathname = (): void => {
-                    if (sceneLogic.values.activeScene === routes[url]?.[0]) {
+                    if (sceneLogic.values.activeSceneId === routes[url]?.[0]) {
                         resolve()
                     } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
                         reject(new Error('Navigation timeout'))
@@ -69,7 +69,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             organizationLogic,
             ['currentOrganization'],
             sceneLogic,
-            ['scene', 'sceneConfig'],
+            ['sceneId', 'sceneConfig'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -147,18 +147,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     selectors({
         showFloatingMax: [
             (s) => [
-                s.scene,
+                s.sceneId,
                 s.sceneConfig,
                 s.isFloatingMaxExpanded,
                 sidePanelLogic.selectors.sidePanelOpen,
                 sidePanelLogic.selectors.selectedTab,
                 s.featureFlags,
             ],
-            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
+            (sceneId, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
                 sceneConfig &&
                 !sceneConfig.onlyUnauthenticated &&
                 sceneConfig.layout !== 'plain' &&
-                !(scene === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
+                !(sceneId === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
                 !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
                 featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
                 featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],

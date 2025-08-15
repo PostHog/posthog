@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -77,6 +77,7 @@ import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 import { groupViewLogic } from 'scenes/groups/groupViewLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -102,6 +103,8 @@ interface DataTableProps {
      Set a data-attr on the LemonTable component
     */
     dataAttr?: string
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 const eventGroupTypes = [
@@ -122,6 +125,7 @@ export function DataTable({
     cachedResults,
     readOnly,
     dataAttr,
+    attachTo,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -145,8 +149,6 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
     }
-    const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
-
     const {
         response,
         responseLoading,
@@ -156,7 +158,7 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
-    } = useValues(builtDataNodeLogic)
+    } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { setSaveGroupViewModalOpen } = useActions(groupViewLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
@@ -178,6 +180,9 @@ export function DataTable({
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
 
     const {
         showActions,

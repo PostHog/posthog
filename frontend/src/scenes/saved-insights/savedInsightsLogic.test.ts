@@ -68,8 +68,9 @@ describe('savedInsightsLogic', () => {
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
         router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
-        logic = savedInsightsLogic()
+        logic = savedInsightsLogic({ tabId: '1' })
         logic.mount()
     })
 
