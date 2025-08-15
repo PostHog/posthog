@@ -22,7 +22,7 @@ export interface SetActionProps {
 }
 
 export interface ActionEditLogicProps {
-    id?: number
+    id: number
     action?: ActionType | null
 }
 

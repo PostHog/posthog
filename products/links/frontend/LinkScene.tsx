@@ -22,14 +22,12 @@ import { QRCodeSVG } from 'qrcode.react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AVAILABLE_DOMAINS, AvailableDomain, linkLogic } from './linkLogic'
+import { AVAILABLE_DOMAINS, AvailableDomain, linkLogic, LinkLogicProps } from './linkLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<LinkLogicProps> = {
     component: LinkScene,
     logic: linkLogic,
-    paramsToProps: ({ params: { id } }): (typeof linkLogic)['props'] => ({
-        id: id && id !== 'new' ? id : 'new',
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? id : 'new' }),
 }
 
 const SOON_TAG = (
@@ -68,7 +66,7 @@ const DOMAIN_OPTIONS: LemonSelectOptions<AvailableDomain> = AVAILABLE_DOMAINS.ma
     disabledReason: domain.soon ? 'Coming soon...' : undefined,
 }))
 
-export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
+export function LinkScene({ id }: LinkLogicProps): JSX.Element {
     const { link, linkLoading, isLinkSubmitting, isEditingLink, linkMissing } = useValues(linkLogic)
     const { submitLinkRequest, loadLink, editLink, deleteLink } = useActions(linkLogic)
 

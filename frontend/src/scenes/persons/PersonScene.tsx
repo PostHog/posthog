@@ -32,14 +32,14 @@ import { ActivityScope, PersonsTabType, PersonType, ProductKey, PropertyDefiniti
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
-import { personsLogic } from './personsLogic'
+import { personsLogic, PersonsLogicProps } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),

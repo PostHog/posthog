@@ -54,21 +54,21 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
-import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { earlyAccessFeatureLogic, EarlyAccessFeatureLogicProps } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     component: EarlyAccessFeature,
     logic: earlyAccessFeatureLogic,
-    paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? id : 'new',
     }),
     settingSectionId: 'environment-feature-flags',
 }
 
-export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
+export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
     const {
         earlyAccessFeature,
         earlyAccessFeatureLoading,

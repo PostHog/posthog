@@ -13,12 +13,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { UserInterviewType } from '~/types'
 
-import { userInterviewLogic } from './userInterviewLogic'
+import { userInterviewLogic, UserInterviewLogicProps } from './userInterviewLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<UserInterviewLogicProps> = {
     component: UserInterview,
     logic: userInterviewLogic,
-    paramsToProps: ({ params: { id } }): (typeof userInterviewLogic)['props'] => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
 export function UserInterview(): JSX.Element {

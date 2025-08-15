@@ -8,19 +8,16 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { ErrorFilters } from './components/ErrorFilters'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { ExceptionCard } from './components/ExceptionCard'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic, ErrorTrackingIssueSceneLogicProps } from './errorTrackingIssueSceneLogic'
 import { Metadata } from './issue/Metadata'
 import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ErrorTrackingIssueScenePanel'
 import { EventsTable } from './components/EventsTable/EventsTable'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({
-        params: { id },
-        searchParams: { fingerprint, timestamp },
-    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint, timestamp }),
+    paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
 }
 
 export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {

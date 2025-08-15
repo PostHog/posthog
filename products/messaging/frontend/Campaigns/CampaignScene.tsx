@@ -13,13 +13,13 @@ import { CampaignWorkflow } from './CampaignWorkflow'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { CampaignSceneHeader } from './CampaignSceneHeader'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<CampaignSceneLogicProps> = {
     component: CampaignScene,
     logic: campaignSceneLogic,
-    paramsToProps: ({ params: { id, tab } }): CampaignSceneLogicProps => ({ id: id || 'new', tab: tab || 'overview' }),
+    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'overview' }),
 }
 
-export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element {
+export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)

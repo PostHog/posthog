@@ -40,15 +40,10 @@ import { RelatedGroups } from './RelatedGroups'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { GroupNotebookCard } from './cards/GroupNotebookCard'
 
-interface GroupSceneProps {
-    groupTypeIndex?: string
-    groupKey?: string
-}
-
-export const scene: SceneExport = {
+export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
     logic: groupLogic,
-    paramsToProps: ({ params: { groupTypeIndex, groupKey } }: { params: GroupSceneProps }): GroupLogicProps => ({
+    paramsToProps: ({ params: { groupTypeIndex, groupKey } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
         groupKey: decodeURIComponent(groupKey ?? ''),
     }),

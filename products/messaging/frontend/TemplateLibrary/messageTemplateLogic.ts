@@ -14,8 +14,7 @@ import type { messageTemplateLogicType } from './messageTemplateLogicType'
 import { MessageTemplate } from './messageTemplatesLogic'
 
 export interface MessageTemplateLogicProps {
-    logicKey?: string
-    id?: string | null
+    id: string
     messageId?: string | null
 }
 
@@ -29,14 +28,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            () => [(_, props) => props],
-            (props: MessageTemplateLogicProps): Breadcrumb[] => {
-                const { id } = props
-
-                if (!id) {
-                    return []
-                }
-
+            (_, p) => [p.id],
+            (id): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Messaging,
