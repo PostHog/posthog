@@ -767,20 +767,53 @@ class DashboardsViewSet(
             variables_data = await sync_to_async(serializer.get_variables)(dashboard)
 
             # Build response data manually to use our async tile data
+            # Get created_by data if it exists
+            created_by_data = None
+            if dashboard.created_by:
+                created_by_data = {
+                    "id": dashboard.created_by.id,
+                    "uuid": str(dashboard.created_by.uuid),
+                    "distinct_id": dashboard.created_by.distinct_id,
+                    "first_name": dashboard.created_by.first_name,
+                    "last_name": dashboard.created_by.last_name,
+                    "email": dashboard.created_by.email,
+                    "is_email_verified": dashboard.created_by.is_email_verified,
+                    "hedgehog_config": getattr(dashboard.created_by, "hedgehog_config", None),
+                    "role_at_organization": getattr(dashboard.created_by, "role_at_organization", None),
+                }
+
             data = {
                 "id": dashboard.id,
                 "name": dashboard.name,
                 "description": dashboard.description,
                 "pinned": dashboard.pinned,
                 "created_at": dashboard.created_at,
+                "created_by": created_by_data,
                 "is_shared": dashboard.is_sharing_enabled,
                 "deleted": dashboard.deleted,
                 "creation_mode": dashboard.creation_mode,
                 "tiles": tiles_data,
                 "filters": filters_data,
                 "variables": variables_data,
+                "breakdown_colors": getattr(dashboard, "breakdown_colors", []),
+                "data_color_theme_id": getattr(dashboard, "data_color_theme_id", None),
+                "restriction_level": dashboard.restriction_level,
+                "effective_restriction_level": await sync_to_async(
+                    lambda: serializer.get_effective_restriction_level(dashboard)
+                )(),
+                "effective_privilege_level": await sync_to_async(
+                    lambda: serializer.get_effective_privilege_level(dashboard)
+                )(),
+                "user_access_level": await sync_to_async(lambda: serializer.get_user_access_level(dashboard))(),
+                "access_control_version": await sync_to_async(
+                    lambda: serializer.get_access_control_version(dashboard)
+                )(),
                 "last_refresh": dashboard.last_refresh,
-                # Add other dashboard fields as needed to match original response
+                "tags": await sync_to_async(
+                    lambda: list(dashboard.tagged_items.values_list("tag", flat=True))
+                    if hasattr(dashboard, "tagged_items")
+                    else []
+                )(),
             }
 
             return data
