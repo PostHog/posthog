@@ -811,20 +811,20 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
 
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
-    """Clickhouse cam return date/datetimes as UInts. We need to transform the response back into a real date/datetime object
+    """Clickhouse can return date/datetimes as UInts. We need to transform the response back into a real date/datetime object
 
     The return types from clickhouse are:
     ```
     Date/Date32 => UInt16 (days since 1970-01-01)
     DateTime => UInt32 (seconds since 1970-01-01)
-    DateTime64 => Timestamp
+    DateTime64 => Timestamp (no need to convert)
     ```
     """
 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    types_to_transform = ["Date", "Date32", "DateTime", "DateTime64"]
+    types_to_transform = ["Date", "Date32", "DateTime"]
     for column_name, type in types:
         field = batch.schema.field(column_name)
         column = batch.column(column_name)
