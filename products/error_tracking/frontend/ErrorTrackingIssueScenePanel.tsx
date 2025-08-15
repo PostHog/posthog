@@ -21,12 +21,15 @@ import { ExternalReferences } from './components/ExternalReferences'
 import { StatusIndicator } from './components/Indicator'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { IssueTasks } from './components/IssueTasks'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 const RESOURCE_TYPE = 'issue'
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
+    const hasTasks = useFeatureFlag('TASKS')
 
     return issue ? (
         <div className="flex flex-col gap-2">
@@ -50,6 +53,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                 disabled={issue.status != 'active'}
             />
             <IssueExternalReference />
+            {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
             {/* Add a div here to break out of the gap-2 */}
