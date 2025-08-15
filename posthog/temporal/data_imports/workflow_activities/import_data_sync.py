@@ -9,17 +9,18 @@ from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.logger import bind_contextvars, get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
+from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from posthog.warehouse.types import ExternalDataSourceType
 
-from posthog.temporal.data_imports.sources import SourceRegistry
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass

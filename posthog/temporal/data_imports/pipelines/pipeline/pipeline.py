@@ -8,9 +8,9 @@ import posthoganalytics
 import pyarrow as pa
 import pyarrow.compute as pc
 from django.db.models import F
+from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import (
     trigger_compaction_job,
@@ -35,10 +35,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
+from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import (
     DataWarehouseTable,
