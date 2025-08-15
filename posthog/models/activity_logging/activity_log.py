@@ -470,7 +470,7 @@ def safely_get_field_value(instance: models.Model | None, field: str):
             # Only fetch the actual object if we have a valid ID
             related_model = field_obj.related_model
             if isinstance(related_model, type) and issubclass(related_model, models.Model):
-                return related_model.objects.get(pk=field_id)  # type: ignore[union-attr]
+                return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
             else:
                 return field_id
 
