@@ -57,10 +57,12 @@ export function SceneSection({
     if (isLoading) {
         return (
             <div className={cn('flex flex-col gap-4', className)}>
-                <div className="flex flex-col gap-0">
-                    <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
-                    {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
-                </div>
+                {!hideTitleAndDescription && (
+                    <div className="flex flex-col gap-0">
+                        <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                    </div>
+                )}
                 <WrappingLoadingSkeleton>{children}</WrappingLoadingSkeleton>
             </div>
         )
@@ -68,10 +70,12 @@ export function SceneSection({
 
     return (
         <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>
-            <div className="flex flex-col gap-0">
-                <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
-                {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
-            </div>
+            {!hideTitleAndDescription && (
+                <div className="flex flex-col gap-0">
+                    <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+                    {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                </div>
+            )}
             {children}
         </div>
     )
