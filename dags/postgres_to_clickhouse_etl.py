@@ -31,7 +31,7 @@ class PostgresToClickHouseETLConfig(Config):
     """Configuration for the Postgres to ClickHouse ETL job."""
 
     full_refresh: bool = False
-    batch_size: int = 5000  # Reduced to avoid memory issues
+    batch_size: int = 10000
     max_execution_time: int = 3600
 
 
