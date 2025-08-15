@@ -42,32 +42,50 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             if org_billing and org_billing.get("billing_period"):
                 billing_period = org_billing["billing_period"]
-                billing_period_start = parser.parse(billing_period["current_period_start"])
-                billing_period_end = parser.parse(billing_period["current_period_end"])
+                try:
+                    billing_period_start = parser.parse(billing_period["current_period_start"])
+                    billing_period_end = parser.parse(billing_period["current_period_end"])
+                except (ValueError, TypeError, KeyError) as e:
+                    logger.warning("Failed to parse billing period dates", exc_info=e)
+                    billing_period_start = None
+                    billing_period_end = None
                 billing_interval = billing_period.get("interval", "month")
 
                 usage_summary = org_billing.get("usage_summary", {})
-                billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
+                if isinstance(usage_summary, dict) and "rows_synced" in usage_summary:
+                    rows_synced_data = usage_summary["rows_synced"]
+                    if isinstance(rows_synced_data, dict):
+                        billing_tracked_rows = rows_synced_data.get("usage", 0)
+                    else:
+                        billing_tracked_rows = 0
+                else:
+                    billing_tracked_rows = 0
                 billing_available = True
 
-                all_external_jobs = ExternalDataJob.objects.filter(
-                    team_id=self.team_id,
-                    created_at__gte=billing_period_start,
-                    created_at__lt=billing_period_end,
-                    billable=True,
-                )
-                total_db_rows = all_external_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
+                # Only query database if we have valid billing period dates
+                if billing_period_start and billing_period_end:
+                    all_external_jobs = ExternalDataJob.objects.filter(
+                        team_id=self.team_id,
+                        created_at__gte=billing_period_start,
+                        created_at__lt=billing_period_end,
+                        billable=True,
+                    )
+                    total_db_rows = all_external_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
 
-                pending_billing_rows = max(0, total_db_rows - billing_tracked_rows)
+                    pending_billing_rows = max(0, total_db_rows - billing_tracked_rows)
+                    rows_synced = billing_tracked_rows + pending_billing_rows
 
-                rows_synced = billing_tracked_rows + pending_billing_rows
-
-                data_modeling_jobs = DataModelingJob.objects.filter(
-                    team_id=self.team_id,
-                    created_at__gte=billing_period_start,
-                    created_at__lt=billing_period_end,
-                )
-                materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
+                    data_modeling_jobs = DataModelingJob.objects.filter(
+                        team_id=self.team_id,
+                        created_at__gte=billing_period_start,
+                        created_at__lt=billing_period_end,
+                    )
+                    materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
+                else:
+                    # Fallback when billing period dates are invalid
+                    rows_synced = billing_tracked_rows
+                    materialized_rows = 0
+                    pending_billing_rows = 0
 
             else:
                 logger.info("No billing period information available, using defaults")
@@ -98,10 +116,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             limit_param = request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS))
             limit = int(limit_param)
-            if limit <= 0:
+            if limit <= 0 or limit > MAX_RECENT_ACTIVITY_RESULTS:
                 limit = MAX_RECENT_ACTIVITY_RESULTS
-            limit = min(limit, MAX_RECENT_ACTIVITY_RESULTS)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             limit = MAX_RECENT_ACTIVITY_RESULTS
 
         external_jobs = (
@@ -116,39 +133,52 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             .order_by("-created_at")[:limit]
         )
 
-        activities = [
-            {
-                "id": str(job.id),
-                "type": "external_data_sync",
-                "name": f"{job.pipeline.source_type if job.pipeline else 'Unknown'} - {job.schema.name if job.schema else 'Unknown'}",
-                "status": job.status,
-                "rows": job.rows_synced or 0,
-                "created_at": job.created_at,
-                "finished_at": job.finished_at,
-                "latest_error": job.latest_error,
-                "schema_id": str(job.schema.id) if job.schema else None,
-                "source_id": str(job.pipeline.id) if job.pipeline else None,
-                "model_name": None,
-                "workflow_run_id": job.workflow_run_id,
-            }
-            for job in external_jobs
-        ] + [
-            {
-                "id": str(job.id),
-                "type": "materialized_view",
-                "name": f"Materialized View - {job.saved_query.name if job.saved_query else 'Unknown'}",
-                "status": job.status,
-                "rows": job.rows_materialized or 0,
-                "created_at": job.created_at,
-                "finished_at": getattr(job, "finished_at", None),
-                "latest_error": job.error,
-                "schema_id": None,
-                "source_id": None,
-                "model_name": job.saved_query.name if job.saved_query else "Unknown",
-                "workflow_run_id": job.workflow_run_id,
-            }
-            for job in modeling_jobs
-        ]
+        def safe_serialize_external_job(job):
+            """Safely serialize ExternalDataJob with proper null checks."""
+            try:
+                return {
+                    "id": str(job.id) if job.id else "unknown",
+                    "type": job.pipeline.source_type if job.pipeline else None,
+                    "name": job.schema.name if job.schema else None,
+                    "status": job.status or "Unknown",
+                    "rows": job.rows_synced or 0,
+                    "created_at": job.created_at,
+                    "finished_at": job.finished_at,
+                    "latest_error": job.latest_error,
+                    "schema_id": str(job.schema.id) if job.schema and job.schema.id else None,
+                    "source_id": str(job.pipeline.id) if job.pipeline and job.pipeline.id else None,
+                    "workflow_run_id": job.workflow_run_id,
+                }
+            except Exception as e:
+                logger.warning(f"Failed to serialize external job {getattr(job, 'id', 'unknown')}", exc_info=e)
+                return None
+
+        def safe_serialize_modeling_job(job):
+            """Safely serialize DataModelingJob with proper null checks."""
+            try:
+                return {
+                    "id": str(job.id) if job.id else "unknown",
+                    "type": "materialized_view",
+                    "name": job.saved_query.name if job.saved_query else None,
+                    "status": job.status or "Unknown",
+                    "rows": job.rows_materialized or 0,
+                    "created_at": job.created_at,
+                    "finished_at": None,  # DataModelingJob doesn't have finished_at field
+                    "latest_error": job.error,
+                    "schema_id": None,
+                    "source_id": None,
+                    "workflow_run_id": job.workflow_run_id,
+                }
+            except Exception as e:
+                logger.warning(f"Failed to serialize modeling job {getattr(job, 'id', 'unknown')}", exc_info=e)
+                return None
+
+        # Serialize jobs with error handling
+        external_activities = [safe_serialize_external_job(job) for job in external_jobs]
+        modeling_activities = [safe_serialize_modeling_job(job) for job in modeling_jobs]
+
+        # Filter out any None results from failed serialization
+        activities = [activity for activity in external_activities + modeling_activities if activity is not None]
 
         activities.sort(key=lambda x: x["created_at"], reverse=True)
         activities = activities[:limit]
