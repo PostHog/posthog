@@ -183,7 +183,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                                 name="notEmpty",
                                 args=[ast.Field(chain=["subscription_id"])],
                             ),
-                            ast.Constant(value=0),
+                            ast.Constant(value=False),
                         ],
                     ),
                 ),

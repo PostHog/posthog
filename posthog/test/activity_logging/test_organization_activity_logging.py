@@ -3,6 +3,7 @@ from posthog.test.activity_log_utils import ActivityLogTestHelper
 from posthog.models import User, Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.uploaded_media import UploadedMedia
 
 
 class TestOrganizationActivityLogging(ActivityLogTestHelper):
@@ -290,3 +291,53 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         self.assertEqual(context["target_email"], "delete-invitee@example.com")
         self.assertEqual(context["organization_name"], "Test Delete Invite Org")
         self.assertEqual(context["level"], "administrator")
+
+    def test_organization_logo_media_update_activity_logging(self):
+        organization = self.create_organization("Logo Test Org")
+        org = Organization.objects.get(id=organization["id"])
+
+        media = UploadedMedia.objects.create(media_location="test-logo.png", team_id=self.team.id, created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/organizations/{org.id}/",
+            {"logo_media_id": str(media.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        log = (
+            ActivityLog.objects.filter(organization_id=org.id, scope="Organization", activity="updated")
+            .order_by("-created_at")
+            .first()
+        )
+
+        assert log is not None
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.user, self.user)
+
+        changes = log.detail.get("changes", [])
+        logo_change = next((c for c in changes if c["field"] == "logo_media"), None)
+        assert logo_change is not None
+        self.assertEqual(logo_change["action"], "created")
+        self.assertEqual(logo_change["after"]["id"], str(media.id))
+        self.assertEqual(logo_change["after"]["media_location"], "test-logo.png")
+
+        response = self.client.patch(
+            f"/api/organizations/{org.id}/",
+            {"logo_media_id": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        log = (
+            ActivityLog.objects.filter(organization_id=org.id, scope="Organization", activity="updated")
+            .order_by("-created_at")
+            .first()
+        )
+
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        logo_removal = next((c for c in changes if c["field"] == "logo_media"), None)
+        assert logo_removal is not None
+        self.assertEqual(logo_removal["action"], "deleted")
+        self.assertEqual(logo_removal["before"]["id"], str(media.id))

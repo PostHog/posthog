@@ -46,7 +46,22 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
             ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
             ast.Alias(alias="status", expr=ast.Field(chain=["status"])),
             ast.Alias(alias="started_at", expr=ast.Field(chain=["created_at"])),
-            ast.Alias(alias="ended_at", expr=ast.Field(chain=["ended_at"])),
+            # If has an end date, but it's in the future, then just not include `ended_at`
+            ast.Alias(
+                alias="ended_at",
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Field(chain=["ended_at"]),
+                            right=ast.Call(name="today", args=[]),
+                        ),
+                        ast.Constant(value=None),
+                        ast.Field(chain=["ended_at"]),
+                    ],
+                ),
+            ),
             ast.Alias(alias="metadata", expr=ast.Field(chain=["metadata"])),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),

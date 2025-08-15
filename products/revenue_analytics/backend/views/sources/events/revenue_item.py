@@ -54,7 +54,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                 ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
                 ast.Alias(
                     alias="is_recurring",
-                    expr=ast.Call(name="notEmpty", args=[ast.Field(chain=["properties", event.subscriptionProperty])])
+                    expr=ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", event.subscriptionProperty])])
                     if event.subscriptionProperty
                     else ast.Constant(value=False),
                 ),
