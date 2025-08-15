@@ -7,18 +7,19 @@ import { SceneSection } from '~/layout/scenes/SceneContent'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cn } from 'lib/utils/css-classes'
+import { ActionType } from '~/types'
 
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
+    return !action ? null : <Functions action={action} />
+}
+
+const Functions = ({ action }: { action: ActionType }): JSX.Element => {
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
         actionEditLogic({ id: action?.id, action })
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-
-    if (!action) {
-        return null
-    }
 
     return (
         <SceneSection
