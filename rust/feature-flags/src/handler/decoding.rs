@@ -108,14 +108,14 @@ fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
             tracing::warn!("Failed to URL decode base64 data: {}", e);
             FlagError::RequestDecodingError(format!("Failed to URL decode: {e}"))
         })?;
-    
+
     // Remove whitespace and add padding if necessary
     let mut cleaned = url_decoded.replace(" ", "");
     let padding_needed = cleaned.len() % 4;
     if padding_needed > 0 {
         cleaned.push_str(&"=".repeat(4 - padding_needed));
     }
-    
+
     let decoded = general_purpose::STANDARD.decode(cleaned).map_err(|e| {
         tracing::warn!("Base64 decoding error: {}", e);
         FlagError::RequestDecodingError(format!("Base64 decoding error: {e}"))
