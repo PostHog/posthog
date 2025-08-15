@@ -15,8 +15,8 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FileSystemIconColor } from '~/types'
 
-export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="scene-content flex flex-col gap-y-4">{children}</div>
+export function SceneContent({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
+    return <div className={cn('scene-content flex flex-col gap-y-4', className)}>{children}</div>
 }
 
 interface SceneSectionProps {
@@ -131,31 +131,16 @@ export function SceneTitleSection({
         <div className="scene-title-section w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
             <div className="flex flex-col gap-1.5 flex-1">
                 <div className="flex gap-3 [&_svg]:size-6 items-center">
-                    {resourceType.to ? (
-                        <Link
-                            to={resourceType.to}
-                            tooltip={resourceType.tooltip || `View all ${resourceType.typePlural}`}
-                            buttonProps={{
-                                size: 'base',
-                                iconOnly: true,
-                                variant: 'panel',
-                                className: 'rounded-sm h-[var(--button-height-lg)]',
-                            }}
-                        >
-                            {icon}
-                        </Link>
-                    ) : (
-                        <span
-                            className={buttonPrimitiveVariants({
-                                size: 'base',
-                                iconOnly: true,
-                                className: 'rounded-sm h-[var(--button-height-lg)]',
-                                inert: true,
-                            })}
-                        >
-                            {icon}
-                        </span>
-                    )}
+                    <span
+                        className={buttonPrimitiveVariants({
+                            size: 'base',
+                            iconOnly: true,
+                            className: 'rounded-sm h-[var(--button-height-lg)]',
+                            inert: true,
+                        })}
+                    >
+                        {icon}
+                    </span>
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
                 <SceneDescription
@@ -189,7 +174,7 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
     const [name, setName] = useState(initialName)
 
     const textClasses =
-        'text-3xl font-bold my-0 pl-[var(--button-padding-x-sm)] h-[var(--button-height-lg)] leading-[1.4] select-auto'
+        'text-2xl font-bold my-0 pl-[var(--button-padding-x-sm)] h-[var(--button-height-lg)] leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading) {
