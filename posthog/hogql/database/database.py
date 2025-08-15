@@ -444,7 +444,7 @@ def create_hogql_database(
         # Team is definitely not None at this point, make mypy believe that
         team = cast("Team", team)
 
-    cache_enabled = (not TEST and is_cache_enabled(team)) or CACHE_TEST_OVERRIDE
+    cache_enabled = CACHE_TEST_OVERRIDE if TEST else is_cache_enabled(team)
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
