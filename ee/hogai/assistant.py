@@ -106,10 +106,9 @@ STREAMING_NODES: set[MaxNodeName] = {
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
     DeepResearchNodeName.ONBOARDING,
-    DeepResearchNodeName.NOTEBOOK_PLANNING,
     DeepResearchNodeName.PLANNER,
 }
-"""Nodes that can stream messages to the client."""
+"""Nodes that can stream messages to the client directly from a streaming API (e.g. MaxChatOpenAI)."""
 
 
 VERBOSE_NODES: set[MaxNodeName] = STREAMING_NODES | {
@@ -128,6 +127,7 @@ THINKING_NODES: set[MaxNodeName] = {
     DeepResearchNodeName.ONBOARDING,
     DeepResearchNodeName.NOTEBOOK_PLANNING,
     DeepResearchNodeName.PLANNER,
+    DeepResearchNodeName.REPORT,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -378,6 +378,7 @@ class Assistant:
                     messages=[self._latest_message],
                     start_id=self._latest_message.id,
                     graph_status=None,
+                    notebook_short_id=None,
                 )
             else:
                 initial_state = AssistantState(

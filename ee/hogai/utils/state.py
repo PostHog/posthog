@@ -65,8 +65,8 @@ def is_state_update(update: list[Any]) -> TypeGuard[GraphStateUpdateTuple]:
     return len(update) == 2 and update[0] == "values"
 
 
-def validate_state_update(state_update: dict[Any, Any], graph_class: type[MaxGraphState]) -> MaxGraphState:
-    return graph_class.model_validate(state_update)
+def validate_state_update(state_update: dict[Any, Any], state_class: type[MaxGraphState]) -> MaxGraphState:
+    return state_class.model_validate(state_update)
 
 
 GraphTaskStartedUpdateTuple = tuple[Literal["debug"], tuple[Union[AIMessageChunk, Any], LangGraphState]]

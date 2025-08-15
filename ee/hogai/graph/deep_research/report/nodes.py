@@ -7,6 +7,7 @@ from ee.hogai.graph.deep_research.report.prompts import (
     FINAL_REPORT_USER_PROMPT,
 )
 from ee.hogai.graph.deep_research.types import (
+    DeepResearchNodeName,
     InsightArtifact,
     DeepResearchIntermediateResult,
     DeepResearchState,
@@ -81,6 +82,7 @@ class DeepResearchReportNode(DeepResearchNode):
         notebook_update_message = await self._astream_notebook(
             chain,
             config,
+            DeepResearchNodeName.REPORT,
             stream_parameters={
                 "intermediate_results": intermediate_results_text,
                 "artifacts": artifacts_text,

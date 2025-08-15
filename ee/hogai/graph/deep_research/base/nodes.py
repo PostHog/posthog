@@ -47,6 +47,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         self,
         chain: Runnable,
         config: RunnableConfig,
+        node_name: DeepResearchNodeName,
         stream_parameters: Optional[dict] = None,
         context: Optional[NotebookContext] = None,
     ) -> NotebookUpdateMessage:
@@ -59,9 +60,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         ):
             chunk = merge_message_chunk(chunk, new_chunk)
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
-            custom_message = self._message_to_langgraph_update(
-                notebook_update_message, DeepResearchNodeName.NOTEBOOK_PLANNING
-            )
+            custom_message = self._message_to_langgraph_update(notebook_update_message, node_name)
             writer(custom_message)
 
         if not notebook_update_message:

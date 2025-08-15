@@ -1,6 +1,7 @@
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.notebook.prompts import DEEP_RESEARCH_NOTEBOOK_PLANNING_PROMPT
 from ee.hogai.graph.deep_research.types import (
+    DeepResearchNodeName,
     DeepResearchState,
     PartialDeepResearchState,
 )
@@ -31,7 +32,7 @@ class DeepResearchNotebookPlanningNode(DeepResearchNode):
 
         chain = prompt | self._get_model(instructions, state.previous_response_id)
 
-        notebook_update_message = await self._astream_notebook(chain, config)
+        notebook_update_message = await self._astream_notebook(chain, config, DeepResearchNodeName.NOTEBOOK_PLANNING)
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],

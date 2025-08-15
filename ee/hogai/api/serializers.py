@@ -13,6 +13,13 @@ from ee.models.assistant import Conversation
 _conversation_fields = ["id", "status", "title", "created_at", "updated_at", "type"]
 
 
+CONVERSATION_TYPE_MAP = {
+    Conversation.Type.DEEP_RESEARCH: (DeepResearchAssistantGraph, DeepResearchState),
+    Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
+    Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),
+}
+
+
 class ConversationMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
@@ -32,17 +39,11 @@ class ConversationSerializer(serializers.ModelSerializer):
     async def get_messages(self, conversation: Conversation):
         team = self.context["team"]
         user = self.context["user"]
-        graph_class = (
-            DeepResearchAssistantGraph if conversation.type == Conversation.Type.DEEP_RESEARCH else AssistantGraph
-        )
+        graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]
         graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()  # type: ignore
         snapshot = await graph.aget_state({"configurable": {"thread_id": str(conversation.id)}})
         try:
-            state = (
-                DeepResearchState.model_validate(snapshot.values)
-                if conversation.type == Conversation.Type.DEEP_RESEARCH
-                else AssistantState.model_validate(snapshot.values)
-            )
+            state = state_class.model_validate(snapshot.values)
             return [message.model_dump() for message in state.messages if should_output_assistant_message(message)]  # type: ignore
         except (pydantic.ValidationError, KeyError):
             return []

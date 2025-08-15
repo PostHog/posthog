@@ -124,6 +124,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = serializer.validated_data["conversation"]
 
         has_message = serializer.validated_data.get("content") is not None
+        is_deep_research = serializer.validated_data.get("deep_research_mode", False)
+        mode = AssistantMode.DEEP_RESEARCH if is_deep_research else AssistantMode.ASSISTANT
 
         is_new_conversation = False
         # Safely set the lookup kwarg for potential error handling
@@ -142,11 +144,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     {"error": "Cannot stream from non-existent conversation"}, status=status.HTTP_400_BAD_REQUEST
                 )
             # Use frontend-provided conversation ID
-            conversation_type = (
-                Conversation.Type.DEEP_RESEARCH
-                if serializer.validated_data.get("deep_research_mode", False)
-                else Conversation.Type.ASSISTANT
-            )
+            conversation_type = Conversation.Type.DEEP_RESEARCH if is_deep_research else Conversation.Type.ASSISTANT
             conversation = Conversation.objects.create(
                 user=cast(User, request.user), team=self.team, id=conversation_id, type=conversation_type
             )
@@ -168,9 +166,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             billing_context=serializer.validated_data.get("billing_context"),
-            mode=AssistantMode.DEEP_RESEARCH
-            if serializer.validated_data.get("deep_research_mode", False)
-            else AssistantMode.ASSISTANT,
+            mode=mode,
         )
 
         async def async_stream(

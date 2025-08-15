@@ -63,7 +63,7 @@ ASSISTANT_MESSAGE_TYPES = (
 )
 
 
-def merge(_: Any | None, right: Any | None) -> Any | None:
+def replace(_: Any | None, right: Any | None) -> Any | None:
     return right
 
 
@@ -172,7 +172,7 @@ class _SharedAssistantState(BaseState):
     A clarifying question asked during the onboarding process.
     """
 
-    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=None)
+    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], replace] = Field(default=None)
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
@@ -292,7 +292,5 @@ class InsightArtifact(BaseModel):
     """
 
     id: str
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery] | None = (
-        Field(default=None)
-    )  # TODO(DEEP_RESEARCH): remove None once we have integrated the Task Execution Agent
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
     description: str

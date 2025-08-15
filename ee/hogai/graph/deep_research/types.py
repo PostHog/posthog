@@ -6,7 +6,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
 from ee.hogai.utils.types import AssistantMessageUnion, BaseState, InsightArtifact, add_and_merge_messages
-from ee.hogai.utils.types.base import append, merge
+from ee.hogai.utils.types.base import append, replace
 from posthog.schema import (
     PlanningStepStatus,
     TaskExecutionItem,
@@ -46,11 +46,11 @@ class DeepResearchIntermediateResult(BaseModel):
 
 
 class _SharedDeepResearchState(BaseState):
-    todos: Annotated[Optional[list[DeepResearchTodo]], merge] = Field(default=None)
+    todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
     """
     The current TO-DO list.
     """
-    tasks: Annotated[Optional[list[TaskExecutionItem]], merge] = Field(default=None)
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
     """
     The current tasks.
     """

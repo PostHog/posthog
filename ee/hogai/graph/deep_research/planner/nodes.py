@@ -275,10 +275,6 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
             return PartialDeepResearchState(
                 messages=[
-                    AssistantMessage(  # TODO: remove this
-                        content=ARTIFACTS_READ_TOOL_RESULT.format(artifacts=formatted_artifacts),
-                        id=str(uuid4()),
-                    ),
                     AssistantToolCallMessage(
                         content=ARTIFACTS_READ_TOOL_RESULT.format(artifacts=formatted_artifacts),
                         id=str(uuid4()),
@@ -326,10 +322,6 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             if invalid_artifact_ids:
                 return PartialDeepResearchState(
                     messages=[
-                        AssistantMessage(  # TODO: remove this
-                            content=INVALID_ARTIFACT_IDS_TOOL_RESULT.format(invalid_artifact_ids=invalid_artifact_ids),
-                            id=str(uuid4()),
-                        ),
                         AssistantToolCallMessage(
                             content=INVALID_ARTIFACT_IDS_TOOL_RESULT.format(invalid_artifact_ids=invalid_artifact_ids),
                             id=str(uuid4()),

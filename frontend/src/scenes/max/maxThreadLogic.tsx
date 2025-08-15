@@ -43,7 +43,6 @@ import {
     isHumanMessage,
     isNotebookUpdateMessage,
     isReasoningMessage,
-    isTaskExecutionMessage,
 } from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
@@ -577,12 +576,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         ) {
                             // Only preserve the latest reasoning message, and remove once reasoning is done
                             lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
-                        } else if (
-                            currentMessage.type === AssistantMessageType.TaskExecution &&
-                            previousMessage.type === AssistantMessageType.TaskExecution
-                        ) {
-                            // Only preserve the latest TaskExecutionMessage, replace the previous one
-                            lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
                         } else if (lastThreadSoFar) {
                             lastThreadSoFar.push(currentMessage)
                         }
@@ -594,36 +587,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
 
-                    // Check if the last message is a TaskExecutionMessage with tasks not all completed
-                    const isActiveTaskExecution =
-                        isTaskExecutionMessage(finalMessageSoFar) &&
-                        finalMessageSoFar.tasks.some((task) => task.status !== 'completed' && task.status !== 'failed')
-
                     // Don't show thinking message if there's an active TaskExecutionMessage
-                    if (!isActiveTaskExecution) {
-                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
-                            type: AssistantMessageType.Reasoning,
-                            content: getRandomThinkingMessage(),
-                            status: 'completed',
-                            id: 'loader',
-                        }
+                    const thinkingMessage: ReasoningMessage & ThreadMessage = {
+                        type: AssistantMessageType.Reasoning,
+                        content: getRandomThinkingMessage(),
+                        status: 'completed',
+                        id: 'loader',
+                    }
 
-                        if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
-                            // If now waiting for the current node to start streaming, add "Thinking" message
-                            // so that there's _some_ indication of processing
-                            if (finalMessageSoFar.type === AssistantMessageType.Human) {
-                                // If the last message was human, we need to add a new "ephemeral" AI group
-                                threadGrouped.push([thinkingMessage])
-                            } else {
-                                // Otherwise, add to the last group
-                                threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
-                            }
-                        }
-
-                        // Special case for the thread in progress
-                        if (threadGrouped.length === 0) {
+                    if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
+                        // If now waiting for the current node to start streaming, add "Thinking" message
+                        // so that there's _some_ indication of processing
+                        if (finalMessageSoFar.type === AssistantMessageType.Human) {
+                            // If the last message was human, we need to add a new "ephemeral" AI group
                             threadGrouped.push([thinkingMessage])
+                        } else {
+                            // Otherwise, add to the last group
+                            threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
                         }
+                    }
+
+                    // Special case for the thread in progress
+                    if (threadGrouped.length === 0) {
+                        threadGrouped.push([thinkingMessage])
                     }
                 }
 
