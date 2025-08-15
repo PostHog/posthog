@@ -59,12 +59,10 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
             self.update_batch_export(batch_export["id"], {"paused": True, "name": "Updated Export"})
             self.update_batch_export(batch_export["id"], {"interval": "day"})
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_export_status_changes(self):
-        """Test various status changes on batch exports"""
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
@@ -83,7 +81,6 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             activity_storage.clear_user()
 
     def test_batch_export_signal_handler_create(self):
-        """Test that the signal handler works for batch export creation"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
@@ -111,12 +108,10 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             self.assertEqual(context["name"], "Signal Test Export")
             self.assertEqual(context["destination_type"], "HTTP")
             self.assertEqual(context["interval"], "hour")
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_export_signal_handler_update(self):
-        """Test that the signal handler works for batch export updates"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
@@ -140,12 +135,10 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             assert activity_log.detail is not None
             changes = activity_log.detail.get("changes", [])
             self.assertTrue(len(changes) > 0)
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_export_signal_handler_delete(self):
-        """Test that the signal handler works for batch export deletion"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
