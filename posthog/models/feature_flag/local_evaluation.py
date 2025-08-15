@@ -2,7 +2,6 @@ from django.conf import settings
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 import structlog
-import logging
 from typing import Any, cast, Union
 from collections.abc import Generator
 
@@ -270,9 +269,7 @@ def _transform_flag_property_dependencies(flags_data: list[dict[str, Any]], pars
     return flags_data
 
 
-def _apply_flag_dependency_transformation(
-    response_data: dict[str, Any], parsed_flags: list, logger: logging.Logger
-) -> None:
+def _apply_flag_dependency_transformation(response_data: dict[str, Any], parsed_flags: list) -> None:
     """
     Apply flag dependency transformation to response data.
 
@@ -282,7 +279,6 @@ def _apply_flag_dependency_transformation(
     Args:
         response_data: The response data containing flags to transform
         parsed_flags: The original parsed feature flags for ID-to-key mapping
-        logger: Logger instance for recording transformation results
     """
     try:
         flags_list = cast(list[dict[str, Any]], response_data["flags"])
@@ -450,7 +446,7 @@ def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) 
     }
 
     # Transform flag dependencies for simplified client-side evaluation
-    _apply_flag_dependency_transformation(response_data, flags, logger)
+    _apply_flag_dependency_transformation(response_data, flags)
 
     return response_data
 
