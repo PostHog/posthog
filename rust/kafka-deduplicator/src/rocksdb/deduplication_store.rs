@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use common_types::RawEvent;
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use tracing::{error, info};
@@ -83,17 +83,20 @@ impl TryFrom<&[u8]> for DeduplicationKey {
     type Error = anyhow::Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self> {
-        let key_str = std::str::from_utf8(bytes)?;
+        let key_str = std::str::from_utf8(bytes)
+            .with_context(|| format!("Invalid UTF-8 in deduplication key: {bytes:?}"))?;
         let parts: Vec<&str> = key_str.split(':').collect();
 
         if parts.len() != 4 {
             return Err(anyhow::anyhow!(
-                "Invalid key format, expected 4 parts separated by ':'"
+                "Invalid deduplication key format '{}', expected 4 parts separated by ':' (timestamp:distinct_id:token:event_name)",
+                key_str
             ));
         }
 
         Ok(Self::new(
-            parts[0].parse::<u64>()?, // timestamp
+            parts[0].parse::<u64>()
+                .with_context(|| format!("Failed to parse timestamp '{}' in deduplication key", parts[0]))?, // timestamp
             parts[1].to_string(),     // distinct_id
             parts[2].to_string(),     // token
             parts[3].to_string(),     // event_name

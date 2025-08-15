@@ -2080,6 +2080,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2855,7 +2869,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c390a940a5d157878dd057c78680a33ce3415bcd05b4799509ea44210914b4d5"
 dependencies = [
  "cfg-if",
- "dashmap",
+ "dashmap 5.5.3",
  "futures",
  "futures-timer",
  "no-std-compat",
@@ -3762,9 +3776,12 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
+ "axum 0.7.5",
  "bincode",
  "chrono",
  "common-types",
+ "dashmap 6.1.0",
+ "envconfig",
  "futures",
  "metrics",
  "num_cpus",
@@ -3772,6 +3789,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "serve-metrics",
  "tempfile",
  "time",
  "tokio",
