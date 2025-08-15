@@ -26,9 +26,13 @@ export function MarketingAnalyticsSettings(): JSX.Element {
             )}
             <SceneDivider />
             <BaseCurrency />
+            <SceneDivider />
             <ConversionGoalsConfiguration />
+            <SceneDivider />
             <NativeExternalDataSourceConfiguration />
+            <SceneDivider />
             <NonNativeExternalDataSourceConfiguration />
+            <SceneDivider />
             <SelfManagedExternalDataSourceConfiguration />
         </SceneContent>
     )

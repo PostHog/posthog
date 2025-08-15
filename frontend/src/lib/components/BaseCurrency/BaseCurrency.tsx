@@ -15,9 +15,9 @@ export function BaseCurrency({
     hideTitle?: boolean
     hideDescription?: boolean
 }): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <SceneSection

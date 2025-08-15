@@ -1,4 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 export enum ItemName {
     Tables = 'tables',
@@ -24,8 +26,9 @@ export function PaginationControls({
     maxItemsToShow,
     additionalControls,
 }: PaginationControlsProps): JSX.Element {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <div className="mb-4 flex justify-between items-center">
+        <div className={cn('mb-4 flex justify-between items-center', newSceneLayout && 'mb-0')}>
             {hasMoreItems && (
                 <span className="text-muted text-sm">
                     {`Showing ${
