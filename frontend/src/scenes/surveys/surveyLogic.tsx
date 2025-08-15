@@ -114,6 +114,8 @@ const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: Prop
     },
 }
 
+export type SurveyDemoData = ReturnType<typeof getDemoDataForSurvey>
+
 export enum SurveyEditSection {
     Steps = 'steps',
     Widget = 'widget',
@@ -1741,7 +1743,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         surveyDemoData: [
             (s) => [s.survey],
-            (survey: Survey | NewSurvey): ReturnType<typeof getDemoDataForSurvey> => {
+            (survey: Survey | NewSurvey): SurveyDemoData => {
                 return getDemoDataForSurvey(survey)
             },
         ],

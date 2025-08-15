@@ -6,11 +6,11 @@ import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-vi
 import { ResponseSummariesButton } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { QuestionProcessedResponses, surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { SurveyQuestion, SurveyQuestionType } from '~/types'
+import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
