@@ -192,7 +192,7 @@ class UUIDTModel(models.Model):
         abstract = True
 
 
-class UUIDClassicModel(models.Model):
+class UUIDTClassicModel(models.Model):
     """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
 
     uuid = models.UUIDField(unique=True, default=UUIDT, editable=False)
