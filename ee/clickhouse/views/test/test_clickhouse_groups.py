@@ -1511,10 +1511,18 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertListFields(data, metric)
         self.assertEqual(data["filters"], metric.filters)
 
+    def _create_metric(self, **kwargs):
+        defaults = {
+            "team": self.team,
+            "group_type_index": self.group_type.group_type_index,
+            "name": "Events",
+            "filters": {"foo": "bar"},
+        }
+        defaults.update(kwargs)
+        return GroupUsageMetric.objects.create(**defaults)
+
     def test_list(self):
-        metric = GroupUsageMetric.objects.create(
-            group_type_index=self.group_type.group_type_index, team=self.team, name="Events"
-        )
+        metric = self._create_metric()
 
         response = self.client.get(self.url)
 
@@ -1522,7 +1530,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertListFields(response.json()["results"][0], metric)
 
     def test_create(self):
-        payload = {"name": "Events"}
+        payload = {"name": "Events", "filters": {"foo": "bar"}}
 
         response = self.client.post(self.url, payload)
 
@@ -1533,11 +1541,10 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(
             metric.group_type_index, self.group_type.group_type_index, "Should set group_type_index automatically"
         )
+        self.assertIsNotNone(metric.bytecode, "Should set bytecode automatically")
 
     def test_retrieve(self):
-        metric = GroupUsageMetric.objects.create(
-            group_type_index=self.group_type.group_type_index, team=self.team, name="Events", filters={"foo": "bar"}
-        )
+        metric = self._create_metric()
         url = f"{self.url}/{metric.id}"
 
         response = self.client.get(url)
@@ -1546,15 +1553,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertDetailFields(response.json(), metric)
 
     def test_update(self):
-        metric = GroupUsageMetric.objects.create(
-            group_type_index=self.group_type.group_type_index,
-            team=self.team,
-            name="Events",
-            format="numeric",
-            interval=7,
-            display="number",
-            filters={"foo": "bar"},
-        )
+        metric = self._create_metric()
         url = f"{self.url}/{metric.id}"
         payload = {
             "name": "Updated Events",
@@ -1576,9 +1575,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertDetailFields(response.json(), metric)
 
     def test_delete(self):
-        metric = GroupUsageMetric.objects.create(
-            group_type_index=self.group_type.group_type_index, team=self.team, name="Events"
-        )
+        metric = self._create_metric()
         url = f"{self.url}/{metric.id}"
 
         response = self.client.delete(url)
@@ -1587,14 +1584,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertFalse(GroupUsageMetric.objects.filter(id=metric.id).exists())
 
     def test_partial_update(self):
-        metric = GroupUsageMetric.objects.create(
-            group_type_index=self.group_type.group_type_index,
-            team=self.team,
-            name="Events",
-            format="numeric",
-            interval=7,
-            display="number",
-        )
+        metric = self._create_metric()
         url = f"{self.url}/{metric.id}"
         payload = {"name": "Partially Updated Events"}
 
@@ -1632,9 +1622,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_unauthorized_team_access(self):
-        GroupUsageMetric.objects.create(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team, name="Other Events"
-        )
+        self._create_metric(group_type_index=self.other_group_type.group_type_index, team=self.other_team)
 
         response = self.client.get(self.other_url)
 
@@ -1642,8 +1630,8 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
 
     def test_unauthorized_metric_access(self):
-        other_metric = GroupUsageMetric.objects.create(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team, name="Other Events"
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
         )
         url = f"{self.other_url}/{other_metric.id}"
 
@@ -1661,8 +1649,8 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
 
     def test_unauthorized_metric_modification(self):
-        other_metric = GroupUsageMetric.objects.create(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team, name="Other Events"
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
         )
         url = f"{self.other_url}/{other_metric.id}"
         payload = {"name": "Hacked Events"}
@@ -1673,8 +1661,8 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
 
     def test_unauthorized_metric_deletion(self):
-        other_metric = GroupUsageMetric.objects.create(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team, name="Other Events"
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
         )
         url = f"{self.other_url}/{other_metric.id}"
 
