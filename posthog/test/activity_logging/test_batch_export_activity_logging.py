@@ -40,10 +40,11 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
     def test_batch_export_scope_in_activity_log_types(self):
         """Test that BatchExport scope is defined in ActivityScope"""
         from posthog.models.activity_logging.activity_log import ActivityScope
+        from typing import get_args
 
         # Check that BatchExport is in the literal type
         # We can't directly test literal types, but we can test that the string value works
-        self.assertIn("BatchExport", str(ActivityScope.__args__))
+        self.assertIn("BatchExport", get_args(ActivityScope))
 
     def test_batch_export_integration_test(self):
         """Integration test to verify the basic setup works"""
@@ -138,12 +139,14 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             ).first()
 
             self.assertIsNotNone(activity_log)
+            assert activity_log is not None  # For mypy
             self.assertEqual(activity_log.user, self.user)
             self.assertEqual(activity_log.team_id, self.team.id)
             self.assertEqual(activity_log.organization_id, self.team.organization_id)
 
             # Check that context is populated
             self.assertIsNotNone(activity_log.detail)
+            assert activity_log.detail is not None  # For mypy
             context = activity_log.detail.get("context")
             self.assertIsNotNone(context)
             self.assertEqual(context["name"], "Signal Test Export")
@@ -184,9 +187,11 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             ).first()
 
             self.assertIsNotNone(activity_log)
+            assert activity_log is not None  # For mypy
             self.assertEqual(activity_log.user, self.user)
 
             # Check that changes are recorded
+            assert activity_log.detail is not None  # For mypy
             changes = activity_log.detail.get("changes", [])
             self.assertTrue(len(changes) > 0)
 
@@ -224,6 +229,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             ).first()
 
             self.assertIsNotNone(activity_log)
+            assert activity_log is not None  # For mypy
             self.assertEqual(activity_log.user, self.user)
 
         finally:
