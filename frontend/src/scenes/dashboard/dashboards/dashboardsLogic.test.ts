@@ -7,6 +7,8 @@ import { initKeaTests } from '~/test/init'
 import { DashboardType, UserBasicType } from '~/types'
 
 import dashboardJson from '../__mocks__/dashboard.json'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 let dashboardId = 1234
 const dashboard = (extras: Partial<DashboardType>): DashboardType => {
@@ -18,6 +20,10 @@ const dashboard = (extras: Partial<DashboardType>): DashboardType => {
         ...extras,
     } as any as DashboardType
 }
+
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.Dashboards]: blankScene }
+
 describe('dashboardsLogic', () => {
     let logic: ReturnType<typeof dashboardsLogic.build>
 
@@ -52,8 +58,10 @@ describe('dashboardsLogic', () => {
 
         dashboardsModel.mount()
         await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+        sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
 
-        logic = dashboardsLogic()
+        logic = dashboardsLogic({ tabId: '1' })
         logic.mount()
     })
 

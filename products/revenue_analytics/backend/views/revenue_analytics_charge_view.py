@@ -6,6 +6,7 @@ from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
@@ -24,9 +25,7 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     is_zero_decimal_in_stripe,
 )
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-)
+
 
 SOURCE_VIEW_SUFFIX = "charge_revenue_view"
 EVENTS_VIEW_SUFFIX = "charge_events_revenue_view"
@@ -132,8 +131,12 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
 
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.temporal.data_imports.sources.stripe.constants import (
+            CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+        )
+
         # Currently only works for stripe sources
-        if not source.source_type == ExternalDataSource.Type.STRIPE:
+        if not source.source_type == ExternalDataSourceType.STRIPE:
             return []
 
         # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land

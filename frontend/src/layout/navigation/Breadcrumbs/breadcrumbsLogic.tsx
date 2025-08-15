@@ -27,7 +27,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             preflightLogic,
             ['preflight'],
             sceneLogic,
-            ['sceneConfig', 'activeScene'],
+            ['sceneConfig', 'activeSceneId'],
             userLogic,
             ['user', 'otherOrganizations'],
             organizationLogic,
@@ -77,7 +77,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
                 (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
-                    const activeScene = s.activeScene(state, props)
+                    const activeSceneId = s.activeSceneId(state, props)
 
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         try {
@@ -91,9 +91,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         }
                     }
 
-                    if (activeScene) {
+                    if (activeSceneId) {
                         const sceneConfig = s.sceneConfig(state, props)
-                        return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
+                        return [{ name: sceneConfig?.name ?? identifierToHuman(activeSceneId), key: activeSceneId }]
                     }
                     return []
                 },
@@ -124,10 +124,18 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
-            (s) => [s.preflight, s.sceneConfig, s.activeScene, s.user, s.currentProject, s.currentTeam, s.featureFlags],
-            (preflight, sceneConfig, activeScene, user, currentProject, currentTeam, featureFlags) => {
+            (s) => [
+                s.preflight,
+                s.sceneConfig,
+                s.activeSceneId,
+                s.user,
+                s.currentProject,
+                s.currentTeam,
+                s.featureFlags,
+            ],
+            (preflight, sceneConfig, activeSceneId, user, currentProject, currentTeam, featureFlags) => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (!activeScene || !sceneConfig) {
+                if (!activeSceneId || !sceneConfig) {
                     return breadcrumbs
                 }
                 // User

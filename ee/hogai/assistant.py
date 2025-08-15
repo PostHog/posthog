@@ -84,7 +84,6 @@ from posthog.schema import (
 )
 from posthog.sync import database_sync_to_async
 
-
 VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,

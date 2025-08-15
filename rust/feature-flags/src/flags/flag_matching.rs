@@ -1079,11 +1079,7 @@ impl FeatureFlagMatcher {
                 let condition = &holdout_groups[0];
                 // TODO: Check properties and match based on them
 
-                if condition
-                    .properties
-                    .as_ref()
-                    .map_or(false, |p| !p.is_empty())
-                {
+                if condition.properties.as_ref().is_some_and(|p| !p.is_empty()) {
                     return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
                 }
 
@@ -1139,7 +1135,7 @@ impl FeatureFlagMatcher {
             let merged_properties = self.get_person_properties(property_overrides)?;
 
             let has_relevant_super_condition_properties =
-                super_condition.properties.as_ref().map_or(false, |props| {
+                super_condition.properties.as_ref().is_some_and(|props| {
                     props
                         .iter()
                         .any(|prop| merged_properties.contains_key(&prop.key))
