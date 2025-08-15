@@ -313,6 +313,18 @@ class RootNode(RootNodeUIContextMixin):
             send_feature_flag_events=False,
         )
 
+    def _has_insight_search_feature_flag(self) -> bool:
+        """
+        Check if the user has the insight search feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-ai-insight-search",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
@@ -321,7 +333,7 @@ class RootNode(RootNodeUIContextMixin):
         from ee.hogai.tool import get_contextual_tool_class
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
-        # Build system prompt with conditional session summarization section
+        # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
         if not self._has_session_summarization_feature_flag():
@@ -331,6 +343,22 @@ class RootNode(RootNodeUIContextMixin):
             )
             # Also remove the reference to session_summarization in basic_functionality
             system_prompt_template = re.sub(r"\n?\d+\. `session_summarization`.*?[^\n]*", "", system_prompt_template)
+
+        # Check if insight search is enabled for the user
+        if not self._has_insight_search_feature_flag():
+            # Remove the reference to search_insights in basic_functionality
+            system_prompt_template = re.sub(r"\n?\d+\. `search_insights`.*?[^\n]*", "", system_prompt_template)
+            # Remove the insight_search section from prompt using regex
+            system_prompt_template = re.sub(
+                r"\n?<insight_search>.*?</insight_search>", "", system_prompt_template, flags=re.DOTALL
+            )
+            # Remove the CRITICAL ROUTING LOGIC section when insight search is disabled
+            system_prompt_template = re.sub(
+                r"\n?CRITICAL ROUTING LOGIC:.*?(?=Follow these guidelines when retrieving data:)",
+                "",
+                system_prompt_template,
+                flags=re.DOTALL,
+            )
 
         prompt = (
             ChatPromptTemplate.from_messages(
@@ -449,7 +477,10 @@ class RootNode(RootNodeUIContextMixin):
             session_summarization,
         )
 
-        available_tools: list[type[BaseModel]] = [search_insights]
+        available_tools: list[type[BaseModel]] = []
+        # Check if insight search is enabled for the user
+        if self._has_insight_search_feature_flag():
+            available_tools.append(search_insights)
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
