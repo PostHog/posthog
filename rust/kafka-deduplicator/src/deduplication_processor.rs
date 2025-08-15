@@ -220,7 +220,7 @@ impl MessageProcessor for DeduplicationProcessor {
                     topic, partition, offset, e
                 );
                 // Nack the message so it can be handled by error recovery/DLQ
-                message.nack(format!("Failed to parse JSON: {}", e)).await;
+                message.nack(format!("Failed to parse JSON: {e}")).await;
                 return Err(anyhow::anyhow!(
                     "Failed to parse event from {}:{} offset {}: {}",
                     topic,
