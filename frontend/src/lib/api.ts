@@ -1257,6 +1257,10 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
+    }
+
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -3336,6 +3340,21 @@ const api = {
                 .withAction('jobs')
                 .withQueryString({ before, after })
                 .get()
+        },
+    },
+
+    dataWarehouse: {
+        async total_rows_stats(options?: ApiMethodOptions): Promise<{
+            billingAvailable: boolean
+            billingInterval: string
+            billingPeriodEnd: string
+            billingPeriodStart: string
+            materializedRowsInBillingPeriod: number
+            totalRows: number
+            trackedBillingRows: number
+            pendingBillingRows: number
+        }> {
+            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
     },
 
