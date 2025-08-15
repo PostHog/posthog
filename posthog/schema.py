@@ -90,7 +90,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     NAVIGATE = "navigate"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
-    find_error_tracking_event_list = "find_error_tracking_event_list"
+    FIND_ERROR_TRACKING_EVENT_LIST = "find_error_tracking_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     SEARCH_DOCS = "search_docs"
@@ -11944,7 +11944,7 @@ class ErrorTrackingIssueCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    issues: list[ErrorTrackingIssue]
+    events: list[str]
     kind: Literal["ErrorTrackingIssueCorrelationQuery"] = "ErrorTrackingIssueCorrelationQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

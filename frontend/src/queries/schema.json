@@ -9916,9 +9916,9 @@
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
             "properties": {
-                "issues": {
+                "events": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssue"
+                        "type": "string"
                     },
                     "type": "array"
                 },
@@ -9941,7 +9941,7 @@
                     "type": "number"
                 }
             },
-            "required": ["issues", "kind"],
+            "required": ["events", "kind"],
             "type": "object"
         },
         "ErrorTrackingIssueCorrelationQueryResponse": {

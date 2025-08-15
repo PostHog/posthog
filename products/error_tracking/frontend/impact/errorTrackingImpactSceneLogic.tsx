@@ -43,7 +43,7 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
             {
                 loadIssues: async () => {
                     if (values.events) {
-                        const issues = await api.query(errorTrackingIssueCorrelationQuery({ event: values.events }), {
+                        const issues = await api.query(errorTrackingIssueCorrelationQuery({ events: values.events }), {
                             refresh: 'force_blocking',
                         })
                         return issues.results
@@ -55,7 +55,7 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
     })),
 
     listeners(({ actions }) => ({
-        setEvent: () => actions.loadIssues(),
+        setEvents: () => actions.loadIssues(),
     })),
 
     selectors({
@@ -77,6 +77,6 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
     }),
 
     subscriptions(({ actions }) => ({
-        event: () => actions.setSelectedIssueIds([]),
+        events: () => actions.setSelectedIssueIds([]),
     })),
 ])

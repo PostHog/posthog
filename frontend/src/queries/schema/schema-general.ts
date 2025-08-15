@@ -2104,7 +2104,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueCorrelationQuery
-    issues: ErrorTrackingIssue[]
+    events: string[]
 }
 
 export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQueryResponseBase {
