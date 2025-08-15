@@ -272,10 +272,10 @@ class TestStrategyClasses:
             result = strategy.get_teams(self.mock_context)
 
         assert result == {123}
-        # Verify the query contains the custom flag key
+        # Verify the query uses the custom flag key in the parameterized values
         query_payload = mock_post.call_args[1]["json"]
-        query = query_payload["query"]["query"]
-        assert "custom-flag" in query
+        values = query_payload["query"]["values"]
+        assert values["flag_key"] == "custom-flag"
 
 
 class TestStoreTeamSelectionInClickhouse:
