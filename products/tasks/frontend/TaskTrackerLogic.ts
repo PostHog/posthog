@@ -15,6 +15,8 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
             newStatus,
             newPosition,
         }),
+        createTask: (task: Task) => ({ task }),
+        updateTask: (id: Task['id'], data: Partial<Task>) => ({ id, data }),
         scopeTask: (taskId: string) => ({ taskId }),
         reorderTasks: (sourceIndex: number, destinationIndex: number, status: TaskStatus) => ({
             sourceIndex,
@@ -30,20 +32,6 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
         pollForUpdates: true,
     }),
     loaders(({ values, actions }) => ({
-        createTask: {
-            __default: null,
-            createTask: async (taskData: any) => {
-                try {
-                    const response = await api.tasks.create(taskData)
-                    // Reload tasks to include the new one
-                    actions.loadTasks()
-                    return response
-                } catch (error) {
-                    console.error('Failed to create task:', error)
-                    throw error
-                }
-            },
-        },
         tasks: {
             __default: [] as Task[],
             loadTasks: async () => {
@@ -54,6 +42,24 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
                 } catch (error) {
                     console.error('Failed to load tasks, using demo data:', error)
                     return demoTasks
+                }
+            },
+            createTask: async ({ task }) => {
+                try {
+                    const response = await api.tasks.create(task)
+                    return [...values.tasks, response]
+                } catch (error) {
+                    console.error('Failed to create task:', error)
+                    throw error
+                }
+            },
+            updateTask: async ({ id, data }) => {
+                try {
+                    const response = await api.tasks.update(id, data)
+                    return [...values.tasks, response]
+                } catch (error) {
+                    console.error('Failed to create task:', error)
+                    throw error
                 }
             },
             moveTask: async ({ taskId, newStatus, newPosition }) => {
@@ -281,7 +287,7 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
     afterMount(({ actions }) => {
         actions.loadTasks()
     }),
-    beforeUnmount(({ actions, cache }) => {
+    beforeUnmount(({ cache }) => {
         if (cache.pollingInterval) {
             clearInterval(cache.pollingInterval)
         }

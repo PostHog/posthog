@@ -10,6 +10,9 @@
         "kea-loaders": "*",
         "kea-router": "*",
         "react": "*",
-        "react-beautiful-dnd": "*"
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*"
     }
 }

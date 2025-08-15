@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'
 import { taskTrackerLogic } from '../TaskTrackerLogic'
 import { TaskCard } from './TaskCard'
 import { TaskModal } from './TaskModal'
-import { TaskStatus } from '../types'
+import { Task, TaskStatus } from '../types'
+import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
+import { PropsWithChildren } from 'react'
 
 export function KanbanView(): JSX.Element {
     const { kanbanColumns, selectedTask } = useValues(taskTrackerLogic)
-    const { moveTask, reorderTasks, openTaskModal, closeTaskModal } = useActions(taskTrackerLogic)
+    const { openTaskModal, closeTaskModal } = useActions(taskTrackerLogic)
 
     const [isDragging, setIsDragging] = useState(false)
 
@@ -16,37 +17,37 @@ export function KanbanView(): JSX.Element {
         setIsDragging(true)
     }
 
-    const handleDragEnd = (result: DropResult): void => {
+    const handleDragEnd = (): void => {
         setIsDragging(false)
 
-        const { destination, source, draggableId } = result
+        // const { destination, source, draggableId } = result
 
-        if (!destination) {
-            return
-        }
+        // if (!destination) {
+        //     return
+        // }
 
-        if (destination.droppableId === source.droppableId && destination.index === source.index) {
-            return
-        }
+        // if (destination.droppableId === source.droppableId && destination.index === source.index) {
+        //     return
+        // }
 
-        const destinationStatus = destination.droppableId as TaskStatus
-        const sourceStatus = source.droppableId as TaskStatus
+        // const destinationStatus = destination.droppableId as TaskStatus
+        // const sourceStatus = source.droppableId as TaskStatus
 
-        // Only allow dropping in TODO and BACKLOG columns
-        if (destinationStatus !== TaskStatus.TODO && destinationStatus !== TaskStatus.BACKLOG) {
-            return
-        }
+        // // Only allow dropping in TODO and BACKLOG columns
+        // if (destinationStatus !== TaskStatus.TODO && destinationStatus !== TaskStatus.BACKLOG) {
+        //     return
+        // }
 
-        // If moving within the same column, just reorder
-        if (destinationStatus === sourceStatus) {
-            reorderTasks(source.index, destination.index, sourceStatus)
-        } else {
-            // Moving between columns
-            moveTask(draggableId, destinationStatus, destination.index)
-        }
+        // // If moving within the same column, just reorder
+        // if (destinationStatus === sourceStatus) {
+        //     reorderTasks(source.index, destination.index, sourceStatus)
+        // } else {
+        //     // Moving between columns
+        //     moveTask(draggableId, destinationStatus, destination.index)
+        // }
     }
 
-    const handleTaskClick = (taskId: string): void => {
+    const handleTaskClick = (taskId: Task['id']): void => {
         if (!isDragging) {
             openTaskModal(taskId)
         }
@@ -56,7 +57,7 @@ export function KanbanView(): JSX.Element {
         <div className="space-y-4">
             <h2 className="text-xl font-semibold">Kanban Board</h2>
 
-            <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 <div className="grid grid-cols-5 gap-4">
                     {kanbanColumns.map((column) => {
                         const isAgentOnly = column.id !== TaskStatus.TODO && column.id !== TaskStatus.BACKLOG
@@ -83,49 +84,52 @@ export function KanbanView(): JSX.Element {
                                 </div>
 
                                 <Droppable
-                                    droppableId={column.id}
-                                    isDropDisabled={column.id !== TaskStatus.TODO && column.id !== TaskStatus.BACKLOG}
+                                    id={column.id}
+                                    disabled={column.id !== TaskStatus.TODO && column.id !== TaskStatus.BACKLOG}
                                 >
-                                    {(provided, snapshot) => (
-                                        <div
-                                            {...provided.droppableProps}
-                                            ref={provided.innerRef}
-                                            className={`space-y-2 min-h-[200px] ${
-                                                snapshot.isDraggingOver &&
-                                                (column.id === TaskStatus.TODO || column.id === TaskStatus.BACKLOG)
-                                                    ? 'bg-accent-light rounded'
-                                                    : snapshot.isDraggingOver
-                                                      ? 'bg-danger-light rounded'
-                                                      : ''
-                                            }`}
-                                        >
-                                            {column.tasks.map((task, index) => (
-                                                <Draggable key={task.id} draggableId={task.id} index={index}>
-                                                    {(provided, snapshot) => (
-                                                        <div
-                                                            ref={provided.innerRef}
-                                                            {...provided.draggableProps}
-                                                            {...provided.dragHandleProps}
-                                                            className={`${
-                                                                snapshot.isDragging ? 'rotate-3 shadow-lg' : ''
-                                                            }`}
-                                                        >
-                                                            <TaskCard task={task} draggable onClick={handleTaskClick} />
-                                                        </div>
-                                                    )}
-                                                </Draggable>
-                                            ))}
-                                            {provided.placeholder}
-                                        </div>
-                                    )}
+                                    {column.tasks.map((task) => (
+                                        <Draggable key={task.id} task={task} onClick={handleTaskClick} />
+                                    ))}
                                 </Droppable>
                             </div>
                         )
                     })}
                 </div>
-            </DragDropContext>
+            </DndContext>
 
             <TaskModal task={selectedTask} isOpen={!!selectedTask} onClose={closeTaskModal} />
+        </div>
+    )
+}
+
+const Droppable = ({
+    id,
+    disabled,
+    children,
+}: PropsWithChildren<{ id: TaskStatus; disabled: boolean }>): JSX.Element => {
+    const { setNodeRef, isOver } = useDroppable({ id, disabled })
+    return (
+        <div
+            ref={setNodeRef}
+            className={`space-y-2 min-h-[200px] ${
+                isOver && (id === TaskStatus.TODO || id === TaskStatus.BACKLOG)
+                    ? 'bg-accent-light rounded'
+                    : isOver
+                      ? 'bg-danger-light rounded'
+                      : ''
+            }`}
+        >
+            {children}
+        </div>
+    )
+}
+
+const Draggable = ({ task, onClick }: { task: Task; onClick: (id: Task['id']) => void }): JSX.Element => {
+    const { setNodeRef, isDragging } = useDraggable({ id: task.id })
+
+    return (
+        <div ref={setNodeRef} className={isDragging ? 'rotate-3 shadow-lg' : ''}>
+            <TaskCard task={task} draggable onClick={() => onClick(task.id)} />
         </div>
     )
 }

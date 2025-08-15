@@ -174,6 +174,7 @@ import type { ProductIntentProperties } from './utils/product-intents'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import { Task } from 'products/tasks/frontend/types'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -3189,16 +3190,7 @@ const api = {
         > {
             return await new ApiRequest().tasks().get()
         },
-        async get(id: string): Promise<{
-            id: string
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-            created_at: string
-            updated_at: string
-        }> {
+        async get(id: string): Promise<Task> {
             return await new ApiRequest().task(id).get()
         },
         async create(data: {
@@ -3207,16 +3199,7 @@ const api = {
             status: string
             origin_product: string
             position: number
-        }): Promise<{
-            id: string
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-            created_at: string
-            updated_at: string
-        }> {
+        }): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
         },
         async update(
@@ -3228,16 +3211,7 @@ const api = {
                 origin_product: string
                 position: number
             }>
-        ): Promise<{
-            id: string
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-            created_at: string
-            updated_at: string
-        }> {
+        ): Promise<Partial<Task>> {
             return await new ApiRequest().task(id).update({ data })
         },
         async delete(id: string): Promise<void> {

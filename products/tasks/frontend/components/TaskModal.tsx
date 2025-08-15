@@ -6,7 +6,6 @@ import { taskTrackerLogic } from '../TaskTrackerLogic'
 import { STATUS_LABELS, STATUS_COLORS, ORIGIN_PRODUCT_LABELS, ORIGIN_PRODUCT_COLORS } from '../constants'
 import { TaskProgressDisplay } from './TaskProgressDisplay'
 import { RepositorySelector, RepositoryConfig } from './RepositorySelector'
-import api from 'lib/api'
 
 interface TaskModalProps {
     task: Task | null
@@ -58,7 +57,6 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Elemen
                 },
             }
 
-            await api.tasks.update(task.id, updateData)
             updateTask(task.id, updateData)
             setIsEditingRepository(false)
         } catch (error) {
