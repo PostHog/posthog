@@ -31,7 +31,7 @@ class PostgresToClickHouseETLConfig(Config):
     """Configuration for the Postgres to ClickHouse ETL job."""
 
     full_refresh: bool = False
-    batch_size: int = 10000
+    batch_size: int = 5000  # Reduced to avoid memory issues
     max_execution_time: int = 3600
 
 
@@ -268,9 +268,12 @@ def create_clickhouse_tables(
         raise
 
 
-def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
-    """Fetch organizations from Postgres."""
-    cursor = conn.cursor()
+def fetch_organizations_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
+    """Fetch organizations from Postgres in batches to avoid memory issues.
+
+    Yields batches of organization records.
+    """
+    cursor = conn.cursor(name="organizations_cursor")  # Named cursor for server-side processing
 
     query = """
         SELECT
@@ -311,21 +314,31 @@ def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: 
     query += " ORDER BY updated_at ASC"
 
     cursor.execute(query, params)
+    cursor.itersize = batch_size  # Configure batch size for server-side cursor
 
-    rows = []
     while True:
         batch = cursor.fetchmany(batch_size)
         if not batch:
             break
-        rows.extend(batch)
+        yield batch
 
     cursor.close()
+
+
+def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
+    """Fetch all organizations from Postgres (legacy function for compatibility)."""
+    rows = []
+    for batch in fetch_organizations_in_batches(conn, last_sync, batch_size):
+        rows.extend(batch)
     return rows
 
 
-def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
-    """Fetch teams from Postgres."""
-    cursor = conn.cursor()
+def fetch_teams_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
+    """Fetch teams from Postgres in batches to avoid memory issues.
+
+    Yields batches of team records.
+    """
+    cursor = conn.cursor(name="teams_cursor")  # Named cursor for server-side processing
 
     query = """
         SELECT
@@ -419,15 +432,22 @@ def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10
     query += " ORDER BY updated_at ASC"
 
     cursor.execute(query, params)
+    cursor.itersize = batch_size  # Configure batch size for server-side cursor
 
-    rows = []
     while True:
         batch = cursor.fetchmany(batch_size)
         if not batch:
             break
-        rows.extend(batch)
+        yield batch
 
     cursor.close()
+
+
+def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
+    """Fetch all teams from Postgres (legacy function for compatibility)."""
+    rows = []
+    for batch in fetch_teams_in_batches(conn, last_sync, batch_size):
+        rows.extend(batch)
     return rows
 
 
@@ -651,18 +671,33 @@ def sync_organizations(
             context.log.warning(f"Could not truncate table (may not exist yet): {e}")
             # Table might not exist, continue as it will be created
 
-    # Connect to Postgres and fetch data
+    # Connect to Postgres and fetch/insert data in streaming batches
     pg_conn = get_postgres_connection()
     try:
-        organizations = fetch_organizations(pg_conn, last_sync=last_sync, batch_size=config.batch_size)
-        context.log.info(f"Fetched {len(organizations)} organizations from Postgres")
+        total_rows = 0
+        last_updated = None
+        batch_num = 0
 
-        # Insert into ClickHouse
-        if organizations:
-            rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=config.batch_size)
-            state.rows_synced = rows_inserted
-            state.last_sync_timestamp = max(org["updated_at"] for org in organizations)
-            context.log.info(f"Inserted {rows_inserted} organizations into ClickHouse")
+        # Process data in streaming fashion to avoid memory issues
+        for batch in fetch_organizations_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
+            batch_num += 1
+            if batch:
+                context.log.info(f"Processing batch {batch_num} with {len(batch)} organizations")
+
+                # Insert this batch into ClickHouse
+                rows_inserted = insert_organizations_to_clickhouse(batch, batch_size=config.batch_size)
+                total_rows += rows_inserted
+
+                # Track the latest timestamp for state
+                batch_last_updated = max(org["updated_at"] for org in batch)
+                if last_updated is None or batch_last_updated > last_updated:
+                    last_updated = batch_last_updated
+
+                context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
+
+        state.rows_synced = total_rows
+        state.last_sync_timestamp = last_updated
+        context.log.info(f"Completed sync: inserted {total_rows} organizations into ClickHouse")
 
     except Exception as e:
         state.errors.append(f"Error syncing organizations: {str(e)}")
@@ -716,18 +751,33 @@ def sync_teams(
             context.log.warning(f"Could not truncate table (may not exist yet): {e}")
             # Table might not exist, continue as it will be created
 
-    # Connect to Postgres and fetch data
+    # Connect to Postgres and fetch/insert data in streaming batches
     pg_conn = get_postgres_connection()
     try:
-        teams = fetch_teams(pg_conn, last_sync=last_sync, batch_size=config.batch_size)
-        context.log.info(f"Fetched {len(teams)} teams from Postgres")
+        total_rows = 0
+        last_updated = None
+        batch_num = 0
 
-        # Insert into ClickHouse
-        if teams:
-            rows_inserted = insert_teams_to_clickhouse(teams, batch_size=config.batch_size)
-            state.rows_synced = rows_inserted
-            state.last_sync_timestamp = max(team["updated_at"] for team in teams)
-            context.log.info(f"Inserted {rows_inserted} teams into ClickHouse")
+        # Process data in streaming fashion to avoid memory issues
+        for batch in fetch_teams_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
+            batch_num += 1
+            if batch:
+                context.log.info(f"Processing batch {batch_num} with {len(batch)} teams")
+
+                # Insert this batch into ClickHouse
+                rows_inserted = insert_teams_to_clickhouse(batch, batch_size=config.batch_size)
+                total_rows += rows_inserted
+
+                # Track the latest timestamp for state
+                batch_last_updated = max(team["updated_at"] for team in batch)
+                if last_updated is None or batch_last_updated > last_updated:
+                    last_updated = batch_last_updated
+
+                context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
+
+        state.rows_synced = total_rows
+        state.last_sync_timestamp = last_updated
+        context.log.info(f"Completed sync: inserted {total_rows} teams into ClickHouse")
 
     except Exception as e:
         state.errors.append(f"Error syncing teams: {str(e)}")
