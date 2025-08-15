@@ -10,7 +10,7 @@ from django.dispatch.dispatcher import receiver
 from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, FieldDoesNotExist
 from django.db import transaction
 
 from django.db import models
@@ -148,6 +148,11 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "name": obj.name,
                 "team_id": obj.team_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
+            return {
+                "id": obj.id,
+                "media_location": obj.media_location,
             }
 
         return json.JSONEncoder.default(self, obj)
@@ -449,16 +454,37 @@ def safely_get_field_value(instance: models.Model | None, field: str):
     """Helper function to get the value of a field, handling related objects and exceptions."""
     if instance is None:
         return None
+
     try:
+        field_obj = instance._meta.get_field(field)
+
+        # For ForeignKey/OneToOneField, always access the ID first to avoid lazy loading
+        # throwing malformed UUID validation errors
+        if isinstance(field_obj, models.ForeignKey | models.OneToOneField):
+            field_id = getattr(instance, f"{field}_id", None)
+            if field_id is None:
+                return None
+            # Ensure field_id is actually an ID, not the object itself
+            if hasattr(field_id, "pk"):
+                field_id = field_id.pk
+            # Only fetch the actual object if we have a valid ID
+            related_model = field_obj.related_model
+            if isinstance(related_model, type) and issubclass(related_model, models.Model):
+                return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
+            else:
+                return field_id
+
+        # For other fields, use normal access
         value = getattr(instance, field, None)
         if isinstance(value, models.Manager):
             value = _read_through_relation(value)
+        return value
+
     # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
     # exception. We catch this exception and return None, since the related object has been deleted, and we
     # don't need any additional information about it other than the fact that it was deleted.
-    except ObjectDoesNotExist:
-        value = None
-    return value
+    except (ObjectDoesNotExist, FieldDoesNotExist):
+        return None
 
 
 def changes_between(
