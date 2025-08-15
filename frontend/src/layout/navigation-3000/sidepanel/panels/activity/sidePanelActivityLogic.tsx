@@ -12,6 +12,7 @@ import { ActivityScope, UserBasicType } from '~/types'
 const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
     ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
     ActivityScope.ORGANIZATION_MEMBERSHIP, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.ORGANIZATION_INVITE, // Handled under ActivityScope.ORGANIZATION
 ]
 
 const getVisibleActivityScopes = (): ActivityScope[] => {

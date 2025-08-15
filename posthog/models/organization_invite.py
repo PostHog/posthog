@@ -11,6 +11,7 @@ from ee.models.rbac.access_control import AccessControl
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailValidationHelper, EmailNormalizer
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel, sane_repr
@@ -47,7 +48,7 @@ class InviteExpiredException(exceptions.ValidationError):
         super().__init__(message, code="expired")
 
 
-class OrganizationInvite(UUIDModel):
+class OrganizationInvite(ModelActivityMixin, UUIDModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -174,6 +175,22 @@ class OrganizationInvite(UUIDModel):
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""
         return self.created_at < timezone.now() - timedelta(INVITE_DAYS_VALIDITY)
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.signals import model_activity_signal
+        from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+        model_activity_signal.send(
+            sender=self.__class__,
+            scope=self.__class__.__name__,
+            before_update=self,
+            after_update=None,
+            activity="deleted",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return absolute_uri(f"/signup/{self.id}")

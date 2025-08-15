@@ -23,6 +23,7 @@ from posthog.models import (
     Team,
     Organization,
 )
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -440,6 +441,17 @@ class OrganizationMembershipContext(ActivityContextBase):
     level: str
 
 
+@dataclasses.dataclass(frozen=True)
+class OrganizationInviteContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+    target_email: str
+    inviter_user_id: str
+    inviter_user_email: str
+    inviter_user_name: str
+    level: str
+
+
 @receiver(model_activity_signal, sender=OrganizationMembership)
 def handle_organization_membership_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
@@ -450,9 +462,8 @@ def handle_organization_membership_change(
     if not membership:
         return
 
-    # Get user details from the membership
     member_user = membership.user
-    member_name = f"{member_user.first_name} {member_user.last_name}".strip() or member_user.email
+    member_name = f"{member_user.first_name} {member_user.last_name}".strip()
 
     context = OrganizationMembershipContext(
         organization_id=str(membership.organization_id),
@@ -463,7 +474,6 @@ def handle_organization_membership_change(
         level=str(OrganizationMembership.Level(membership.level).label),
     )
 
-    # Determine the activity description for logging
     if activity == "created":
         detail_name = f"{member_name} ({member_user.email}) joined {membership.organization.name}"
     elif activity == "deleted":
@@ -477,6 +487,52 @@ def handle_organization_membership_change(
         user=user,
         was_impersonated=was_impersonated,
         item_id=membership.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )
+
+
+@receiver(model_activity_signal, sender=OrganizationInvite)
+def handle_organization_invite_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # Use after_update for create/update, before_update for delete
+    invite = after_update or before_update
+
+    if not invite:
+        return
+
+    inviter_user = invite.created_by
+    inviter_name = f"{inviter_user.first_name} {inviter_user.last_name}".strip()
+
+    context = OrganizationInviteContext(
+        organization_id=str(invite.organization_id),
+        organization_name=invite.organization.name,
+        target_email=invite.target_email or "",
+        inviter_user_id=str(inviter_user.id),
+        inviter_user_email=inviter_user.email,
+        inviter_user_name=inviter_name,
+        level=str(OrganizationMembership.Level(invite.level).label),
+    )
+
+    if activity == "created":
+        detail_name = f"User {inviter_name} ({inviter_user.email}) invited user {invite.target_email} into organization {invite.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Invite for {invite.target_email} to organization {invite.organization.name} was cancelled"
+    else:
+        detail_name = f"Invite for {invite.target_email} to organization {invite.organization.name} was updated"
+
+    log_activity(
+        organization_id=invite.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=invite.id,
         scope=scope,
         activity=activity,
         detail=Detail(

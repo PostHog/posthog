@@ -2,6 +2,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 from posthog.models import User, Organization
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_invite import OrganizationInvite
 
 
 class TestOrganizationActivityLogging(ActivityLogTestHelper):
@@ -224,3 +225,68 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         assert level_change is not None
         self.assertEqual(level_change["before"], 1)
         self.assertEqual(level_change["after"], 8)
+
+    def test_organization_invite_creation_activity_logging(self):
+        organization = self.create_organization("Test Invite Org")
+        org = Organization.objects.get(id=organization["id"])
+
+        # Use API to create the invite to properly set user context
+        response = self.client.post(
+            f"/api/organizations/{org.id}/invites/",
+            {
+                "target_email": "invitee@example.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        invite = OrganizationInvite.objects.get(target_email="invitee@example.com")
+
+        log = ActivityLog.objects.filter(
+            organization_id=org.id, scope="OrganizationInvite", activity="created", item_id=str(invite.id)
+        ).first()
+
+        assert log is not None
+        self.assertEqual(log.activity, "created")
+        self.assertEqual(log.item_id, str(invite.id))
+        self.assertEqual(log.user, self.user)
+        self.assertIn("invited user invitee@example.com", log.detail["name"])
+        self.assertIn("Test Invite Org", log.detail["name"])
+
+        context = log.detail.get("context", {})
+        self.assertEqual(context["target_email"], "invitee@example.com")
+        self.assertEqual(context["organization_name"], "Test Invite Org")
+        self.assertEqual(context["inviter_user_email"], self.user.email)
+        self.assertEqual(context["level"], "member")
+
+    def test_organization_invite_deletion_activity_logging(self):
+        organization = self.create_organization("Test Delete Invite Org")
+        org = Organization.objects.get(id=organization["id"])
+
+        response = self.client.post(
+            f"/api/organizations/{org.id}/invites/",
+            {
+                "target_email": "delete-invitee@example.com",
+                "level": OrganizationMembership.Level.ADMIN,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        invite = OrganizationInvite.objects.get(target_email="delete-invitee@example.com")
+        invite_id = str(invite.id)
+
+        response = self.client.delete(f"/api/organizations/{org.id}/invites/{invite.id}/")
+        self.assertEqual(response.status_code, 204)
+
+        log = ActivityLog.objects.filter(organization_id=org.id, scope="OrganizationInvite", activity="deleted").first()
+
+        assert log is not None
+        self.assertEqual(log.activity, "deleted")
+        self.assertEqual(log.item_id, invite_id)
+        self.assertIn("revoked", log.detail["name"])
+        self.assertIn("delete-invitee@example.com", log.detail["name"])
+
+        context = log.detail.get("context", {})
+        self.assertEqual(context["target_email"], "delete-invitee@example.com")
+        self.assertEqual(context["organization_name"], "Test Delete Invite Org")
+        self.assertEqual(context["level"], "administrator")

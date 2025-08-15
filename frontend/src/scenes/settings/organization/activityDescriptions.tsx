@@ -23,6 +23,9 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
     if (logItem.scope === 'OrganizationMembership') {
         return organizationMembershipActivityDescriber(logItem, asNotification)
     }
+    if (logItem.scope === 'OrganizationInvite') {
+        return organizationInviteActivityDescriber(logItem, asNotification)
+    }
     if (logItem.activity == 'created') {
         return {
             description: (
@@ -148,6 +151,69 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
                     's membership in organization {nameOrLinkToOrganization(organizationName)}
                 </>
             ),
+        }
+    }
+
+    return defaultDescriber(logItem, asNotification)
+}
+
+function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    const context = logItem?.detail?.context
+    const targetEmail = context?.target_email || ''
+    const organizationName = context?.organization_name || 'the organization'
+    const level = context?.level || 'member'
+
+    if (logItem.activity == 'created') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> sent an invitation to <strong>{targetEmail}</strong>{' '}
+                    to join organization {nameOrLinkToOrganization(organizationName)} as <strong>{level}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'deleted') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> revoked the invitation for{' '}
+                    <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'updated') {
+        const changes = logItem.detail.changes || []
+
+        if (changes.length === 1) {
+            const change = changes[0]
+            const changeDescription = (
+                <>
+                    updated <strong>{change.field}</strong>
+                </>
+            )
+
+            return {
+                description: (
+                    <>
+                        <strong>{userNameForLogItem(logItem)}</strong> {changeDescription} for the invitation sent to{' '}
+                        <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
+                    </>
+                ),
+            }
+        } else if (changes.length > 1) {
+            return {
+                description: (
+                    <>
+                        <strong>{userNameForLogItem(logItem)}</strong> updated{' '}
+                        <strong>{changes.length} settings</strong> for the invitation sent to{' '}
+                        <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
+                    </>
+                ),
+            }
         }
     }
 
