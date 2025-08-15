@@ -525,21 +525,23 @@ def get_winsorized_metric_values_query(
     if not isinstance(metric, ExperimentMeanMetric):
         return metric_events_query
 
+    # Add defensive handling for empty datasets to prevent ClickHouse error:
+    # "Parameters list to aggregate functions cannot be empty"
     if metric.lower_bound_percentile is not None:
         lower_bound_expr = parse_expr(
-            "quantile({level})(value)",
+            "if(count() > 0, quantile({level})(value), 0)",
             placeholders={"level": ast.Constant(value=metric.lower_bound_percentile)},
         )
     else:
-        lower_bound_expr = parse_expr("min(value)")
+        lower_bound_expr = parse_expr("if(count() > 0, min(value), 0)")
 
     if metric.upper_bound_percentile is not None:
         upper_bound_expr = parse_expr(
-            "quantile({level})(value)",
+            "if(count() > 0, quantile({level})(value), 0)",
             placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
         )
     else:
-        upper_bound_expr = parse_expr("max(value)")
+        upper_bound_expr = parse_expr("if(count() > 0, max(value), 0)")
 
     percentiles = ast.SelectQuery(
         select=[
