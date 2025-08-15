@@ -59,8 +59,6 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
             ),
         ]
 
-    # Note: caching added through RootTeamMixin
-
 
 @receiver(post_save, sender=GroupTypeMapping)
 def invalidate_hogql_database_cache(sender, instance, **kwargs):

@@ -7,6 +7,7 @@ from prometheus_client import Counter
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.redis import get_client
+from posthog.settings import TEST
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -23,6 +24,8 @@ DATABASE_INVALIDATION_COUNTER = Counter(
     "Metric tracking whether a database query was invalidated",
     labelnames=["model"],
 )
+
+CACHE_TEST_OVERRIDE = False
 
 
 # temporary for rollout purposes
@@ -62,24 +65,27 @@ class CachedQuerySet(QuerySet):
         # cache key based on sha to invalidate cache on deploys in case of migrations
         return key
 
-    def fetch_cached(self, team_id: int, timeout: int = 3600, key_prefix: Optional[str] = None):
-        try:
-            redis_client = get_client()
-            key = self.get_commit_cache_hash_key(team_id=team_id, key_prefix=key_prefix)
+    def fetch_cached(self, team: "Team", timeout: int = 3600, key_prefix: Optional[str] = None):
+        cache_enabled = CACHE_TEST_OVERRIDE if TEST else is_cache_enabled(team)
 
-            data = redis_client.hget(key, self.model.__name__)
-            if data is not None:
-                DATABASE_CACHE_COUNTER.labels(result="hit_redis", model=self.model.__name__).inc()
-                return [deserialized.object for deserialized in serializers.deserialize("json", data)]
+        if cache_enabled:
+            try:
+                redis_client = get_client()
+                key = self.get_commit_cache_hash_key(team_id=team.pk, key_prefix=key_prefix)
 
-            data = serializers.serialize("json", self)
+                data = redis_client.hget(key, self.model.__name__)
+                if data is not None:
+                    DATABASE_CACHE_COUNTER.labels(result="hit_redis", model=self.model.__name__).inc()
+                    return [deserialized.object for deserialized in serializers.deserialize("json", data)]
 
-            redis_client.hset(key, self.model.__name__, data)
-            redis_client.expire(key, timeout)
-            DATABASE_CACHE_COUNTER.labels(result="hit_db", model=self.model.__name__).inc()
-        except Exception as e:
-            capture_exception(e)
-            DATABASE_CACHE_COUNTER.labels(result="error", model=self.model.__name__).inc()
+                data = serializers.serialize("json", self)
+
+                redis_client.hset(key, self.model.__name__, data)
+                redis_client.expire(key, timeout)
+                DATABASE_CACHE_COUNTER.labels(result="hit_db", model=self.model.__name__).inc()
+            except Exception as e:
+                capture_exception(e)
+                DATABASE_CACHE_COUNTER.labels(result="error", model=self.model.__name__).inc()
 
         return list(self)
 

@@ -19,7 +19,7 @@ from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
-from posthog.models.cache import CacheManager
+from posthog.models.cache import CachedQuerySet
 
 if TYPE_CHECKING:
     from random import Random
@@ -400,7 +400,7 @@ class RootTeamManager(models.Manager):
         return self.get_queryset().filter(*args, **kwargs)
 
 
-class RootTeamManagerWithCache(CacheManager):
+class RootTeamManagerWithCache(RootTeamManager.from_queryset(CachedQuerySet)):
     pass
 
 
