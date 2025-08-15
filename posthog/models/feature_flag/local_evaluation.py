@@ -269,7 +269,7 @@ def _transform_flag_property_dependencies(flags_data: list[dict[str, Any]], pars
     return flags_data
 
 
-def _apply_flag_dependency_transformation(response_data: dict[str, Any], parsed_flags: list) -> None:
+def _apply_flag_dependency_transformation(response_data: dict[str, Any], parsed_flags: list) -> dict[str, Any]:
     """
     Apply flag dependency transformation to response data.
 
@@ -279,17 +279,22 @@ def _apply_flag_dependency_transformation(response_data: dict[str, Any], parsed_
     Args:
         response_data: The response data containing flags to transform
         parsed_flags: The original parsed feature flags for ID-to-key mapping
+
+    Returns:
+        New response data dictionary with transformed flags
     """
     try:
         flags_list = cast(list[dict[str, Any]], response_data["flags"])
-        response_data["flags"] = _transform_flag_property_dependencies(flags_list, parsed_flags)
+        transformed_flags = _transform_flag_property_dependencies(flags_list, parsed_flags)
 
         logger.info("Flag dependency transformation completed")
+        return {**response_data, "flags": transformed_flags}
     except Exception as e:
         logger.warning(
             "Flag dependency transformation failed, proceeding without transformation",
             extra={"error": str(e)},
         )
+        return response_data
 
 
 DATABASE_FOR_LOCAL_EVALUATION = (
@@ -446,9 +451,7 @@ def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) 
     }
 
     # Transform flag dependencies for simplified client-side evaluation
-    _apply_flag_dependency_transformation(response_data, flags)
-
-    return response_data
+    return _apply_flag_dependency_transformation(response_data, flags)
 
 
 # NOTE: All models that affect feature flag evaluation should have a signal to update the cache
