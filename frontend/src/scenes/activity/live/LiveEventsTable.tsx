@@ -1,20 +1,30 @@
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconLive, IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { EventName } from 'products/actions/frontend/components/EventName'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { urls } from 'scenes/urls'
+
+import { EventName } from 'products/actions/frontend/components/EventName'
+import { SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
+
+const RESOURCE_TYPE = 'live'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -71,9 +81,21 @@ const columns: LemonTableColumns<LiveEvent> = [
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <div data-attr="manage-events-table">
+        <SceneContent data-attr="manage-events-table" className={cn(!newSceneLayout && 'gap-y-0')}>
+            <SceneTitleSection
+                name="Live events"
+                description="Real-time events from your app or website."
+                resourceType={{
+                    type: RESOURCE_TYPE,
+                    typePlural: 'live events',
+                    // Without the below, the same icon would show up but it used Logs's product color, so we force it to use the non-currentColor
+                    forceIcon: <IconLive />,
+                    forceIconColorOverride: ['currentColor'],
+                }}
+            />
+            <SceneDivider />
             <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.LiveEvents}
@@ -158,7 +180,7 @@ export function LiveEventsTable(): JSX.Element {
                 }
                 nouns={['event', 'events']}
             />
-        </div>
+        </SceneContent>
     )
 }
 
