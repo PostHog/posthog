@@ -1,3 +1,4 @@
+import dataclasses
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -7,11 +8,15 @@ import posthoganalytics
 import uuid
 from datetime import timedelta
 from enum import Enum
+from django.dispatch import receiver
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.user import User
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
+from posthog.models.signals import model_activity_signal
+from django.db.models.signals import pre_delete
 
 
 class BatchImportKafkaTopic(str, Enum):
@@ -414,3 +419,98 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         batch_import.save(update_fields=["status", "status_message", "updated_at"])
 
         return Response({"status": "resumed"})
+
+
+@dataclasses.dataclass(frozen=True)
+class BatchImportContext(ActivityContextBase):
+    source_type: str
+    content_type: str
+    start_date: str | None
+    end_date: str | None
+    created_by_user_id: str | None
+    created_by_user_email: str | None
+    created_by_user_name: str | None
+
+
+@receiver(model_activity_signal, sender=BatchImport)
+def handle_batch_import_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    from posthog.models.activity_logging.batch_import_utils import (
+        extract_batch_import_info,
+        get_batch_import_created_by_info,
+        get_batch_import_detail_name,
+    )
+
+    # Use after_update for create/update, before_update for delete
+    batch_import = after_update or before_update
+
+    if not batch_import:
+        return
+
+    source_type, content_type, start_date, end_date = extract_batch_import_info(batch_import)
+    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_import_created_by_info(batch_import)
+    detail_name = get_batch_import_detail_name(source_type, content_type)
+
+    context = BatchImportContext(
+        source_type=source_type,
+        content_type=content_type,
+        start_date=start_date,
+        end_date=end_date,
+        created_by_user_id=created_by_user_id,
+        created_by_user_email=created_by_user_email,
+        created_by_user_name=created_by_user_name,
+    )
+
+    log_activity(
+        organization_id=batch_import.team.organization_id,
+        team_id=batch_import.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=batch_import.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )
+
+
+@receiver(pre_delete, sender=BatchImport)
+def handle_batch_import_delete(sender, instance, **kwargs):
+    """Handle BatchImport deletion activity logging"""
+    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+    from posthog.models.activity_logging.batch_import_utils import (
+        extract_batch_import_info,
+        get_batch_import_created_by_info,
+    )
+
+    user = get_current_user()
+    was_impersonated = get_was_impersonated()
+
+    source_type, content_type, start_date, end_date = extract_batch_import_info(instance)
+    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_import_created_by_info(instance)
+    detail_name = f"Batch import ({source_type} {content_type}) was deleted"
+
+    context = BatchImportContext(
+        source_type=source_type,
+        content_type=content_type,
+        start_date=start_date,
+        end_date=end_date,
+        created_by_user_id=created_by_user_id,
+        created_by_user_email=created_by_user_email,
+        created_by_user_name=created_by_user_name,
+    )
+
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope="BatchImport",
+        activity="deleted",
+        detail=Detail(name=detail_name, context=context),
+    )

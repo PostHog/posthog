@@ -379,12 +379,17 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "BatchExport": [
         "latest_runs",
+        "batchexportrun_set",
+        "batchexportbackfill_set",
     ],
     "BatchImport": [
         "leased_until",
         "status_message",
         "state",
         "secrets",
+        "lease_id",
+        "backoff_attempt",
+        "backoff_until",
     ],
     "Integration": [
         "sensitive_config",
