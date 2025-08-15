@@ -14,10 +14,7 @@ export interface StackTraceInfo {
     lineNumber: string
 }
 
-export interface ParsedExceptionData {
-    parsedData: string
-    uuid?: string
-}
+export type ParsedExceptionData = string
 
 /**
  * Extracts basic metadata from a PostHog exception event
@@ -82,8 +79,5 @@ export function parseExceptionEvent(event: any): ParsedExceptionData {
     const stackTrace = extractStackTraceInfo(event)
     const parsedData = formatExceptionSummary(metadata, stackTrace)
 
-    return {
-        parsedData,
-        uuid: metadata.uuid !== 'Unknown' ? metadata.uuid : undefined,
-    }
+    return parsedData
 }

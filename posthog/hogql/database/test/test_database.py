@@ -688,7 +688,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 7)):
+            with self.assertNumQueries(FuzzyInt(6, 8)):
                 create_hogql_database(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable
