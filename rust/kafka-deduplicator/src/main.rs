@@ -5,10 +5,7 @@ use serve_metrics::{serve, setup_metrics_routes};
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use kafka_deduplicator::{
-    config::Config,
-    service::KafkaDeduplicatorService,
-};
+use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
 pub async fn index() -> &'static str {
     "kafka deduplicator service"
@@ -59,4 +56,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-

@@ -509,4 +509,3 @@ mod tests {
         assert!(summary.contains("Unchanged properties: 2"));
     }
 }
-

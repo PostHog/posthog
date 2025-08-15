@@ -56,8 +56,10 @@ impl KafkaDeduplicatorService {
 
     /// Create a service with a custom processor (useful for testing)
     pub fn with_processor(config: Config, processor: Arc<DeduplicationProcessor>) -> Result<Self> {
-        config.validate().with_context(|| "Configuration validation failed for service with custom processor".to_string())?;
-        
+        config.validate().with_context(|| {
+            "Configuration validation failed for service with custom processor".to_string()
+        })?;
+
         Ok(Self {
             config,
             consumer: None,
@@ -76,9 +78,10 @@ impl KafkaDeduplicatorService {
         let rebalance_handler = Arc::new(ProcessorRebalanceHandler::new(self.processor.clone()));
 
         // Create consumer config using the kafka module's builder
-        let consumer_config = ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
-            .offset_reset(&self.config.kafka_consumer_offset_reset)
-            .build();
+        let consumer_config =
+            ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
+                .offset_reset(&self.config.kafka_consumer_offset_reset)
+                .build();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -93,13 +96,23 @@ impl KafkaDeduplicatorService {
             self.config.commit_interval(),
             shutdown_rx,
         )
-        .with_context(|| format!("Failed to create Kafka consumer for topic '{}' with group '{}'", self.config.kafka_consumer_topic, self.config.kafka_consumer_group))?;
+        .with_context(|| {
+            format!(
+                "Failed to create Kafka consumer for topic '{}' with group '{}'",
+                self.config.kafka_consumer_topic, self.config.kafka_consumer_group
+            )
+        })?;
 
         // Subscribe to input topic
         kafka_consumer
             .inner_consumer()
             .subscribe(&[&self.config.kafka_consumer_topic])
-            .with_context(|| format!("Failed to subscribe to input topic '{}'", self.config.kafka_consumer_topic))?;
+            .with_context(|| {
+                format!(
+                    "Failed to subscribe to input topic '{}'",
+                    self.config.kafka_consumer_topic
+                )
+            })?;
 
         info!(
             "Initialized consumer for topic '{}', publishing to '{:?}'",
@@ -117,15 +130,15 @@ impl KafkaDeduplicatorService {
             self.initialize()?;
         }
 
-        let consumer = self.consumer.take()
+        let consumer = self
+            .consumer
+            .take()
             .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
 
         info!("Starting Kafka Deduplicator service");
 
         // Start consumption
-        let consumer_handle = tokio::spawn(async move {
-            consumer.start_consumption().await
-        });
+        let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
 
         // Wait for shutdown signal
         tokio::signal::ctrl_c()
@@ -164,15 +177,15 @@ impl KafkaDeduplicatorService {
             self.initialize()?;
         }
 
-        let consumer = self.consumer.take()
+        let consumer = self
+            .consumer
+            .take()
             .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
 
         info!("Starting Kafka Deduplicator service");
 
         // Start consumption
-        let consumer_handle = tokio::spawn(async move {
-            consumer.start_consumption().await
-        });
+        let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
 
         // Wait for shutdown signal
         shutdown_signal.await;
@@ -201,14 +214,14 @@ impl KafkaDeduplicatorService {
     /// Shutdown the service gracefully
     pub async fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down service...");
-        
+
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             let _ = shutdown_tx.send(());
         }
-        
+
         // Give some time for graceful shutdown
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        
+
         Ok(())
     }
 

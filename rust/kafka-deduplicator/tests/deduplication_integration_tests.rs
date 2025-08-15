@@ -58,7 +58,6 @@ async fn create_kafka_topics(topics: Vec<&str>) -> Result<()> {
     Ok(())
 }
 
-
 /// Produce duplicate events to test deduplication
 async fn produce_duplicate_events(
     topic: &str,
@@ -202,7 +201,7 @@ async fn test_basic_deduplication() -> Result<()> {
 
     // Create temporary directory for RocksDB (keep it alive for test duration)
     let _temp_dir = TempDir::new()?;
-    
+
     // Set only the environment variables that differ from defaults
     env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
@@ -212,7 +211,7 @@ async fn test_basic_deduplication() -> Result<()> {
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
     env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-    
+
     // Create configuration from environment
     let config = Config::init_with_defaults()?;
 
@@ -295,7 +294,7 @@ async fn test_deduplication_with_different_events() -> Result<()> {
 
     // Create temporary directory for RocksDB (keep it alive for test duration)
     let _temp_dir = TempDir::new()?;
-    
+
     // Set only the environment variables that differ from defaults
     env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
@@ -305,7 +304,7 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
     env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-    
+
     // Create configuration from environment
     let config = Config::init_with_defaults()?;
 
@@ -400,7 +399,7 @@ async fn test_deduplication_persistence() -> Result<()> {
         env::set_var("COMMIT_INTERVAL_SECS", "1");
         env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
         env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-        
+
         // Create configuration from environment
         let config = Config::init_with_defaults()?;
 
@@ -437,7 +436,7 @@ async fn test_deduplication_persistence() -> Result<()> {
     // Batch 2: 2 events (event_c unique, event_b duplicate)
     produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_c", 1, timestamp).await?;
     produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_b", 1, timestamp).await?; // Duplicate!
-    
+
     println!("Produced 2 more events in second batch (5 total events: 3 unique, 2 duplicates)");
 
     println!("Starting second processor instance with same store path");
@@ -452,7 +451,7 @@ async fn test_deduplication_persistence() -> Result<()> {
         env::set_var("COMMIT_INTERVAL_SECS", "1");
         env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
         env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-        
+
         // Create configuration from environment
         let config = Config::init_with_defaults()?;
 

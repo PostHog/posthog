@@ -40,12 +40,9 @@ impl DeduplicationProcessor {
     /// Create a new deduplication processor
     pub fn new(config: DeduplicationConfig) -> Result<Self> {
         let producer: Option<FutureProducer> = match &config.output_topic {
-            Some(topic) => Some(
-                config
-                    .producer_config
-                    .create()
-                    .with_context(|| format!("Failed to create Kafka producer for output topic '{topic}'"))?,
-            ),
+            Some(topic) => Some(config.producer_config.create().with_context(|| {
+                format!("Failed to create Kafka producer for output topic '{topic}'")
+            })?),
             None => None,
         };
 
@@ -134,7 +131,10 @@ impl DeduplicationProcessor {
         // Event is not a duplicate, publish to output topic
         match &self.producer {
             Some(producer) => {
-                let output_topic = self.config.output_topic.as_ref()
+                let output_topic = self
+                    .config
+                    .output_topic
+                    .as_ref()
                     .expect("output_topic must exist when producer is Some");
                 return self
                     .publish_event(producer, raw_event, key, output_topic)
@@ -151,8 +151,9 @@ impl DeduplicationProcessor {
         key: String,
         output_topic: &str,
     ) -> Result<bool> {
-        let serialized_event = serde_json::to_string(&raw_event)
-            .with_context(|| format!("Failed to serialize event for publishing to topic '{output_topic}'"))?;
+        let serialized_event = serde_json::to_string(&raw_event).with_context(|| {
+            format!("Failed to serialize event for publishing to topic '{output_topic}'")
+        })?;
 
         let record = FutureRecord::to(output_topic)
             .key(&key)
@@ -174,7 +175,12 @@ impl DeduplicationProcessor {
                     "Failed to publish event with key {} to {:?}: {}",
                     key, output_topic, e
                 );
-                Err(anyhow::anyhow!("Failed to publish event with key '{}' to topic '{}': {}", key, output_topic, e))
+                Err(anyhow::anyhow!(
+                    "Failed to publish event with key '{}' to topic '{}': {}",
+                    key,
+                    output_topic,
+                    e
+                ))
             }
         }
     }
@@ -215,7 +221,13 @@ impl MessageProcessor for DeduplicationProcessor {
                 );
                 // Nack the message so it can be handled by error recovery/DLQ
                 message.nack(format!("Failed to parse JSON: {}", e)).await;
-                return Err(anyhow::anyhow!("Failed to parse event from {}:{} offset {}: {}", topic, partition, offset, e));
+                return Err(anyhow::anyhow!(
+                    "Failed to parse event from {}:{} offset {}: {}",
+                    topic,
+                    partition,
+                    offset,
+                    e
+                ));
             }
         };
 
@@ -231,7 +243,13 @@ impl MessageProcessor for DeduplicationProcessor {
                     message
                         .nack("Invalid UTF-8 in message key".to_string())
                         .await;
-                    return Err(anyhow::anyhow!("Invalid UTF-8 in message key at {}:{} offset {}: {}", topic, partition, offset, e));
+                    return Err(anyhow::anyhow!(
+                        "Invalid UTF-8 in message key at {}:{} offset {}: {}",
+                        topic,
+                        partition,
+                        offset,
+                        e
+                    ));
                 }
             },
             None => String::new(), // Empty key is acceptable

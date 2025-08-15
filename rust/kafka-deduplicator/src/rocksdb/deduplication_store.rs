@@ -95,11 +95,15 @@ impl TryFrom<&[u8]> for DeduplicationKey {
         }
 
         Ok(Self::new(
-            parts[0].parse::<u64>()
-                .with_context(|| format!("Failed to parse timestamp '{}' in deduplication key", parts[0]))?, // timestamp
-            parts[1].to_string(),     // distinct_id
-            parts[2].to_string(),     // token
-            parts[3].to_string(),     // event_name
+            parts[0].parse::<u64>().with_context(|| {
+                format!(
+                    "Failed to parse timestamp '{}' in deduplication key",
+                    parts[0]
+                )
+            })?, // timestamp
+            parts[1].to_string(), // distinct_id
+            parts[2].to_string(), // token
+            parts[3].to_string(), // event_name
         ))
     }
 }
