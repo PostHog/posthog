@@ -135,7 +135,7 @@ impl MetadataVersion for VersionedMetadata {
 
 impl MetadataV1 {
     /// Create new metadata for the first occurrence of an event
-    pub fn new(original_event: &RawEvent, _composite_key: String) -> Self {
+    pub fn new(original_event: &RawEvent) -> Self {
         let timestamp = original_event
             .timestamp
             .as_ref()
@@ -191,9 +191,8 @@ mod tests {
     #[test]
     fn test_metadata_v1_creation() {
         let raw_event = create_test_raw_event();
-        let composite_key = "test_key".to_string();
 
-        let metadata = MetadataV1::new(&raw_event, composite_key);
+        let metadata = MetadataV1::new(&raw_event);
 
         assert_eq!(metadata.source, 1); // Default source
         assert_eq!(metadata.team, 0); // Default team
@@ -204,7 +203,7 @@ mod tests {
     #[test]
     fn test_metadata_v1_serialization() {
         let raw_event = create_test_raw_event();
-        let metadata = MetadataV1::new(&raw_event, "test_key".to_string());
+        let metadata = MetadataV1::new(&raw_event);
         let versioned = VersionedMetadata::V1(metadata);
 
         // Test full serialization/deserialization round-trip
@@ -229,7 +228,7 @@ mod tests {
     #[test]
     fn test_metadata_v1_trait_methods() {
         let raw_event = create_test_raw_event();
-        let mut metadata = MetadataV1::new(&raw_event, "test_key".to_string());
+        let mut metadata = MetadataV1::new(&raw_event);
 
         // Test initial state
         let summary = metadata.get_metrics_summary();
@@ -247,7 +246,7 @@ mod tests {
     #[test]
     fn test_update_duplicate() {
         let original_raw = create_test_raw_event();
-        let mut metadata = MetadataV1::new(&original_raw, "test_key".to_string());
+        let mut metadata = MetadataV1::new(&original_raw);
 
         // Create a duplicate with different UUID
         let duplicate_raw = create_test_raw_event();
@@ -275,7 +274,7 @@ mod tests {
             ..Default::default()
         };
 
-        let metadata = MetadataV1::new(&raw_event, "test_key_with_props".to_string());
+        let metadata = MetadataV1::new(&raw_event);
         let versioned = VersionedMetadata::V1(metadata);
 
         // This should catch the bincode 2.x serialization issue

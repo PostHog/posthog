@@ -4,7 +4,7 @@ use aws_config::{meta::region::RegionProviderChain, Region};
 use aws_sdk_s3::{Client, Config};
 use std::path::Path;
 use tokio::fs;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::client::CheckpointClient;
 use super::config::CheckpointConfig;
@@ -103,12 +103,17 @@ impl CheckpointClient for S3CheckpointClient {
                 {
                     if topic_parsed == topic && partition_parsed == partition {
                         // Get the metadata
-                        if let Ok(metadata) = self.get_checkpoint_metadata(&key).await {
-                            let s3_key_prefix = key.replace("/metadata.json", "");
-                            checkpoint_infos.push(CheckpointInfo {
-                                metadata,
-                                s3_key_prefix,
-                            });
+                        match self.get_checkpoint_metadata(&key).await {
+                            Ok(metadata) => {
+                                let s3_key_prefix = key.replace("/metadata.json", "");
+                                checkpoint_infos.push(CheckpointInfo {
+                                    metadata,
+                                    s3_key_prefix,
+                                });
+                            }
+                            Err(e) => {
+                                warn!("Failed to get checkpoint metadata for key {}: {}", key, e);
+                            }
                         }
                     }
                 }

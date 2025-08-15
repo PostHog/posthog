@@ -10,20 +10,22 @@ use crate::metrics::MetricsHelper;
 use crate::rocksdb::dedup_metadata::{MetadataVersion, VersionedMetadata};
 use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
 
+const UNKNOWN_STR: &str = "unknown";
+
 /// Extract library name and version from RawEvent properties
 fn extract_library_info(event: &RawEvent) -> (String, String) {
     let lib_name = event
         .properties
         .get("$lib")
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
+        .unwrap_or(UNKNOWN_STR)
         .to_string();
 
     let lib_version = event
         .properties
         .get("$lib_version")
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
+        .unwrap_or(UNKNOWN_STR)
         .to_string();
 
     (lib_name, lib_version)
@@ -131,13 +133,12 @@ impl From<&RawEvent> for DeduplicationKey {
                     )
                 }
             })
-            .unwrap_or_else(|| "unknown".to_string());
+            .unwrap_or_else(|| UNKNOWN_STR.to_string());
 
         let token = raw_event
             .token
-            .as_ref()
-            .unwrap_or(&"unknown".to_string())
-            .clone();
+            .clone()
+            .unwrap_or_else(|| UNKNOWN_STR.to_string());
 
         Self::new(timestamp, distinct_id, token, raw_event.event.clone())
     }
@@ -212,7 +213,6 @@ impl DeduplicationStore {
 
         let key = DeduplicationKey::from(raw_event);
         let key_bytes = key.as_ref().to_vec();
-        let composite_key = key.formatted_key.clone();
 
         // Check if this is a duplicate
         let cf = self.store.get_cf_handle(DeduplicationStore::RECORDS_CF)?;
@@ -248,10 +248,8 @@ impl DeduplicationStore {
         }
 
         // Key doesn't exist - store it with initial metrics
-        let metadata = VersionedMetadata::V1(crate::rocksdb::dedup_metadata::MetadataV1::new(
-            raw_event,
-            composite_key,
-        ));
+        let metadata =
+            VersionedMetadata::V1(crate::rocksdb::dedup_metadata::MetadataV1::new(raw_event));
         let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
 
         self.store.put_batch(

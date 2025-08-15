@@ -11,13 +11,13 @@ aws-sdk-s3 = { workspace = true }
 bincode = { version = "2.0.1", features = ["serde"] }
 chrono = { workspace = true }
 common-types = { path = "../common/types" }
-futures = "0.3"
+futures = { workspace = true }
 metrics = { workspace = true }
 num_cpus = "1.17.0"
 rdkafka = { workspace = true }
 rocksdb = "0.24.0"
 serde = { workspace = true }
-serde_json = "1.0"
+serde_json = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
