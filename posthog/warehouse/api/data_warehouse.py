@@ -91,18 +91,21 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def recent_activity(self, request: Request, **kwargs) -> Response:
         try:
-            limit = int(request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS)))
-            if limit < 1:
-                limit = MAX_RECENT_ACTIVITY_RESULTS
-            else:
-                limit = min(limit, MAX_RECENT_ACTIVITY_RESULTS)
-        except (ValueError, TypeError):
+            limit_param = int(request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS)))
+            limit = MAX_RECENT_ACTIVITY_RESULTS if limit_param < 1 else min(limit_param, MAX_RECENT_ACTIVITY_RESULTS)
+        except ValueError:
             limit = MAX_RECENT_ACTIVITY_RESULTS
 
-        external_jobs = ExternalDataJob.objects.filter(team_id=self.team_id).select_related("schema", "pipeline")[
-            :limit
-        ]
-        modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id).select_related("saved_query")[:limit]
+        external_jobs = list(
+            ExternalDataJob.objects.filter(team_id=self.team_id)
+            .select_related("schema", "pipeline")
+            .order_by("-created_at")[:limit]
+        )
+        modeling_jobs = list(
+            DataModelingJob.objects.filter(team_id=self.team_id)
+            .select_related("saved_query")
+            .order_by("-created_at")[:limit]
+        )
 
         activities = [
             {
