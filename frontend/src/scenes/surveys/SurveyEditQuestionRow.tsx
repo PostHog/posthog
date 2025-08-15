@@ -210,6 +210,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             }
                             setDefaultForQuestionType(
                                 index,
+                                question,
                                 newType,
                                 editingQuestion,
                                 editingDescription,

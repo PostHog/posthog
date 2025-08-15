@@ -196,13 +196,13 @@ export const errorTrackingIssueBreakdownQuery = ({
 }
 
 export const errorTrackingIssueCorrelationQuery = ({
-    events,
+    event,
 }: {
-    events: string[]
+    event: string
 }): ErrorTrackingIssueCorrelationQuery => {
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
-        events,
+        events: [event],
         tags: {
             productKey: ProductKey.ERROR_TRACKING,
         },

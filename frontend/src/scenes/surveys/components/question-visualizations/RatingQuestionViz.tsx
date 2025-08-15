@@ -17,13 +17,14 @@ import {
     NPS_PROMOTER_LABEL,
     NPS_PROMOTER_VALUES,
 } from 'scenes/surveys/constants'
-import { ChoiceQuestionProcessedResponses, surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { calculateNpsBreakdownFromProcessedData, NPSBreakdown } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     ChartDisplayType,
+    ChoiceQuestionProcessedResponses,
     GraphType,
     InsightLogicProps,
     PropertyFilterType,

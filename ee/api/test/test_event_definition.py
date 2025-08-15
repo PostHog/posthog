@@ -189,7 +189,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             {"official", "internal"},
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()
         assert activity_log is not None
         self.assertEqual(activity_log.scope, "EventDefinition")
         self.assertEqual(activity_log.activity, "changed")

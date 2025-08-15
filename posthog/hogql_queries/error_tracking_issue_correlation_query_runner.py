@@ -54,11 +54,23 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner):
                 limit_context=self.limit_context,
             )
 
-        columns: list[str] = query_result.columns or []
         results = self.results(query_result.results)
 
         return ErrorTrackingIssueCorrelationQueryResponse(
-            columns=columns,
+            columns=[
+                "id",
+                "status",
+                "name",
+                "description",
+                "first_seen",
+                "assignee",
+                "external_issues",
+                "last_seen",
+                "library",
+                "odds_ratio",
+                "population",
+                "event",
+            ],
             results=results,
             timings=query_result.timings,
             hogql=query_result.hogql,
@@ -66,16 +78,37 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner):
             **self.paginator.response_params(),
         )
 
-    def results(self, rows: list[tuple[str, list[UUID], list[int], list[int], list[int], list[int]]]) -> list[dict]:
+    def results(
+        self, rows: list[tuple[str, list[UUID], list[str], list[str], list[int], list[int], list[int], list[int]]]
+    ) -> list[dict]:
         issue_ids: set[str] = set()
         correlations: dict[str, dict[str, dict]] = {}
 
         for row in rows:
-            event, issue_uuids, issue_both, issue_success_only, issue_exception_only, issue_neither = row
-            issues = list(zip(issue_uuids, issue_both, issue_success_only, issue_exception_only, issue_neither))
+            (
+                event,
+                issue_uuids,
+                issue_last_seen_timestamps,
+                issue_libraries,
+                issue_both,
+                issue_success_only,
+                issue_exception_only,
+                issue_neither,
+            ) = row
+            issues = list(
+                zip(
+                    issue_uuids,
+                    issue_last_seen_timestamps,
+                    issue_libraries,
+                    issue_both,
+                    issue_success_only,
+                    issue_exception_only,
+                    issue_neither,
+                )
+            )
 
             for issue in issues:
-                uuid, both, success_only, exception_only, neither = issue
+                uuid, last_seen, library, both, success_only, exception_only, neither = issue
 
                 if not (both > 0 and success_only > 0 and exception_only > 0 and neither > 0):
                     continue
@@ -85,6 +118,8 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner):
 
                 issue_correlation = correlations.setdefault(str(uuid), {})
                 issue_correlation[event] = {
+                    "last_seen": last_seen,
+                    "library": library,
                     "odds_ratio": odds_ratio,
                     "population": {
                         "both": both,
@@ -114,14 +149,23 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
-            """WITH issue_list AS (
-SELECT groupUniqArray(issue_id) as value
-    FROM events
-    WHERE timestamp > now() - INTERVAL 12 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
+            """WITH issues AS (
+    SELECT
+        groupArray(issue_id) as ids,
+        groupArray(last_seen) as last_seen_timestamps,
+        groupArray(library) as libraries
+    FROM (
+        SELECT issue_id, max(timestamp) as last_seen, argMax(properties.$lib, timestamp) as library
+        FROM events
+        WHERE timestamp > now() - INTERVAL 6 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
+        GROUP BY issue_id
+    )
 )
 SELECT
     {event} as event,
-    (SELECT * FROM issue_list) as issue_ids,
+    (SELECT ids FROM issues) as issue_ids,
+    (SELECT last_seen_timestamps FROM issues) as issue_last_seen_timestamps,
+    (SELECT libraries FROM issues) as issue_libraries,
     sumForEach(both) as both,
     sumForEach(success_only) as success_only,
     sumForEach(exception_only) as exception_only,
@@ -130,14 +174,14 @@ FROM(
     SELECT
         $session_id,
         minIf(toNullable(timestamp), event={event}) as earliest_success_event,
-        minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT * FROM issue_list))) as earliest_exceptions,
+        minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT ids FROM issues))) as earliest_exceptions,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS exception_only,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS neither
     FROM events
     WHERE
-        timestamp > now() - INTERVAL 12 HOUR AND
+        timestamp > now() - INTERVAL 6 HOUR AND
         notEmpty(events.$session_id)
     GROUP BY $session_id
 )""",

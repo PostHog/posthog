@@ -1,3 +1,4 @@
+import { Placement } from '@floating-ui/react'
 import { IconX } from '@posthog/icons'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
@@ -25,6 +26,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     eventNames?: string[]
     placeholder?: React.ReactNode
     placeholderClass?: string
+    placement?: Placement
     /** Width of the popover. */
     width?: number
     schemaColumns?: DatabaseSchemaField[]
@@ -70,6 +72,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         dataWarehousePopoverFields,
         maxContextOptions,
         width,
+        placement,
         ...buttonPropsRest
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
@@ -124,6 +127,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
             onClickOutside={() => {
                 setVisible(false)
             }}
+            placement={placement}
         >
             {isClearButtonShown ? (
                 <LemonButton

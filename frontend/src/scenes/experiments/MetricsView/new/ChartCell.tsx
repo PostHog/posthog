@@ -58,6 +58,7 @@ export function ChartCell({
 
     return (
         <td
+            data-table-cell="chart"
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}

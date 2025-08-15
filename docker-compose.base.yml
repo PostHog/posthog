@@ -15,9 +15,9 @@ services:
             CADDY_HOST: 'http://localhost:8000'
             CADDYFILE: |
                 {
-                ${CADDY_TLS_BLOCK}
+                ${CADDY_TLS_BLOCK:-''}
                 }
-                ${CADDY_HOST} {
+                ${CADDY_HOST:-'http://localhost:8000'} {
                     @replay-capture {
                         path /s
                         path /s/

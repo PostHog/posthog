@@ -64,7 +64,7 @@ export function SceneSaveCancelButtons({
     dataAttrKey,
 }: SceneSaveCancelButtonsProps): JSX.Element {
     return (
-        <div className="flex gap-1 px-button-padding-x">
+        <div className="flex gap-1">
             <ButtonPrimitive
                 type="submit"
                 variant="outline"

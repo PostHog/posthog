@@ -335,6 +335,18 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(response.results, [(Decimal("429.7423999996"),), (None,)])
 
+    def test_query_revenue_analytics_table(self):
+        self.setup_schema_sources()
+        self.join.source_table_key = "email"
+        self.join.save()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            execute_hogql_query(
+                parse_select("SELECT * FROM persons_revenue_analytics ORDER BY person_id ASC"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):
         self.setup_events()

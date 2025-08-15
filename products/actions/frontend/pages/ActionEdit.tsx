@@ -2,7 +2,9 @@ import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -22,28 +24,49 @@ import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } 
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from '../logics/actionEditLogic'
 import { ActionStep } from '../components/ActionStep'
-
+import { SceneTitleSection, SceneSection, SceneDivider, SceneContent } from '~/layout/scenes/SceneContent'
+import { actionLogic } from '../logics/actionLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 const RESOURCE_TYPE = 'action'
 
-export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
+export interface ActionEditProps extends ActionEditLogicProps {
+    actionLoading?: boolean
+}
+
+export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEditProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
         id: id,
         action: loadedAction,
     }
+    const { isComplete } = useValues(actionLogic({ id }))
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionChanged } = useValues(logic)
-    const { submitAction, deleteAction, setActionValue } = useActions(logic)
+    const { action, actionChanged } = useValues(logic)
+    const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
+
+    // Sync the loaded action prop with the logic's internal state
+    useEffect(() => {
+        if (loadedAction && (!action || action.id !== loadedAction.id)) {
+            setAction(loadedAction, { merge: false })
+        }
+    }, [loadedAction, action, setAction])
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    // Handle 404 when loading is done and action is missing
+    if (id && !actionLoading && !loadedAction) {
+        return <NotFound object="action" />
+    }
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -72,9 +95,15 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         </LemonButton>
     )
 
-    const actionEditJSX = (
-        <div className="action-edit-container">
-            <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
+    return (
+        <SceneContent>
+            <Form
+                logic={actionEditLogic}
+                props={logicProps}
+                formKey="action"
+                enableFormOnSubmit
+                className="flex flex-col gap-y-4"
+            >
                 <PageHeader
                     caption={
                         <>
@@ -216,26 +245,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
 
                 <ScenePanel>
                     <ScenePanelMetaInfo>
-                        <SceneTextInput
-                            name="name"
-                            defaultValue={action.name || ''}
-                            dataAttrKey={RESOURCE_TYPE}
-                            onSave={(value) => {
-                                setActionValue('name', value)
-                            }}
-                            isLoading={actionLoading}
-                        />
-
-                        <SceneTextarea
-                            name="description"
-                            defaultValue={action.description || ''}
-                            onSave={(value) => setActionValue('description', value)}
-                            dataAttrKey={RESOURCE_TYPE}
-                            optional
-                            isLoading={actionLoading}
-                            markdown
-                        />
-
                         <SceneTags
                             onSave={(tags) => {
                                 setActionValue('tags', tags)
@@ -306,66 +315,130 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </ScenePanelActions>
                 </ScenePanel>
 
-                <div className="@container">
-                    <h2 className="subtitle">Match groups</h2>
-                    <p>
-                        Your action will be triggered whenever <b>any of your match groups</b> are received.
-                        <Link to="https://posthog.com/docs/data/actions" target="_blank">
-                            <IconInfo className="ml-1 text-secondary text-xl" />
-                        </Link>
-                    </p>
-                    <LemonField name="steps">
-                        {({ value: stepsValue, onChange }) => (
-                            <div className="grid @4xl:grid-cols-2 gap-3">
-                                {stepsValue.map((step: ActionStepType, index: number) => {
-                                    const identifier = String(JSON.stringify(step))
-                                    return (
-                                        <ActionStep
-                                            key={index}
-                                            identifier={identifier}
-                                            index={index}
-                                            step={step}
-                                            actionId={action.id || 0}
-                                            isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                            onDelete={() => {
-                                                const newSteps = [...stepsValue]
-                                                newSteps.splice(index, 1)
-                                                onChange(newSteps)
-                                            }}
-                                            onChange={(newStep) => {
-                                                const newSteps = [...stepsValue]
-                                                newSteps.splice(index, 1, newStep)
-                                                onChange(newSteps)
-                                            }}
-                                        />
-                                    )
-                                })}
+                <SceneTitleSection
+                    name={action.name}
+                    description={action.description}
+                    resourceType={{
+                        to: urls.actions(),
+                        type: RESOURCE_TYPE,
+                        tooltip: 'Go to all actions',
+                        typePlural: 'actions',
+                    }}
+                    markdown={true}
+                    isLoading={actionLoading}
+                    onNameBlur={(value) => {
+                        setActionValue('name', value)
+                    }}
+                    onDescriptionBlur={(value) => {
+                        setActionValue('description', value)
+                    }}
+                    docsURL="https://posthog.com/docs/data/actions"
+                />
 
-                                <div>
-                                    <LemonButton
-                                        icon={<IconPlus />}
-                                        type="secondary"
-                                        onClick={() => {
-                                            onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
-                                        }}
-                                        center
-                                        className="w-full h-full"
-                                    >
-                                        Add match group
-                                    </LemonButton>
+                <SceneDivider />
+
+                <SceneSection
+                    title="Match groups"
+                    className="@container"
+                    description={
+                        <>
+                            Your action will be triggered whenever <b>any of your match groups</b> are received.
+                            <Link to="https://posthog.com/docs/data/actions" target="_blank">
+                                <IconInfo className="ml-1 text-secondary text-xl" />
+                            </Link>
+                        </>
+                    }
+                >
+                    {actionLoading ? (
+                        <div className="flex gap-2">
+                            <LemonSkeleton className="w-1/2 h-[261px]" />
+                            <LemonSkeleton className="w-1/2 h-[261px]" />
+                        </div>
+                    ) : (
+                        <LemonField name="steps">
+                            {({ value: stepsValue, onChange }) => (
+                                <div className="grid @4xl:grid-cols-2 gap-3">
+                                    {stepsValue.map((step: ActionStepType, index: number) => {
+                                        const identifier = String(JSON.stringify(step))
+                                        return (
+                                            <ActionStep
+                                                key={index}
+                                                identifier={identifier}
+                                                index={index}
+                                                step={step}
+                                                actionId={action.id || 0}
+                                                isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                                onDelete={() => {
+                                                    const newSteps = [...stepsValue]
+                                                    newSteps.splice(index, 1)
+                                                    onChange(newSteps)
+                                                }}
+                                                onChange={(newStep) => {
+                                                    const newSteps = [...stepsValue]
+                                                    newSteps.splice(index, 1, newStep)
+                                                    onChange(newSteps)
+                                                }}
+                                            />
+                                        )
+                                    })}
+
+                                    <div>
+                                        <LemonButton
+                                            icon={<IconPlus />}
+                                            type="secondary"
+                                            onClick={() => {
+                                                onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
+                                            }}
+                                            center
+                                            className="w-full h-full"
+                                        >
+                                            Add match group
+                                        </LemonButton>
+                                    </div>
                                 </div>
+                            )}
+                        </LemonField>
+                    )}
+                </SceneSection>
+            </Form>
+            <SceneDivider />
+            <ActionHogFunctions />
+            <SceneDivider />
+            {id && (
+                <>
+                    <SceneSection
+                        className="@container"
+                        title="Matching events"
+                        description={
+                            <>
+                                This is the list of <strong>recent</strong> events that match this action.
+                            </>
+                        }
+                    >
+                        {isComplete ? (
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        actionId: id,
+                                        after: '-24h',
+                                    },
+                                    full: true,
+                                    showEventFilter: false,
+                                    showPropertyFilter: false,
+                                }}
+                            />
+                        ) : (
+                            <div className="flex items-center">
+                                <Spinner className="mr-4" />
+                                Calculating action, please hold on...
                             </div>
                         )}
-                    </LemonField>
-                </div>
-            </Form>
-        </div>
-    )
-
-    return (
-        <>
-            {actionEditJSX}
-            <ActionHogFunctions />
-        </>
+                    </SceneSection>
+                </>
+            )}
+        </SceneContent>
     )
 }

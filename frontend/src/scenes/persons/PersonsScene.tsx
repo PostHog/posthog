@@ -1,16 +1,17 @@
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconPeople } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { personsSceneLogic } from './personsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { personsSceneLogic } from './personsSceneLogic'
 
-import { Query } from '~/queries/Query/Query'
-import { ProductKey, OnboardingStepKey } from '~/types'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { Query } from '~/queries/Query/Query'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -33,7 +34,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey="persons"
                 buttons={
@@ -68,6 +69,19 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </LemonMenu>
                 }
             />
+
+            <SceneTitleSection
+                name="People"
+                description="A catalog of all the people behind your events"
+                resourceType={{
+                    type: 'person',
+                    typePlural: 'persons',
+                    forceIcon: <IconPeople />,
+                }}
+                docsURL="https://posthog.com/docs/data/persons"
+            />
+            <SceneDivider />
+
             <Query
                 uniqueKey={`persons-query-${tabId}`}
                 attachTo={personsSceneLogic({ tabId })}
@@ -95,6 +109,6 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 }}
                 dataAttr="persons-table"
             />
-        </>
+        </SceneContent>
     )
 }

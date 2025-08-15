@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel, RootTeamMixin
 
 
@@ -7,7 +8,7 @@ def tagify(tag: str):
     return tag.strip().lower()
 
 
-class Tag(UUIDModel, RootTeamMixin):
+class Tag(ModelActivityMixin, UUIDModel, RootTeamMixin):
     name = models.CharField(max_length=255)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 

@@ -5,13 +5,16 @@ This module provides a test helper class with methods to create and update all m
 covered by the activity logging system.
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 from django.utils import timezone
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+
+if TYPE_CHECKING:
+    pass
 
 
 class ActivityLogTestHelper(APILicensedTest):
@@ -451,6 +454,22 @@ class ActivityLogTestHelper(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
+    def delete_organization_membership(self, user_id: str, org_id: Optional[str] = None) -> None:
+        """Delete an organization membership via API."""
+        if not org_id:
+            org_id = self.organization.id
+
+        response = self.client.delete(f"/api/organizations/{org_id}/members/{user_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def delete_organization_invite(self, invite_id: str, org_id: Optional[str] = None) -> None:
+        """Delete an organization invite via API."""
+        if not org_id:
+            org_id = self.organization.id
+
+        response = self.client.delete(f"/api/organizations/{org_id}/invites/{invite_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
     # Role
     def create_role(self, name: str = "Test Role", **kwargs) -> dict[str, Any]:
         """Create a role via API."""
@@ -610,6 +629,26 @@ class ActivityLogTestHelper(APILicensedTest):
         return response.json()
 
     # User
+    def create_user_via_invite(
+        self, email: Optional[str] = None, org_id: Optional[str] = None, **kwargs
+    ) -> dict[str, Any]:
+        """Create a user by sending an organization invite."""
+        if not email:
+            email = f"user-{uuid4()}@test.com"
+
+        if not org_id:
+            org_id = self.organization.id
+
+        invite_data = {
+            "target_email": email,
+            "level": kwargs.get("level", 1),  # Member level
+            **kwargs,
+        }
+
+        response = self.client.post(f"/api/organizations/{org_id}/invites/", invite_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.json()
+
     def create_user(self, email: Optional[str] = None, **kwargs) -> dict[str, Any]:
         """Create a user via API (as admin)."""
         if not email:

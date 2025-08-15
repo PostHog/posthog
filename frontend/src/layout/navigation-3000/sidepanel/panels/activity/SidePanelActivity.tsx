@@ -38,8 +38,15 @@ export const SidePanelActivityIcon = (props: { className?: string }): JSX.Elemen
 }
 
 export const SidePanelActivity = (): JSX.Element => {
-    const { activeTab, allActivity, allActivityResponseLoading, allActivityHasNext, filters, filtersForCurrentPage } =
-        useValues(sidePanelActivityLogic)
+    const {
+        activeTab,
+        allActivity,
+        allActivityResponseLoading,
+        allActivityHasNext,
+        filters,
+        filtersForCurrentPage,
+        visibleActivityScopes,
+    } = useValues(sidePanelActivityLogic)
     const { setActiveTab, maybeLoadOlderActivity, setFilters } = useActions(sidePanelActivityLogic)
 
     const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
@@ -79,7 +86,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
     const scopeMenuOptions: LemonSelectOption<ActivityScope | null>[] = [
         { value: null, label: 'All activity' },
-        ...Object.values(ActivityScope).map((x) => ({
+        ...visibleActivityScopes.map((x) => ({
             value: x,
             label: humanizeScope(x),
         })),

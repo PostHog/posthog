@@ -4,9 +4,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
-import { ChoiceQuestionResponseData } from 'scenes/surveys/surveyLogic'
 
-import { GraphType, InsightLogicProps } from '~/types'
+import { ChoiceQuestionResponseData, GraphType, InsightLogicProps } from '~/types'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,

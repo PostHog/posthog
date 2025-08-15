@@ -33,11 +33,15 @@ class TestTransformations:
 
     def test_transform_organization_row(self):
         """Test organization row transformation."""
+        import uuid
+
+        test_uuid = uuid.uuid4()
+
         row = {
-            "id": 1,
-            "uuid": "test-uuid",
+            "id": test_uuid,
             "name": "Test Org",
             "slug": "test-org",
+            "logo_media_id": uuid.uuid4(),
             "is_member_join_email_enabled": True,
             "is_hipaa": False,
             "available_product_features": [{"key": "feature1", "name": "Feature 1"}],
@@ -47,6 +51,10 @@ class TestTransformations:
         }
 
         transformed = transform_organization_row(row)
+
+        # Check UUID conversions
+        assert transformed["id"] == str(test_uuid)
+        assert isinstance(transformed["logo_media_id"], str)
 
         # Check boolean conversions
         assert transformed["is_member_join_email_enabled"] == 1
@@ -59,10 +67,15 @@ class TestTransformations:
 
     def test_transform_team_row(self):
         """Test team row transformation."""
+        import uuid
+
+        team_uuid = uuid.uuid4()
+        org_uuid = uuid.uuid4()
+
         row = {
             "id": 1,
-            "uuid": "test-team-uuid",
-            "organization_id": 1,
+            "uuid": team_uuid,
+            "organization_id": org_uuid,
             "name": "Test Team",
             "anonymize_ips": True,
             "session_recording_opt_in": False,
@@ -74,6 +87,10 @@ class TestTransformations:
         }
 
         transformed = transform_team_row(row)
+
+        # Check UUID conversions
+        assert transformed["uuid"] == str(team_uuid)
+        assert transformed["organization_id"] == str(org_uuid)
 
         # Check boolean conversions
         assert transformed["anonymize_ips"] == 1
@@ -151,26 +168,25 @@ class TestDatabaseOperations:
         assert len(teams) == 1
         assert teams[0]["name"] == "Team 1"
 
-    @patch("dags.postgres_to_clickhouse_etl.run_sql_with_exceptions")
-    def test_create_clickhouse_tables(self, mock_run_sql):
+    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_create_clickhouse_tables(self, mock_sync_execute):
         """Test ClickHouse table creation."""
         create_clickhouse_tables()
 
-        # Verify both tables were created with correct node role
-        assert mock_run_sql.call_count == 2
+        # Should have called sync_execute for:
+        # 1. CREATE DATABASE IF NOT EXISTS models
+        # 2. CREATE TABLE posthog_organization
+        # 3. CREATE TABLE posthog_team
+        assert mock_sync_execute.call_count == 3
 
-        # Check that NodeRole.ALL was used for both calls
-        from posthog.clickhouse.client.connection import NodeRole
+        calls = [call[0][0] for call in mock_sync_execute.call_args_list]
 
-        calls = mock_run_sql.call_args_list
+        # Check database creation
+        assert any("CREATE DATABASE IF NOT EXISTS models" in call for call in calls)
 
-        # First call should be for organization table
-        assert "CREATE TABLE IF NOT EXISTS models.posthog_organization" in calls[0][0][0]
-        assert calls[0][1]["node_role"] == NodeRole.ALL
-
-        # Second call should be for team table
-        assert "CREATE TABLE IF NOT EXISTS models.posthog_team" in calls[1][0][0]
-        assert calls[1][1]["node_role"] == NodeRole.ALL
+        # Check table creation
+        assert any("CREATE TABLE IF NOT EXISTS models.posthog_organization" in call for call in calls)
+        assert any("CREATE TABLE IF NOT EXISTS models.posthog_team" in call for call in calls)
 
     @patch("dags.postgres_to_clickhouse_etl.sync_execute")
     def test_insert_organizations_to_clickhouse(self, mock_sync_execute):

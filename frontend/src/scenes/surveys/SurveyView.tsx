@@ -16,6 +16,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
+import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
@@ -27,7 +28,6 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
@@ -38,6 +38,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import {
@@ -55,7 +56,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const {
         editingSurvey,
         updateSurvey,
-        launchSurvey,
         stopSurvey,
         archiveSurvey,
         resumeSurvey,
@@ -63,14 +63,15 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         setIsDuplicateToProjectModalOpen,
     } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const { isOnNewEmptyStateExperiment } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
-    const { showSurveysDisabledBanner } = useValues(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
@@ -192,39 +193,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     </LemonButton>
                                 )}
                                 {!survey.start_date ? (
-                                    <LemonButton
-                                        type="primary"
-                                        data-attr="launch-survey"
-                                        disabledReason={
-                                            showSurveysDisabledBanner && survey.type !== SurveyType.API
-                                                ? 'Please enable surveys in the banner below before launching'
-                                                : undefined
-                                        }
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Launch this survey?',
-                                                content: (
-                                                    <div className="text-sm text-secondary">
-                                                        The survey will immediately start displaying to users matching
-                                                        the display conditions.
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Launch',
-                                                    type: 'primary',
-                                                    onClick: () => launchSurvey(),
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
-                                            })
-                                        }}
-                                    >
-                                        Launch
-                                    </LemonButton>
+                                    <LaunchSurveyButton />
                                 ) : survey.end_date && !survey.archived ? (
                                     <LemonButton
                                         type="secondary"
@@ -382,9 +351,15 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                       key: 'results',
                                       label: 'Results',
                                   }
-                                : null,
+                                : isOnNewEmptyStateExperiment
+                                  ? {
+                                        content: <SurveyResultDemo />,
+                                        key: 'results',
+                                        label: 'Results (Demo)',
+                                    }
+                                  : null,
                             {
-                                content: <SurveyOverview />,
+                                content: <SurveyOverview onTabChange={setTabKey} />,
                                 key: 'overview',
                                 label: 'Overview',
                             },
