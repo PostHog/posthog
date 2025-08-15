@@ -111,7 +111,7 @@ export function PersonScene(): JSX.Element | null {
         primaryDistinctId,
         eventsQuery,
         exceptionsQuery,
-    } = useValues(personsLogic) as any
+    } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
