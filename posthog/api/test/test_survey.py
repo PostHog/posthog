@@ -3499,6 +3499,236 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
 
 
+class TestSurveyStylingProtection(APIBaseTest):
+    def test_create_survey_with_styling_requires_feature(self):
+        """Test that creating a survey with styling properties requires SURVEYS_STYLING feature."""
+        # Test with backgroundColor (a styling property)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Styled survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What do you think?",
+                    }
+                ],
+                "appearance": {
+                    "backgroundColor": "#ff0000",
+                },
+            },
+            format="json",
+        )
+        
+        # Should fail without the feature
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("You need to upgrade to PostHog Enterprise to use survey styling features", response.json()["detail"])
+
+    def test_create_survey_without_styling_allowed(self):
+        """Test that creating a survey without styling properties is allowed."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Basic survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What do you think?",
+                    }
+                ],
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks!",
+                },
+            },
+            format="json",
+        )
+        
+        # Should succeed without styling properties
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_update_survey_with_styling_requires_feature(self):
+        """Test that updating a survey with styling properties requires SURVEYS_STYLING feature."""
+        # Create a basic survey first
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Basic survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What do you think?"}],
+        )
+        
+        # Try to update with styling properties
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "appearance": {
+                    "backgroundColor": "#ff0000",
+                    "textColor": "#ffffff",
+                },
+            },
+            format="json",
+        )
+        
+        # Should fail without the feature
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("You need to upgrade to PostHog Enterprise to use survey styling features", response.json()["detail"])
+
+    def test_update_survey_without_styling_allowed(self):
+        """Test that updating a survey without styling properties is allowed."""
+        # Create a basic survey first
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Basic survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What do you think?"}],
+        )
+        
+        # Update without styling properties
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "appearance": {
+                    "thankYouMessageHeader": "Updated message",
+                },
+            },
+            format="json",
+        )
+        
+        # Should succeed without styling properties
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+@pytest.mark.parametrize(
+    "test_input,expected",
+    [
+        (
+            """
+        <div style="display: flex; justify-content: center;">
+                <div style="flex: 1;">
+                    <img src="https://www.gardenhealth.com/wp-content/uploads/2019/09/hedgehog_octobergardeningjobs-768x768.webp" alt="Your Image" style="max-width: 100%; height: auto;   opacity: 1;">
+                </div>
+                <div style="flex: 3; padding:10px;">
+                    <p>Help us stay sharp.</p>
+        </div>
+      """,
+            """
+        <div style="display: flex; justify-content: center;">
+                <div style="flex: 1;">
+                    <img src="https://www.gardenhealth.com/wp-content/uploads/2019/09/hedgehog_octobergardeningjobs-768x768.webp" alt="Your Image" style="max-width: 100%; height: auto;   opacity: 1;">
+                </div>
+                <div style="flex: 3; padding:10px;">
+                    <p>Help us stay sharp.</p>
+                </div>
+        </div>""",
+        ),
+        (""" """, """ """),
+    ],
+)
+def test_nh3_clean_configuration(test_input, expected):
+    assert nh3_clean_with_allow_list(test_input).replace(" ", "") == expected.replace(" ", "")
+
+
+class TestSurveyStylingProtection(APIBaseTest):
+    def test_create_survey_with_styling_requires_feature(self):
+        """Test that creating a survey with styling properties requires SURVEYS_STYLING feature."""
+        # Test with backgroundColor (a styling property)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Styled survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What do you think?",
+                    }
+                ],
+                "appearance": {
+                    "backgroundColor": "#ff0000",
+                },
+            },
+            format="json",
+        )
+        
+        # Should fail without the feature
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("You need to upgrade to PostHog Enterprise to use survey styling features", response.json()["detail"])
+
+    def test_create_survey_without_styling_allowed(self):
+        """Test that creating a survey without styling properties is allowed."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Basic survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What do you think?",
+                    }
+                ],
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks!",
+                },
+            },
+            format="json",
+        )
+        
+        # Should succeed without styling properties
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_update_survey_with_styling_requires_feature(self):
+        """Test that updating a survey with styling properties requires SURVEYS_STYLING feature."""
+        # Create a basic survey first
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Basic survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What do you think?"}],
+        )
+        
+        # Try to update with styling properties
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "appearance": {
+                    "backgroundColor": "#ff0000",
+                    "textColor": "#ffffff",
+                },
+            },
+            format="json",
+        )
+        
+        # Should fail without the feature
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("You need to upgrade to PostHog Enterprise to use survey styling features", response.json()["detail"])
+
+    def test_update_survey_without_styling_allowed(self):
+        """Test that updating a survey without styling properties is allowed."""
+        # Create a basic survey first
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Basic survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What do you think?"}],
+        )
+        
+        # Update without styling properties
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "appearance": {
+                    "thankYouMessageHeader": "Updated message",
+                },
+            },
+            format="json",
+        )
+        
+        # Should succeed without styling properties
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
 @pytest.mark.parametrize(
     "test_input,expected",
     [
