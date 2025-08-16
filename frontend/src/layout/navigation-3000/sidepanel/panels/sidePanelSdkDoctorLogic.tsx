@@ -214,6 +214,7 @@ export type SdkType =
     | 'go'
     | 'flutter'
     | 'react-native'
+    | 'js-lite'
     | 'other'
 export type SdkVersionInfo = {
     type: SdkType
@@ -359,6 +360,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             go: { repo: 'posthog-go' },
                             flutter: { repo: 'posthog-flutter' },
                             'react-native': { repo: 'posthog-react-native' },
+                            'js-lite': { repo: 'posthog-js' }, // posthog-js-lite is in packages/web of posthog-js repo
                             other: { repo: '' }, // Skip for "other"
                         }
 
@@ -643,6 +645,51 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                         })
                                         .then((changelogText) => {
                                             // Android CHANGELOG.md format: "## 3.20.2 - 2025-08-07"
+                                            const versionMatches = changelogText.match(
+                                                /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
+                                            )
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) =>
+                                                        match.replace(/^## /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
+                                                    ) // Remove "## " and " - YYYY-MM-DD" parts
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
+                                // Special handling for JS-Lite SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'js-lite') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/web/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // JS-Lite CHANGELOG.md format: "## 4.1.0 - 2025-06-12"
                                             const versionMatches = changelogText.match(
                                                 /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
                                             )
@@ -1338,6 +1385,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 type = 'flutter'
                             } else if (lib === 'posthog-react-native') {
                                 type = 'react-native'
+                            } else if (lib === 'posthog-js-lite') {
+                                type = 'js-lite'
                             }
 
                             // Copy existing data for this version if it exists
@@ -1429,6 +1478,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                             if (info.type === 'react-native') {
                                 libName = 'posthog-react-native'
+                            }
+                            if (info.type === 'js-lite') {
+                                libName = 'posthog-js-lite'
                             }
 
                             // console.log(`[SDK Doctor] Fallback check for ${libName} version ${version}`)
@@ -1652,6 +1704,9 @@ function checkVersionAgainstLatest(
     if (type === 'react-native') {
         lib = 'posthog-react-native'
     }
+    if (type === 'js-lite') {
+        lib = 'posthog-js-lite'
+    }
 
     // TODO: Node.js now uses CHANGELOG.md data - removed hardcoded version logic
 
@@ -1696,7 +1751,7 @@ function checkVersionAgainstLatest(
             }
         }
 
-        const isOutdated = releasesBehind > 2
+        const isOutdated = releasesBehind >= 2
         console.info(
             `[SDK Doctor] Final result: isOutdated=${isOutdated}, releasesAhead=${releasesBehind}, latestVersion=${latestVersion}`
         )
@@ -1704,7 +1759,7 @@ function checkVersionAgainstLatest(
             `[SDK Doctor] String comparison: "${version}" === "${latestVersion}" = ${version === latestVersion}`
         )
 
-        // Consider outdated if 3+ versions behind (more than 2 releases)
+        // Consider outdated if 2+ versions behind (2 or more releases)
         return {
             isOutdated: isOutdated,
             releasesAhead: Math.max(0, releasesBehind),
