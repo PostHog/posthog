@@ -6,6 +6,7 @@ import {
     BehavioralCohortType,
     BehavioralEventType,
     BehavioralLifecycleType,
+    CohortType,
     PropertyFilterValue,
     PropertyOperator,
 } from '~/types'
@@ -91,6 +92,8 @@ export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohor
     cohortFilterLogicKey?: string
     groupIndex?: number
     index?: number
+    cohort?: CohortType
+    explicitCohortTypes?: boolean
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {

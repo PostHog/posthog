@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
+import { CohortTypeEnum, SimpleCohortType, FEATURE_FLAGS } from 'lib/constants'
 import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -41,11 +41,13 @@ const RESOURCE_TYPE = 'cohort'
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue, setCohortType } =
+        useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const explicitCohortTypes = featureFlags[FEATURE_FLAGS.EXPLICIT_COHORT_TYPES]
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
 
     if (cohortMissing) {
@@ -246,24 +248,60 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 </div>
                             )}
                             <div className={cn('flex-1', newSceneLayout && 'flex flex-col gap-y-4')}>
-                                <LemonField name="is_static" label={newSceneLayout ? null : 'Type'}>
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            disabledReason={
-                                                isNewCohort
-                                                    ? null
-                                                    : 'Create a new cohort to use a different type of cohort.'
-                                            }
-                                            options={COHORT_TYPE_OPTIONS}
-                                            value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                            onChange={(cohortType) => {
-                                                onChange(cohortType === CohortTypeEnum.Static)
-                                            }}
-                                            fullWidth
-                                            data-attr="cohort-type"
-                                        />
-                                    )}
-                                </LemonField>
+                                {explicitCohortTypes ? (
+                                    <LemonField name="cohort_type" label={newSceneLayout ? null : 'Type'}>
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                disabledReason={
+                                                    isNewCohort
+                                                        ? null
+                                                        : 'Create a new cohort to use a different type of cohort.'
+                                                }
+                                                options={COHORT_TYPE_OPTIONS}
+                                                value={
+                                                    value ||
+                                                    (cohort.is_static
+                                                        ? CohortTypeEnum.Static
+                                                        : CohortTypeEnum.Behavioral)
+                                                }
+                                                onChange={(cohortType) => {
+                                                    onChange(cohortType)
+                                                    setCohortType(cohortType)
+                                                }}
+                                                fullWidth
+                                                data-attr="cohort-type"
+                                            />
+                                        )}
+                                    </LemonField>
+                                ) : (
+                                    <LemonField name="is_static" label={newSceneLayout ? null : 'Type'}>
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                disabledReason={
+                                                    isNewCohort
+                                                        ? null
+                                                        : 'Create a new cohort to use a different type of cohort.'
+                                                }
+                                                options={[
+                                                    {
+                                                        value: SimpleCohortType.Static,
+                                                        label: 'Static · Updated manually',
+                                                    },
+                                                    {
+                                                        value: SimpleCohortType.Dynamic,
+                                                        label: 'Dynamic · Updates automatically',
+                                                    },
+                                                ]}
+                                                value={value ? SimpleCohortType.Static : SimpleCohortType.Dynamic}
+                                                onChange={(cohortType) => {
+                                                    onChange(cohortType === SimpleCohortType.Static)
+                                                }}
+                                                fullWidth
+                                                data-attr="cohort-type"
+                                            />
+                                        )}
+                                    </LemonField>
+                                )}
 
                                 {newSceneLayout && !isNewCohort && !cohort?.is_static && (
                                     <div className="max-w-70 w-fit">
@@ -331,7 +369,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             </div>
                         )}
                     </SceneSection>
-                    {cohort.is_static ? (
+                    {(explicitCohortTypes && cohort.cohort_type === CohortTypeEnum.Static) ||
+                    (!explicitCohortTypes && cohort.is_static) ? (
                         <>
                             <SceneDivider />
                             <SceneSection
@@ -450,7 +489,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     suffix={['criterion', 'criteria']}
                                 />
                                 <div className={cn('w-full', newSceneLayout && '[&>div]:my-0 [&>div]:w-full')}>
-                                    <CohortCriteriaGroups id={logicProps.id} />
+                                    <CohortCriteriaGroups
+                                        id={logicProps.id}
+                                        explicitCohortTypes={explicitCohortTypes}
+                                    />
                                 </div>
                             </SceneSection>
                         </>

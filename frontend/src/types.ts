@@ -1481,6 +1481,7 @@ export interface CohortType {
     errors_calculating?: number
     last_calculation?: string
     is_static?: boolean
+    cohort_type?: 'static' | 'person_property' | 'behavioral' | 'analytical'
     name?: string
     csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
