@@ -5,6 +5,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "addModalShown": false,
   "configureSAMLModalId": null,
   "currentOrganization": {
+    "allow_publicly_shared_resources": true,
     "available_product_features": [
       {
         "key": "sso_enforcement",
@@ -139,6 +140,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
                 "static": "ZAR",
               },
               "revenueProperty": "value",
+              "subscriptionDropoffDays": 45,
+              "subscriptionDropoffMode": "last_event",
             },
             {
               "currencyAwareDecimal": true,
@@ -147,6 +150,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
                 "property": "currency",
               },
               "revenueProperty": "subscription_value",
+              "subscriptionDropoffDays": 45,
+              "subscriptionDropoffMode": "after_dropoff_period",
             },
           ],
           "filter_test_accounts": false,

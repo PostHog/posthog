@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -62,7 +62,7 @@ const meta: Meta = {
 export default meta
 
 export const DefaultScopes: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         const params = new URLSearchParams({
             client_id: 'test-client-id',
             redirect_uri: 'https://example.com/callback',
@@ -76,7 +76,7 @@ export const DefaultScopes: StoryFn = () => {
 }
 
 export const WithScopes: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         const params = new URLSearchParams({
             client_id: 'test-client-id',
             redirect_uri: 'https://app.example.com/oauth/callback',

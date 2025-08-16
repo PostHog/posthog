@@ -6,7 +6,6 @@ import { LogicWrapper } from 'kea'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ReactNode } from 'react'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -26,6 +25,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
+import { ReactNode } from 'react'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
@@ -51,6 +51,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
@@ -415,6 +416,7 @@ export interface OrganizationBasicType {
     logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
     members_can_use_personal_api_keys: boolean
+    allow_publicly_shared_resources: boolean
 }
 
 interface OrganizationMetadata {
@@ -434,6 +436,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_data_processing_approved?: boolean
     members_can_invite?: boolean
     members_can_use_personal_api_keys: boolean
+    allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
@@ -1961,6 +1964,12 @@ export interface BillingType {
     }
 }
 
+export interface BillingPeriod {
+    start: Dayjs | null
+    end: Dayjs | null
+    interval: 'month' | 'year' | null
+}
+
 export interface BillingPlanType {
     free_allocation?: number | null
     features: BillingFeatureType[]
@@ -2956,7 +2965,7 @@ export interface ChartParams {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     /** allows overriding by queries, e.g. setting empty state text*/
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
 }
 
 export interface HistogramGraphDatum {
@@ -3017,6 +3026,7 @@ export interface SurveyDisplayConditions {
     urlMatchType?: SurveyMatchType
     deviceTypes?: string[]
     deviceTypesMatchType?: SurveyMatchType
+    linkedFlagVariant?: string
     actions: {
         values: {
             id: number
@@ -3071,6 +3081,66 @@ export interface SurveyStatsResponse {
     stats: SurveyStats
     rates: SurveyRates
 }
+
+export interface ChoiceQuestionResponseData {
+    label: string
+    value: number
+    isPredefined: boolean
+    // For unique responses (value === 1), include person data for display
+    distinctId?: string
+    personProperties?: Record<string, any>
+    timestamp?: string
+}
+
+export interface OpenQuestionResponseData {
+    distinctId: string
+    response: string
+    personProperties?: Record<string, any>
+    timestamp?: string
+}
+
+export interface ChoiceQuestionProcessedResponses {
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
+    data: ChoiceQuestionResponseData[]
+    totalResponses: number
+}
+
+export interface OpenQuestionProcessedResponses {
+    type: SurveyQuestionType.Open
+    data: OpenQuestionResponseData[]
+    totalResponses: number
+}
+
+export type QuestionProcessedResponses = ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
+
+export interface ResponsesByQuestion {
+    [questionId: string]: QuestionProcessedResponses
+}
+
+export interface ConsolidatedSurveyResults {
+    responsesByQuestion: {
+        [questionId: string]: QuestionProcessedResponses
+    }
+}
+
+/**
+ * Raw survey response data from the SQL query.
+ * Each SurveyResponseRow represents one user's complete response to all questions.
+ *
+ * Structure:
+ * - response[questionIndex] contains the answer to that specific question
+ * - For rating/single choice/open questions: response[questionIndex] is a string
+ * - For multiple choice questions: response[questionIndex] is a string[]
+ * - The last elements may contain metadata like person properties and distinct_id
+ *
+ * Example:
+ * [
+ *   ["9", ["Customer case studies"], "Great product!", "user123"],
+ *   ["7", ["Tutorials", "Other"], "Good but could improve", "user456"]
+ * ]
+ */
+export type SurveyResponseRow = Array<string | string[]>
+export type SurveyRawResults = SurveyResponseRow[]
 
 export interface Survey {
     /** UUID */
@@ -3272,6 +3342,7 @@ export interface FeatureFlagGroupType {
     variant?: string | null
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
+    description?: string | null
 }
 
 export interface MultivariateFlagVariant {
@@ -3596,6 +3667,10 @@ export interface EventDefinition {
     default_columns?: string[]
 }
 
+export interface EventDefinitionMetrics {
+    query_usage_30_day: number
+}
+
 // TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum PropertyType {
     DateTime = 'DateTime',
@@ -3859,6 +3934,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
+    effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
@@ -4200,6 +4276,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'meta-ads',
+    'clickup',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4213,6 +4290,11 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+}
+
+export interface EmailIntegrationDomainGroupedType {
+    domain: string
+    integrations: IntegrationType[]
 }
 
 export interface SlackChannelType {
@@ -4253,7 +4335,7 @@ export enum ExporterFormat {
 export type LocalExportContext = {
     localData: string
     filename: string
-    mediaType: ExporterFormat
+    mediaType?: ExporterFormat
 }
 
 export type OnlineExportContext = {
@@ -4269,7 +4351,16 @@ export type QueryExportContext = {
     filename?: string
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
+export interface ReplayExportContext {
+    session_recording_id: string
+    timestamp?: number
+    css_selector?: string
+    width?: number
+    height?: number
+    filename?: string
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
 
 export interface ExportedAssetType {
     id: number
@@ -4474,6 +4565,8 @@ export type PromptFlag = {
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
     ACTION = 'Action',
+    ALERT_CONFIGURATION = 'AlertConfiguration',
+    ANNOTATION = 'Annotation',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     GROUP = 'Group',
@@ -4495,9 +4588,14 @@ export enum ActivityScope {
     COMMENT = 'Comment',
     COHORT = 'Cohort',
     TEAM = 'Team',
+    ORGANIZATION = 'Organization',
+    ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
+    ORGANIZATION_INVITE = 'OrganizationInvite',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
+    TAG = 'Tag',
+    TAGGED_ITEM = 'TaggedItem',
 }
 
 export type CommentType = {
@@ -5099,6 +5197,7 @@ export type CyclotronJobInputSchemaType = {
         | 'integration'
         | 'integration_field'
         | 'email'
+        | 'native_email'
     key: string
     label: string
     choices?: { value: string; label: string }[]

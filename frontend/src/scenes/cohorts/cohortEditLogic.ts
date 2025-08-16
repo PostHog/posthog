@@ -6,11 +6,13 @@ import api from 'lib/api'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
     cleanCriteria,
+    createCohortDataNodeLogicKey,
     createCohortFormData,
     isCohortCriteriaGroup,
     validateGroup,
@@ -34,6 +36,7 @@ import {
 } from '~/types'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
@@ -253,6 +256,43 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     } catch (error: any) {
                         breakpoint()
+
+                        // Only capture exception if we don't have proper error details
+                        // This indicates an unexpected failure (network, timeout, etc.)
+                        if (!error.detail) {
+                            console.error('Cohort creation failed unexpectedly:', error, {
+                                cohort_name: cohort.name,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                is_static: cohort.is_static,
+                            })
+                            posthog.captureException(error, {
+                                cohort_operation: 'Cohort creation failed unexpectedly',
+                                // Cohort context (most valuable)
+                                cohort_name: cohort.name,
+                                is_static: cohort.is_static,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                has_csv: !!cohortFormData.get?.('csv'),
+                                file_size: (() => {
+                                    const csvFile = cohortFormData.get?.('csv')
+                                    return csvFile instanceof File ? csvFile.size : undefined
+                                })(),
+
+                                // Error context
+                                error_status: error.status,
+                                error_status_text: error.statusText,
+                                error_message: error.message,
+                                error_name: error.name,
+                                error_type: typeof error,
+
+                                // Browser context
+                                user_agent: navigator.userAgent.substring(0, 100),
+                                is_online: navigator.onLine,
+
+                                // Request context
+                                timestamp: new Date().toISOString(),
+                            })
+                        }
+
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }
@@ -267,6 +307,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (cohort.id !== 'new') {
+                        const mountedDataNodeLogic = dataNodeLogic.findMounted({
+                            key: createCohortDataNodeLogicKey(cohort.id),
+                        })
+                        mountedDataNodeLogic?.actions.loadData('force_blocking')
+                    }
                     return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {

@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
-import express from 'ultimate-express'
+
+import { ModifiedRequest } from '~/api/router'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
@@ -89,7 +90,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
     public async processWebhook(
         webhookId: string,
-        req: express.Request
+        req: ModifiedRequest
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const [hogFunction, hogFunctionState] = await Promise.all([
             this.getWebhook(webhookId),
@@ -154,6 +155,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 headers,
                 ip,
                 body,
+                stringBody: req.rawBody ?? '',
             },
         }
 

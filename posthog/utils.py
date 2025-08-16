@@ -23,6 +23,7 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
+from user_agents import parse
 
 import lzstring
 import posthoganalytics
@@ -422,6 +423,10 @@ def render_template(
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            posthog_app_context["effective_resource_access_control"] = {
+                resource: user_access_control.effective_access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
             posthog_app_context["resource_access_control"] = {
                 resource: user_access_control.access_level_for_resource(resource)
                 for resource in ACCESS_CONTROL_RESOURCES
@@ -611,6 +616,21 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = ip.split(":")[0]
 
     return ip
+
+
+def get_short_user_agent(request: HttpRequest) -> str:
+    """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
+    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    if not user_agent_str:
+        return ""
+
+    user_agent = parse(user_agent_str)
+
+    # strip the last (patch/build) number from the version, it can change frequently
+    browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
+    os_version = ".".join(str(x) for x in user_agent.os.version[:2])
+
+    return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
 
 
 def dict_from_cursor_fetchall(cursor):
