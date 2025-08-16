@@ -4329,6 +4329,9 @@ export enum ExporterFormat {
     PDF = 'application/pdf',
     JSON = 'application/json',
     XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    WEBM = 'video/webm',
+    MP4 = 'video/mp4',
+    GIF = 'image/gif',
 }
 
 /** Exporting directly from the browser to a file */
