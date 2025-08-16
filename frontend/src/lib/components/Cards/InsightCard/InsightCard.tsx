@@ -86,7 +86,6 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    noCache?: boolean
 }
 
 function InsightCardInternal(
@@ -119,7 +118,6 @@ function InsightCardInternal(
         doNotLoad,
         variablesOverride,
         children,
-        noCache,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         ...divProps
@@ -155,8 +153,7 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
-    const cachedResults = noCache ? undefined : insight
-    const hasResults = !!cachedResults?.result || !!(cachedResults as any)?.results
+    const hasResults = !!insight?.result || !!(insight as any)?.results
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
@@ -220,7 +217,7 @@ function InsightCardInternal(
                             ) : (
                                 <Query
                                     query={insight.query}
-                                    cachedResults={cachedResults}
+                                    cachedResults={insight}
                                     context={{
                                         insightProps: insightLogicProps,
                                     }}
