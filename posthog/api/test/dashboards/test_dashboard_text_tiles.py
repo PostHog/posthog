@@ -105,6 +105,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         }
 
     @freeze_time("2022-04-01 12:45")
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_a_single_text_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
