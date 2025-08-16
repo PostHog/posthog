@@ -1,5 +1,5 @@
 import { IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import { getOutgoers, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -7,6 +7,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { HogFlowFilters } from './filters/HogFlowFilters'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'
+import { HogFlowActionSchema } from './steps/types'
 
 export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const { selectedNode, nodes, edges } = useValues(hogFlowEditorLogic)
@@ -30,13 +31,28 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const action = selectedNode.data
     const Step = getHogFlowStep(action.type)
 
+    const validationResult = HogFlowActionSchema.safeParse(action)
+    const hasConfigurationErrors = !['trigger', 'exit'].includes(action.type) && !validationResult.success
+    const fieldsWithErrors = (
+        validationResult.error?.issues.map((issue) => String(issue.path[issue.path.length - 1]).replaceAll('_', ' ')) ||
+        []
+    ).join(', ')
+
     return (
         <div className="flex flex-col h-full w-140 overflow-hidden">
             <div className="flex justify-between items-center px-2 my-2">
                 <h3 className="flex gap-1 items-center mb-0 font-semibold">
                     <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
                 </h3>
+
                 <div className="flex gap-1 items-center">
+                    {hasConfigurationErrors && (
+                        <Tooltip title={`Some fields need attention: ${fieldsWithErrors}`}>
+                            <div>
+                                <LemonBadge status="warning" size="large" content="!" />
+                            </div>
+                        </Tooltip>
+                    )}
                     {selectedNode.deletable && (
                         <LemonButton
                             size="xsmall"

@@ -23,7 +23,21 @@ export const StepFunctionEmail: HogFlowStep<'function_email'> = {
                 on_error: 'continue',
                 config: {
                     template_id: 'template-email',
-                    inputs: {},
+                    inputs: {
+                        email: {
+                            value: {
+                                from: '',
+                                to: {
+                                    email: '',
+                                },
+                                subject: '',
+                                preheader: '',
+                                html: '',
+                                text: '',
+                            },
+                        },
+                    },
+                    inputs_schema: [],
                 },
             },
         }

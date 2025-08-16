@@ -23,7 +23,24 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
                 on_error: 'continue',
                 config: {
                     template_id: 'template-twilio',
-                    inputs: {},
+                    inputs: {
+                        twilio_account: {
+                            value: null,
+                        },
+                        to_number: {
+                            value: '',
+                        },
+                        from_number: {
+                            value: '',
+                        },
+                        message: {
+                            value: 'Hello from PostHog!',
+                        },
+                        debug: {
+                            value: false,
+                        },
+                    },
+                    inputs_schema: [],
                 },
             },
         }
