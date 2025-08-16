@@ -190,8 +190,13 @@ export const maxLogic = kea<maxLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
-                    const response = await api.conversations.list()
-                    return response.results
+                    try {
+                        const response = await api.conversations.list()
+                        return response.results
+                    } catch {
+                        // No org available, no conversation history
+                        return []
+                    }
                 },
             },
         ],
