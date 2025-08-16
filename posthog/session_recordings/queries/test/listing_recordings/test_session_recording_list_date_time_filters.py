@@ -114,7 +114,6 @@ class TestSessionRecordingListDateTimeFilters(BaseTestSessionRecordingsList):
             ["three days before base time"],
         )
 
-    @freeze_time("2021-01-01T13:46:23")
     def test_recording_that_spans_time_bounds(self):
         user = "test_recording_that_spans_time_bounds-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})

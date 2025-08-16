@@ -1,5 +1,6 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+from freezegun import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -20,6 +21,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
+@freeze_time("2021-01-01T13:46:23")
 class BaseTestSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
