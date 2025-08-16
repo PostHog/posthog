@@ -103,6 +103,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ValueError:
             limit = 10
 
+        try:
+            offset = int(request.query_params.get("offset", "0"))
+            offset = max(0, offset)
+        except ValueError:
+            offset = 0
+
         external_jobs = list(
             ExternalDataJob.objects.filter(team_id=self.team_id)
             .select_related("schema", "pipeline")
@@ -153,7 +159,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response(
             {
-                "results": activities[:limit],
-                "count": len(activities[:limit]),
+                "results": activities[offset : offset + limit],
+                "count": len(activities[offset : offset + limit]),
             }
         )
