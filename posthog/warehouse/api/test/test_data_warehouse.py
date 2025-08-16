@@ -77,7 +77,7 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(data["activities"]), 2)
-        self.assertEqual(data["total_count"], 2)
+        self.assertEqual(data["fetched_count"], 2)
 
         external_activity = next(a for a in data["activities"] if a["type"] == "Stripe")
         self.assertEqual(external_activity["name"], "customers")

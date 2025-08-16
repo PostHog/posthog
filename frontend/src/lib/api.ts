@@ -3360,8 +3360,8 @@ const api = {
         async recentActivity(options?: ApiMethodOptions & { limit?: number }): Promise<{
             activities: Array<{
                 id: string
-                type: 'external_data_sync' | 'materialized_view'
-                name: string
+                type: string
+                name: string | null
                 status: string
                 rows: number
                 created_at: string
@@ -3371,7 +3371,7 @@ const api = {
                 source_id?: string | null
                 workflow_run_id?: string | null
             }>
-            total_count: number
+            fetched_count: number
             limit: number
         }> {
             return await new ApiRequest().dataWarehouse().withAction('recent_activity').get(options)

@@ -119,7 +119,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         activities = [
             {
                 "id": str(job.id),
-                "type": job.pipeline.source_type if job.pipeline else None,
+                "type": job.pipeline.source_type if job.pipeline else "external_data_sync",
                 "name": job.schema.name if job.schema else None,
                 "status": job.status,
                 "rows": job.rows_synced or 0,
@@ -139,7 +139,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "status": job.status,
                 "rows": job.rows_materialized or 0,
                 "created_at": job.created_at,
-                "finished_at": None,
+                "finished_at": job.last_run_at if job.status == "Completed" else None,
                 "latest_error": job.error,
                 "schema_id": None,
                 "source_id": None,
@@ -153,7 +153,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(
             {
                 "activities": activities[:limit],
-                "total_count": len(activities),
+                "fetched_count": len(activities),
                 "limit": limit,
             }
         )
