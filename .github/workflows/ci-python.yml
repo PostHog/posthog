@@ -119,7 +119,7 @@ jobs:
               if: needs.changes.outputs.python == 'true'
               shell: bash -e {0}
               run: |
-                  mypy --version && mypy -p posthog | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+                  mypy --version && mypy -p posthog -p dags -p ee -p products | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
             - name: Check if "schema.py" is up to date
               if: needs.changes.outputs.python == 'true'
