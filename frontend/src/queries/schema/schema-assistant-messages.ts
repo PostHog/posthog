@@ -156,6 +156,8 @@ export type AssistantContextualTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'search_docs'
+    | 'search_insights'
+    | 'session_summarization'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
