@@ -24,3 +24,9 @@ LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("LOCAL_EVAL_RATE_LIMITS", "{}"))
     LOCAL_EVAL_RATE_LIMITS = {int(k): str(v) for k, v in as_json.items()}
+
+# Per-team remote config rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
+REMOTE_CONFIG_RATE_LIMITS: dict[int, str] = {}
+with suppress(Exception):
+    as_json = json.loads(os.getenv("REMOTE_CONFIG_RATE_LIMITS", "{}"))
+    REMOTE_CONFIG_RATE_LIMITS = {int(k): str(v) for k, v in as_json.items()}
