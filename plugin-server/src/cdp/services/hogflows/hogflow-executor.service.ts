@@ -18,6 +18,7 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
@@ -36,7 +37,8 @@ export class HogFlowExecutorService {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
+        private recipientPreferencesService: RecipientPreferencesService
     ) {
         this.actionHandlers = this.initializeActionHandlers()
     }
@@ -73,7 +75,8 @@ export class HogFlowExecutorService {
         const hogFunctionHandler = new HogFunctionHandler(
             this.hub,
             this.hogFunctionExecutor,
-            this.hogFunctionTemplateManager
+            this.hogFunctionTemplateManager,
+            this.recipientPreferencesService
         )
         handlers.set('function', hogFunctionHandler)
         handlers.set('function_sms', hogFunctionHandler)

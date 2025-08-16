@@ -1,4 +1,4 @@
-import { kea, path, actions, reducers, listeners } from 'kea'
+import { kea, path, actions, reducers, listeners, afterMount } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -59,4 +59,8 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadCategories()
+    }),
 ])

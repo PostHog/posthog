@@ -12,6 +12,7 @@ import {
 } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
 
@@ -19,12 +20,16 @@ export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
+        private recipientPreferencesService: RecipientPreferencesService
     ) {}
 
     async execute(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>,
+        action: Extract<
+            HogFlowAction,
+            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
+        >,
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): Promise<ActionHandlerResult> {
         const functionResult = await this.executeHogFunction(invocation, action)
@@ -55,7 +60,10 @@ export class HogFunctionHandler implements ActionHandler {
 
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>
+        action: Extract<
+            HogFlowAction,
+            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
+        >
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
 
@@ -104,6 +112,22 @@ export class HogFunctionHandler implements ActionHandler {
                 timings: [],
                 attempts: 0,
             },
+        }
+
+        if (await this.recipientPreferencesService.shouldSkipAction(invocation, action)) {
+            return {
+                finished: true,
+                invocation: hogFunctionInvocation,
+                logs: [
+                    {
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Recipient opted out for action ${action.id}`,
+                    },
+                ],
+                metrics: [],
+                capturedPostHogEvents: [],
+            }
         }
 
         return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
