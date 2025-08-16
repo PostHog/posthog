@@ -544,6 +544,47 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     return changelogPromise
                                 }
 
+                                // Special handling for Flutter SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'flutter') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-flutter/main/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Extract version numbers using the same regex as test files
+                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) => match.replace(/^## /, ''))
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
                                 // For other SDKs, use GitHub releases API
                                 const cacheBuster = Date.now()
                                 const tagsPromise = fetch(
