@@ -1,6 +1,6 @@
 import pytest
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
+from products.revenue_analytics.backend.views.core import view_name_for_source, view_name_for_event
 
 
 @pytest.mark.parametrize(
@@ -15,7 +15,7 @@ from products.revenue_analytics.backend.views.revenue_analytics_base_view import
 )
 def test_get_view_name_for_source(source_type, prefix, view_name, expected):
     source = ExternalDataSource(source_type=source_type, prefix=prefix)
-    result = RevenueAnalyticsBaseView.get_view_name_for_source(source, view_name)
+    result = view_name_for_source(source, view_name)
     assert result == expected
 
 
@@ -31,5 +31,5 @@ def test_get_view_name_for_source(source_type, prefix, view_name, expected):
     ],
 )
 def test_get_view_name_for_event(event, view_name, expected):
-    result = RevenueAnalyticsBaseView.get_view_name_for_event(event, view_name)
+    result = view_name_for_event(event, view_name)
     assert result == expected

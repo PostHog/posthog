@@ -9,7 +9,7 @@ from posthog.schema import (
     RevenueExampleDataWarehouseTablesQueryResponse,
     CachedRevenueExampleDataWarehouseTablesQueryResponse,
 )
-from ..views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from ..views import RevenueAnalyticsChargeView
 
 
 class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):

@@ -34,9 +34,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_INVOICE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import (
-    SOURCE_VIEW_SUFFIX as CUSTOMER_REVENUE_VIEW_SUFFIX,
-)
+from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
@@ -133,7 +131,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         # We also need a join between the persons table and the view
         self.join = DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=f"stripe.posthog_test.{CUSTOMER_REVENUE_VIEW_SUFFIX}",
+            source_table_name=f"stripe.posthog_test.{SCHEMA.source_suffix}",
             source_table_key="id",
             joining_table_name="persons",
             joining_table_key="pdi.distinct_id",
