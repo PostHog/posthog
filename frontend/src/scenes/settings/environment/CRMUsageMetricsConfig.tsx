@@ -133,9 +133,9 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
                     <LemonField name="interval" label="Interval">
                         <LemonSelect
                             options={[
-                                { value: '7d', label: '7d' },
-                                { value: '30d', label: '30d' },
-                                { value: '90d', label: '90d' },
+                                { value: 7, label: '7d' },
+                                { value: 30, label: '30d' },
+                                { value: 90, label: '90d' },
                             ]}
                         />
                     </LemonField>

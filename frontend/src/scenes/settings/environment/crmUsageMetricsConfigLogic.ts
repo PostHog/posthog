@@ -4,44 +4,44 @@ import { groupsModel } from '~/models/groupsModel'
 
 import type { crmUsageMetricsConfigLogicType } from './crmUsageMetricsConfigLogicType'
 import { loaders } from 'kea-loaders'
+import { projectLogic } from 'scenes/projectLogic'
+import api from 'lib/api'
 
 export interface UsageMetric {
     id: string
     name: string
     format: string
-    interval: string
+    interval: number
     display: string
-    events: string[]
-    group_type_index: number
+    filters: object
 }
 
-export interface NewUsageMetricFormData {
+export interface UsageMetricFormData {
     id?: string
     name: string
     format: string
-    interval: string
+    interval: number
     display: string
-    events: string[]
-    group_type_index?: number
+    filters: object
 }
 
 const NEW_USAGE_METRIC = {
     format: 'numeric',
-    interval: '7d',
+    interval: 7,
     display: 'number',
-} as NewUsageMetricFormData
+} as UsageMetricFormData
 
 export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
     path(['scenes', 'settings', 'environment', 'crmUsageMetricsConfigLogic']),
     connect(() => ({
-        values: [groupsModel, ['groupTypes', 'groupTypesLoading']],
+        values: [groupsModel, ['groupTypes', 'groupTypesLoading'], projectLogic, ['currentProjectId']],
     })),
 
     actions(() => ({
         setIsEditing: (isEditing: boolean) => ({ isEditing }),
         setCurrentGroupTypeIndex: (groupTypeIndex: number) => ({ groupTypeIndex }),
-        addUsageMetric: (metric: NewUsageMetricFormData) => ({ metric }),
-        updateUsageMetric: (metric: NewUsageMetricFormData) => ({ metric }),
+        addUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
+        updateUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
         removeUsageMetric: (id: string) => ({ id }),
     })),
 
@@ -55,91 +55,42 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
             [] as UsageMetric[],
             {
                 loadUsageMetrics: async () => {
-                    // Mock API delay
-                    await new Promise((resolve) => setTimeout(resolve, 500))
-                    return [
-                        {
-                            id: '1',
-                            name: 'Events',
-                            format: 'numeric',
-                            display: 'number',
-                            interval: '7d',
-                            events: [],
-                            group_type_index: 0,
-                        },
-                        {
-                            id: '2',
-                            name: 'Replay',
-                            format: 'numeric',
-                            display: 'sparkline',
-                            interval: '7d',
-                            events: [],
-                            group_type_index: 0,
-                        },
-                        {
-                            id: '3',
-                            name: 'API Calls',
-                            format: 'numeric',
-                            display: 'number',
-                            interval: '30d',
-                            events: [],
-                            group_type_index: 1,
-                        },
-                    ] as UsageMetric[]
+                    return await api.get(values.metricsUrl).then((response) => response.results)
                 },
                 addUsageMetric: async ({ metric }) => {
-                    // Mock API delay
-                    await new Promise((resolve) => setTimeout(resolve, 300))
-                    const largestId = values.usageMetrics.reduce((max, m) => Math.max(max, parseInt(m.id, 10)), 0)
-                    const newId = (largestId + 1).toString() || '1'
-                    const newMetric = {
-                        id: newId,
-                        ...metric,
-                        group_type_index: metric.group_type_index ?? values.currentGroupTypeIndex,
-                    }
-                    return [...values.usageMetrics, newMetric]
+                    return await api.create(values.metricsUrl, metric)
                 },
                 updateUsageMetric: async ({ metric }) => {
-                    // Mock API delay
-                    await new Promise((resolve) => setTimeout(resolve, 300))
-                    const updatedMetrics = values.usageMetrics.map((oldMetric) =>
-                        oldMetric.id === metric.id ? { ...oldMetric, ...metric } : oldMetric
-                    )
-                    return updatedMetrics
+                    return await api.update(`${values.metricsUrl}/${metric.id}`, metric)
                 },
                 removeUsageMetric: async ({ id }) => {
-                    // Mock API delay
-                    await new Promise((resolve) => setTimeout(resolve, 300))
-                    return values.usageMetrics.filter((metric) => metric.id !== id)
+                    return await api.delete(`${values.metricsUrl}/${id}`)
                 },
             },
         ],
     })),
 
     selectors({
-        currentGroupTypeUsageMetrics: [
-            (s) => [s.usageMetrics, s.currentGroupTypeIndex],
-            (usageMetrics, currentGroupTypeIndex) =>
-                usageMetrics.filter((metric) => metric.group_type_index === currentGroupTypeIndex),
-        ],
+        currentGroupTypeUsageMetrics: [(s) => [s.usageMetrics], (usageMetrics) => usageMetrics],
         availableGroupTypes: [(s) => [s.groupTypes], (groupTypes) => Array.from(groupTypes.values())],
+        metricsUrl: [
+            (s) => [s.currentGroupTypeIndex, s.currentProjectId],
+            (currentGroupTypeIndex, currentProjectId) =>
+                `/api/projects/${currentProjectId}/groups_types/${currentGroupTypeIndex}/metrics`,
+        ],
     }),
 
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         usageMetric: {
             defaults: NEW_USAGE_METRIC,
             errors: ({ name }) => ({
                 name: !name ? 'Name is required' : undefined,
             }),
             submit: (formData) => {
-                const formDataWithGroupType = {
-                    ...formData,
-                    group_type_index: formData.group_type_index ?? values.currentGroupTypeIndex,
-                }
                 if (formData?.id) {
-                    actions.updateUsageMetric(formDataWithGroupType)
+                    actions.updateUsageMetric(formData)
                 } else {
-                    actions.addUsageMetric(formDataWithGroupType)
+                    actions.addUsageMetric(formData)
                 }
             },
         },
@@ -149,6 +100,18 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
         submitUsageMetricSuccess: () => {
             actions.setIsEditing(false)
             actions.resetUsageMetric()
+        },
+        addUsageMetricSuccess: () => {
+            actions.loadUsageMetrics()
+        },
+        updateUsageMetricSuccess: () => {
+            actions.loadUsageMetrics()
+        },
+        removeUsageMetricSuccess: () => {
+            actions.loadUsageMetrics()
+        },
+        setCurrentGroupTypeIndex: () => {
+            actions.loadUsageMetrics()
         },
     })),
 

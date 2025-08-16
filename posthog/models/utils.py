@@ -166,6 +166,13 @@ class DeletedMetaFields(models.Model):
         abstract = True
 
 
+class UUID7Model(models.Model):
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+
+    class Meta:
+        abstract = True
+
+
 class UUIDModel(models.Model):
     """Base Django Model with default autoincremented ID field replaced with UUIDT."""
 
