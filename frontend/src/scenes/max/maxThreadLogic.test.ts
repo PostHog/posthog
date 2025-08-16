@@ -6,7 +6,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { ConversationDetail, ConversationStatus } from '~/types'
+import { ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { router } from 'kea-router'
@@ -736,6 +736,7 @@ describe('maxThreadLogic', () => {
                         id: 'assistant-1',
                     },
                 ],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing messages
@@ -771,6 +772,7 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing no messages
@@ -794,6 +796,7 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             logic.unmount()

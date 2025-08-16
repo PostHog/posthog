@@ -32,7 +32,7 @@ import {
     ReasoningMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -151,6 +151,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
+        setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
     }),
 
@@ -206,6 +207,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Trace ID is used for the conversation metrics in the UI
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
+
+        deepResearchMode: [
+            false, // TODO(DEEP_RESEARCH): this should be false before releasing, set to true for testing
+            {
+                setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache, props }) => ({
@@ -277,6 +285,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.billing_context = values.billingContext
                 }
 
+                if (values.deepResearchMode) {
+                    apiData.deep_research_mode = true
+                }
+
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
@@ -307,7 +319,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             if (!parsedResponse) {
                                 return
                             }
-
                             if (isHumanMessage(parsedResponse)) {
                                 actions.replaceMessage(values.threadRaw.length - 1, {
                                     ...parsedResponse,
@@ -575,6 +586,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
+
+                    // Don't show thinking message if there's an active TaskExecutionMessage
                     const thinkingMessage: ReasoningMessage & ThreadMessage = {
                         type: AssistantMessageType.Reasoning,
                         content: getRandomThinkingMessage(),
@@ -658,6 +671,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s) => [s.question],
             (question): SlashCommand[] =>
                 MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
+        ],
+
+        showDeepResearchModeToggle: [
+            (s) => [s.conversation, s.featureFlags],
+            (conversation, featureFlags) =>
+                // if a conversation is already marked as deep research, or has already started (has title/is in progress), don't show the toggle
+                !!featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] &&
+                conversation?.type !== ConversationType.DeepResearch &&
+                !conversation?.title &&
+                conversation?.status !== ConversationStatus.InProgress,
         ],
     }),
 
