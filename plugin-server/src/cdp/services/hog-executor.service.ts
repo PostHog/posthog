@@ -311,6 +311,29 @@ export class HogExecutorService {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         const addLog = createAddLogFunction(result.logs)
 
+        if (
+            invocation.state.globals.inputs?.oauth?.refreshed_at +
+                invocation.state.globals.inputs?.oauth?.expires_in / 2 <
+            Math.floor(Date.now() / 1000)
+        ) {
+            // If we have a high lag in the hog-workers, OAuth tokens will expire before they are used
+            // If the OAuth token is about to expire, we should refresh it
+            logger.warn('🦔', `[HogExecutor] OAuth token probably expired. Refreshing...`, {
+                hogFunctionId: invocation.hogFunction.id,
+                hogFunctionName: invocation.hogFunction.name,
+                teamId: invocation.teamId,
+                eventId: invocation.state.globals.event.url,
+            })
+            addLog('warn', `OAuth token probably expired. Refreshing...`)
+
+            const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+
+            result.invocation.state.globals.inputs = {
+                ...result.invocation.state.globals.inputs,
+                ...{ oauth: integrationInputs.oauth.value },
+            }
+        }
+
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
