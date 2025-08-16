@@ -43,9 +43,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         data = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["trackedBillingRows"], 100)
-        self.assertEqual(data["pendingBillingRows"], 50)
-        self.assertEqual(data["totalRows"], 150)
+        self.assertEqual(data["tracked_billing_rows"], 100)
+        self.assertEqual(data["pending_billing_rows"], 50)
+        self.assertEqual(data["total_rows"], 150)
 
     @patch("posthog.warehouse.api.data_warehouse.BillingManager")
     @patch("posthog.warehouse.api.data_warehouse.get_cached_instance_license")
