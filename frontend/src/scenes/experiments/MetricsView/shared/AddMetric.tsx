@@ -2,13 +2,14 @@ import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { useMetricLimits } from 'scenes/experiments/hooks/useMetricLimits'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 export function AddPrimaryMetric(): JSX.Element {
     const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openPrimaryMetricSourceModal } = useActions(modalsLogic)
+    const { primary: primaryLimit } = useMetricLimits()
 
     return (
         <LemonButton
@@ -19,8 +20,8 @@ export function AddPrimaryMetric(): JSX.Element {
                 openPrimaryMetricSourceModal()
             }}
             disabledReason={
-                primaryMetricsLengthWithSharedMetrics >= EXPERIMENT_MAX_PRIMARY_METRICS
-                    ? `You can only add up to ${EXPERIMENT_MAX_PRIMARY_METRICS} primary metrics.`
+                primaryMetricsLengthWithSharedMetrics >= primaryLimit
+                    ? `You can only add up to ${primaryLimit} primary metrics.`
                     : undefined
             }
         >
@@ -32,6 +33,7 @@ export function AddPrimaryMetric(): JSX.Element {
 export function AddSecondaryMetric(): JSX.Element {
     const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openSecondaryMetricSourceModal } = useActions(modalsLogic)
+    const { secondary: secondaryLimit } = useMetricLimits()
     return (
         <LemonButton
             icon={<IconPlus />}
@@ -41,8 +43,8 @@ export function AddSecondaryMetric(): JSX.Element {
                 openSecondaryMetricSourceModal()
             }}
             disabledReason={
-                secondaryMetricsLengthWithSharedMetrics >= EXPERIMENT_MAX_SECONDARY_METRICS
-                    ? `You can only add up to ${EXPERIMENT_MAX_SECONDARY_METRICS} secondary metrics.`
+                secondaryMetricsLengthWithSharedMetrics >= secondaryLimit
+                    ? `You can only add up to ${secondaryLimit} secondary metrics.`
                     : undefined
             }
         >

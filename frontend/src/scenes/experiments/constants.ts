@@ -22,7 +22,9 @@ export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
 
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
+/** @deprecated Use useMetricLimits() hook or getMetricLimits() function instead for team-specific limits */
 export const EXPERIMENT_MAX_PRIMARY_METRICS = 10
+/** @deprecated Use useMetricLimits() hook or getMetricLimits() function instead for team-specific limits */
 export const EXPERIMENT_MAX_SECONDARY_METRICS = 10
 
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
