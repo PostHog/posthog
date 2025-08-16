@@ -3,7 +3,7 @@ from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
 from typing import Optional
 
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
+from posthog.hogql_queries.query_cache_factory import get_query_cache_manager_class
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from celery import shared_task
@@ -86,10 +86,11 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
     )
 
-    QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
+    cache_manager_class = get_query_cache_manager_class(team=team)
+    cache_manager_class.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk, limit=500)
+    combos = cache_manager_class.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 

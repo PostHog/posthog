@@ -45,69 +45,83 @@ class TestWarming(APIBaseTest):
             team=self.team, user=self.user, insight=self.insight5, last_viewed_at=datetime.now(UTC) - timedelta(days=1)
         )
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
-        mock_get_stale_insights.return_value = []
+    @patch("posthog.caching.warming.get_query_cache_manager_class")
+    def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_cache_manager_class):
+        mock_cache_manager = mock_get_cache_manager_class.return_value
+        mock_cache_manager.get_stale_insights.return_value = []
+        mock_cache_manager.clean_up_stale_insights.return_value = None
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_insights_to_keep_fresh_no_stale_dashboard_insights(self, mock_get_stale_insights):
-        mock_get_stale_insights.return_value = [
+    @patch("posthog.caching.warming.get_query_cache_manager_class")
+    def test_insights_to_keep_fresh_no_stale_dashboard_insights(self, mock_get_cache_manager_class):
+        mock_cache_manager = mock_get_cache_manager_class.return_value
+        mock_cache_manager.get_stale_insights.return_value = [
             "2345:",
         ]
+        mock_cache_manager.clean_up_stale_insights.return_value = None
         insights = list(insights_to_keep_fresh(self.team))
         exptected_results = [
             (2345, None),
         ]
         self.assertEqual(insights, exptected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_insights_to_keep_fresh_only_insights_with_dashboards(self, mock_get_stale_insights):
-        mock_get_stale_insights.return_value = [
+    @patch("posthog.caching.warming.get_query_cache_manager_class")
+    def test_insights_to_keep_fresh_only_insights_with_dashboards(self, mock_get_cache_manager_class):
+        mock_cache_manager = mock_get_cache_manager_class.return_value
+        mock_cache_manager.get_stale_insights.return_value = [
             "1234:5678",
             "3456:7890",
         ]
+        mock_cache_manager.clean_up_stale_insights.return_value = None
         insights = list(insights_to_keep_fresh(self.team))
         expected_results = [
             (3456, 7890),
         ]
         self.assertEqual(insights, expected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_insights_to_keep_fresh_mixed_valid_and_invalid_combos(self, mock_get_stale_insights):
-        mock_get_stale_insights.return_value = [
+    @patch("posthog.caching.warming.get_query_cache_manager_class")
+    def test_insights_to_keep_fresh_mixed_valid_and_invalid_combos(self, mock_get_cache_manager_class):
+        mock_cache_manager = mock_get_cache_manager_class.return_value
+        mock_cache_manager.get_stale_insights.return_value = [
             "1234:5678",
             "9999:",
             "3456:7890",
             "8888:7777",
         ]
+        mock_cache_manager.clean_up_stale_insights.return_value = None
         insights = list(insights_to_keep_fresh(self.team))
         expected_results = [
             (3456, 7890),
         ]
         self.assertEqual(insights, expected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_insights_to_keep_fresh_insights_not_viewed_recently(self, mock_get_stale_insights):
-        mock_get_stale_insights.return_value = ["4567:"]
+    @patch("posthog.caching.warming.get_query_cache_manager_class")
+    def test_insights_to_keep_fresh_insights_not_viewed_recently(self, mock_get_cache_manager_class):
+        mock_cache_manager = mock_get_cache_manager_class.return_value
+        mock_cache_manager.get_stale_insights.return_value = ["4567:"]
+        mock_cache_manager.clean_up_stale_insights.return_value = None
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_insights_to_keep_fresh_dashboards_not_accessed_recently(self, mock_get_stale_insights):
-        mock_get_stale_insights.return_value = ["5678:8901"]
+    @patch("posthog.caching.warming.get_query_cache_manager_class")
+    def test_insights_to_keep_fresh_dashboards_not_accessed_recently(self, mock_get_cache_manager_class):
+        mock_cache_manager = mock_get_cache_manager_class.return_value
+        mock_cache_manager.get_stale_insights.return_value = ["5678:8901"]
+        mock_cache_manager.clean_up_stale_insights.return_value = None
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_insights_to_keep_fresh_combination_of_cases(self, mock_get_stale_insights):
-        mock_get_stale_insights.return_value = [
+    @patch("posthog.caching.warming.get_query_cache_manager_class")
+    def test_insights_to_keep_fresh_combination_of_cases(self, mock_get_cache_manager_class):
+        mock_cache_manager = mock_get_cache_manager_class.return_value
+        mock_cache_manager.get_stale_insights.return_value = [
             "1234:5678",
             "2345:",
             "3456:7890",
             "4567:",
         ]
+        mock_cache_manager.clean_up_stale_insights.return_value = None
         insights = list(insights_to_keep_fresh(self.team))
         expected_results = [
             (2345, None),

@@ -33,9 +33,10 @@ class QueryCacheManagerBase(ABC):
         return f"{self.insight_id}:{self.dashboard_id or ''}"
 
     @classmethod
+    @abstractmethod
     def _redis_key_prefix(cls) -> str:
-        """Redis key prefix for cache timestamps. Can be overridden by subclasses."""
-        return "cache_timestamps"
+        """Redis key prefix for cache timestamps. Must be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _redis_key_prefix")
 
     @classmethod
     def get_stale_insights(cls, *, team_id: int, limit: Optional[int] = None) -> list[str]:

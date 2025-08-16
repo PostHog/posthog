@@ -18,6 +18,11 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
     'cache_timestamps:{team_id}' -> '{self.insight_id}:{self.dashboard_id or ''}' -> timestamp (epoch time when calculated)
     """
 
+    @classmethod
+    def _redis_key_prefix(cls) -> str:
+        """Redis key prefix for Django cache timestamps."""
+        return "cache_timestamps"
+
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         cache.set(self.cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
