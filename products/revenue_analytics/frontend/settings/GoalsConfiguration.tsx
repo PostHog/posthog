@@ -12,8 +12,10 @@ import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
-
+import { cn } from 'lib/utils/css-classes'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
+import { SceneSection } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 type Mode = 'display' | 'edit'
 type ColumnProps<T extends string | number> = {
@@ -158,7 +160,7 @@ export function GoalsConfiguration(): JSX.Element {
     const [isAdding, setIsAdding] = useState(() => inStorybook() || inStorybookTestRunner())
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [temporaryGoal, setTemporaryGoal] = useState<RevenueAnalyticsGoal>(EMPTY_GOAL)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const handleAddGoal = (): void => {
         if (temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
             addGoal(temporaryGoal)
@@ -306,15 +308,24 @@ export function GoalsConfiguration(): JSX.Element {
     const dataSource = isAdding ? [...goals, EMPTY_GOAL] : goals
 
     return (
-        <div>
-            <h3 className="mb-2">Goals</h3>
-            <p className="mb-4">
-                Set monthly revenue targets for specific dates to track your progress. You can track goals based on your
-                monthly/quarterly/yearly targets. These goals can be used to measure performance against targets in your
-                Revenue analytics dashboard.
-            </p>
+        <SceneSection
+            hideTitleAndDescription={!newSceneLayout}
+            className={cn(!newSceneLayout && 'gap-y-0')}
+            title="Goals"
+            description="Set monthly revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These goals can be used to measure performance against targets in your Revenue analytics dashboard."
+        >
+            {!newSceneLayout && (
+                <>
+                    <h3 className="mb-2">Goals</h3>
+                    <p className="mb-4">
+                        Set monthly revenue targets for specific dates to track your progress. You can track goals based
+                        on your monthly/quarterly/yearly targets. These goals can be used to measure performance against
+                        targets in your Revenue analytics dashboard.
+                    </p>
+                </>
+            )}
 
-            <div className="flex flex-col mb-1 items-end w-full">
+            <div className={cn('flex flex-col items-end w-full', !newSceneLayout && 'mb-1')}>
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
@@ -342,6 +353,6 @@ export function GoalsConfiguration(): JSX.Element {
                 rowKey={(record) => `${record.name}-${record.due_date}`}
                 emptyState="No goals configured yet"
             />
-        </div>
+        </SceneSection>
     )
 }

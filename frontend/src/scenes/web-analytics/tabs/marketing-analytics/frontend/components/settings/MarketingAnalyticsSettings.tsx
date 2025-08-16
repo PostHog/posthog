@@ -7,6 +7,7 @@ import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExterna
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { IconApps } from '@posthog/icons'
 
 export function MarketingAnalyticsSettings(): JSX.Element {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
@@ -19,6 +20,7 @@ export function MarketingAnalyticsSettings(): JSX.Element {
                     resourceType={{
                         type: 'marketing',
                         typePlural: 'marketing',
+                        forceIcon: <IconApps />,
                     }}
                 />
             )}

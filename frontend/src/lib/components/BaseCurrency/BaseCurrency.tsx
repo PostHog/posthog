@@ -38,12 +38,14 @@ export function BaseCurrency({
                     )}
                 </>
             )}
-            <CurrencyDropdown
-                value={currentTeam?.base_currency || null}
-                onChange={(currency: CurrencyCode | null) => {
-                    updateCurrentTeam({ base_currency: currency ?? undefined })
-                }}
-            />
+            <div>
+                <CurrencyDropdown
+                    value={currentTeam?.base_currency || null}
+                    onChange={(currency: CurrencyCode | null) => {
+                        updateCurrentTeam({ base_currency: currency ?? undefined })
+                    }}
+                />
+            </div>
         </SceneSection>
     )
 }

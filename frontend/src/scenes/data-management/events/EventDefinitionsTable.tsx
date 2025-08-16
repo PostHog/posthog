@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { cn } from 'lib/utils/css-classes'
 import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
+import { IconApps } from '@posthog/icons'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -131,6 +132,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     resourceType={{
                         type: 'event',
                         typePlural: 'events',
+                        forceIcon: <IconApps />,
                     }}
                 />
                 <SceneDivider />

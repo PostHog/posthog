@@ -746,7 +746,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     pathname: currentLocation.pathname,
                     search: currentLocation.search,
                     hash: currentLocation.hash,
-                    title: 'Loading...',
+                    title: 'xxxxxxxxxxxxx Loadingx...',
                 },
             ])
         }

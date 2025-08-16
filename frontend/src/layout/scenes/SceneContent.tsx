@@ -21,7 +21,7 @@ export function SceneContent({ children, className }: { children: React.ReactNod
 
 interface SceneSectionProps {
     title?: React.ReactNode
-    description?: string
+    description?: React.ReactNode | null
     isLoading?: boolean
     children: React.ReactNode
     className?: string
@@ -99,8 +99,8 @@ type ResourceType = {
     forceIconColorOverride?: FileSystemIconColor
 }
 type SceneMainTitleProps = {
-    name?: string
-    description?: string
+    name?: string | null
+    description?: string | null
     resourceType: ResourceType
     markdown?: boolean
     isLoading?: boolean
@@ -245,7 +245,7 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
 }
 
 type SceneDescriptionProps = {
-    description?: string
+    description?: string | null
     markdown?: boolean
     isLoading?: boolean
     onBlur?: (value: string) => void

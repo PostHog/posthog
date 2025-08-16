@@ -16,6 +16,7 @@ import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/S
 import { cn } from 'lib/utils/css-classes'
 
 import { PropertyDefinition } from '~/types'
+import { IconApps } from '@posthog/icons'
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
@@ -80,6 +81,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 resourceType={{
                     type: 'property',
                     typePlural: 'properties',
+                    forceIcon: <IconApps />,
                 }}
             />
             <SceneDivider />

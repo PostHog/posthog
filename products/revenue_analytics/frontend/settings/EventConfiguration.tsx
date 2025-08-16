@@ -7,7 +7,9 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { teamLogic } from 'scenes/teamLogic'
-
+import { SceneSection } from '~/layout/scenes/SceneContent'
+import { cn } from 'lib/utils/css-classes'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
@@ -26,14 +28,24 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
         updateEventSubscriptionProperty,
         save,
     } = useActions(revenueAnalyticsSettingsLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <div>
-            <h3 className="mb-2">Event Configuration</h3>
-            <p className="mb-4">
-                PostHog can display revenue data in our Revenue Analytics product from any event. You can configure as
-                many events as you want, and specify the revenue property and currency for each event individually.
-            </p>
+        <SceneSection
+            hideTitleAndDescription={!newSceneLayout}
+            className={cn(!newSceneLayout && 'gap-y-0')}
+            title="Event Configuration"
+            description="PostHog can display revenue data in our Revenue Analytics product from any event. You can configure as many events as you want, and specify the revenue property and currency for each event individually."
+        >
+            {!newSceneLayout && (
+                <>
+                    <h3 className="mb-2">Event Configuration</h3>
+                    <p className="mb-4">
+                        PostHog can display revenue data in our Revenue Analytics product from any event. You can
+                        configure as many events as you want, and specify the revenue property and currency for each
+                        event individually.
+                    </p>
+                </>
+            )}
             <div className="flex flex-col mb-1 items-end w-full">
                 <div className="flex flex-row w-full gap-1 justify-end my-2">
                     <TaxonomicPopover
@@ -232,6 +244,6 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                     },
                 ]}
             />
-        </div>
+        </SceneSection>
     )
 }
