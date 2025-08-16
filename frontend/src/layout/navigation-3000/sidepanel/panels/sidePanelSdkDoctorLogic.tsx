@@ -630,6 +630,51 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     return changelogPromise
                                 }
 
+                                // Special handling for Android SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'android') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-android/main/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Android CHANGELOG.md format: "## 3.20.2 - 2025-08-07"
+                                            const versionMatches = changelogText.match(
+                                                /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
+                                            )
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) =>
+                                                        match.replace(/^## /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
+                                                    ) // Remove "## " and " - YYYY-MM-DD" parts
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
                                 // For other SDKs, use GitHub releases API
                                 const cacheBuster = Date.now()
                                 const tagsPromise = fetch(
