@@ -1,5 +1,6 @@
 import datetime
 from typing import Optional, Union
+from django.test import override_settings
 from unittest import mock
 
 from freezegun import freeze_time
@@ -104,6 +105,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         }
 
     @freeze_time("2022-04-01 12:45")
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_a_single_text_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
@@ -114,6 +116,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             body="hello world",
         )
 
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_update_a_single_text_tile(self) -> None:
         with freeze_time("2022-04-01 12:45") as frozen_time:
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
