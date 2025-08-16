@@ -11,6 +11,8 @@ from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 import structlog
 
@@ -133,6 +135,39 @@ def initialize_otel():
         except Exception as e:
             logger.exception(
                 "otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="error", exc_info=e
+            )
+
+        def client_span_callback(span, response):
+            if not span or not span.is_recording():
+                return
+
+            key = "url.full" if span.attributes.get("url.full") else "http.url"
+            if key not in span.attributes:
+                return
+
+            url = span.attributes.get(key)
+            if not url:
+                return
+
+            url_parts = url.split("?")
+            span.set_attribute(key, url_parts[0])
+            if len(url_parts) > 1:
+                span.set_attribute("url.query_params", url_parts[1])
+
+        try:
+            RequestsInstrumentor().instrument(tracer_provider=provider, span_callback=client_span_callback)
+            logger.info("otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="success")
+        except Exception as e:
+            logger.exception(
+                "otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="error", exc_info=e
+            )
+
+        try:
+            HTTPXClientInstrumentor().instrument(tracer_provider=provider, span_callback=client_span_callback)
+            logger.info("otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="success")
+        except Exception as e:
+            logger.exception(
+                "otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="error", exc_info=e
             )
 
         logger.info(
