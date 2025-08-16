@@ -11504,6 +11504,12 @@
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -11522,6 +11528,12 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -11693,6 +11705,12 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -11735,6 +11753,12 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"

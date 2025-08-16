@@ -157,14 +157,43 @@ class ExperimentQueryRunner(QueryRunner):
         Aggregates entity metrics into final statistics used for significance calculations
         One row per variant
         Columns: variant, num_users, total_sum, total_sum_of_squares
+        For funnel metrics, also includes step_counts
         """
+        from posthog.schema import ExperimentFunnelMetric
+
+        select_exprs = [
+            ast.Field(chain=["metric_events", "variant"]),
+            parse_expr("count(metric_events.entity_id) as num_users"),
+        ]
+
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            # For funnel metrics, value is the highest step reached (0-indexed)
+            # total_sum should count only users who completed all steps
+            num_steps = len(self.metric.series)
+            select_exprs.extend(
+                [
+                    parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum"),
+                    parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum_of_squares"),
+                ]
+            )
+
+            # Add step counts - how many users reached each step
+            step_count_exprs = []
+            for i in range(num_steps):
+                step_count_exprs.append(f"countIf(metric_events.value >= {i})")
+            step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
+            select_exprs.append(parse_expr(step_counts_expr))
+        else:
+            # For non-funnel metrics, use the original logic
+            select_exprs.extend(
+                [
+                    parse_expr("sum(metric_events.value) as total_sum"),
+                    parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
+                ]
+            )
+
         return ast.SelectQuery(
-            select=[
-                ast.Field(chain=["metric_events", "variant"]),
-                parse_expr("count(metric_events.entity_id) as num_users"),
-                parse_expr("sum(metric_events.value) as total_sum"),
-                parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
-            ],
+            select=select_exprs,
             select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="metric_events"),
             group_by=[ast.Field(chain=["metric_events", "variant"])],
         )
@@ -214,7 +243,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _evaluate_experiment_query(
         self,
-    ) -> list[tuple[str, int, int, int]]:
+    ) -> list[tuple]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
