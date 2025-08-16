@@ -34,7 +34,6 @@ from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.db import ProgrammingError
@@ -525,8 +524,6 @@ async def initialize_self_capture_api_token():
     Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
     """
 
-    User = apps.get_model("posthog", "User")
-    Team = apps.get_model("posthog", "Team")
     try:
         user = (
             await User.objects.filter(last_login__isnull=False)

@@ -1,11 +1,11 @@
 from unittest import mock
 from unittest.mock import MagicMock
 
+from posthog.test.base import APIBaseTest
 from posthog.utils import get_context_for_template
-from django.test import SimpleTestCase
 
 
-class TestGetContextForTemplate(SimpleTestCase):
+class TestGetContextForTemplate(APIBaseTest):
     def test_get_context_for_template(self):
         with self.settings(STRIPE_PUBLIC_KEY=None):
             actual = get_context_for_template(
@@ -33,7 +33,7 @@ class TestGetContextForTemplate(SimpleTestCase):
             "self_capture": True,
         }
 
-    def test_picks_up_stripe_public_key(self):
+    def test_picks_up_stripe_public_key_from_environment(self):
         with self.settings(STRIPE_PUBLIC_KEY="pk_test_12345"):
             actual = get_context_for_template(
                 MagicMock(),
