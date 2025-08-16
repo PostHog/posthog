@@ -12,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EventProperty, Tag
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import APIBaseTest
+from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
 
 
 class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
@@ -620,3 +621,103 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertIn("visible_property", property_names)
         self.assertIn("hidden_property1", property_names)
         self.assertIn("hidden_property2", property_names)
+
+    def test_enterprise_serializer_supported_by_preaggregated_tables_field(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        # Enable enterprise taxonomy
+        self.team.organization.available_product_features = [
+            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
+        ]
+        self.team.organization.save()
+
+        optimized_props = [
+            ("$entry_pathname", PropertyDefinition.Type.SESSION),
+            ("$end_pathname", PropertyDefinition.Type.SESSION),
+            ("$entry_utm_source", PropertyDefinition.Type.SESSION),
+            ("$channel_type", PropertyDefinition.Type.SESSION),
+            ("$host", PropertyDefinition.Type.EVENT),
+            ("$device_type", PropertyDefinition.Type.EVENT),
+            ("$browser", PropertyDefinition.Type.EVENT),
+        ]
+
+        for prop_name, prop_type in optimized_props:
+            EnterprisePropertyDefinition.objects.create(team=self.team, name=prop_name, type=prop_type)
+
+        non_optimized_props = [
+            ("custom_prop", PropertyDefinition.Type.EVENT),
+            ("another_custom", PropertyDefinition.Type.EVENT),
+        ]
+
+        for prop_name, prop_type in non_optimized_props:
+            EnterprisePropertyDefinition.objects.create(team=self.team, name=prop_name, type=prop_type)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=session")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        session_prop_results = {r["name"]: r["supported_by_preaggregated_tables"] for r in results}
+        optimized_session_names = [name for name, ptype in optimized_props if ptype == PropertyDefinition.Type.SESSION]
+        for prop_name in optimized_session_names:
+            assert prop_name in session_prop_results
+            assert session_prop_results[prop_name]
+
+        # Test event properties
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        event_prop_results = {r["name"]: r["supported_by_preaggregated_tables"] for r in results}
+
+        optimized_event_names = [name for name, ptype in optimized_props if ptype == PropertyDefinition.Type.EVENT]
+        for prop_name in optimized_event_names:
+            if prop_name in event_prop_results:
+                assert event_prop_results[prop_name]
+
+        non_optimized_event_names = [
+            name for name, ptype in non_optimized_props if ptype == PropertyDefinition.Type.EVENT
+        ]
+        for prop_name in non_optimized_event_names:
+            if prop_name in event_prop_results:
+                assert not event_prop_results[prop_name]
+
+    def test_enterprise_serializer_get_supported_by_preaggregated_tables_method(self):
+        serializer = EnterprisePropertyDefinitionSerializer()
+
+        optimized_props = [
+            "$entry_pathname",
+            "$end_pathname",
+            "$entry_utm_source",
+            "$channel_type",
+            "$host",
+            "$device_type",
+            "$browser",
+            "$pathname",
+        ]
+
+        for prop_name in optimized_props:
+            prop = EnterprisePropertyDefinition.objects.create(
+                team=self.team,
+                name=prop_name,
+                type=PropertyDefinition.Type.EVENT
+                if not prop_name.startswith("$entry_") and prop_name != "$channel_type"
+                else PropertyDefinition.Type.SESSION,
+            )
+
+            is_optimized = serializer.get_supported_by_preaggregated_tables(prop)
+            assert is_optimized
+
+            prop.delete()  # Clean up
+
+        non_optimized_props = ["custom_prop", "another_prop", "$some_other_prop"]
+        for prop_name in non_optimized_props:
+            prop = EnterprisePropertyDefinition.objects.create(
+                team=self.team, name=prop_name, type=PropertyDefinition.Type.EVENT
+            )
+
+            is_optimized = serializer.get_supported_by_preaggregated_tables(prop)
+            assert not is_optimized
+
+            prop.delete()  # Clean up

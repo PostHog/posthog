@@ -58,6 +58,7 @@ import {
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import { NotebookType } from 'scenes/notebooks/types'
+import { PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -207,6 +208,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        enablePreaggregatedTableHints: [
+            () => [(_, props) => props.enablePreaggregatedTableHints],
+            (enablePreaggregatedTableHints) => !!enablePreaggregatedTableHints,
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -220,6 +225,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
                 s.maxContextOptions,
+                s.enablePreaggregatedTableHints,
             ],
             (
                 currentTeam: TeamType,
@@ -232,7 +238,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters: { excludedProperties: any; propertyAllowList: any },
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
-                maxContextOptions: MaxContextTaxonomicFilterOption[]
+                maxContextOptions: MaxContextTaxonomicFilterOption[],
+                enablePreaggregatedTableHints: boolean
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -666,11 +673,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       (property: string) => ({
                                           name: property,
                                           value: property,
+                                          supported_by_preaggregated_tables: enablePreaggregatedTableHints
+                                              ? PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP[
+                                                    TaxonomicFilterGroupType.SessionProperties
+                                                ].includes(property)
+                                              : false,
                                       })
                                   ),
                               }
                             : {
-                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                                  endpoint: combineUrl(
+                                      `api/environments/${teamId}/sessions/property_definitions`,
+                                      enablePreaggregatedTableHints ? { enable_preaggregated_table_hints: 'true' } : {}
+                                  ).url,
                               }),
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
