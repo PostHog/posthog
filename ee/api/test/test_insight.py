@@ -39,6 +39,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @override_settings(IN_UNIT_TESTING=True)
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_can_add_and_remove_tags(self) -> None:
         insight_id, response_data = self.dashboard_api.create_insight(
