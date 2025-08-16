@@ -19,7 +19,7 @@ class TestGetContextForTemplate(APIBaseTest):
             "git_rev": mock.ANY,
             "js_capture_time_to_see_data": False,
             "js_kea_verbose_logging": False,
-            # TODO: this is almost certainly not what we should have here
+            # TODO: this is probably not what we should have here in a dev instance
             "js_posthog_api_key": "sTMFPsFhdP1Ssg",
             "js_posthog_host": "",
             "js_posthog_ui_host": "",
