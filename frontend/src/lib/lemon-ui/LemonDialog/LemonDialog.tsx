@@ -36,7 +36,12 @@ type LemonDialogRef = {
     closeDialog: () => void
 }
 
-export const LemonDialog = forwardRef<LemonDialogRef, LemonDialogProps>(function LemonDialog(
+type LemonDialogMethods = {
+    open: (props: LemonDialogProps) => void
+    openForm: (props: LemonFormDialogProps) => void
+}
+
+const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(function LemonDialog(
     {
         onAfterClose,
         onClose,
@@ -227,6 +232,8 @@ function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
     document.body.appendChild(div)
     return { root, onDestroy: destroy }
 }
+
+export const LemonDialog = LemonDialogComponent as typeof LemonDialogComponent & LemonDialogMethods
 
 LemonDialog.open = (props: LemonDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
