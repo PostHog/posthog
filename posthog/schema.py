@@ -1984,6 +1984,26 @@ class PersonType(BaseModel):
     uuid: Optional[str] = None
 
 
+class PlaywrightWorkspaceSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_name: Optional[str] = None
+
+
+class PlaywrightWorkspaceSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    personal_api_key: str
+    team_id: str
+    team_name: str
+    user_email: str
+    user_id: str
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -2598,6 +2618,24 @@ class TaxonomicFilterGroupType(StrEnum):
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     MAX_AI_CONTEXT = "max_ai_context"
+
+
+class TestSetupRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Optional[dict[str, Any]] = None
+
+
+class TestSetupResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    available_tests: Optional[list[str]] = None
+    error: Optional[str] = None
+    result: Optional[Any] = None
+    success: bool
+    test_name: str
 
 
 class TimelineEntry(BaseModel):

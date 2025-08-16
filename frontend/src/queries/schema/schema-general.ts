@@ -3754,3 +3754,30 @@ export const externalDataSources = [
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
+
+// PostHog Playwright Setup Types for Playwright Testing
+export interface TestSetupRequest {
+    data?: Record<string, any>
+}
+
+export interface TestSetupResponse {
+    success: boolean
+    test_name: string
+    result?: any
+    error?: string
+    available_tests?: string[]
+}
+
+export interface PlaywrightWorkspaceSetupData {
+    organization_name?: string
+}
+
+export interface PlaywrightWorkspaceSetupResult {
+    organization_id: string
+    team_id: string
+    organization_name: string
+    team_name: string
+    user_id: string
+    user_email: string
+    personal_api_key: string
+}
