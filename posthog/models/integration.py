@@ -72,6 +72,7 @@ class Integration(models.Model):
         GITHUB = "github"
         META_ADS = "meta-ads"
         TWILIO = "twilio"
+        VERCEL = "vercel"
         CLICKUP = "clickup"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
