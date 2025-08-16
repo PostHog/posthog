@@ -350,7 +350,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     name=table_name,
                     format=file_format,
                     created_by=request.user,
-                    credential=credential,  # type: ignore
+                    credential=credential,
                 )
 
             # Generate URL pattern and store file in object storage
