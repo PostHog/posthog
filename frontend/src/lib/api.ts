@@ -3358,7 +3358,7 @@ const api = {
         },
 
         async recentActivity(options?: ApiMethodOptions & { limit?: number }): Promise<{
-            activities: Array<{
+            results: Array<{
                 id: string
                 type: string
                 name: string | null
@@ -3371,8 +3371,7 @@ const api = {
                 source_id?: string
                 workflow_run_id?: string
             }>
-            fetched_count: number
-            limit: number
+            count: number
         }> {
             return await new ApiRequest().dataWarehouse().withAction('recent_activity').get(options)
         },

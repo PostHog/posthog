@@ -15,8 +15,6 @@ from posthog.cloud_utils import get_cached_instance_license
 
 logger = structlog.get_logger(__name__)
 
-MAX_RECENT_ACTIVITY_RESULTS = 50
-
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
@@ -100,50 +98,52 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def recent_activity(self, request: Request, **kwargs) -> Response:
         try:
-            limit_param = int(request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS)))
-            limit = MAX_RECENT_ACTIVITY_RESULTS if limit_param < 1 else min(limit_param, MAX_RECENT_ACTIVITY_RESULTS)
+            limit = int(request.query_params.get("limit", "10"))
+            limit = max(1, min(limit, 50))
         except ValueError:
-            limit = MAX_RECENT_ACTIVITY_RESULTS
+            limit = 10
 
         external_jobs = list(
             ExternalDataJob.objects.filter(team_id=self.team_id)
             .select_related("schema", "pipeline")
-            .order_by("-created_at")[:limit]
+            .order_by("-created_at")[:50]
         )
         modeling_jobs = list(
             DataModelingJob.objects.filter(team_id=self.team_id)
             .select_related("saved_query")
-            .order_by("-created_at")[:limit]
+            .order_by("-created_at")[:50]
         )
 
         def job_to_activity(job, is_modeling=False):
+            base = {
+                "id": str(job.id),
+                "status": job.status,
+                "created_at": job.created_at,
+                "workflow_run_id": job.workflow_run_id,
+            }
+
             if is_modeling:
                 return {
-                    "id": str(job.id),
+                    **base,
                     "type": "materialized_view",
                     "name": job.saved_query.name if job.saved_query else None,
-                    "status": job.status,
                     "rows": job.rows_materialized or 0,
-                    "created_at": job.created_at,
-                    "finished_at": job.last_run_at if job.status == "Completed" else None,
+                    "finished_at": job.last_run_at,
                     "latest_error": job.error,
                     "schema_id": None,
                     "source_id": None,
-                    "workflow_run_id": job.workflow_run_id,
                 }
-            return {
-                "id": str(job.id),
-                "type": job.pipeline.source_type if job.pipeline else "external_data_sync",
-                "name": job.schema.name if job.schema else None,
-                "status": job.status,
-                "rows": job.rows_synced or 0,
-                "created_at": job.created_at,
-                "finished_at": job.finished_at,
-                "latest_error": job.latest_error,
-                "schema_id": str(job.schema.id) if job.schema else None,
-                "source_id": str(job.pipeline.id) if job.pipeline else None,
-                "workflow_run_id": job.workflow_run_id,
-            }
+            else:
+                return {
+                    **base,
+                    "type": job.pipeline.source_type if job.pipeline else "external_data_sync",
+                    "name": job.schema.name if job.schema else None,
+                    "rows": job.rows_synced or 0,
+                    "finished_at": job.finished_at,
+                    "latest_error": job.latest_error,
+                    "schema_id": str(job.schema.id) if job.schema else None,
+                    "source_id": str(job.pipeline.id) if job.pipeline else None,
+                }
 
         activities = [job_to_activity(job) for job in external_jobs] + [
             job_to_activity(job, True) for job in modeling_jobs
@@ -153,8 +153,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response(
             {
-                "activities": activities[:limit],
-                "fetched_count": len(activities),
-                "limit": limit,
+                "results": activities[:limit],
+                "count": len(activities[:limit]),
             }
         )
