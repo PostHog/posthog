@@ -97,11 +97,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def recent_activity(self, request: Request, **kwargs) -> Response:
+        """
+        Returns recent activity for the data warehouse including external data syncs and materialized view runs.
+        Used by the frontend to display running/completed operations with status, progress, and metadata.
+        """
+        max_limit = 50
+        default_limit = 10
         try:
-            limit = int(request.query_params.get("limit", "10"))
-            limit = max(1, min(limit, 50))
+            limit = int(request.query_params.get("limit", default_limit))
+            limit = max(1, min(limit, max_limit))
         except ValueError:
-            limit = 10
+            limit = default_limit
 
         try:
             offset = int(request.query_params.get("offset", "0"))
@@ -109,17 +115,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ValueError:
             offset = 0
 
-        fetch_limit = offset + limit
-
         external_jobs = list(
             ExternalDataJob.objects.filter(team_id=self.team_id)
             .select_related("schema", "pipeline")
-            .order_by("-created_at")[:fetch_limit]
+            .order_by("-created_at")[:max_limit]
         )
         modeling_jobs = list(
             DataModelingJob.objects.filter(team_id=self.team_id)
             .select_related("saved_query")
-            .order_by("-created_at")[:fetch_limit]
+            .order_by("-created_at")[:max_limit]
         )
 
         def job_to_activity(job, is_modeling=False):
