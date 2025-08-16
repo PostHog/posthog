@@ -1060,18 +1060,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 return
 
             client = mock.Mock()
-            client.hdel.side_effect = fake_delete
+            client.delete.side_effect = fake_delete
             get_client_mock.return_value = client
 
             GroupTypeMapping.objects.create(
                 team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
             )
 
-            assert client.hdel.call_count == 1
+            assert client.delete.call_count == 1
 
             DataWarehouseSavedQuery.objects.create(team=self.team, name="test", query="select 1")
 
-            assert client.hdel.call_count == 2
+            assert client.delete.call_count == 2
 
             DataWarehouseTable.objects.create(
                 name="table_1",
@@ -1084,7 +1084,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            assert client.hdel.call_count == 3
+            assert client.delete.call_count == 3
 
             DataWarehouseJoin.objects.create(
                 team=self.team,
@@ -1095,4 +1095,4 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 field_name="test",
             )
 
-            assert client.hdel.call_count == 4
+            assert client.delete.call_count == 4

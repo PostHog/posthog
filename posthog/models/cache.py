@@ -1,3 +1,4 @@
+import hashlib
 from typing import TYPE_CHECKING, Optional
 from django.core import serializers
 from django.db.models import QuerySet, Manager
@@ -13,15 +14,21 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
-DATABASE_CACHE_COUNTER = Counter(
-    "posthog_get_model_cache",
-    "Metric tracking whether a database query was fetched from cache or not",
-    labelnames=["result", "model"],
+DATABASE_CACHE_HIT_COUNTER = Counter(
+    "posthog_model_cache_hit",
+    "Metric tracking when a database query was fetched from cache",
+    labelnames=["model"],
+)
+
+DATABASE_CACHE_MISS_COUNTER = Counter(
+    "posthog_model_cache_miss",
+    "Metric tracking when a database query was not fetched from cache",
+    labelnames=["model"],
 )
 
 DATABASE_INVALIDATION_COUNTER = Counter(
-    "posthog_invalidate_model_cache",
-    "Metric tracking whether a database query was invalidated",
+    "posthog_model_cache_bust",
+    "Metric tracking when a database query was invalidated",
     labelnames=["model"],
 )
 
@@ -57,13 +64,17 @@ def is_cache_enabled(team: "Team") -> bool:
 class CachedQuerySet(QuerySet):
     def get_commit_cache_hash_key(self, team_id: int, key_prefix: Optional[str] = None) -> str:
         current_sha = get_git_commit_short()
-        key = f"{team_id}:{current_sha}"
+        key = f"{team_id}:{current_sha}:{self.model.__name__}"
 
         if key_prefix:
             key = f"{key_prefix}:{key}"
 
         # cache key based on sha to invalidate cache on deploys in case of migrations
         return key
+
+    def get_queryset_repr(self) -> str:
+        q, params = self.query.get_compiler(self.db).as_sql()
+        return hashlib.sha256(repr((q, params)).encode()).hexdigest()
 
     def fetch_cached(self, team: "Team", timeout: int = 3600, key_prefix: Optional[str] = None):
         cache_enabled = CACHE_TEST_OVERRIDE if TEST else is_cache_enabled(team)
@@ -72,20 +83,24 @@ class CachedQuerySet(QuerySet):
             try:
                 redis_client = get_client()
                 key = self.get_commit_cache_hash_key(team_id=team.pk, key_prefix=key_prefix)
+                hash_key = self.get_queryset_repr()
 
-                data = redis_client.hget(key, self.model.__name__)
+                data = redis_client.hget(key, hash_key)
                 if data is not None:
-                    DATABASE_CACHE_COUNTER.labels(result="hit_redis", model=self.model.__name__).inc()
+                    DATABASE_CACHE_HIT_COUNTER.labels(model=self.model.__name__).inc()
                     return [deserialized.object for deserialized in serializers.deserialize("json", data)]
 
                 data = serializers.serialize("json", self)
 
-                redis_client.hset(key, self.model.__name__, data)
-                redis_client.expire(key, timeout)
-                DATABASE_CACHE_COUNTER.labels(result="hit_db", model=self.model.__name__).inc()
+                hash_exists = redis_client.exists(key)
+
+                redis_client.hset(key, hash_key, data)
+                if not hash_exists:
+                    redis_client.expire(key, timeout)
+
+                DATABASE_CACHE_MISS_COUNTER.labels(model=self.model.__name__).inc()
             except Exception as e:
                 capture_exception(e)
-                DATABASE_CACHE_COUNTER.labels(result="error", model=self.model.__name__).inc()
 
         return list(self)
 
@@ -93,7 +108,7 @@ class CachedQuerySet(QuerySet):
         try:
             redis_client = get_client()
             key = self.get_commit_cache_hash_key(team_id=team_id, key_prefix=key_prefix)
-            deleted_count = redis_client.hdel(key, self.model.__name__)
+            deleted_count = redis_client.delete(key)
             if deleted_count > 0:
                 DATABASE_INVALIDATION_COUNTER.labels(model=self.model.__name__).inc()
         except Exception as e:
