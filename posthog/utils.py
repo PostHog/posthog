@@ -56,6 +56,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from django.apps import apps
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
@@ -524,6 +525,8 @@ async def initialize_self_capture_api_token():
     Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
     """
 
+    User = apps.get_model("posthog", "User")
+    Team = apps.get_model("posthog", "Team")
     try:
         user = (
             await User.objects.filter(last_login__isnull=False)
