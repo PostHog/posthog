@@ -34,7 +34,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
-                        endpoint: `environments/@current/messaging/templates`,
+                        endpoint: `environments/@current/messaging_templates`,
                         object: {
                             id: template.id,
                             name: template.name,
