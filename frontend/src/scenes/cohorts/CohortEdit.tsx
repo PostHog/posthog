@@ -41,7 +41,8 @@ const RESOURCE_TYPE = 'cohort'
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue, setCohortType } =
+        useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
@@ -261,10 +262,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                     value ||
                                                     (cohort.is_static
                                                         ? CohortTypeEnum.Static
-                                                        : CohortTypeEnum.PersonProperty)
+                                                        : CohortTypeEnum.Behavioral)
                                                 }
                                                 onChange={(cohortType) => {
                                                     onChange(cohortType)
+                                                    setCohortType(cohortType)
                                                 }}
                                                 fullWidth
                                                 data-attr="cohort-type"

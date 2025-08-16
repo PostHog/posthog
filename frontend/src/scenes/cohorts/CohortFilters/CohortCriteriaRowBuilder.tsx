@@ -24,7 +24,7 @@ export interface CohortCriteriaRowBuilderProps {
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
     cohort?: CohortType
-    explicitCohortTypes?: string | boolean
+    explicitCohortTypes?: boolean | string
 }
 
 export function CohortCriteriaRowBuilder({
@@ -43,21 +43,18 @@ export function CohortCriteriaRowBuilder({
     const rowShape = ROWS[type]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
-        return (
-            <div key={_field.fieldKey ?? i}>
-                {renderField[_field.type]({
-                    fieldKey: _field.fieldKey,
-                    criteria,
-                    cohort,
-                    explicitCohortTypes,
-                    ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
-                    ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
-                    onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
-                    groupIndex,
-                    index,
-                } as CohortFieldProps)}
-            </div>
-        )
+        const fieldProps = {
+            fieldKey: _field.fieldKey,
+            criteria,
+            cohort,
+            explicitCohortTypes,
+            ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
+            ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
+            onChange: (newCriteria: AnyCohortCriteriaType) => setCriteria(newCriteria, groupIndex, index),
+            groupIndex,
+            index,
+        }
+        return <div key={_field.fieldKey ?? i}>{renderField[_field.type](fieldProps as CohortFieldProps)}</div>
     }
 
     return (
@@ -110,7 +107,8 @@ export function CohortCriteriaRowBuilder({
                                         fieldKey: 'value',
                                         criteria,
                                         cohort,
-                                        onChange: (newCriteria) => {
+                                        explicitCohortTypes: !!explicitCohortTypes,
+                                        onChange: (newCriteria: AnyCohortCriteriaType) => {
                                             setCriteria(cleanCriteria(newCriteria, true), groupIndex, index)
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
                                         },
