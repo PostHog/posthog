@@ -355,8 +355,6 @@ def get_context_for_template(
 
     context["js_posthog_ui_host"] = ""
 
-    context["js_posthog_ui_host"] = ""
-
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
