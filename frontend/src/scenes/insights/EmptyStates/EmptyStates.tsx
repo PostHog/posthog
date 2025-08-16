@@ -32,7 +32,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -714,16 +714,16 @@ const SAVED_INSIGHTS_COPY = {
     },
 }
 
-export function SavedInsightsEmptyState(): JSX.Element {
-    const {
-        filters: { tab },
-        insights,
-        usingFilters,
-    } = useValues(savedInsightsLogic)
-
+export function SavedInsightsEmptyState({
+    filters,
+    usingFilters,
+}: {
+    filters: SavedInsightFilters
+    usingFilters?: boolean
+}): JSX.Element {
     // show the search string that was used to make the results, not what it currently is
-    const searchString = insights.filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
+    const searchString = filters?.search || null
+    const { title, description } = SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
 
     return (
         <div
@@ -747,7 +747,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            {tab !== SavedInsightsTabs.Favorites && (
+            {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
                         <AccessControlledLemonButton

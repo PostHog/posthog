@@ -615,8 +615,9 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId } =
+    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
+
     const { hasTagging } = useValues(organizationLogic)
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -829,7 +830,7 @@ export function SavedInsights(): JSX.Element {
                         </div>
                     </div>
                     {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState />
+                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
                         <>
                             <ReloadInsight />
