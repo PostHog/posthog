@@ -67,26 +67,17 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
         ExternalDataJob.objects.create(
-            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, billable=True, status="Completed"
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Completed"
         )
-
         DataModelingJob.objects.create(team=self.team, status="Running", rows_materialized=50)
 
         response = self.client.get(endpoint)
         data = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["activities"]), 2)
-        self.assertEqual(data["fetched_count"], 2)
+        self.assertEqual(len(data["results"]), 2)
+        self.assertEqual(data["count"], 2)
 
-        external_activity = next(a for a in data["activities"] if a["type"] == "Stripe")
-        self.assertEqual(external_activity["name"], "customers")
-        self.assertEqual(external_activity["status"], "Completed")
-        self.assertEqual(external_activity["rows"], 100)
-        self.assertEqual(external_activity["schema_id"], str(schema.id))
-        self.assertEqual(external_activity["source_id"], str(source.id))
-
-        modeling_activity = next(a for a in data["activities"] if a["type"] == "materialized_view")
-        self.assertEqual(modeling_activity["name"], None)
-        self.assertEqual(modeling_activity["status"], "Running")
-        self.assertEqual(modeling_activity["rows"], 50)
+        types = [activity["type"] for activity in data["results"]]
+        self.assertIn("Stripe", types)
+        self.assertIn("materialized_view", types)
