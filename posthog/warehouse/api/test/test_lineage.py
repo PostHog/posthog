@@ -1,6 +1,6 @@
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.api.lineage import topological_sort
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, DataWarehouseModelPath
 from posthog.test.db_context_capturing import capture_db_queries
 
 
@@ -64,7 +64,7 @@ class TestLineage(APIBaseTest):
             for q in context.captured_queries
             if "datawarehousesavedquery" in q["sql"].lower() or "datawarehousetable" in q["sql"].lower()
         ]
-        self.assertLessEqual(len(view_queries), 7, f"Expected 7 queries, got {len(view_queries)}")
+        self.assertLessEqual(len(view_queries), 10, f"Expected 10 queries, got {len(view_queries)}")
 
     def test_get_upstream_with_datawarehouse_table(self):
         DataWarehouseTable.objects.create(
@@ -218,3 +218,40 @@ class TestLineage(APIBaseTest):
         # A must come before B, C must come before D
         self.assertLess(result.index("A"), result.index("B"))
         self.assertLess(result.index("C"), result.index("D"))
+
+    # This is needed to fetch our non-materailized views
+    def test_get_upstream_with_model_paths(self):
+        base_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="base_query",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+        )
+
+        final_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="final_query",
+            query={"kind": "HogQLQuery", "query": f"select * from base_query"},
+            external_tables=[],
+        )
+
+        DataWarehouseModelPath.objects.create(
+            team=self.team,
+            saved_query=final_query,
+            path=[base_query.id.hex],
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertEqual(len(data["nodes"]), 2)
+
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertEqual(nodes["final_query"]["type"], "view")
+        self.assertEqual(nodes["base_query"]["type"], "view")
+        self.assertEqual(nodes["final_query"]["name"], "final_query")
+        self.assertEqual(nodes["base_query"]["name"], "base_query")
+
+        edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
+        expected_edges = {("base_query", "final_query")}
+        self.assertEqual(edges, expected_edges)
