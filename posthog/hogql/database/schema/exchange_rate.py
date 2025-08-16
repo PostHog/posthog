@@ -7,15 +7,15 @@ from posthog.schema import (
 )
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
     StringDatabaseField,
     DateDatabaseField,
     DecimalDatabaseField,
-    Table,
     FieldOrTable,
 )
 
 
-class ExchangeRateTable(Table):
+class ExchangeRateTable(DANGEROUS_NoTeamIdCheckTable):
     fields: dict[str, FieldOrTable] = {
         "currency": StringDatabaseField(name="currency", nullable=False),
         "date": DateDatabaseField(name="date", nullable=False),

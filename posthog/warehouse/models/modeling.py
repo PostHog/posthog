@@ -9,6 +9,7 @@ from django.db import connection, models, transaction
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
@@ -20,7 +21,6 @@ from posthog.models.utils import (
     UUIDModel,
     uuid7,
 )
-from posthog.warehouse.models import S3Table
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
 
@@ -374,7 +374,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
             try:
                 table = self.get_hogql_database(team).get_table(parent)
-                if not isinstance(table, S3Table):
+                if not isinstance(table, HogQLDataWarehouseTable):
                     raise ObjectDoesNotExist()
 
                 parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()

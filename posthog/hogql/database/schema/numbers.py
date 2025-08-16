@@ -4,6 +4,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     FieldOrTable,
     FunctionCallTable,
+    DANGEROUS_NoTeamIdCheckTable,
 )
 
 NUMBERS_TABLE_FIELDS: dict[str, FieldOrTable] = {
@@ -11,7 +12,7 @@ NUMBERS_TABLE_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-class NumbersTable(FunctionCallTable):
+class NumbersTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     fields: dict[str, FieldOrTable] = NUMBERS_TABLE_FIELDS
 
     name: str = "numbers"

@@ -20,7 +20,7 @@ from posthog.warehouse.models.util import (
     clean_type,
     remove_named_tuples,
 )
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.sync import database_sync_to_async
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
@@ -177,7 +177,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
         )
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
+    def hogql_definition(
+        self, modifiers: Optional[HogQLQueryModifiers] = None
+    ) -> Union[SavedQuery, HogQLDataWarehouseTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 
