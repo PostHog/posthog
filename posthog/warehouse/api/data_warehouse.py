@@ -109,15 +109,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ValueError:
             offset = 0
 
+        fetch_limit = offset + limit
+
         external_jobs = list(
             ExternalDataJob.objects.filter(team_id=self.team_id)
             .select_related("schema", "pipeline")
-            .order_by("-created_at")[:50]
+            .order_by("-created_at")[:fetch_limit]
         )
         modeling_jobs = list(
             DataModelingJob.objects.filter(team_id=self.team_id)
             .select_related("saved_query")
-            .order_by("-created_at")[:50]
+            .order_by("-created_at")[:fetch_limit]
         )
 
         def job_to_activity(job, is_modeling=False):
