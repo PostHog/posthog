@@ -58,7 +58,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -73,7 +73,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
             [],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -152,7 +152,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # there are 2 pageviews
                 "events": [
@@ -168,7 +168,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
             ["1", "2"],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # only 1 pageview that matches the test_accounts filter
                 "filter_test_accounts": True,
@@ -245,7 +245,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
                 },
             )
 
-            self._assert_query_matches_session_ids(
+            self.assert_query_matches_session_ids(
                 {
                     # there are 2 pageviews
                     "events": [
@@ -261,7 +261,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
                 ["1", "2"],
             )
 
-            self._assert_query_matches_session_ids(
+            self.assert_query_matches_session_ids(
                 {
                     # only 1 pageview that matches the test_accounts filter
                     "filter_test_accounts": True,
@@ -339,7 +339,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
         )
 
         # there are 2 pageviews
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # pageview that matches the hogql test_accounts filter
                 "events": [
@@ -355,7 +355,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
             ["1", "2"],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # only 1 pageview that matches the test_accounts filter
                 "filter_test_accounts": True,
@@ -426,7 +426,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
         )
 
         # there are 2 pageviews
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -441,7 +441,7 @@ class TestSessionRecordingListTestAccounts(BaseTestSessionRecordingsList):
             ["1", "2"],
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "events": [
                     {

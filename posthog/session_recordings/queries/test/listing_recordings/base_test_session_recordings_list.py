@@ -1,24 +1,25 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
-from freezegun import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Person
 from posthog.models.action import Action
 from posthog.models.team import Team
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingQueryResult
+from posthog.schema import RecordingsQuery
+from posthog.session_recordings.queries.session_recording_list_from_query import (
+    SessionRecordingQueryResult,
+    SessionRecordingListFromQuery,
+)
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     create_event,
-    assert_query_matches_session_ids,
-    filter_recordings_by,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.session_recording_api import query_as_params_to_dict
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-@freeze_time("2021-01-01T13:46:23")
 class BaseTestSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -41,16 +42,6 @@ class BaseTestSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         return action
-
-    def _filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
-        return filter_recordings_by(team=self.team, recordings_filter=recordings_filter)
-
-    def _assert_query_matches_session_ids(
-        self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
-    ) -> None:
-        assert_query_matches_session_ids(
-            team=self.team, query=query, expected=expected, sort_results_when_asserting=sort_results_when_asserting
-        )
 
     def _a_session_with_two_events(self, team: Team, session_id: str) -> None:
         produce_replay_summary(
@@ -108,3 +99,25 @@ class BaseTestSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             )
 
         return sessions[0], sessions[1]
+
+    def filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
+        the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
+        session_recording_list_instance = SessionRecordingListFromQuery(
+            query=the_query, team=self.team, hogql_query_modifiers=None
+        )
+        return session_recording_list_instance.run()
+
+    def assert_query_matches_session_ids(
+        self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
+    ) -> None:
+        (session_recordings, more_recordings_available, _) = self.filter_recordings_by(recordings_filter=query)
+
+        # in some tests we care about the order of results e.g. when testing sorting
+        # generally we want to sort results since the order is not guaranteed
+        # e.g. we're using UUIDs for the IDs
+        if sort_results_when_asserting:
+            assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(expected)
+        else:
+            assert [sr["session_id"] for sr in session_recordings] == expected
+
+        assert more_recordings_available is False

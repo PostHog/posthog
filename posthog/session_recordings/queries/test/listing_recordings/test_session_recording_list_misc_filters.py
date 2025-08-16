@@ -41,12 +41,12 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'},
             [session_id_two],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"lt"}]'},
             [session_id_one],
         )
@@ -151,7 +151,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids({"properties": properties}, expected)
+        self.assert_query_matches_session_ids({"properties": properties}, expected)
 
     def test_recordings_dont_leak_data_between_teams(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -186,7 +186,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             active_milliseconds=20 * 1000 * 0.5,  # 50% of the total expected duration
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by()
+        (session_recordings, _, _) = self.filter_recordings_by()
 
         assert [{"session": r["session_id"], "user": r["distinct_id"]} for r in session_recordings] == [
             {"session": session_id_two, "user": user}
@@ -212,7 +212,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -237,7 +237,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
         self._a_session_with_two_events(self.team, "1")
         self._a_session_with_two_events(another_team, "2")
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -320,7 +320,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -343,7 +343,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             [session_id],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {
@@ -358,7 +358,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             [session_id],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {
@@ -426,7 +426,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
 
         flush_persons_and_events()
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "person_uuid": str(p.uuid),
                 "date_to": (self.an_hour_ago + relativedelta(days=3)).strftime("%Y-%m-%d"),
@@ -500,7 +500,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -521,7 +521,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             [],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -613,7 +613,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
             log_messages={"warn": ["warn"]},
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"console_log_filters": console_log_filters, "operand": operand}, expected_session_ids
         )
 
@@ -650,7 +650,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
         )
 
         # person or event filter -> person matches, event matches -> returns session
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "person_uuid": str(person.uuid),
                 "events": [
@@ -667,7 +667,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
         )
 
         # person or event filter -> person does not match, event matches -> does not return session
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "person_uuid": str(second_person.uuid),
                 "events": [

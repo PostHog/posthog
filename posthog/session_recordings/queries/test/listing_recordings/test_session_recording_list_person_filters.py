@@ -52,7 +52,7 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids({"person_uuid": str(p.uuid)}, [session_id_two, session_id_one])
+        self.assert_query_matches_session_ids({"person_uuid": str(p.uuid)}, [session_id_two, session_id_one])
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["email"])
@@ -63,7 +63,7 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
             session_two_person_properties={"email": "bla2@hotmail.com"},
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {
@@ -86,7 +86,7 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
             session_two_person_properties={"email": "bla2@hotmail.com"},
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}]},
             [session_id_two],
         )
@@ -131,7 +131,7 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
         expected = [session_map[session] for session in expected_sessions]
 
         # Test filtering
-        self._assert_query_matches_session_ids(query={"distinct_ids": distinct_ids}, expected=expected)
+        self.assert_query_matches_session_ids(query={"distinct_ids": distinct_ids}, expected=expected)
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
@@ -218,14 +218,14 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
         # Check that both sessions are returned when filter_test_accounts is False
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "filter_test_accounts": False,
             },
             ["internal_session", "actual_session"],
         )
         # Check that only the regular session is returned when filter_test_accounts is True
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "filter_test_accounts": True,
             },
@@ -286,14 +286,14 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
         # Check that both sessions are returned when filter_test_accounts is False
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "filter_test_accounts": False,
             },
             ["internal_session", "actual_session"],
         )
         # The assumption is that if the recording has no events - it would still be able to identify what sessions to filter out
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "filter_test_accounts": True,
             },
@@ -326,7 +326,7 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {
@@ -347,7 +347,7 @@ class TestSessionRecordingListPersonFilters(BaseTestSessionRecordingsList):
             [],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {

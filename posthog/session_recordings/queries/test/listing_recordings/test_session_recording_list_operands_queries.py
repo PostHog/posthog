@@ -49,7 +49,7 @@ class TestSessionRecordingsListOperandsQueries(BaseTestSessionRecordingsList):
 
     @snapshot_clickhouse_queries
     def test_multiple_event_filters_and_ed(self):
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "operand": "AND",
                 "events": [
@@ -74,7 +74,7 @@ class TestSessionRecordingsListOperandsQueries(BaseTestSessionRecordingsList):
 
     @snapshot_clickhouse_queries
     def test_multiple_event_filters_or_ed(self):
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "operand": "OR",
                 "events": [
@@ -99,7 +99,7 @@ class TestSessionRecordingsListOperandsQueries(BaseTestSessionRecordingsList):
 
     @snapshot_clickhouse_queries
     def test_positive_and_negative_anded(self):
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "operand": "AND",
                 "events": [
@@ -124,7 +124,7 @@ class TestSessionRecordingsListOperandsQueries(BaseTestSessionRecordingsList):
 
     @snapshot_clickhouse_queries
     def test_two_negative_anded(self):
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "operand": "AND",
                 "events": [
@@ -149,7 +149,7 @@ class TestSessionRecordingsListOperandsQueries(BaseTestSessionRecordingsList):
 
     @snapshot_clickhouse_queries
     def test_two_negative_ORed(self):
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "operand": "OR",
                 "events": [

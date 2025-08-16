@@ -43,9 +43,9 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        # (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        # (session_recordings, _, _) = self.filter_recordings_by({"console_logs": ["info"]})
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -61,7 +61,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             (with_logs_session_id, 4),
         ]
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -99,7 +99,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -113,7 +113,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             (with_logs_session_id, 4),
         ]
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -151,7 +151,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "console_log_filters": '[{"key": "level", "value": ["error"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -165,7 +165,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             (with_logs_session_id, 4),
         ]
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -250,7 +250,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -262,7 +262,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             ],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -388,7 +388,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"console_log_filters": console_log_filters, "operand": operand}, expected_session_ids
         )
 
@@ -413,14 +413,14 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
             snapshot_source="mobile",
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "having_predicates": '[{"key": "snapshot_source", "value": ["web"], "operator": "exact", "type": "recording"}]'
             },
             [session_id_one],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "having_predicates": '[{"key": "snapshot_source", "value": ["mobile"], "operator": "exact", "type": "recording"}]'
             },

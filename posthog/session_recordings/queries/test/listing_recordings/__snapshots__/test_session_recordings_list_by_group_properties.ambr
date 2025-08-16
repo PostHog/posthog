@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties
+# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties_0_group_type_index_1_match
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -47,7 +47,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties.1
+# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties_1_group_type_index_1_no_match_with_right_key_and_wrong_value
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -95,7 +95,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties.2
+# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties_2_group_type_index_1_no_match_with_wrong_key_right_value
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -143,7 +143,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties.3
+# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties_3_group_type_index_0_match
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -191,7 +191,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties.4
+# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties_4_no_match_for_right_key_wrong_value_group_text_index_0_
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -239,7 +239,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties.5
+# name: TestSessionRecordingsListByGroupProperties.test_filter_with_group_properties_5_no_match_for_wrong_key_group_type_index_0
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,

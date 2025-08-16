@@ -64,7 +64,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             active_milliseconds=1980 * 1000 * 0.4,  # 40% of the total expected duration
         )
 
-        session_recordings, more_recordings_available, _ = self._filter_recordings_by()
+        session_recordings, more_recordings_available, _ = self.filter_recordings_by()
 
         assert session_recordings == [
             {
@@ -162,7 +162,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             active_milliseconds=0,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
@@ -176,7 +176,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             (session_id_total_is_61, 61, 59.0),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "having_predicates": '[{"type":"recording","key":"active_seconds","value":"60","operator":"gt"}]',
             }
@@ -186,7 +186,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             (session_id_active_is_61, 59, 61.0)
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "having_predicates": '[{"type":"recording","key":"inactive_seconds","value":"60","operator":"gt"}]',
             }
@@ -234,7 +234,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=3)),
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({})
+        (session_recordings, _, _) = self.filter_recordings_by({})
         assert sorted(
             [(s["session_id"], s["ongoing"]) for s in session_recordings],
             key=lambda x: x[0],
@@ -293,7 +293,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             active_milliseconds=1980 * 1000 * 0.4,  # 40% of the total expected duration
         )
 
-        (session_recordings, more_recordings_available, _) = self._filter_recordings_by({"limit": 1, "offset": 0})
+        (session_recordings, more_recordings_available, _) = self.filter_recordings_by({"limit": 1, "offset": 0})
 
         assert session_recordings == [
             {
@@ -319,7 +319,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
 
         assert more_recordings_available is True
 
-        (session_recordings, more_recordings_available, _) = self._filter_recordings_by({"limit": 1, "offset": 1})
+        (session_recordings, more_recordings_available, _) = self.filter_recordings_by({"limit": 1, "offset": 1})
 
         assert session_recordings == [
             {
@@ -345,7 +345,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
 
         assert more_recordings_available is False
 
-        self._assert_query_matches_session_ids({"limit": 1, "offset": 2}, [])
+        self.assert_query_matches_session_ids({"limit": 1, "offset": 2}, [])
 
     @snapshot_clickhouse_queries
     def test_basic_query_with_ordering(self):
@@ -390,17 +390,17 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             active_milliseconds=1000,  # most activity, but the least errors
         )
 
-        (session_recordings) = self._filter_recordings_by({"limit": 3, "offset": 0, "order": "active_seconds"})
+        (session_recordings) = self.filter_recordings_by({"limit": 3, "offset": 0, "order": "active_seconds"})
 
         ordered_by_activity = [(r["session_id"], r["active_seconds"]) for r in session_recordings.results]
         assert ordered_by_activity == [(session_id_two, 1.0), (session_id_one, 0.002)]
 
-        (session_recordings) = self._filter_recordings_by({"limit": 3, "offset": 0, "order": "console_error_count"})
+        (session_recordings) = self.filter_recordings_by({"limit": 3, "offset": 0, "order": "console_error_count"})
 
         ordered_by_errors = [(r["session_id"], r["console_error_count"]) for r in session_recordings.results]
         assert ordered_by_errors == [(session_id_one, 1012), (session_id_two, 430)]
 
-        (session_recordings) = self._filter_recordings_by({"limit": 3, "offset": 0, "order": "start_time"})
+        (session_recordings) = self.filter_recordings_by({"limit": 3, "offset": 0, "order": "start_time"})
 
         ordered_by_default = [(r["session_id"], r["start_time"]) for r in session_recordings.results]
         assert ordered_by_default == [(session_id_one, session_one_start), (session_id_two, session_two_start)]
@@ -509,7 +509,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             first_url="https://on-second-received-event-but-actually-first.com",
         )
 
-        session_recordings, more_recordings_available, _ = self._filter_recordings_by()
+        session_recordings, more_recordings_available, _ = self.filter_recordings_by()
 
         assert sorted(
             [{"session_id": r["session_id"], "first_url": r["first_url"]} for r in session_recordings],
@@ -585,14 +585,14 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             active_milliseconds=0,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "session_ids": [first_session_id],
             },
             [first_session_id],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "session_ids": [first_session_id, second_session_id],
             },
@@ -633,7 +633,7 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             first_url="https://recieved-out-of-order.com/first",
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "events": [
                     {
@@ -692,13 +692,13 @@ class TestSessionRecordingListBasicQueries(BaseTestSessionRecordingsList):
             first_timestamp=(self.an_hour_ago + relativedelta(minutes=10)),
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"order": "start_time"},
             [session_id_three, session_id_one, session_id_two],
             sort_results_when_asserting=False,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"order": "mouse_activity_count"},
             [session_id_two, session_id_one, session_id_three],
             sort_results_when_asserting=False,

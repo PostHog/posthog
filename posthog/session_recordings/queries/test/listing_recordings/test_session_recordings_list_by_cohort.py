@@ -74,7 +74,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -88,7 +88,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     [session_id_two],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -178,7 +178,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                         team_id=self.team.id,
                     )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -192,7 +192,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     [session_id_one, session_id_three],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -206,7 +206,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     [session_id_two],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -220,7 +220,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     [session_id_two, session_id_three],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -234,7 +234,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     [session_id_one],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -265,7 +265,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -357,7 +357,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         # has to be in the cohort and pageview has to be in the events
                         # test data has one user in the cohort but no pageviews
@@ -381,7 +381,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     [],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -473,7 +473,7 @@ class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "filter_test_accounts": True,
                     },

@@ -46,7 +46,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -63,7 +63,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             [session_id],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -109,7 +109,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -129,7 +129,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             [session_id],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -196,7 +196,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             properties={"$session_id": "2", "$window_id": "1", "$browser": "Firefox"},
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # there are 2 pageviews
                 "events": [
@@ -217,7 +217,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
         ]
         self.team.save()
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # only 1 pageview that matches the hogql test_accounts filter
                 "events": [
@@ -240,7 +240,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
         self.team.save()
 
         # one user sessions matches the person + event test_account filter
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "filter_test_accounts": True,
             },
@@ -308,7 +308,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # there are 2 pageviews
                 "events": [
@@ -324,7 +324,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             ["1", "2"],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # only 1 pageview that matches the test_accounts filter
                 "filter_test_accounts": True,
@@ -394,7 +394,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # there are 2 pageviews
                 "events": [
@@ -410,7 +410,7 @@ class TestSessionRecordingListHogQLFilters(BaseTestSessionRecordingsList):
             ["1", "2"],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 # only 1 pageview that matches the test_accounts filter
                 "filter_test_accounts": True,

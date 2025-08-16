@@ -22,10 +22,8 @@ class TestSessionRecordingsListByGroupProperties(BaseTestSessionRecordingsList):
                 # it can only match session 2
                 # and only with the property "another" with value "value"
                 {"key": "another", "value": ["value"], "operator": "exact", "type": "group", "group_type_index": 1},
+                ["session_id_two"],
             ],
-            ["session_id_two"],
-        ],
-        {
             [
                 "group type index 1 no match with right key and wrong value",
                 # group type index 1 is the company group
@@ -96,7 +94,7 @@ class TestSessionRecordingsListByGroupProperties(BaseTestSessionRecordingsList):
                 },
                 [],
             ],
-        },
+        ]
     )
     @snapshot_clickhouse_queries
     def test_filter_with_group_properties(
@@ -166,7 +164,7 @@ class TestSessionRecordingsListByGroupProperties(BaseTestSessionRecordingsList):
         )
         flush_persons_and_events()
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"properties": [properties_query]},
             [session_ids[k] for k in expected_sessions],
         )

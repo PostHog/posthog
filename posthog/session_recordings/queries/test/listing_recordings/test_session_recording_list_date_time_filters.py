@@ -33,9 +33,9 @@ class TestSessionRecordingListDateTimeFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids({"date_from": self.an_hour_ago.strftime("%Y-%m-%d")}, [])
+        self.assert_query_matches_session_ids({"date_from": self.an_hour_ago.strftime("%Y-%m-%d")}, [])
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"date_from": (self.an_hour_ago - relativedelta(days=2)).strftime("%Y-%m-%d")},
             ["two days before base time"],
         )
@@ -81,7 +81,7 @@ class TestSessionRecordingListDateTimeFilters(BaseTestSessionRecordingsList):
                 team_id=self.team.id,
             )
 
-            self._assert_query_matches_session_ids(
+            self.assert_query_matches_session_ids(
                 {"date_from": (self.an_hour_ago - relativedelta(days=days_ago)).strftime("%Y-%m-%d")},
                 ["storage is not past ttl"],
             )
@@ -105,11 +105,11 @@ class TestSessionRecordingListDateTimeFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"date_to": (self.an_hour_ago - relativedelta(days=4)).strftime("%Y-%m-%d")}, []
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")},
             ["three days before base time"],
         )
@@ -127,7 +127,7 @@ class TestSessionRecordingListDateTimeFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "date_to": day_line.strftime("%Y-%m-%d"),
                 "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
@@ -175,4 +175,4 @@ class TestSessionRecordingListDateTimeFilters(BaseTestSessionRecordingsList):
         # before the recording on the thirtieth so should exclude it
         with freeze_time("2023-08-30T12:00:01Z"):
             # recordings in the future don't show
-            self._assert_query_matches_session_ids(None, ["29th Aug"])
+            self.assert_query_matches_session_ids(None, ["29th Aug"])

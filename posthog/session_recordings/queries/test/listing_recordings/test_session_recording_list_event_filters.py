@@ -40,7 +40,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -54,7 +54,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             [session_id_one],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -90,7 +90,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -106,7 +106,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
 
         # without an event filter the recording is present, showing that the TTL was applied to the events table too
         # we want this to limit the amount of event data we query
-        self._assert_query_matches_session_ids({}, [session_id_one])
+        self.assert_query_matches_session_ids({}, [session_id_one])
 
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
@@ -164,7 +164,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             active_milliseconds=61000,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "events": [
                     {
@@ -182,7 +182,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             (session_id_total_is_61, 61, 59.0)
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _) = self.filter_recordings_by(
             {
                 "events": [
                     {
@@ -240,7 +240,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -262,7 +262,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             [session_id_one],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -284,7 +284,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             [],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -306,7 +306,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             [],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -366,7 +366,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -386,7 +386,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             [session_id],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -407,7 +407,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
         )
 
         # it uses hasAny instead of hasAll because of the OR filter
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -429,7 +429,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
         )
 
         # two events with the same name
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -451,7 +451,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
         )
 
         # two events with different names
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -473,7 +473,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
         )
 
         # two events with different names
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -542,7 +542,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "actions": [
                     {
@@ -556,7 +556,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             [],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "actions": [
                     {
@@ -571,7 +571,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
         )
 
         # Adding properties to an action
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "actions": [
                     {
@@ -594,7 +594,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
         )
 
         # Adding matching properties to an action
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "actions": [
                     {
@@ -649,7 +649,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -663,7 +663,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             [session_id],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -741,7 +741,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             team_id=self.team.id,
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -761,7 +761,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             ],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -787,7 +787,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             ],
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "events": [
                     {
@@ -870,7 +870,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {"type": "event", "key": "probe-one", "operator": "is_not", "value": ["val"]},
@@ -939,7 +939,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {
@@ -1018,7 +1018,7 @@ class TestSessionRecordingListEventFilters(BaseTestSessionRecordingsList):
             },
         )
 
-        self._assert_query_matches_session_ids(
+        self.assert_query_matches_session_ids(
             {
                 "properties": [
                     {
