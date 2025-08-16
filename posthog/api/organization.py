@@ -48,6 +48,13 @@ from posthog.exceptions_capture import capture_exception
 from drf_spectacular.utils import extend_schema
 from posthog.event_usage import report_organization_action
 
+# We have a few organizations that cannot load due the app to having too many projects.
+# We're working on a longer term solution but this will allow them to load the dashboard for now.
+LIMIT_ORGANIZATION_PROJECTS_LOADED = [
+    "018e17ae-3c3f-0000-ab62-bf615527ca2b",
+]
+PROJECT_LIMIT_FOR_LIMITED_ORGANIZATIONS = 500
+
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
@@ -169,10 +176,14 @@ class OrganizationSerializer(
         )
         # Support old access control system
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        if str(instance.id) in LIMIT_ORGANIZATION_PROJECTS_LOADED:
+            visible_teams = visible_teams[:PROJECT_LIMIT_FOR_LIMITED_ORGANIZATIONS]
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
+        if str(instance.id) in LIMIT_ORGANIZATION_PROJECTS_LOADED:
+            visible_projects = visible_projects[:PROJECT_LIMIT_FOR_LIMITED_ORGANIZATIONS]
         return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
