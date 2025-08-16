@@ -86,14 +86,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(
             status=status.HTTP_200_OK,
             data={
-                "billingAvailable": billing_available,
-                "billingInterval": billing_interval,
-                "billingPeriodEnd": billing_period_end,
-                "billingPeriodStart": billing_period_start,
-                "materializedRowsInBillingPeriod": materialized_rows,
-                "totalRows": rows_synced,
-                "trackedBillingRows": billing_tracked_rows,
-                "pendingBillingRows": pending_billing_rows,
+                "billing_available": billing_available,
+                "billing_interval": billing_interval,
+                "billing_period_end": billing_period_end,
+                "billing_period_start": billing_period_start,
+                "materialized_rows_in_billing_period": materialized_rows,
+                "total_rows": rows_synced,
+                "tracked_billing_rows": billing_tracked_rows,
+                "pending_billing_rows": pending_billing_rows,
             },
         )
 

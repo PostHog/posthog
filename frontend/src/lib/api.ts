@@ -3345,14 +3345,14 @@ const api = {
 
     dataWarehouse: {
         async total_rows_stats(options?: ApiMethodOptions): Promise<{
-            billingAvailable: boolean
-            billingInterval: string
-            billingPeriodEnd: string
-            billingPeriodStart: string
-            materializedRowsInBillingPeriod: number
-            totalRows: number
-            trackedBillingRows: number
-            pendingBillingRows: number
+            billing_available: boolean
+            billing_interval: string
+            billing_period_end: string
+            billing_period_start: string
+            materialized_rows_in_billing_period: number
+            total_rows: number
+            tracked_billing_rows: number
+            pending_billing_rows: number
         }> {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
@@ -3367,9 +3367,9 @@ const api = {
                 created_at: string
                 finished_at: string | null
                 latest_error: string | null
-                schema_id?: string | null
-                source_id?: string | null
-                workflow_run_id?: string | null
+                schema_id?: string
+                source_id?: string
+                workflow_run_id?: string
             }>
             fetched_count: number
             limit: number

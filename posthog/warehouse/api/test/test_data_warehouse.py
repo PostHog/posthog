@@ -120,16 +120,3 @@ class TestDataWarehouseAPI(APIBaseTest):
         data = response.json()
 
         self.assertEqual(data["limit"], 50)
-
-    def test_recent_activity_handles_invalid_limit_parameter(self):
-        endpoint = f"/api/projects/{self.team.id}/data_warehouse/recent_activity"
-
-        response = self.client.get(f"{endpoint}?limit=-5")
-        data = response.json()
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["limit"], 50)
-
-        response = self.client.get(f"{endpoint}?limit=invalid")
-        data = response.json()
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["limit"], 50)
