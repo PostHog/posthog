@@ -1,10 +1,10 @@
 import datetime
 from typing import Optional, Union
+from django.test import override_settings
 from unittest import mock
 
 from freezegun import freeze_time
 from rest_framework import status
-from tests import override_settings
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import User
