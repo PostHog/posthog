@@ -116,8 +116,22 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             .order_by("-created_at")[:limit]
         )
 
-        activities = [
-            {
+        def job_to_activity(job, is_modeling=False):
+            if is_modeling:
+                return {
+                    "id": str(job.id),
+                    "type": "materialized_view",
+                    "name": job.saved_query.name if job.saved_query else None,
+                    "status": job.status,
+                    "rows": job.rows_materialized or 0,
+                    "created_at": job.created_at,
+                    "finished_at": job.last_run_at if job.status == "Completed" else None,
+                    "latest_error": job.error,
+                    "schema_id": None,
+                    "source_id": None,
+                    "workflow_run_id": job.workflow_run_id,
+                }
+            return {
                 "id": str(job.id),
                 "type": job.pipeline.source_type if job.pipeline else "external_data_sync",
                 "name": job.schema.name if job.schema else None,
@@ -130,22 +144,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "source_id": str(job.pipeline.id) if job.pipeline else None,
                 "workflow_run_id": job.workflow_run_id,
             }
-            for job in external_jobs
-        ] + [
-            {
-                "id": str(job.id),
-                "type": "materialized_view",
-                "name": job.saved_query.name if job.saved_query else None,
-                "status": job.status,
-                "rows": job.rows_materialized or 0,
-                "created_at": job.created_at,
-                "finished_at": job.last_run_at if job.status == "Completed" else None,
-                "latest_error": job.error,
-                "schema_id": None,
-                "source_id": None,
-                "workflow_run_id": job.workflow_run_id,
-            }
-            for job in modeling_jobs
+
+        activities = [job_to_activity(job) for job in external_jobs] + [
+            job_to_activity(job, True) for job in modeling_jobs
         ]
 
         activities.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
