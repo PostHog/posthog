@@ -1,3 +1,4 @@
+from unittest import mock
 from unittest.mock import MagicMock
 
 from posthog.utils import get_context_for_template
@@ -12,7 +13,7 @@ class TestGetContextForTemplate(SimpleTestCase):
             )
 
         assert actual == {
-            "git_rev": "1a4241c9f7",
+            "git_rev": mock.ANY,
             "js_capture_time_to_see_data": False,
             "js_kea_verbose_logging": False,
             "js_posthog_api_key": "sTMFPsFhdP1Ssg",
@@ -31,3 +32,11 @@ class TestGetContextForTemplate(SimpleTestCase):
             "region": None,
             "self_capture": True,
         }
+
+    def test_picks_up_stripe_public_key(self):
+        with self.settings(STRIPE_PUBLIC_KEY="pk_test_12345"):
+            actual = get_context_for_template(
+                MagicMock(),
+            )
+
+        assert actual["stripe_public_key"] == "pk_test_12345"
