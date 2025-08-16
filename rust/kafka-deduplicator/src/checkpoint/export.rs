@@ -90,7 +90,7 @@ impl CheckpointExporter {
             .context("Failed to get current timestamp")?
             .as_micros();
 
-        let checkpoint_name = format!("checkpoint_{}", timestamp);
+        let checkpoint_name = format!("checkpoint_{timestamp}");
         let local_checkpoint_path =
             PathBuf::from(&self.config.local_checkpoint_dir).join(&checkpoint_name);
 
@@ -202,7 +202,7 @@ impl CheckpointExporter {
         while let Some(current_path) = stack.pop() {
             let mut entries = tokio::fs::read_dir(&current_path)
                 .await
-                .with_context(|| format!("Failed to read directory: {:?}", current_path))?;
+                .with_context(|| format!("Failed to read directory: {current_path:?}"))?;
 
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();

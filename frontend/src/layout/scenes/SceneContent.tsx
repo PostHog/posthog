@@ -158,6 +158,11 @@ export function SceneTitleSection({
                         onBlur={onDescriptionBlur}
                     />
                 )}
+
+                <p className="text-sm text-warning">
+                    🤠 Howdy, we're testing out page titles and descriptions, <strong>see something wrong?</strong> Let
+                    us know @team-platform-ux
+                </p>
             </div>
             {docsURL && (
                 <Link

@@ -31,12 +31,21 @@ export function ExternalDataSourceConfiguration({
         <SceneSection
             hideTitleAndDescription={!newSceneLayout}
             className={cn(!newSceneLayout && 'gap-y-0')}
-            title="Data Warehouse Sources Configuration"
-            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_revenue_last_30_days virtual fields."
+            title="Data warehouse sources configuration"
+            description={
+                <>
+                    PostHog can display revenue data in our Revenue Analytics product from the following data warehouse
+                    sources. You can enable/disable each source to stop it from being used for revenue data. You can
+                    also configure how we join your revenue data to the PostHog <code>persons</code> table - when this
+                    is set, we'll be able to properly display revenue for a person via the{' '}
+                    <code>persons.$virt_revenue</code> and <code>persons.$virt_revenue_last_30_days</code> virtual
+                    fields.
+                </>
+            }
         >
             {!newSceneLayout && (
                 <>
-                    <h3 className="mb-2">Data Warehouse Sources Configuration</h3>
+                    <h3 className="mb-2">Data warehouse sources configuration</h3>
                     <p className="mb-4">
                         PostHog can display revenue data in our Revenue Analytics product from the following data
                         warehouse sources. You can enable/disable each source to stop it from being used for revenue
@@ -112,8 +121,11 @@ export function ExternalDataSourceConfiguration({
                             )
 
                             return (
-                                <span className="flex flex-row items-center gap-2">
-                                    Joined to <code>persons</code> via:
+                                <span className="flex flex-row items-center gap-2 my-2">
+                                    <span>
+                                        Joined to <code>persons</code> via:
+                                    </span>
+
                                     {join ? (
                                         <LemonButton
                                             type="secondary"
@@ -126,6 +138,7 @@ export function ExternalDataSourceConfiguration({
                                         <LemonButton
                                             type="secondary"
                                             size="small"
+                                            icon={<IconPlus />}
                                             onClick={() =>
                                                 // This is all very hardcoded, but it's the exact kind of join we want to add
                                                 // and that we're expecting in the backend.

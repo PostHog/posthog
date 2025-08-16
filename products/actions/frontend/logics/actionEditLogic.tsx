@@ -7,7 +7,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
@@ -45,7 +44,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
             tagsModel,
             ['loadTags'],
         ],
-        values: [sceneLogic, ['activeScene']],
     })),
     actions({
         setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({

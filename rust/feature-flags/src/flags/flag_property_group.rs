@@ -19,7 +19,7 @@ impl FlagPropertyGroup {
     /// and all the properties in the group require DB properties to be evaluated.
     pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
         self.is_rolled_out_to_some()
-            && self.properties.as_ref().map_or(false, |properties| {
+            && self.properties.as_ref().is_some_and(|properties| {
                 properties
                     .iter()
                     .any(|prop| prop.requires_db_property(overrides))
@@ -28,9 +28,9 @@ impl FlagPropertyGroup {
 
     /// Returns true if the group has any cohort filters.
     pub fn has_cohort_filters(&self) -> bool {
-        self.properties.as_ref().map_or(false, |properties| {
-            properties.iter().any(|prop| prop.is_cohort())
-        })
+        self.properties
+            .as_ref()
+            .is_some_and(|properties| properties.iter().any(|prop| prop.is_cohort()))
     }
 
     /// Returns true if the group is rolled out to some percentage greater than 0.0 and has a cohort filter.
