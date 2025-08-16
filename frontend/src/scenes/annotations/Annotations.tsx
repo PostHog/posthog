@@ -1,4 +1,4 @@
-import { IconPencil } from '@posthog/icons'
+import { IconApps, IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
@@ -21,6 +21,9 @@ import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } f
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -34,6 +37,8 @@ export function Annotations(): JSX.Element {
 
     const { loadingNext, next } = useValues(annotationsModel)
     const { loadAnnotationsNext } = useActions(annotationsModel)
+
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -139,19 +144,31 @@ export function Annotations(): JSX.Element {
     ]
 
     return (
-        <>
-            <div className="flex flex-row items-center gap-2 justify-between">
-                <div>
-                    Annotations allow you to mark when certain changes happened so you can easily see how they impacted
-                    your metrics.
+        <SceneContent className={cn(!newSceneLayout && 'gap-y-0')}>
+            <SceneTitleSection
+                name="Annotations"
+                description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
+                resourceType={{
+                    type: 'annotation',
+                    typePlural: 'annotations',
+                    forceIcon: <IconApps />,
+                }}
+            />
+            <SceneDivider />
+            {!newSceneLayout && (
+                <div className="flex flex-row items-center gap-2 justify-between">
+                    <div>
+                        Annotations allow you to mark when certain changes happened so you can easily see how they
+                        impacted your metrics.
+                    </div>
+                    <div className="flex flex-row items-center gap-2">
+                        <div>Scope: </div>
+                        <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
+                    </div>
                 </div>
-                <div className="flex flex-row items-center gap-2">
-                    <div>Scope: </div>
-                    <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
-                </div>
-            </div>
+            )}
             <div data-attr="annotations-content">
-                <div className="mt-4">
+                <div className={cn('mt-4', newSceneLayout && 'mb-0 empty:hidden')}>
                     <ProductIntroduction
                         productName="Annotations"
                         productKey={ProductKey.ANNOTATIONS}
@@ -195,6 +212,6 @@ export function Annotations(): JSX.Element {
                 )}
             </div>
             <AnnotationModal />
-        </>
+        </SceneContent>
     )
 }

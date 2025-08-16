@@ -1,4 +1,4 @@
-import { IconTrash } from '@posthog/icons'
+import { IconApps, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
@@ -17,9 +17,13 @@ import { commentsLogic, openURLFor, SCOPE_OPTIONS } from './commentsLogic'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { TZLabel } from 'lib/components/TZLabel'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 export function Comments(): JSX.Element {
     const { user } = useValues(userLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const { comments, shouldShowEmptyState, commentsLoading, scope, filterCreatedBy, searchText } =
         useValues(commentsLogic)
@@ -121,7 +125,17 @@ export function Comments(): JSX.Element {
     ]
 
     return (
-        <div data-attr="comments-management-scene">
+        <SceneContent data-attr="comments-management-scene" className={cn(!newSceneLayout && 'gap-y-0')}>
+            <SceneTitleSection
+                name="Comments"
+                description="Comments allow you to provide context and discussions on various elements in PostHog."
+                resourceType={{
+                    type: 'comment',
+                    typePlural: 'comments',
+                    forceIcon: <IconApps />,
+                }}
+            />
+            <SceneDivider />
             <div className="flex flex-row gap-4 justify-between">
                 <div className="flex flex-row items-center gap-2">
                     <LemonInput
@@ -180,6 +194,6 @@ export function Comments(): JSX.Element {
                     />
                 )}
             </div>
-        </div>
+        </SceneContent>
     )
 }
