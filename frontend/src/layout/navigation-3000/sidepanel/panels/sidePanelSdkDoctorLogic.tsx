@@ -216,6 +216,7 @@ export type SdkType =
     | 'react-native'
     | 'js-lite'
     | 'dotnet'
+    | 'elixir'
     | 'other'
 export type SdkVersionInfo = {
     type: SdkType
@@ -742,6 +743,92 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                             if (versionMatches) {
                                                 const versions = versionMatches
                                                     .map((match) => match.replace(/^## /, '')) // Remove "## " prefix
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
+                                // Special handling for Ruby SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'ruby') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-ruby/main/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Ruby CHANGELOG.md format: ## 3.1.2 (sometimes with dates like ## 3.1.0 - 2025-05-20)
+                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)/gm)
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) => match.replace(/^## /, '').replace(/ [–-].*$/, '')) // Remove "## " and any date parts
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
+                                // Special handling for Elixir SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'elixir') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-elixir/master/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Elixir CHANGELOG.md format: ## 1.1.0 - 2025-07-01
+                                            const versionMatches = changelogText.match(
+                                                /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
+                                            )
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) =>
+                                                        match.replace(/^## /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
+                                                    ) // Remove "## " and " - YYYY-MM-DD" parts
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
@@ -1475,6 +1562,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 type = 'js-lite'
                             } else if (lib === 'posthog-dotnet') {
                                 type = 'dotnet'
+                            } else if (lib === 'posthog-elixir') {
+                                type = 'elixir'
                             }
 
                             // Copy existing data for this version if it exists
@@ -1572,6 +1661,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                             if (info.type === 'dotnet') {
                                 libName = 'posthog-dotnet'
+                            }
+                            if (info.type === 'elixir') {
+                                libName = 'posthog-elixir'
                             }
 
                             // console.log(`[SDK Doctor] Fallback check for ${libName} version ${version}`)
@@ -1737,6 +1829,8 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
         return major < 3
     } else if (lib === 'posthog-dotnet') {
         return major < 1
+    } else if (lib === 'posthog-elixir') {
+        return major < 1
     }
 
     // For all other SDKs, apply a generic rule that matches checkVersionAgainstLatest
@@ -1802,6 +1896,9 @@ function checkVersionAgainstLatest(
     }
     if (type === 'dotnet') {
         lib = 'posthog-dotnet'
+    }
+    if (type === 'elixir') {
+        lib = 'posthog-elixir'
     }
 
     // TODO: Node.js now uses CHANGELOG.md data - removed hardcoded version logic

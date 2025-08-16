@@ -80,6 +80,7 @@ const sdkTypeMapping: Record<SdkType, { name: string; color: LemonTagProps['type
     'react-native': { name: 'React Native', color: 'highlight' },
     'js-lite': { name: 'JS-Lite', color: 'primary' },
     dotnet: { name: '.NET', color: 'muted' },
+    elixir: { name: 'Elixir', color: 'highlight' },
     other: { name: 'Other', color: 'default' },
 }
 
@@ -110,7 +111,7 @@ const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
         docs: 'https://posthog.com/docs/libraries/php',
     },
     ruby: {
-        releases: 'https://github.com/PostHog/posthog-ruby/releases',
+        releases: 'https://github.com/PostHog/posthog-ruby/blob/main/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/ruby',
     },
     go: {
@@ -132,6 +133,10 @@ const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
     dotnet: {
         releases: 'https://github.com/PostHog/posthog-dotnet/releases',
         docs: 'https://posthog.com/docs/libraries/dotnet',
+    },
+    elixir: {
+        releases: 'https://github.com/PostHog/posthog-elixir/blob/master/CHANGELOG.md',
+        docs: 'https://posthog.com/docs/libraries/elixir',
     },
     other: {
         releases: 'https://github.com/PostHog',
