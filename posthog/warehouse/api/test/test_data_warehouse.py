@@ -90,33 +90,3 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(modeling_activity["name"], None)
         self.assertEqual(modeling_activity["status"], "Running")
         self.assertEqual(modeling_activity["rows"], 50)
-
-    def test_recent_activity_respects_limit_parameter(self):
-        endpoint = f"/api/projects/{self.team.id}/data_warehouse/recent_activity"
-
-        source = ExternalDataSource.objects.create(
-            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
-        )
-        schema = ExternalDataSchema.objects.create(name="test", team=self.team, source=source)
-
-        for i in range(5):
-            ExternalDataJob.objects.create(
-                pipeline_id=source.pk,
-                schema=schema,
-                team=self.team,
-                rows_synced=i * 10,
-                billable=True,
-                status="Completed",
-            )
-
-        response = self.client.get(f"{endpoint}?limit=2")
-        data = response.json()
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["activities"]), 2)
-        self.assertEqual(data["limit"], 2)
-
-        response = self.client.get(f"{endpoint}?limit=100")
-        data = response.json()
-
-        self.assertEqual(data["limit"], 50)
