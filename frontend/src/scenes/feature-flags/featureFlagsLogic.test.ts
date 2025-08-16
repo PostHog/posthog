@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
+import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
@@ -50,6 +51,42 @@ describe('the feature flags logic', () => {
             router.actions.push(urls.featureFlags(), { tab: 'history' })
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
+        })
+    })
+
+    describe('sorting', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'get')
+                .mockClear()
+                .mockImplementation(async (url: string) => {
+                    if (url.startsWith('api/projects/')) {
+                        return { results: [], count: 0 }
+                    }
+                    return { results: [], count: 0 }
+                })
+        })
+
+        it('can set sorting order', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ order: 'updated_at' })
+            }).toMatchValues({
+                filters: expect.objectContaining({ order: 'updated_at' }),
+            })
+        })
+
+        it('reloads feature flags when sorting changes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ order: '-updated_at' })
+            }).toDispatchActions(['setFeatureFlagsFilters', 'loadFeatureFlags'])
+        })
+
+        it('constructs the correct API url with ordering', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ order: '-updated_at' })
+            })
+
+            // The mock is global, so it should have been called
+            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('order=-updated_at'))
         })
     })
 })

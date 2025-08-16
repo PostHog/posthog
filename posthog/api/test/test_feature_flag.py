@@ -4974,6 +4974,49 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "blue_search_term_button"
 
+    def test_get_feature_flags_ordered_by_updated_at(self):
+        FeatureFlag.objects.all().delete()
+        with freeze_time("2023-01-01T12:00:00Z") as frozen_time:
+            flag1 = FeatureFlag.objects.create(
+                team=self.team, created_by=self.user, key="flag1", name="Flag 1"
+            )
+            frozen_time.tick(delta=timedelta(minutes=1))
+            flag2 = FeatureFlag.objects.create(
+                team=self.team, created_by=self.user, key="flag2", name="Flag 2"
+            )
+            frozen_time.tick(delta=timedelta(minutes=1))
+            flag3 = FeatureFlag.objects.create(
+                team=self.team, created_by=self.user, key="flag3", name="Flag 3"
+            )
+
+            # Test descending order
+            response_desc = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ordering=-updated_at")
+            self.assertEqual(response_desc.status_code, status.HTTP_200_OK)
+            response_data_desc = response_desc.json()
+            self.assertEqual(len(response_data_desc["results"]), 3)
+            keys_desc = [flag["key"] for flag in response_data_desc["results"]]
+            self.assertEqual(keys_desc, ["flag3", "flag2", "flag1"])
+
+            # Test ascending order
+            response_asc = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ordering=updated_at")
+            self.assertEqual(response_asc.status_code, status.HTTP_200_OK)
+            response_data_asc = response_asc.json()
+            self.assertEqual(len(response_data_asc["results"]), 3)
+            keys_asc = [flag["key"] for flag in response_data_asc["results"]]
+            self.assertEqual(keys_asc, ["flag1", "flag2", "flag3"])
+
+            # Also test that updating a flag changes its order
+            frozen_time.tick(delta=timedelta(minutes=1))
+            flag1.name = "Flag 1 Updated"
+            flag1.save()
+
+            response_desc_after_update = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ordering=-updated_at")
+            self.assertEqual(response_desc_after_update.status_code, status.HTTP_200_OK)
+            response_data_desc_after_update = response_desc_after_update.json()
+            self.assertEqual(len(response_data_desc_after_update["results"]), 3)
+            keys_desc_after_update = [flag["key"] for flag in response_data_desc_after_update["results"]]
+            self.assertEqual(keys_desc_after_update, ["flag1", "flag3", "flag2"])
+
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
         with freeze_time("2024-01-01"):
