@@ -127,6 +127,8 @@ export class DB {
     postgres: PostgresRouter
     /** Redis used for various caches. */
     redisPool: GenericPool<Redis.Redis>
+    /** Redis used to store state for cookieless ingestion. */
+    redisPoolCookieless: GenericPool<Redis.Redis>
 
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     kafkaProducer: KafkaProducerWrapper
@@ -140,12 +142,14 @@ export class DB {
     constructor(
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
+        redisPoolCookieless: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
+        this.redisPoolCookieless = redisPoolCookieless
         this.kafkaProducer = kafkaProducer
         this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl

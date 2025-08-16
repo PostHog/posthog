@@ -5,6 +5,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { groupsModel } from '~/models/groupsModel'
 
 import { personsManagementSceneLogic } from './personsManagementSceneLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface PersonsManagementSceneTabsProps {
     tabKey: string
@@ -13,19 +15,23 @@ export interface PersonsManagementSceneTabsProps {
 export function PersonsManagementSceneTabs({ tabKey, buttons }: PersonsManagementSceneTabsProps): JSX.Element {
     const { lemonTabs } = useValues(personsManagementSceneLogic)
     const { showGroupsOptions } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     return (
         <>
             <PageHeader
                 caption={
-                    showGroupsOptions
-                        ? 'A catalog of identified persons, groups, and your created cohorts.'
-                        : 'A catalog of identified persons and your created cohorts.'
+                    !newSceneLayout
+                        ? showGroupsOptions
+                            ? 'A catalog of identified persons, groups, and your created cohorts.'
+                            : 'A catalog of identified persons and your created cohorts.'
+                        : null
                 }
                 buttons={buttons}
             />
 
-            <LemonTabs activeKey={tabKey} tabs={lemonTabs} />
+            <LemonTabs activeKey={tabKey} tabs={lemonTabs} className="-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0" />
         </>
     )
 }

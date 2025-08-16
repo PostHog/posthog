@@ -1,6 +1,6 @@
-import { IconBadge, IconEye } from '@posthog/icons'
+import { IconBadge, IconEye, IconInfo } from '@posthog/icons'
 import { IconHide } from '@posthog/icons'
-import { LemonDivider, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
@@ -71,8 +71,17 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        hasTaxonomyFeatures,
+        singular,
+        isEvent,
+        isProperty,
+        metrics,
+        metricsLoading,
+    } = useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {
@@ -245,6 +254,23 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         <h5>Last seen</h5>
                         <b>
                             <TZLabel time={definition.last_seen_at} />
+                        </b>
+                    </div>
+                )}
+                {isEvent && (
+                    <div className="flex flex-col flex-1">
+                        <h5>
+                            30 day queries{' '}
+                            <Tooltip title="Number of times this event has been queried in the last 30 days">
+                                <IconInfo />
+                            </Tooltip>
+                        </h5>
+                        <b>
+                            {metricsLoading ? (
+                                <Spinner textColored />
+                            ) : (
+                                <>{metrics?.query_usage_30_day ? metrics.query_usage_30_day.toLocaleString() : '-'}</>
+                            )}
                         </b>
                     </div>
                 )}
