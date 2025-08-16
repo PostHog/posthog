@@ -12,7 +12,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.schema import HogQLQueryModifiers
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -44,7 +44,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
 

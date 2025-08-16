@@ -13,7 +13,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel, RootTeamMixin
+from posthog.models.utils import UUIDTModel, RootTeamMixin
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 
@@ -56,7 +56,7 @@ class ProductIntentSerializer(serializers.Serializer):
     intent_context = serializers.CharField(required=False, default="unknown")
 
 
-class ProductIntent(UUIDModel, RootTeamMixin):
+class ProductIntent(UUIDTModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

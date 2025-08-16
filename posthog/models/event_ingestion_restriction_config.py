@@ -1,4 +1,4 @@
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 from posthog.redis import get_client
 from posthog.settings import PLUGINS_RELOAD_REDIS_URL
 from django.db.models.signals import post_save, post_delete
@@ -16,7 +16,7 @@ class RestrictionType(models.TextChoices):
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
 
 
-class EventIngestionRestrictionConfig(UUIDModel):
+class EventIngestionRestrictionConfig(UUIDTModel):
     """
     Configuration for various restrictions we can set by token or token:distinct_id
     """

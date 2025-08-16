@@ -31,7 +31,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
-    UUIDClassicModel,
+    UUIDTClassicModel,
     generate_random_token_project,
     generate_random_token_secret,
     sane_repr,
@@ -223,7 +223,7 @@ class CookielessServerHashMode(models.IntegerChoices):
     STATEFUL = 2, "Stateful"
 
 
-class Team(UUIDClassicModel):
+class Team(UUIDTClassicModel):
     """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
     class Meta:

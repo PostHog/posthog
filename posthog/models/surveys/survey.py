@@ -7,7 +7,7 @@ from django.db import models
 from django.db.models import QuerySet
 
 from posthog.models import Action
-from posthog.models.utils import UUIDModel, RootTeamMixin
+from posthog.models.utils import UUIDTModel, RootTeamMixin
 from django.contrib.postgres.fields import ArrayField
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
+class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
         WIDGET = "widget", "widget"

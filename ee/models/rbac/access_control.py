@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 
 
-class AccessControl(UUIDModel):
+class AccessControl(UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(

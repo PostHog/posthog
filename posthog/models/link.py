@@ -2,7 +2,7 @@ import structlog
 
 from django.db import models
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from django.db.models import QuerySet
@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 # inside our `products` folder
 #
 # See https://github.com/PostHog/posthog/pull/32364
-class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """
     Links that redirect to a specified destination URL.
     These are used for sharing URLs across the application.

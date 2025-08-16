@@ -1,14 +1,14 @@
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.utils import UUIDModel, RootTeamMixin
+from posthog.models.utils import UUIDTModel, RootTeamMixin
 
 
 def tagify(tag: str):
     return tag.strip().lower()
 
 
-class Tag(ModelActivityMixin, UUIDModel, RootTeamMixin):
+class Tag(ModelActivityMixin, UUIDTModel, RootTeamMixin):
     name = models.CharField(max_length=255)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 

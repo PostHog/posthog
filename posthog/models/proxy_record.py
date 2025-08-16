@@ -1,9 +1,9 @@
 from django.db import models
 from posthog.models import Organization
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 
 
-class ProxyRecord(UUIDModel):
+class ProxyRecord(UUIDTModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="proxy_records")
     domain = models.CharField(max_length=64, unique=True)
     target_cname = models.CharField(max_length=256, null=False)

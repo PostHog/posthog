@@ -2,7 +2,7 @@ import re
 from django.db import models
 from posthog.models.team import Team
 from django.contrib.postgres.fields import ArrayField
-from posthog.models.utils import UUIDModel, CreatedMetaFields
+from posthog.models.utils import UUIDTModel, CreatedMetaFields
 from django.core import validators
 from django.utils.deconstruct import deconstructible
 
@@ -20,7 +20,7 @@ class EmailWithDisplayNameValidator:
         return validators.validate_email(value)
 
 
-class UserInterview(UUIDModel, CreatedMetaFields):
+class UserInterview(UUIDTModel, CreatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     interviewee_emails = ArrayField(
         models.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]), default=list
