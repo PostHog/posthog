@@ -295,10 +295,7 @@ export const personsLogic = kea<personsLogicType>([
         ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
         currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
-        defaultTab: [
-            (s) => [s.feedEnabled],
-            (feedEnabled) => (feedEnabled ? PersonsTabType.FEED : PersonsTabType.PROPERTIES),
-        ],
+        defaultTab: [() => [], () => PersonsTabType.OVERVIEW],
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],
             (person, location): Breadcrumb[] => {

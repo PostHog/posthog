@@ -32,6 +32,7 @@ import { ActivityScope, PersonsTabType, PersonType, ProductKey, PropertyDefiniti
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
+import { PersonOverview } from './PersonOverview'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -183,6 +184,11 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 data-attr="persons-tabs"
                 tabs={[
+                    {
+                        key: PersonsTabType.OVERVIEW,
+                        label: <span data-attr="persons-overview-tab">Overview</span>,
+                        content: <PersonOverview person={person} />,
+                    },
                     feedEnabled
                         ? {
                               key: PersonsTabType.FEED,
