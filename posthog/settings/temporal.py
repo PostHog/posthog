@@ -19,6 +19,7 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
 
 TEMPORAL_USE_EXTERNAL_LOGGER: bool = get_from_env("TEMPORAL_USE_EXTERNAL_LOGGER", False, type_cast=str_to_bool)
+TEMPORAL_USE_UVLOOP: bool = get_from_env("TEMPORAL_USE_UVLOOP", False, type_cast=str_to_bool)
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 
