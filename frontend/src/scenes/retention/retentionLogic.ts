@@ -5,13 +5,14 @@ import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
+import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
 import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
-import { DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
+import { CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
 
@@ -38,6 +39,8 @@ export const retentionLogic = kea<retentionLogicType>([
             ['breakdownFilter', 'dateRange', 'insightQuery', 'insightData', 'querySource', 'retentionFilter'],
             teamLogic,
             ['timezone'],
+            cohortsModel,
+            ['cohortsById'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange']],
     })),
@@ -230,6 +233,42 @@ export const retentionLogic = kea<retentionLogicType>([
                 )
 
                 return Array.from(valueSet)
+            },
+        ],
+
+        breakdownDisplayNames: [
+            (s) => [s.breakdownValues, s.breakdownFilter, s.cohortsById],
+            (
+                breakdownValues: (string | number | boolean | null)[],
+                breakdownFilter: any,
+                cohortsById: Partial<Record<string | number, CohortType>>
+            ): Record<string, string> => {
+                return breakdownValues.reduce(
+                    (acc, breakdownValue) => {
+                        const key = String(breakdownValue ?? '')
+
+                        if (breakdownValue === null || breakdownValue === '') {
+                            acc[key] = '(empty)'
+                        } else {
+                            // Convert cohortsById to array for formatBreakdownLabel
+                            const cohorts = Object.values(cohortsById).filter(Boolean) as any[]
+                            // Convert string breakdown value back to original type for formatBreakdownLabel
+                            const originalBreakdownValue =
+                                typeof breakdownValue === 'string' && /^\d+$/.test(breakdownValue)
+                                    ? Number(breakdownValue)
+                                    : breakdownValue
+                            const formattedLabel = formatBreakdownLabel(
+                                originalBreakdownValue as any,
+                                breakdownFilter,
+                                cohorts,
+                                undefined
+                            )
+                            acc[key] = formattedLabel
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                )
             },
         ],
     }),
