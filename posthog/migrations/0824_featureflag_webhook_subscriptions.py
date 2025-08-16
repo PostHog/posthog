@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0820_organization_allow_publicly_shared_resources"),
+        ("posthog", "0823_add_cohort_types"),
     ]
 
     operations = [
