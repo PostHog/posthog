@@ -22,6 +22,8 @@ class RevenueAnalyticsBaseView(SavedQuery):
 
     @classmethod
     def for_team(cls, team: "Team", timings: HogQLTimings) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
         with timings.measure("for_events"):
             for_events = cls.for_events(team)
 
@@ -30,6 +32,7 @@ class RevenueAnalyticsBaseView(SavedQuery):
                 ExternalDataSource.objects.filter(team_id=team.pk, source_type__in=SUPPORTED_SOURCES)
                 .exclude(deleted=True)
                 .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+                .fetch_cached(team=team, key_prefix=CACHE_KEY_PREFIX)
             )
 
             for_schema_sources = [

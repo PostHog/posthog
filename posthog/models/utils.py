@@ -19,6 +19,7 @@ from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
+from posthog.models.cache import CacheManager, CachedQuerySet
 
 if TYPE_CHECKING:
     from random import Random
@@ -374,7 +375,7 @@ def validate_rate_limit(value):
         )
 
 
-class RootTeamQuerySet(models.QuerySet):
+class RootTeamQuerySet(CachedQuerySet):
     def filter(self, *args, **kwargs):
         from posthog.models.team import Team
         from django.db.models import Q, Subquery
@@ -391,7 +392,7 @@ class RootTeamQuerySet(models.QuerySet):
         return super().filter(*args, **kwargs)
 
 
-class RootTeamManager(models.Manager):
+class RootTeamManager(CacheManager):
     def get_queryset(self):
         return RootTeamQuerySet(self.model, using=self._db)
 
