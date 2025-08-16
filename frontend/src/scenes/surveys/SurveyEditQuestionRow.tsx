@@ -126,7 +126,8 @@ function canQuestionSkipSubmitButton(
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
+        useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -156,6 +157,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <LemonSelect
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
+                            const isCurrentTypeMultipleSurveyQuestion =
+                                question.type === SurveyQuestionType.MultipleChoice ||
+                                question.type === SurveyQuestionType.SingleChoice
                             const editingQuestion =
                                 defaultSurveyFieldValues[question.type].questions[0].question !== question.question
                             const editingDescription =
@@ -164,6 +168,47 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             const editingThankYouMessage =
                                 defaultSurveyFieldValues[question.type].appearance.thankYouMessageHeader !==
                                 survey.appearance?.thankYouMessageHeader
+
+                            const isNewTypeMultipleSurveyQuestion =
+                                newType === SurveyQuestionType.MultipleChoice ||
+                                newType === SurveyQuestionType.SingleChoice
+
+                            if (isCurrentTypeMultipleSurveyQuestion && isNewTypeMultipleSurveyQuestion) {
+                                setMultipleSurveyQuestion(index, question, newType)
+                                resetBranchingForQuestion(index)
+                                return
+                            }
+                            if (isCurrentTypeMultipleSurveyQuestion && !isNewTypeMultipleSurveyQuestion) {
+                                // Doing this because by the time we receive `onSelect`, the question type has already changed
+                                setMultipleSurveyQuestion(index, question, question.type)
+                                LemonDialog.open({
+                                    title: 'Changing question type',
+                                    description: (
+                                        <p className="py-2">
+                                            The choices you have configured will be removed. Would you like to proceed?
+                                        </p>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Continue',
+                                        status: 'danger',
+                                        onClick: () => {
+                                            setDefaultForQuestionType(
+                                                index,
+                                                question,
+                                                newType,
+                                                editingQuestion,
+                                                editingDescription,
+                                                editingThankYouMessage
+                                            )
+                                            resetBranchingForQuestion(index)
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                                return
+                            }
                             setDefaultForQuestionType(
                                 index,
                                 question,

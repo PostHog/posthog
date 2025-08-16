@@ -494,6 +494,15 @@ export const surveyLogic = kea<surveyLogicType>([
             type,
             specificQuestionIndex,
         }),
+        setMultipleSurveyQuestion: (
+            questionIndex: number,
+            question: MultipleSurveyQuestion,
+            type: SurveyQuestionType.MultipleChoice | SurveyQuestionType.SingleChoice
+        ) => ({
+            questionIndex,
+            question,
+            type,
+        }),
         setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep, specificQuestionIndex) => ({
             questionIndex,
             responseValue,
@@ -1150,6 +1159,18 @@ export const surveyLogic = kea<surveyLogicType>([
                         delete question.branching
                     })
 
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                setMultipleSurveyQuestion: (state, { questionIndex, question, type }) => {
+                    const newQuestions = [...state.questions]
+                    const newQuestion: MultipleSurveyQuestion = {
+                        ...question,
+                        type,
+                    }
+                    newQuestions[questionIndex] = newQuestion
                     return {
                         ...state,
                         questions: newQuestions,
