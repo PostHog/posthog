@@ -39,9 +39,13 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                return await api.organizationMembers.listAll({
-                    limit: PAGINATION_LIMIT,
-                })
+                try {
+                    return await api.organizationMembers.listAll({
+                        limit: PAGINATION_LIMIT,
+                    })
+                } catch {
+                    return []
+                }
             },
             loadMemberUpdates: async () => {
                 const newestMemberUpdate = values.members?.sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1))?.[0]

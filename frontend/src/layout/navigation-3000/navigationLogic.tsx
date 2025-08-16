@@ -35,9 +35,10 @@ import posthog from 'posthog-js'
 import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
+import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { urls } from 'scenes/urls'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -70,6 +71,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['mobileLayout'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
             ['savedFilters', 'savedFiltersLoading'],
+            organizationLogic,
+            ['isCurrentOrganizationUnavailable'],
         ],
         actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
@@ -332,8 +335,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     })),
     selectors({
         mode: [
-            (s) => [s.sceneConfig],
-            (sceneConfig): Navigation3000Mode => {
+            (s) => [s.sceneConfig, organizationLogic.selectors.isCurrentOrganizationUnavailable],
+            (sceneConfig: SceneConfig, isCurrentOrganizationUnavailable: boolean): Navigation3000Mode => {
+                // Show minimal navigation when org is unavailable
+                if (isCurrentOrganizationUnavailable) {
+                    return 'minimal'
+                }
+
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'
                     : sceneConfig?.layout !== 'plain'
@@ -756,6 +764,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 item.ref?.current?.focus()
             } else {
                 props.inputElement?.focus()
+            }
+        },
+        isCurrentOrganizationUnavailable: (isCurrentOrganizationUnavailable: boolean) => {
+            if (isCurrentOrganizationUnavailable) {
+                lemonToast.error("You don't have access to any organization")
             }
         },
     })),

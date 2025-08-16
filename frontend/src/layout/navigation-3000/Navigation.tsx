@@ -67,7 +67,6 @@ export function Navigation({
             </a>
 
             <PanelLayout mainRef={mainRef} />
-
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
                 <FlaggedFeature
                     match={true}

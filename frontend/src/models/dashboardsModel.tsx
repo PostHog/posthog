@@ -98,7 +98,13 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         url ||
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
 
-                    const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
+                    let dashboards: PaginatedResponse<DashboardType>
+                    try {
+                        dashboards = await api.get(apiUrl)
+                    } catch {
+                        // No environment available, return empty list
+                        return { count: 0, next: null, previous: null, results: [] }
+                    }
 
                     return {
                         ...dashboards,
