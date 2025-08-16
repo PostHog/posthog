@@ -144,7 +144,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                 </span>
             </div>
             {!insightsLoading && insights.count < 1 ? (
-                <SavedInsightsEmptyState />
+                <SavedInsightsEmptyState filters={filters} usingFilters />
             ) : (
                 <>
                     <LemonTable
