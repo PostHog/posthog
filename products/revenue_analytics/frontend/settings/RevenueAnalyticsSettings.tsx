@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconApps, IconPlus } from '@posthog/icons'
 import { LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
@@ -16,6 +16,9 @@ import { GoalsConfiguration } from './GoalsConfiguration'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { cn } from 'lib/utils/css-classes'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 type Tab = 'events' | 'data-warehouse'
 
@@ -26,6 +29,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const eventsButtonRef = useRef<HTMLButtonElement>(null)
     const dataWarehouseTablesButtonRef = useRef<HTMLButtonElement>(null)
@@ -43,7 +47,17 @@ export function RevenueAnalyticsSettings(): JSX.Element {
         !dataWarehouseSources?.results.filter((source) => source.source_type === 'Stripe').length
 
     return (
-        <div className="flex flex-col gap-8">
+        <SceneContent className={cn(!newSceneLayout && 'gap-y-8')}>
+            <SceneTitleSection
+                name="Revenue"
+                description="Revenue events are used to track revenue in PostHog. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event."
+                resourceType={{
+                    type: 'revenue',
+                    typePlural: 'revenue events',
+                    forceIcon: <IconApps />,
+                }}
+            />
+            <SceneDivider />
             <ProductIntroduction
                 productName="Revenue tracking"
                 thingName="revenue source"
@@ -91,15 +105,20 @@ export function RevenueAnalyticsSettings(): JSX.Element {
             />
 
             <BaseCurrency />
+            <SceneDivider />
             <FilterTestAccountsConfiguration />
+            <SceneDivider />
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && <GoalsConfiguration />}
-
+            <SceneDivider />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
-                <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+                <>
+                    <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+                    <SceneDivider />
+                </>
             )}
             <EventConfiguration buttonRef={eventsButtonRef} />
-
+            <SceneDivider />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? (
                 <LemonTabs
                     activeKey={activeTab}
@@ -120,6 +139,6 @@ export function RevenueAnalyticsSettings(): JSX.Element {
             ) : (
                 <RevenueExampleEventsTable />
             )}
-        </div>
+        </SceneContent>
     )
 }

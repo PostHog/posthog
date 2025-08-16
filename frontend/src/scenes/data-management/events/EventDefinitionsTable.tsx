@@ -13,8 +13,11 @@ import { EventDefinitionProperties } from 'scenes/data-management/events/EventDe
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
-
+import { cn } from 'lib/utils/css-classes'
 import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
+import { IconApps } from '@posthog/icons'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -34,6 +37,7 @@ export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -120,8 +124,18 @@ export function EventDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <div data-attr="manage-events-table">
-            <LemonBanner className="mb-4" type="info">
+        <SceneContent data-attr="manage-events-table" className={cn(!newSceneLayout && 'gap-y-0')}>
+            <SceneTitleSection
+                name="Event definitions"
+                description="Event definitions are a way to define events that can be used in your app or website."
+                resourceType={{
+                    type: 'event',
+                    typePlural: 'events',
+                    forceIcon: <IconApps />,
+                }}
+            />
+            <SceneDivider />
+            <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
                 Looking for{' '}
                 {filters.event_type === 'event_custom'
                     ? 'custom '
@@ -214,6 +228,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 emptyState="No event definitions"
                 nouns={['event', 'events']}
             />
-        </div>
+        </SceneContent>
     )
 }

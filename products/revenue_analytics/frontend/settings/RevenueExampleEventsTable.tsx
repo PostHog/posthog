@@ -6,6 +6,9 @@ import { QueryContext } from '~/queries/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { SceneSection } from '~/layout/scenes/SceneContent'
+import { cn } from 'lib/utils/css-classes'
 
 const queryContext: QueryContext = {
     showOpenEditorButton: true,
@@ -42,20 +45,30 @@ const queryContext: QueryContext = {
 
 export function RevenueExampleEventsTable(): JSX.Element | null {
     const { exampleEventsQuery } = useValues(revenueAnalyticsSettingsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!exampleEventsQuery) {
         return null
     }
 
     return (
-        <div>
-            <h3>Revenue events</h3>
-            <p>
-                The following revenue events are available in your data. This is helpful when you're trying to debug
-                what your revenue events look like.
-            </p>
+        <SceneSection
+            hideTitleAndDescription={!newSceneLayout}
+            className={cn(!newSceneLayout && 'gap-y-0')}
+            title="Revenue events"
+            description="The following revenue events are available in your data. This is helpful when you're trying to debug what your revenue events look like."
+        >
+            {!newSceneLayout && (
+                <>
+                    <h3>Revenue events</h3>
+                    <p>
+                        The following revenue events are available in your data. This is helpful when you're trying to
+                        debug what your revenue events look like.
+                    </p>
+                </>
+            )}
 
             <Query query={exampleEventsQuery} context={queryContext} />
-        </div>
+        </SceneSection>
     )
 }

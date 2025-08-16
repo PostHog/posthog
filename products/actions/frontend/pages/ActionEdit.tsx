@@ -316,7 +316,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 </ScenePanel>
 
                 <SceneTitleSection
-                    name={action.name}
+                    name={action?.name || ''}
                     description={action.description}
                     resourceType={{
                         to: urls.actions(),

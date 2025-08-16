@@ -6,6 +6,9 @@ import { QueryContext } from '~/queries/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
+import { SceneSection } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 const queryContext: QueryContext = {
     showOpenEditorButton: true,
@@ -37,20 +40,30 @@ const queryContext: QueryContext = {
 
 export function RevenueExampleDataWarehouseTablesData(): JSX.Element | null {
     const { exampleDataWarehouseTablesQuery } = useValues(revenueAnalyticsSettingsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!exampleDataWarehouseTablesQuery) {
         return null
     }
 
     return (
-        <div>
-            <h3>Data warehouse tables revenue data</h3>
-            <p>
-                The following rows of data were imported from your data warehouse tables. This is helpful when you're
-                trying to debug what your revenue data looks like.
-            </p>
+        <SceneSection
+            hideTitleAndDescription={!newSceneLayout}
+            className={cn(!newSceneLayout && 'gap-y-0')}
+            title="Data warehouse tables revenue data"
+            description="The following rows of data were imported from your data warehouse tables. This is helpful when you're trying to debug what your revenue data looks like."
+        >
+            {!newSceneLayout && (
+                <>
+                    <h3>Data warehouse tables revenue data</h3>
+                    <p>
+                        The following rows of data were imported from your data warehouse tables. This is helpful when
+                        you're trying to debug what your revenue data looks like.
+                    </p>
+                </>
+            )}
 
             <Query query={exampleDataWarehouseTablesQuery} context={queryContext} />
-        </div>
+        </SceneSection>
     )
 }

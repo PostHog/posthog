@@ -11,14 +11,19 @@ import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-managem
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
+import { cn } from 'lib/utils/css-classes'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { PropertyDefinition } from '~/types'
+import { IconApps } from '@posthog/icons'
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -69,8 +74,18 @@ export function PropertyDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <div data-attr="manage-events-table">
-            <LemonBanner className="mb-4" type="info">
+        <SceneContent data-attr="manage-events-table" className={cn(!newSceneLayout && 'gap-y-0')}>
+            <SceneTitleSection
+                name="Properties"
+                description="Properties are additional fields you can configure to be sent along with an event capture."
+                resourceType={{
+                    type: 'property',
+                    typePlural: 'properties',
+                    forceIcon: <IconApps />,
+                }}
+            />
+            <SceneDivider />
+            <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
                 <Link
                     to={urls.insightNewHogQL({
@@ -125,6 +140,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 emptyState="No property definitions"
                 nouns={['property', 'properties']}
             />
-        </div>
+        </SceneContent>
     )
 }
