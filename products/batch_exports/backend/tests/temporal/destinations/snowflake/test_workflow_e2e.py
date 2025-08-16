@@ -35,11 +35,13 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.tests.temporal.destinations.snowflake.conftest import (
+    assert_clickhouse_records_in_snowflake,
+)
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
     SKIP_IF_MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     TEST_TIME,
-    assert_clickhouse_records_in_snowflake,
 )
 
 pytestmark = [

@@ -37,11 +37,13 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchTaskError,
 )
+from products.batch_exports.backend.tests.temporal.destinations.snowflake.conftest import (
+    assert_clickhouse_records_in_snowflake,
+)
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
     EXPECTED_PERSONS_BATCH_EXPORT_FIELDS,
     SKIP_IF_MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
-    assert_clickhouse_records_in_snowflake,
 )
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,
