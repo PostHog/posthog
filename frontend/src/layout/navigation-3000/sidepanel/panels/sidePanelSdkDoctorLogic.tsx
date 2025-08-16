@@ -215,6 +215,7 @@ export type SdkType =
     | 'flutter'
     | 'react-native'
     | 'js-lite'
+    | 'dotnet'
     | 'other'
 export type SdkVersionInfo = {
     type: SdkType
@@ -361,6 +362,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             flutter: { repo: 'posthog-flutter' },
                             'react-native': { repo: 'posthog-react-native' },
                             'js-lite': { repo: 'posthog-js' }, // posthog-js-lite is in packages/web of posthog-js repo
+                            dotnet: { repo: 'posthog-dotnet', versionPrefix: 'v' },
                             other: { repo: '' }, // Skip for "other"
                         }
 
@@ -704,6 +706,90 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                 if (versions.length > 0) {
                                                     console.info(
                                                         `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
+                                // Special handling for Go SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'go') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-go/master/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Go CHANGELOG.md format: "## 1.6.3"
+                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) => match.replace(/^## /, '')) // Remove "## " prefix
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
+                                // Special handling for PHP SDK: use History.md instead of GitHub releases
+                                if (sdkType === 'php') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-php/master/History.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch History.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // PHP History.md format: "3.6.0 / 2025-04-30"
+                                            const versionMatches = changelogText.match(
+                                                /^(\d+\.\d+\.\d+) \/ \d{4}-\d{2}-\d{2}$/gm
+                                            )
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) => match.replace(/ \/ \d{4}-\d{2}-\d{2}$/, '')) // Remove " / YYYY-MM-DD" part
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from History.md:`,
                                                         versions.slice(0, 5)
                                                     )
                                                     console.info(
@@ -1387,6 +1473,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 type = 'react-native'
                             } else if (lib === 'posthog-js-lite') {
                                 type = 'js-lite'
+                            } else if (lib === 'posthog-dotnet') {
+                                type = 'dotnet'
                             }
 
                             // Copy existing data for this version if it exists
@@ -1481,6 +1569,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                             if (info.type === 'js-lite') {
                                 libName = 'posthog-js-lite'
+                            }
+                            if (info.type === 'dotnet') {
+                                libName = 'posthog-dotnet'
                             }
 
                             // console.log(`[SDK Doctor] Fallback check for ${libName} version ${version}`)
@@ -1644,6 +1735,8 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
         return major < 1 || (major === 1 && minor < 4)
     } else if (lib === 'posthog-php') {
         return major < 3
+    } else if (lib === 'posthog-dotnet') {
+        return major < 1
     }
 
     // For all other SDKs, apply a generic rule that matches checkVersionAgainstLatest
@@ -1706,6 +1799,9 @@ function checkVersionAgainstLatest(
     }
     if (type === 'js-lite') {
         lib = 'posthog-js-lite'
+    }
+    if (type === 'dotnet') {
+        lib = 'posthog-dotnet'
     }
 
     // TODO: Node.js now uses CHANGELOG.md data - removed hardcoded version logic

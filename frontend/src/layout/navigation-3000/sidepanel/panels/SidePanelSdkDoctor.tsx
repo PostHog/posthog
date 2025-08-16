@@ -79,6 +79,7 @@ const sdkTypeMapping: Record<SdkType, { name: string; color: LemonTagProps['type
     flutter: { name: 'Flutter', color: 'default' },
     'react-native': { name: 'React Native', color: 'highlight' },
     'js-lite': { name: 'JS-Lite', color: 'primary' },
+    dotnet: { name: '.NET', color: 'muted' },
     other: { name: 'Other', color: 'default' },
 }
 
@@ -127,6 +128,10 @@ const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
     'js-lite': {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/web/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/js',
+    },
+    dotnet: {
+        releases: 'https://github.com/PostHog/posthog-dotnet/releases',
+        docs: 'https://posthog.com/docs/libraries/dotnet',
     },
     other: {
         releases: 'https://github.com/PostHog',
