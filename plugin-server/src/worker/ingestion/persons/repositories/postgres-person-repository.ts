@@ -62,7 +62,8 @@ export class PostgresPersonRepository
 
     private async handleOversizedPersonProperties(
         person: InternalPerson,
-        update: Partial<InternalPerson>
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id)
 
@@ -71,7 +72,7 @@ export class PostgresPersonRepository
                 personPropertiesSizeViolationCounter.inc({
                     violation_type: 'existing_record_violates_limit',
                 })
-                return await this.handleExistingOversizedRecord(person, update)
+                return await this.handleExistingOversizedRecord(person, update, tx)
             } catch (error) {
                 logger.warn('Failed to handle previously oversized person record', {
                     team_id: person.team_id,
@@ -107,7 +108,8 @@ export class PostgresPersonRepository
 
     private async handleExistingOversizedRecord(
         person: InternalPerson,
-        update: Partial<InternalPerson>
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         try {
             const trimmedProperties = this.trimPropertiesToFitSize(
@@ -125,7 +127,8 @@ export class PostgresPersonRepository
             const [updatedPerson, kafkaMessages, versionDisparity] = await this.updatePerson(
                 person,
                 trimmedUpdate,
-                'oversized_properties_remediation'
+                'oversized_properties_remediation',
+                tx
             )
             oversizedPersonPropertiesTrimmedCounter.inc({ result: 'success' })
             return [updatedPerson, kafkaMessages, versionDisparity]
@@ -386,6 +389,7 @@ export class PostgresPersonRepository
         } catch (error) {
             // Handle constraint violation - another process created the person concurrently
             if (error instanceof Error && error.message.includes('unique constraint')) {
+                // This is not of type CreatePersonResult?
                 return {
                     success: false,
                     error: 'CreationConflict',
@@ -785,7 +789,7 @@ export class PostgresPersonRepository
             return [updatedPerson, [kafkaMessage], versionDisparity > 0]
         } catch (error) {
             if (this.isPropertiesSizeConstraintViolation(error) && tag !== 'oversized_properties_remediation') {
-                return await this.handleOversizedPersonProperties(person, update)
+                return await this.handleOversizedPersonProperties(person, update, tx)
             }
 
             // Re-throw other errors

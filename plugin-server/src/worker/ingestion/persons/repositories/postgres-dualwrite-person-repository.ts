@@ -12,6 +12,7 @@ import { DualWritePersonRepositoryTransaction } from './dualwrite-person-reposit
 import { PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepository } from './postgres-person-repository'
+import type { PostgresPersonRepositoryOptions } from './postgres-person-repository'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export class PostgresDualWritePersonRepository implements PersonRepository {
@@ -19,9 +20,13 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     private primaryRepo: RawPostgresPersonRepository
     private secondaryRepo: RawPostgresPersonRepository
 
-    constructor(primaryRouter: PostgresRouter, secondaryRouter: PostgresRouter) {
-        this.primaryRepo = new PostgresPersonRepository(primaryRouter)
-        this.secondaryRepo = new PostgresPersonRepository(secondaryRouter)
+    constructor(
+        primaryRouter: PostgresRouter,
+        secondaryRouter: PostgresRouter,
+        options?: Partial<PostgresPersonRepositoryOptions>
+    ) {
+        this.primaryRepo = new PostgresPersonRepository(primaryRouter, options)
+        this.secondaryRepo = new PostgresPersonRepository(secondaryRouter, options)
         this.coordinator = new TwoPhaseCommitCoordinator({
             left: { router: primaryRouter, use: PostgresUse.PERSONS_WRITE, name: 'primary' },
             right: { router: secondaryRouter, use: PostgresUse.PERSONS_WRITE, name: 'secondary' },
@@ -37,6 +42,9 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return await this.primaryRepo.fetchPerson(teamId, distinctId, options)
     }
 
+    /*
+    * needs to have the exact same contract as the single-write repo
+    */
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -48,49 +56,60 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
-        let primaryResult!: CreatePersonResult
-        await this.coordinator.run('createPerson', async (leftTx, rightTx) => {
-            // create is serial: create on primary first, then use returned id the DB generated on secondary
-            const p = await this.primaryRepo.createPerson(
-                createdAt,
-                properties,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
-                teamId,
-                isUserId,
-                isIdentified,
-                uuid,
-                distinctIds,
-                leftTx
-            )
-            if (!p.success) {
-                throw new Error(`DualWrite primary create failed`)
-            }
+        let result!: CreatePersonResult
+        try {
+          await this.coordinator.run('createPerson', async (leftTx, rightTx) => {
+              // create is serial: create on primary first, then use returned id the DB generated on secondary
+              const p = await this.primaryRepo.createPerson(
+                  createdAt,
+                  properties,
+                  propertiesLastUpdatedAt,
+                  propertiesLastOperation,
+                  teamId,
+                  isUserId,
+                  isIdentified,
+                  uuid,
+                  distinctIds,
+                  leftTx
+              )
+              if (!p.success) {
+                // NICKS TODO: do we want any metrics/logs/observability here?
+                result = p
+                throw new Error('DualWrite abort: primary creation conflict')
+              }
 
-            // force same id on secondary
-            const forcedId = Number(p.person.id)
-            const s = await this.secondaryRepo.createPerson(
-                createdAt,
-                properties,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
-                teamId,
-                isUserId,
-                isIdentified,
-                uuid,
-                distinctIds,
-                rightTx,
-                forcedId
-            )
-            if (!s.success) {
-                throw new Error(`DualWrite secondary create failed`)
-            }
-
-            primaryResult = p
-            return true
-        })
-        return primaryResult
+              // force same id on secondary
+              const forcedId = Number(p.person.id)
+              const s = await this.secondaryRepo.createPerson(
+                  createdAt,
+                  properties,
+                  propertiesLastUpdatedAt,
+                  propertiesLastOperation,
+                  teamId,
+                  isUserId,
+                  isIdentified,
+                  uuid,
+                  distinctIds,
+                  rightTx,
+                  forcedId
+              )
+              if (!s.success) {
+                result = s
+                throw new Error('DualWrite abort: secondary creation conflict')
+              }
+              result = p
+              return true
+          })
+      } catch (err) {
+        // if we captured a handled conflict from either side, surface it to match single-write behaviour
+        if (result && !result.success && result.error === 'CreationConflict') {
+          return result
+        }
+        throw err
+      }
+      return result
     }
+
 
     async updatePerson(
         person: InternalPerson,
@@ -104,9 +123,18 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             primaryOut = p
 
             const primaryUpdated = p[0]
+            const secondaryUpdate: Partial<InternalPerson> = {
+                // Mirror authoritative fields from the result of the primary update to guarantee parity
+                properties: primaryUpdated.properties,
+                properties_last_updated_at: primaryUpdated.properties_last_updated_at,
+                properties_last_operation: primaryUpdated.properties_last_operation,
+                is_identified: primaryUpdated.is_identified,
+                version: primaryUpdated.version,
+            }
+
             await this.secondaryRepo.updatePerson(
                 person,
-                { ...update, version: primaryUpdated.version },
+                secondaryUpdate,
                 tag ? `${tag}-secondary` : undefined,
                 rightTx
             )
