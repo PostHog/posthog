@@ -206,18 +206,46 @@ class ObjectStorage(ObjectStorageClient):
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         s3_response = {}
+        content_size = len(content) if content else 0
+        start_time = None
         try:
+            import time
+            start_time = time.time()
             s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
+            
+            # Log successful write with timing information
+            write_duration = (time.time() - start_time) * 1000  # Convert to milliseconds
+            logger.debug(
+                "object_storage.write_success",
+                bucket=bucket,
+                file_name=key,
+                content_size=content_size,
+                write_duration_ms=write_duration,
+                etag=s3_response.get('ETag'),
+                extras=extras,
+            )
         except Exception as e:
+            write_duration = ((time.time() - start_time) * 1000) if start_time else None
             logger.exception(
                 "object_storage.write_failed",
                 bucket=bucket,
                 file_name=key,
-                error=e,
+                content_size=content_size,
+                write_duration_ms=write_duration,
+                error_type=type(e).__name__,
+                error=str(e),
+                extras=extras,
                 s3_response=s3_response,
+                aws_retry_info=getattr(e, 'operation_name', None),
             )
-            capture_exception(e)
-            raise ObjectStorageError("write failed") from e
+            capture_exception(e, extra_data={
+                "bucket": bucket,
+                "key": key,
+                "content_size": content_size,
+                "error_type": type(e).__name__,
+                "extras": extras
+            })
+            raise ObjectStorageError(f"write failed for key '{key}' in bucket '{bucket}': {str(e)}") from e
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
         try:

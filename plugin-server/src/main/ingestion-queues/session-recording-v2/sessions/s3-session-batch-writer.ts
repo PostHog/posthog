@@ -42,7 +42,16 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
 
         this.stream.on('error', (error) => {
-            logger.error('🔄', 's3_session_batch_writer_stream_error', { key: this.key, error })
+            logger.error('🔄', 's3_session_batch_writer_stream_error', { 
+                key: this.key, 
+                error: error.message,
+                error_type: error.name,
+                stack: error.stack,
+                bucket: this.bucket,
+                prefix: this.prefix,
+                bytes_written: this.currentOffset,
+                upload_duration_ms: Date.now() - this.uploadStartTime
+            })
             SessionBatchMetrics.incrementS3UploadErrors()
             this.handleError(error)
         })
@@ -54,7 +63,18 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         }, this.timeout)
 
         this.uploadPromise = upload.done().catch((error) => {
-            logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+            logger.error('🔄', 's3_session_batch_writer_upload_error', { 
+                key: this.key, 
+                error: error.message,
+                error_type: error.name,
+                stack: error.stack,
+                bucket: this.bucket,
+                prefix: this.prefix,
+                bytes_written: this.currentOffset,
+                upload_duration_ms: Date.now() - this.uploadStartTime,
+                aws_error_code: error.Code || error.$metadata?.httpStatusCode,
+                aws_request_id: error.$metadata?.requestId
+            })
             SessionBatchMetrics.incrementS3UploadErrors()
             this.handleError(error)
             throw error
@@ -95,7 +115,16 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
                 })
                 .catch((error) => {
                     // Defer to the common error handling code, it will call reject if necessary.
-                    logger.error('🔄', 's3_session_batch_writer_operation_error', { key: this.key, error })
+                    logger.error('🔄', 's3_session_batch_writer_operation_error', { 
+                        key: this.key, 
+                        error: error.message,
+                        error_type: error.name,
+                        stack: error.stack,
+                        bucket: this.bucket,
+                        prefix: this.prefix,
+                        bytes_written: this.currentOffset,
+                        upload_duration_ms: Date.now() - this.uploadStartTime
+                    })
                     SessionBatchMetrics.incrementS3UploadErrors()
                     this.handleError(error)
                 })
@@ -139,7 +168,18 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
                 SessionBatchMetrics.observeS3UploadLatency(uploadDuration)
                 SessionBatchMetrics.incrementS3BytesWritten(this.currentOffset)
             } catch (error) {
-                logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+                logger.error('🔄', 's3_session_batch_writer_finish_error', { 
+                    key: this.key, 
+                    error: error.message,
+                    error_type: error.name,
+                    stack: error.stack,
+                    bucket: this.bucket,
+                    prefix: this.prefix,
+                    bytes_written: this.currentOffset,
+                    upload_duration_ms: Date.now() - this.uploadStartTime,
+                    aws_error_code: error.Code || error.$metadata?.httpStatusCode,
+                    aws_request_id: error.$metadata?.requestId
+                })
                 SessionBatchMetrics.incrementS3UploadErrors()
                 throw error
             }

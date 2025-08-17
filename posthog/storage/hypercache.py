@@ -1,6 +1,7 @@
 import json
 from typing import Optional
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from django.core.cache import cache
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
@@ -135,8 +136,10 @@ class HyperCache:
             return False
 
     def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
+        # Write to Redis synchronously for immediate availability
         self._set_cache_value_redis(key, data)
-        self._set_cache_value_s3(key, data)
+        # Write to S3 asynchronously to reduce latency impact
+        self._set_cache_value_s3_async(key, data)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
@@ -161,3 +164,20 @@ class HyperCache:
             object_storage.delete(key)
         else:
             object_storage.write(key, json.dumps(data))
+    
+    def _set_cache_value_s3_async(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
+        """Asynchronously write to S3 to avoid blocking Redis writes"""
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hypercache-s3")
+        try:
+            executor.submit(self._set_cache_value_s3, key, data)
+        except Exception as e:
+            logger.warning(
+                "hypercache_s3_async_write_failed",
+                namespace=self.namespace,
+                value=self.value,
+                error=str(e)
+            )
+            capture_exception(e)
+        finally:
+            # Don't wait for completion to maintain async behavior
+            executor.shutdown(wait=False)

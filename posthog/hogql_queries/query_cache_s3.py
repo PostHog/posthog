@@ -84,8 +84,24 @@ class S3QueryCacheManager(QueryCacheManagerBase):
                 self.remove_last_refresh()
 
         except Exception as e:
-            capture_exception(e)
-            raise ObjectStorageError("Failed to set cache data") from e
+            logger.error(
+                "s3_query_cache.set_failed",
+                team_id=self.team_id,
+                cache_key=self.cache_key,
+                object_key=object_key if 'object_key' in locals() else None,
+                content_size=len(content) if 'content' in locals() else None,
+                compressed_size=len(payload) if 'payload' in locals() else None,
+                error_type=type(e).__name__,
+                error=str(e),
+                ttl_days=ttl_days if 'ttl_days' in locals() else None,
+            )
+            capture_exception(e, extra_data={
+                "team_id": self.team_id,
+                "cache_key": self.cache_key,
+                "error_type": type(e).__name__,
+                "operation": "s3_query_cache_write"
+            })
+            raise ObjectStorageError(f"Failed to set cache data for team {self.team_id}, key {self.cache_key}: {str(e)}") from e
 
     def get_cache_data(self) -> Optional[dict]:
         """Retrieve query results from S3."""
