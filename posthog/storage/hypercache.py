@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Optional
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -56,6 +57,7 @@ class HyperCache:
         token_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
+        skip_s3_write: bool = False,
     ):
         self.namespace = namespace
         self.value = value
@@ -63,6 +65,7 @@ class HyperCache:
         self.token_based = token_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
+        self.skip_s3_write = skip_s3_write
 
     @staticmethod
     def team_from_key(key: KeyType) -> Team:
@@ -138,8 +141,16 @@ class HyperCache:
     def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
         # Write to Redis synchronously for immediate availability
         self._set_cache_value_redis(key, data)
-        # Write to S3 asynchronously to reduce latency impact
-        self._set_cache_value_s3_async(key, data)
+        # Write to S3 asynchronously to reduce latency impact, but only if not disabled
+        if not self.skip_s3_write:
+            self._set_cache_value_s3_async(key, data)
+        else:
+            logger.debug(
+                "hypercache_s3_write_skipped",
+                namespace=self.namespace,
+                value=self.value,
+                cache_key=self.get_cache_key(key)
+            )
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
@@ -167,17 +178,72 @@ class HyperCache:
     
     def _set_cache_value_s3_async(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
         """Asynchronously write to S3 to avoid blocking Redis writes"""
+        def _s3_write_task():
+            start_time = time.time()
+            try:
+                self._set_cache_value_s3(key, data)
+                write_duration = (time.time() - start_time) * 1000  # Convert to milliseconds
+                logger.debug(
+                    "hypercache_s3_async_write_success",
+                    namespace=self.namespace,
+                    value=self.value,
+                    cache_key=self.get_cache_key(key),
+                    write_duration_ms=write_duration
+                )
+            except ObjectStorageError as e:
+                # More specific handling for S3 errors
+                write_duration = (time.time() - start_time) * 1000
+                logger.error(
+                    "hypercache_s3_async_write_storage_error",
+                    namespace=self.namespace,
+                    value=self.value,
+                    cache_key=self.get_cache_key(key),
+                    error_type=type(e).__name__,
+                    error=str(e),
+                    write_duration_ms=write_duration,
+                    data_present=data is not None and not isinstance(data, HyperCacheStoreMissing)
+                )
+                capture_exception(e, extra_data={
+                    "namespace": self.namespace,
+                    "value": self.value,
+                    "cache_key": self.get_cache_key(key),
+                    "operation": "hypercache_s3_async_write",
+                    "write_duration_ms": write_duration
+                })
+            except Exception as e:
+                # General exception handling
+                write_duration = (time.time() - start_time) * 1000
+                logger.error(
+                    "hypercache_s3_async_write_failed",
+                    namespace=self.namespace,
+                    value=self.value,
+                    cache_key=self.get_cache_key(key),
+                    error_type=type(e).__name__,
+                    error=str(e),
+                    write_duration_ms=write_duration,
+                    data_present=data is not None and not isinstance(data, HyperCacheStoreMissing)
+                )
+                capture_exception(e, extra_data={
+                    "namespace": self.namespace,
+                    "value": self.value,
+                    "cache_key": self.get_cache_key(key),
+                    "operation": "hypercache_s3_async_write",
+                    "write_duration_ms": write_duration
+                })
+        
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hypercache-s3")
         try:
-            executor.submit(self._set_cache_value_s3, key, data)
+            future = executor.submit(_s3_write_task)
+            # Store executor reference to ensure proper cleanup
+            future.add_done_callback(lambda f: executor.shutdown(wait=False))
         except Exception as e:
-            logger.warning(
-                "hypercache_s3_async_write_failed",
+            logger.error(
+                "hypercache_s3_async_submit_failed",
                 namespace=self.namespace,
                 value=self.value,
+                cache_key=self.get_cache_key(key),
+                error_type=type(e).__name__,
                 error=str(e)
             )
             capture_exception(e)
-        finally:
-            # Don't wait for completion to maintain async behavior
             executor.shutdown(wait=False)
