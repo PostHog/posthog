@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.models import Person, GroupTypeMapping
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.session_recordings.queries.test.listing_recordings.base_test_session_recordings_list import (
+from posthog.session_recordings.queries.test.listing_recordings.test_base_session_recordings_list import (
     BaseTestSessionRecordingsList,
 )
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import create_event

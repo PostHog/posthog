@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+import pytest
 from dateutil.relativedelta import relativedelta
 from freezegun import freeze_time
 from parameterized import parameterized
@@ -6,10 +9,24 @@ from posthog.models import Person, GroupTypeMapping
 from posthog.models.group.util import create_group
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.queries.test.listing_recordings.base_test_session_recordings_list import (
+from posthog.session_recordings.queries.test.listing_recordings.test_base_session_recordings_list import (
     BaseTestSessionRecordingsList,
 )
 from posthog.test.base import snapshot_clickhouse_queries, _create_event, flush_persons_and_events
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _disable_hypercache():
+    # this hypercache update spams the logs because we freeze time and the attempted s3 write fails
+    # because the minio target is in real now and logs
+    # botocore.exceptions.ClientError:
+    # An error occurred (RequestTimeTooSkewed) when calling the PutObject operation:
+    # The difference between the request time and the server\'s time is too large
+    with (
+        patch("posthog.storage.hypercache.HyperCache.update_cache", return_value=None),
+        patch("posthog.storage.hypercache.HyperCache.set_cache_value", return_value=None),
+    ):
+        yield
 
 
 @freeze_time("2020-01-01T13:46:23")

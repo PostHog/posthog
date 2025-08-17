@@ -5,7 +5,7 @@ from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.models import Person
-from posthog.session_recordings.queries.test.listing_recordings.base_test_session_recordings_list import (
+from posthog.session_recordings.queries.test.listing_recordings.test_base_session_recordings_list import (
     BaseTestSessionRecordingsList,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
