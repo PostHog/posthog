@@ -2,20 +2,19 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-
-from posthog.cloud_utils import is_cloud, is_ci
+from posthog.cloud_utils import is_ci, is_cloud
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArrayType,
     BooleanType,
     DateTimeType,
     DateType,
+    DecimalType,
     FloatType,
+    IntegerType,
     IntervalType,
     StringType,
     TupleType,
-    IntegerType,
-    DecimalType,
     UUIDType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
@@ -750,6 +749,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "notILike": HogQLFunctionMeta("notILike", 2, 2),
     "ngramDistance": HogQLFunctionMeta("ngramDistance", 2, 2),
     "ngramSearch": HogQLFunctionMeta("ngramSearch", 2, 2),
+    "ngramSearchCaseInsensitiveUTF8": HogQLFunctionMeta(
+        "ngramSearchCaseInsensitiveUTF8",
+        2,
+        2,
+        signatures=[
+            ((StringType(), StringType()), FloatType()),
+        ],
+    ),
     "countSubstrings": HogQLFunctionMeta("countSubstrings", 2, 3),
     "countSubstringsCaseInsensitive": HogQLFunctionMeta("countSubstringsCaseInsensitive", 2, 3),
     "countSubstringsCaseInsensitiveUTF8": HogQLFunctionMeta("countSubstringsCaseInsensitiveUTF8", 2, 3),
@@ -1643,6 +1650,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ast.Constant(value="Unknown"),
         ],
         signatures=[((StringType(),), StringType())],
+    ),
+    "hasTokenCaseInsensitive": HogQLFunctionMeta(
+        "hasTokenCaseInsensitive",
+        2,
+        2,
+        signatures=[
+            ((StringType(), StringType()), BooleanType()),
+        ],
     ),
 }
 

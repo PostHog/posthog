@@ -149,6 +149,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+    PropertyValueSearchQuery = 'PropertyValueSearchQuery',
 }
 
 export type AnyDataNode =
@@ -191,6 +192,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
+    | PropertyValueSearchQuery
 
 /**
  * @discriminator kind
@@ -269,6 +271,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | VectorSearchQuery
+    | PropertyValueSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -3108,6 +3111,33 @@ export interface VectorSearchQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedVectorSearchQueryResponse = CachedQueryResponse<VectorSearchQueryResponse>
+
+export enum PropertyValueSearchEntityKind {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+}
+
+export interface PropertyValueSearchItem {
+    property: string
+    value: string
+    score: number
+}
+
+export interface PropertyValueSearchQuery extends DataNode<PropertyValueSearchQueryResponse> {
+    kind: NodeKind.PropertyValueSearchQuery
+    searchQuery: string
+    entityKind: PropertyValueSearchEntityKind
+    events?: string[]
+    properties?: string[]
+    groupTypeIndex?: integer
+}
+
+export interface PropertyValueSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: PropertyValueSearchItem[]
+}
+
+export type CachedPropertyValueSearchQueryResponse = CachedQueryResponse<PropertyValueSearchQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',

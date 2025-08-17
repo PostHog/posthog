@@ -403,6 +403,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'notILike',
         'ngramDistance',
         'ngramSearch',
+        'ngramSearchCaseInsensitiveUTF8',
         'countSubstrings',
         'countSubstringsCaseInsensitive',
         'countSubstringsCaseInsensitiveUTF8',
@@ -785,6 +786,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'getSurveyResponse',
         'windowFunnel',
         'languageCodeToName',
+        'hasTokenCaseInsensitive',
     ],
     builtinVariables: [],
     tokenizer: {

@@ -1902,6 +1902,7 @@ class NodeKind(StrEnum):
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
+    PROPERTY_VALUE_SEARCH_QUERY = "PropertyValueSearchQuery"
 
 
 class PageURL(BaseModel):
@@ -2041,6 +2042,21 @@ class PropertyOperator(StrEnum):
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
+
+
+class PropertyValueSearchEntityKind(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    GROUP = "group"
+
+
+class PropertyValueSearchItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str
+    score: float
+    value: str
 
 
 class Mark(BaseModel):
@@ -6132,6 +6148,39 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
+class CachedPropertyValueSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueSearchItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8825,6 +8874,30 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
+class PropertyValueSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueSearchItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class QueryResponseAlternative1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10087,6 +10160,30 @@ class QueryResponseAlternative70(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[VectorSearchResponseItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative71(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueSearchItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -11395,6 +11492,24 @@ class PropertyGroupFilter(BaseModel):
     )
     type: FilterLogicalOperator
     values: list[PropertyGroupFilterValue]
+
+
+class PropertyValueSearchQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entityKind: PropertyValueSearchEntityKind
+    events: Optional[list[str]] = None
+    groupTypeIndex: Optional[int] = None
+    kind: Literal["PropertyValueSearchQuery"] = "PropertyValueSearchQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: Optional[list[str]] = None
+    response: Optional[PropertyValueSearchQueryResponse] = None
+    searchQuery: str
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class QueryResponseAlternative14(BaseModel):
@@ -13024,6 +13139,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative68,
             QueryResponseAlternative69,
             QueryResponseAlternative70,
+            QueryResponseAlternative71,
         ]
     ]
 ):
@@ -13091,6 +13207,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative68,
         QueryResponseAlternative69,
         QueryResponseAlternative70,
+        QueryResponseAlternative71,
     ]
 
 
@@ -13661,6 +13778,7 @@ class HogQLAutocomplete(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
+            PropertyValueSearchQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -13725,6 +13843,7 @@ class HogQLMetadata(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
+            PropertyValueSearchQuery,
         ]
     ] = Field(
         default=None,
@@ -13825,6 +13944,7 @@ class MaxInsightContext(BaseModel):
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
         VectorSearchQuery,
+        PropertyValueSearchQuery,
     ] = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
 
@@ -13909,6 +14029,7 @@ class QueryRequest(BaseModel):
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
         VectorSearchQuery,
+        PropertyValueSearchQuery,
     ] = Field(
         ...,
         description=(
@@ -13997,6 +14118,7 @@ class QuerySchemaRoot(
             ActorsPropertyTaxonomyQuery,
             TracesQuery,
             VectorSearchQuery,
+            PropertyValueSearchQuery,
         ]
     ]
 ):
@@ -14059,6 +14181,7 @@ class QuerySchemaRoot(
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
         VectorSearchQuery,
+        PropertyValueSearchQuery,
     ] = Field(..., discriminator="kind")
 
 
@@ -14125,6 +14248,7 @@ class QueryUpgradeRequest(BaseModel):
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
         VectorSearchQuery,
+        PropertyValueSearchQuery,
     ] = Field(..., discriminator="kind")
 
 
@@ -14191,6 +14315,7 @@ class QueryUpgradeResponse(BaseModel):
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
         VectorSearchQuery,
+        PropertyValueSearchQuery,
     ] = Field(..., discriminator="kind")
 
 

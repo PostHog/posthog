@@ -5,7 +5,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin, TaxonomyFiltersMixin
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action
 from posthog.schema import (
@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 
-class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
+class EventTaxonomyQueryRunner(TaxonomyCacheMixin, TaxonomyFiltersMixin, AnalyticsQueryRunner):
     """
     Retrieves the event or action taxonomy for the last 30 days: properties and N-most
     frequent property values for a property.
@@ -101,38 +101,12 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
         """
         Ignore properties that are not useful for AI.
         """
-        omit_list = [
-            # events
-            r"\$set",
-            r"\$time",
-            r"\$set_once",
-            r"\$sent_at",
-            "distinct_id",
-            # privacy-related
-            r"\$ip",
-            # feature flags and experiments
-            r"\$feature\/",
-            # flatten-properties-plugin
-            "__",
-            # other metadata
-            "phjs",
-            "survey_dismissed",
-            "survey_responded",
-            "partial_filter_chosen",
-            "changed_action",
-            "window-id",
-            "changed_event",
-            "partial_filter",
-            "distinct_id",
-        ]
-        regex_conditions = "|".join(omit_list)
-
         return ast.Not(
             expr=ast.Call(
                 name="match",
                 args=[
                     ast.Field(chain=["key"]),
-                    ast.Constant(value=f"({regex_conditions})"),
+                    self._get_ignored_properties_regex_expr(),
                 ],
             )
         )
