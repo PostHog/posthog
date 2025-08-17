@@ -2,6 +2,7 @@ from unittest.mock import patch
 from datetime import datetime, UTC
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
 
 
 class TestDataWarehouseAPI(APIBaseTest):
@@ -42,9 +43,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         data = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["trackedBillingRows"], 100)
-        self.assertEqual(data["pendingBillingRows"], 50)
-        self.assertEqual(data["totalRows"], 150)
+        self.assertEqual(data["tracked_billing_rows"], 100)
+        self.assertEqual(data["pending_billing_rows"], 50)
+        self.assertEqual(data["total_rows"], 150)
 
     @patch("posthog.warehouse.api.data_warehouse.BillingManager")
     @patch("posthog.warehouse.api.data_warehouse.get_cached_instance_license")
@@ -57,3 +58,26 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(data["error"], "An error occurred retrieving billing information")
+
+    def test_recent_activity_includes_external_jobs_and_modeling_jobs(self):
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/recent_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Completed"
+        )
+        DataModelingJob.objects.create(team=self.team, status="Running", rows_materialized=50)
+
+        response = self.client.get(endpoint)
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 2)
+        self.assertEqual(data["count"], 2)
+
+        types = [activity["type"] for activity in data["results"]]
+        self.assertIn("Stripe", types)
+        self.assertIn("materialized_view", types)

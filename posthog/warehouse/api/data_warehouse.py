@@ -1,6 +1,5 @@
-from typing import Any
-
 import structlog
+from datetime import datetime
 from dateutil import parser
 from django.db.models import Sum
 from rest_framework import status, viewsets
@@ -25,7 +24,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     @action(methods=["GET"], detail=False)
-    def total_rows_stats(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def total_rows_stats(self, request: Request, **kwargs) -> Response:
         """
         Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
         Used by the frontend data warehouse scene to display usage information.
@@ -85,13 +84,76 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(
             status=status.HTTP_200_OK,
             data={
-                "billingAvailable": billing_available,
-                "billingInterval": billing_interval,
-                "billingPeriodEnd": billing_period_end,
-                "billingPeriodStart": billing_period_start,
-                "materializedRowsInBillingPeriod": materialized_rows,
-                "totalRows": rows_synced,
-                "trackedBillingRows": billing_tracked_rows,
-                "pendingBillingRows": pending_billing_rows,
+                "billing_available": billing_available,
+                "billing_interval": billing_interval,
+                "billing_period_end": billing_period_end,
+                "billing_period_start": billing_period_start,
+                "materialized_rows_in_billing_period": materialized_rows,
+                "total_rows": rows_synced,
+                "tracked_billing_rows": billing_tracked_rows,
+                "pending_billing_rows": pending_billing_rows,
             },
+        )
+
+    @action(methods=["GET"], detail=False)
+    def recent_activity(self, request: Request, **kwargs) -> Response:
+        """
+        Returns recent activity for the data warehouse including external data syncs and materialized view runs.
+        Fetches up to 250 data modeling jobs and up to 250 external data syncs and lets frontend handle pagination.
+        """
+        fetch_limit = 250
+
+        external_jobs = list(
+            ExternalDataJob.objects.filter(team_id=self.team_id)
+            .select_related("schema", "pipeline")
+            .order_by("-created_at")[:fetch_limit]
+        )
+        modeling_jobs = list(
+            DataModelingJob.objects.filter(team_id=self.team_id)
+            .select_related("saved_query")
+            .order_by("-created_at")[:fetch_limit]
+        )
+
+        def job_to_activity(job, is_modeling=False):
+            base = {
+                "id": str(job.id),
+                "status": job.status,
+                "created_at": job.created_at,
+                "workflow_run_id": job.workflow_run_id,
+            }
+
+            if is_modeling:
+                return {
+                    **base,
+                    "type": "materialized_view",
+                    "name": job.saved_query.name if job.saved_query else None,
+                    "rows": job.rows_materialized or 0,
+                    "finished_at": job.last_run_at,
+                    "latest_error": job.error,
+                    "schema_id": None,
+                    "source_id": None,
+                }
+            else:
+                return {
+                    **base,
+                    "type": job.pipeline.source_type if job.pipeline else "external_data_sync",
+                    "name": job.schema.name if job.schema else None,
+                    "rows": job.rows_synced or 0,
+                    "finished_at": job.finished_at,
+                    "latest_error": job.latest_error,
+                    "schema_id": str(job.schema.id) if job.schema else None,
+                    "source_id": str(job.pipeline.id) if job.pipeline else None,
+                }
+
+        activities = [job_to_activity(job) for job in external_jobs] + [
+            job_to_activity(job, True) for job in modeling_jobs
+        ]
+
+        activities.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
+
+        return Response(
+            {
+                "results": activities,
+                "count": len(activities),
+            }
         )
