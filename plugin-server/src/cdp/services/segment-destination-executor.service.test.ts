@@ -1,4 +1,4 @@
-import { DateTime, Settings } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -28,7 +28,6 @@ describe('SegmentDestinationExecutorService', () => {
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
 
     beforeEach(() => {
-        Settings.defaultZone = 'UTC'
         service = new SegmentDestinationExecutorService(defaultConfig)
 
         service.fetch = mockFetch = jest.fn((_url, _options) =>

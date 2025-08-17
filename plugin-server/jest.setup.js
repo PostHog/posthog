@@ -1,11 +1,14 @@
 const { readFileSync } = require('fs')
-const { DateTime } = require('luxon')
+const { DateTime, Settings } = require('luxon')
 const { join } = require('path')
 
 // eslint-disable-next-line no-restricted-imports
 import fetch from 'node-fetch'
 
 import { logger, shutdownLogger } from './src/utils/logger'
+
+// This is done in index.ts for the server but for tests we need it here
+Settings.defaultZone = 'UTC'
 
 // Setup spies on the logger for all tests to use
 
