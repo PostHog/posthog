@@ -99,31 +99,19 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def recent_activity(self, request: Request, **kwargs) -> Response:
         """
         Returns recent activity for the data warehouse including external data syncs and materialized view runs.
-        Used by the frontend to display running/completed operations with status, progress, and metadata.
+        Fetches up to 250 data modeling jobs and up to 250 external data syncs and lets frontend handle pagination.
         """
-        max_limit = 50
-        default_limit = 10
-        try:
-            limit = int(request.query_params.get("limit", default_limit))
-            limit = max(1, min(limit, max_limit))
-        except ValueError:
-            limit = default_limit
-
-        try:
-            offset = int(request.query_params.get("offset", "0"))
-            offset = max(0, offset)
-        except ValueError:
-            offset = 0
+        fetch_limit = 250
 
         external_jobs = list(
             ExternalDataJob.objects.filter(team_id=self.team_id)
             .select_related("schema", "pipeline")
-            .order_by("-created_at")[:max_limit]
+            .order_by("-created_at")[:fetch_limit]
         )
         modeling_jobs = list(
             DataModelingJob.objects.filter(team_id=self.team_id)
             .select_related("saved_query")
-            .order_by("-created_at")[:max_limit]
+            .order_by("-created_at")[:fetch_limit]
         )
 
         def job_to_activity(job, is_modeling=False):
@@ -165,7 +153,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response(
             {
-                "results": activities[offset : offset + limit],
-                "count": len(activities[offset : offset + limit]),
+                "results": activities,
+                "count": len(activities),
             }
         )
