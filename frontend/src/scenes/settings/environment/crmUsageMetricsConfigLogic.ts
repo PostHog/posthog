@@ -1,9 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+
 import { groupsModel } from '~/models/groupsModel'
 
 import type { crmUsageMetricsConfigLogicType } from './crmUsageMetricsConfigLogicType'
-import { loaders } from 'kea-loaders'
 
 export interface UsageMetric {
     id: string

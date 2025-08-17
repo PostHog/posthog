@@ -1,11 +1,14 @@
 import './ActivityLog.scss'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/ActivityLog/activityLogLogic'
+import { useRef, useState } from 'react'
+
+import { IconCollapse, IconExpand } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+
+import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,7 +16,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useRef, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 

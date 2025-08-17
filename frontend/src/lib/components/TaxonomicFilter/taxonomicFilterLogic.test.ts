@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'

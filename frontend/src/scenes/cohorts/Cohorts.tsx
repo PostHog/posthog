@@ -1,28 +1,30 @@
 import './Cohorts.scss'
 
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { ListHog } from 'lib/components/hedgehogs'
+import { useState } from 'react'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ListHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { useState } from 'react'
+import { cn } from 'lib/utils/css-classes'
+import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { CohortType, ProductKey } from '~/types'
 
-import { SceneExport } from 'scenes/sceneTypes'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { cn } from 'lib/utils/css-classes'
 const RESOURCE_TYPE = 'cohort'
 
 export const scene: SceneExport = {

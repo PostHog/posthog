@@ -1,15 +1,17 @@
-import { canvasMutation, Replayer } from '@posthog/rrweb'
+import posthog from 'posthog-js'
+
+import { Replayer, canvasMutation } from '@posthog/rrweb'
 import { ReplayPlugin } from '@posthog/rrweb'
 import {
     CanvasArg,
+    EventType,
+    IncrementalSource,
     canvasMutationData,
     canvasMutationParam,
-    EventType,
     eventWithTime,
-    IncrementalSource,
 } from '@posthog/rrweb-types'
+
 import { debounce } from 'lib/utils'
-import posthog from 'posthog-js'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 

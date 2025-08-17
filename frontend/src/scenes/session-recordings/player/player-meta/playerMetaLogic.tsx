@@ -1,20 +1,22 @@
-import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
 import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+import React from 'react'
+
+import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
+
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
-import posthog from 'posthog-js'
-import React from 'react'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
@@ -25,6 +27,7 @@ import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionReco
 import { aiSummaryMock } from './ai-summary.mock'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
+
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
 const ALLOW_LISTED_PERSON_PROPERTIES = [

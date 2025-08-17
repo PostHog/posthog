@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
+
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,11 +20,11 @@ import { QueryContext } from '~/queries/types'
 
 import {
     AggregationLabel,
+    HoursAbbreviated,
     getColumnAggregationTooltip,
     getDataTooltip,
     getOverallAggregationTooltip,
     getRowAggregationTooltip,
-    HoursAbbreviated,
     rowLabels,
     thresholdFontSize,
 } from './utils'

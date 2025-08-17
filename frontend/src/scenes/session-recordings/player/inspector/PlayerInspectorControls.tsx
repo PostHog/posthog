@@ -1,23 +1,25 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import {
     BaseIcon,
     IconCheck,
+    IconComment,
     IconDashboard,
     IconGear,
     IconInfo,
     IconSearch,
     IconStethoscope,
     IconTerminal,
-    IconComment,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
 import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
-import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { SharedListMiniFilter, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     FilterableInspectorListItemTypes,
     InspectorListItem,
@@ -27,7 +29,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 function sideActionForType({

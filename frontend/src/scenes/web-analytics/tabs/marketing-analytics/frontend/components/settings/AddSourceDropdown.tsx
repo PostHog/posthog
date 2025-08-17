@@ -1,5 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
 interface AddSourceDropdownProps<T> {

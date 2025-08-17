@@ -1,8 +1,9 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 

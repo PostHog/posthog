@@ -1,5 +1,6 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'

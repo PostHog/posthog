@@ -1,15 +1,17 @@
-import { LemonSegmentedButtonOption, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 
 import { IconGraph, IconInfo, IconLineGraph } from '@posthog/icons'
+import { LemonSegmentedButtonOption, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { QueryContext } from '~/queries/types'
-import { AnalyticsQueryResponseBase } from '~/queries/schema/schema-general'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineGraph'
-import { useValues } from 'kea'
+
+import { AnalyticsQueryResponseBase } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
+
+import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 // Simple mapping for the display mode options and their icons
 export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [

@@ -1,6 +1,6 @@
 import '@xyflow/react/dist/style.css'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import dagre from '@dagrejs/dagre'
 import {
     Background,
     BackgroundVariant,
@@ -8,27 +8,29 @@ import {
     Edge,
     Handle,
     MarkerType,
+    MiniMap,
     Node,
     NodeTypes,
     Position,
     ReactFlow,
     ReactFlowProvider,
-    MiniMap,
     useReactFlow,
 } from '@xyflow/react'
-import dagre from '@dagrejs/dagre'
-import { IconArchive, IconTarget, IconPencil } from '@posthog/icons'
-import { LemonTag, LemonTagType, LemonButton } from '@posthog/lemon-ui'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import React, { useEffect, useMemo, useState } from 'react'
+
+import { IconArchive, IconPencil, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { router } from 'kea-router'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { LineageNode as LineageNodeType } from '~/types'
 
-import { multitabEditorLogic } from '../../multitabEditorLogic'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataWarehouseViewsLogic } from '../../../saved_queries/dataWarehouseViewsLogic'
+import { multitabEditorLogic } from '../../multitabEditorLogic'
 
 interface UpstreamGraphProps {
     codeEditorKey: string

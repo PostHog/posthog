@@ -4,9 +4,9 @@
  * Generates highly realistic survey response data to show customers exactly how their
  * survey results will look.
  */
-
 import { dayjs } from 'lib/dayjs'
 import { calculateSurveyRates } from 'scenes/surveys/utils'
+
 import {
     ResponsesByQuestion,
     Survey,
@@ -18,6 +18,7 @@ import {
     SurveyResponseRow,
     SurveyStats,
 } from '~/types'
+
 import { NewSurvey, SURVEY_RATING_SCALE } from '../constants'
 import { processResultsForSurveyQuestions } from '../surveyLogic'
 

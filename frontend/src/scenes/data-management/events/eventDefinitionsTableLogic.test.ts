@@ -1,6 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
