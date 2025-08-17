@@ -1514,6 +1514,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
+    OVERVIEW = 'overview',
     FEED = 'feed',
     EVENTS = 'events',
     EXCEPTIONS = 'exceptions',
