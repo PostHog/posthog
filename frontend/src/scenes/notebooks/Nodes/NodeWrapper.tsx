@@ -1,32 +1,36 @@
-import './NodeWrapper.scss'
+// sort-imports-ignore
 
+// KLUDGE: Do NOT remove the `sort-imports-ignore` comment. It's used to sort the imports.
+// Our KNOWN_NODES resolution will NOT work if the imports here are sorted in a different way.
 import {
     Node,
-    NodeViewProps,
     NodeViewWrapper,
-    ReactNodeViewRenderer,
-    getExtensionField,
     mergeAttributes,
+    ReactNodeViewRenderer,
+    NodeViewProps,
+    getExtensionField,
 } from '@tiptap/react'
-import clsx from 'clsx'
-import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { useInView } from 'react-intersection-observer'
-
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-
-import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import './NodeWrapper.scss'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import { useInView } from 'react-intersection-observer'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import { KNOWN_NODES } from '../utils'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
+import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { notebookNodeLogicType } from './notebookNodeLogicType'
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import posthog from 'posthog-js'
+import { NotebookNodeContext } from './NotebookNodeContext'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -34,12 +38,7 @@ import {
     NotebookNodeProps,
     NotebookNodeResource,
 } from '../types'
-import { KNOWN_NODES } from '../utils'
-import { NotebookNodeContext } from './NotebookNodeContext'
-import { NotebookNodeTitle } from './components/NotebookNodeTitle'
-import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { notebookNodeLogicType } from './notebookNodeLogicType'
-import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
