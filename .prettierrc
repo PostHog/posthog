@@ -8,6 +8,8 @@
     "importOrder": [
         "~/styles$",
         "\\.s?css$",
+        "\\.mocks?$",
+        "\\.spy$",
         "<THIRD_PARTY_MODULES>",
         "^@posthog.*$",
         "^lib/(.*)$|^scenes/(.*)$",

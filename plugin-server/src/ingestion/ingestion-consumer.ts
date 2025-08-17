@@ -33,7 +33,7 @@ import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writ
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
-import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
     applyPersonProcessingRestrictions,

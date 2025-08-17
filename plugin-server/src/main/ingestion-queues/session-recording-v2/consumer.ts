@@ -1,5 +1,5 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
-import { CODES, features, librdkafkaVersion, Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
+import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
@@ -12,7 +12,7 @@ import {
     ValueMatcher,
 } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { logger as logger } from '../../../utils/logger'
+import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'

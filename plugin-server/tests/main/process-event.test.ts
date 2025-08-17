@@ -4,14 +4,14 @@ This file contains a bunch of legacy E2E tests mixed with unit tests.
 Rather than add tests here, consider improving event-pipeline-integration test suite or adding
 unit tests to appropriate classes/functions.
 */
-// sort-imports-ignore
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
 import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { KAFKA_GROUPS } from '~/config/kafka-topics'
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { createRedis } from '~/utils/db/redis'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'
