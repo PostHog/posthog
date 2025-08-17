@@ -21,3 +21,4 @@ common/hogvm/__tests__/__snapshots__/*
 rust/
 livestream/
 cli/target/
+frontend/src/products.tsx
