@@ -77,6 +77,7 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EventDefinition,
+    EventDefinitionMetrics,
     EventDefinitionType,
     EventsListQueryParams,
     EventType,
@@ -1256,6 +1257,10 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
+    }
+
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -1941,6 +1946,13 @@ const api = {
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
+        },
+        async getMetrics({
+            eventDefinitionId,
+        }: {
+            eventDefinitionId: EventDefinition['id']
+        }): Promise<EventDefinitionMetrics> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
@@ -3328,6 +3340,21 @@ const api = {
                 .withAction('jobs')
                 .withQueryString({ before, after })
                 .get()
+        },
+    },
+
+    dataWarehouse: {
+        async total_rows_stats(options?: ApiMethodOptions): Promise<{
+            billingAvailable: boolean
+            billingInterval: string
+            billingPeriodEnd: string
+            billingPeriodStart: string
+            materializedRowsInBillingPeriod: number
+            totalRows: number
+            trackedBillingRows: number
+            pendingBillingRows: number
+        }> {
+            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
     },
 

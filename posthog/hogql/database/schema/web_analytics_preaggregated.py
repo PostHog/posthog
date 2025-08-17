@@ -168,3 +168,33 @@ class WebBouncesCombinedTable(Table):
 
     def to_printed_hogql(self):
         return "web_bounces_combined"
+
+
+class WebPreAggregatedStatsTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_STATS_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_pre_aggregated_stats"
+
+    def to_printed_hogql(self):
+        return "web_pre_aggregated_stats"
+
+
+class WebPreAggregatedBouncesTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_BOUNCES_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_pre_aggregated_bounces"
+
+    def to_printed_hogql(self):
+        return "web_pre_aggregated_bounces"

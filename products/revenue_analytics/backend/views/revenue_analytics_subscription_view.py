@@ -2,7 +2,7 @@ from .revenue_analytics_base_view import RevenueAnalyticsBaseView
 from typing import cast
 from posthog.hogql import ast
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import DatabaseSchemaManagedViewTableKind, SubscriptionDropoffMode
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -70,6 +70,16 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                     ),
                     ast.Alias(alias="min_timestamp", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
                     ast.Alias(alias="max_timestamp", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+                    ast.Alias(
+                        alias="max_timestamp_plus_dropoff_days",
+                        expr=ast.Call(
+                            name="addDays",
+                            args=[
+                                ast.Field(chain=["max_timestamp"]),
+                                ast.Constant(value=event.subscriptionDropoffDays),
+                            ],
+                        ),
+                    ),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 where=events_expr_for_team(team),
@@ -90,8 +100,7 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                     ),
                     ast.Alias(alias="status", expr=ast.Constant(value=None)),
                     ast.Alias(alias="started_at", expr=ast.Field(chain=["min_timestamp"])),
-                    # If the last event is not `event.subscriptionDropoffDays` in the past, consider the subscription to still be active
-                    # Otherwise, consider it ended at the last event
+                    # If has an end date, but it's in the future, then just not include `ended_at`
                     ast.Alias(
                         alias="ended_at",
                         expr=ast.Call(
@@ -99,17 +108,13 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                             args=[
                                 ast.CompareOperation(
                                     op=ast.CompareOperationOp.Gt,
-                                    left=ast.Call(
-                                        name="addDays",
-                                        args=[
-                                            ast.Field(chain=["max_timestamp"]),
-                                            ast.Constant(value=event.subscriptionDropoffDays),
-                                        ],
-                                    ),
+                                    left=ast.Field(chain=["max_timestamp_plus_dropoff_days"]),
                                     right=ast.Call(name="today", args=[]),
                                 ),
                                 ast.Constant(value=None),
-                                ast.Field(chain=["max_timestamp"]),
+                                ast.Field(chain=["max_timestamp"])
+                                if event.subscriptionDropoffMode == SubscriptionDropoffMode.LAST_EVENT
+                                else ast.Field(chain=["max_timestamp_plus_dropoff_days"]),
                             ],
                         ),
                     ),
@@ -173,7 +178,22 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
                 ast.Alias(alias="status", expr=ast.Field(chain=["status"])),
                 ast.Alias(alias="started_at", expr=ast.Field(chain=["created_at"])),
-                ast.Alias(alias="ended_at", expr=ast.Field(chain=["ended_at"])),
+                # If has an end date, but it's in the future, then just not include `ended_at`
+                ast.Alias(
+                    alias="ended_at",
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=["ended_at"]),
+                                right=ast.Call(name="today", args=[]),
+                            ),
+                            ast.Constant(value=None),
+                            ast.Field(chain=["ended_at"]),
+                        ],
+                    ),
+                ),
                 ast.Alias(alias="metadata", expr=ast.Field(chain=["metadata"])),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),

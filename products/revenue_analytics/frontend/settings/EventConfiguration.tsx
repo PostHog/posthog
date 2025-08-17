@@ -1,5 +1,5 @@
 import { IconInfo, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -8,7 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -25,6 +25,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
         updateEventRevenueProperty,
         updateEventSubscriptionProperty,
         updateEventSubscriptionDropoffDays,
+        updateEventSubscriptionDropoffMode,
         save,
     } = useActions(revenueAnalyticsSettingsLogic)
 
@@ -230,28 +231,60 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         title: 'Subscription dropoff in days',
                         tooltip:
                             "The number of days we still consider a subscription to be active after the last event. This is useful to avoid the current month's data to look as if most of the subscriptions have churned since we might not have an event for the current month.",
+                        fullWidth: true,
                         render: (_, item: RevenueAnalyticsEventItem) => {
                             return (
-                                <div className="flex flex-row items-center w-full my-1 gap-2">
-                                    <LemonInput
-                                        type="number"
-                                        min={1}
-                                        max={365}
-                                        value={item.subscriptionProperty ? item.subscriptionDropoffDays : undefined}
-                                        onChange={(value) => {
-                                            if (Number.isNaN(value) || !value || value < 1 || value > 365) {
-                                                value = 45
-                                            }
+                                <div className="flex flex-col w-full whitespace-nowrap my-1 gap-3">
+                                    <div className="flex flex-row items-center w-full gap-2">
+                                        <LemonInput
+                                            type="number"
+                                            size="small"
+                                            className="min-w-16"
+                                            min={1}
+                                            max={365}
+                                            value={item.subscriptionProperty ? item.subscriptionDropoffDays : undefined}
+                                            onChange={(value) => {
+                                                if (Number.isNaN(value) || !value || value < 1 || value > 365) {
+                                                    value = 45
+                                                }
 
-                                            updateEventSubscriptionDropoffDays(item.eventName, Number(value))
-                                        }}
-                                        disabledReason={
-                                            !item.subscriptionProperty
-                                                ? 'Only available when subscription property is set'
-                                                : undefined
-                                        }
-                                    />
-                                    <span>days</span>
+                                                updateEventSubscriptionDropoffDays(item.eventName, Number(value))
+                                            }}
+                                            disabledReason={
+                                                !item.subscriptionProperty
+                                                    ? 'Only available when subscription property is set'
+                                                    : undefined
+                                            }
+                                        />
+                                        <span>days</span>
+                                    </div>
+                                    <div className="flex flex-row items-center w-full gap-2">
+                                        <span className="text-nowrap">Subscription ends</span>
+                                        <LemonSelect<SubscriptionDropoffMode>
+                                            size="small"
+                                            options={[
+                                                {
+                                                    label: 'on the date of the last event',
+                                                    value: 'last_event' as SubscriptionDropoffMode,
+                                                    tooltip: `The subscription will be considered active for ${item.subscriptionDropoffDays} and then will be considered to have ended on the day of the last event (i.e. it will backfill the subscription to the last event altering history). This is useful if you want to keep accurate ARPU calculations, but it might change metrics from past months (users will churn in the past).`,
+                                                },
+                                                {
+                                                    label: 'after the dropoff period',
+                                                    value: 'after_dropoff_period' as SubscriptionDropoffMode,
+                                                    tooltip: `The subscription will be considered to have ended on the day of the last event plus the dropoff period (i.e. ${item.subscriptionDropoffDays} days after the last event). This is useful if you want to make sure past months calculations won't change, but it might decrease ARPU since users will be considered active for longer but without paying.`,
+                                                },
+                                            ]}
+                                            value={item.subscriptionDropoffMode}
+                                            onChange={(value) =>
+                                                updateEventSubscriptionDropoffMode(item.eventName, value)
+                                            }
+                                            disabledReason={
+                                                !item.subscriptionProperty
+                                                    ? 'Only available when subscription property is set'
+                                                    : undefined
+                                            }
+                                        />
+                                    </div>
                                 </div>
                             )
                         },

@@ -23,6 +23,7 @@ from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
 from posthog.schema import SharingConfigurationSettings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -385,6 +386,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             InsightViewed.objects.update_or_create(
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
+
+            log_event_usage_from_insight(
+                resource.insight,
+                team_id=resource.team.pk,
+                user_id=self.request.user.pk if self.request.user.is_authenticated else None,
+            )
+
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
@@ -395,6 +403,17 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_description = resource.dashboard.description or ""
             resource.dashboard.last_accessed_at = now()
             resource.dashboard.save(update_fields=["last_accessed_at"])
+
+            insights = (
+                Insight.objects.filter(dashboard_tiles__dashboard=resource.dashboard).distinct().only("query_metadata")
+            )
+            for insight in insights.iterator(chunk_size=100):
+                log_event_usage_from_insight(
+                    insight,
+                    team_id=resource.team.pk,
+                    user_id=self.request.user.pk if self.request.user.is_authenticated else None,
+                )
+
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint

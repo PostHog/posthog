@@ -1423,6 +1423,7 @@ impl FeatureFlagMatcher {
             // i just want to be able to differentiate between no properties because we fetched no properties,
             // and no properties because we failed to fetch
             // maybe I need a fetch indicator in the cache?
+            tracing::warn!("Person properties not found in evaluation state cache");
             Err(FlagError::PersonNotFound)
         }
     }

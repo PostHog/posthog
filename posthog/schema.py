@@ -2463,6 +2463,11 @@ class StickinessOperator(StrEnum):
     EXACT = "exact"
 
 
+class SubscriptionDropoffMode(StrEnum):
+    LAST_EVENT = "last_event"
+    AFTER_DROPOFF_PERIOD = "after_dropoff_period"
+
+
 class SuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4137,6 +4142,14 @@ class RevenueAnalyticsEventItem(BaseModel):
             "The number of days we still consider a subscription to be active after the last event. This is useful to"
             " avoid the current month's data to look as if most of the subscriptions have churned since we might not"
             " have an event for the current month."
+        ),
+    )
+    subscriptionDropoffMode: Optional[SubscriptionDropoffMode] = Field(
+        default=SubscriptionDropoffMode.LAST_EVENT,
+        description=(
+            "After a subscription has dropped off, when should we consider it to have ended? It should either be at the"
+            " date of the last event (will alter past periods, the default), or at the date of the last event plus the"
+            " dropoff period."
         ),
     )
     subscriptionProperty: Optional[str] = Field(

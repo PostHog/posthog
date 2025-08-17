@@ -5,7 +5,7 @@ import pydantic_core
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets, status
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -611,6 +611,25 @@ class DashboardsViewSet(
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    # ******************************************
+    # /projects/:id/dashboard/:id/viewed
+    # ******************************************
+    @action(methods=["POST"], detail=True)
+    def viewed(self, *args: Any, **kwargs: Any) -> Response:
+        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
+
+        insights = (
+            Insight.objects.filter(dashboard_tiles__dashboard=self.get_object()).distinct().only("query_metadata")
+        )
+        for insight in insights.iterator(chunk_size=100):
+            log_event_usage_from_insight(
+                insight,
+                team_id=self.team_id,
+                user_id=self.request.user.pk,
+            )
+
+        return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["PATCH"], detail=True)
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
