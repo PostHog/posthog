@@ -3,6 +3,7 @@ import time
 from typing import Optional
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+import threading
 from django.core.cache import cache
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
@@ -41,6 +42,24 @@ class HyperCacheStoreMissing:
 
 # Custom key type for the hypercache
 KeyType = Team | str | int
+
+
+# Shared thread pool to reduce resource usage from multiple ThreadPoolExecutor instances
+_S3_WRITE_EXECUTOR_LOCK = threading.Lock()
+_S3_WRITE_EXECUTOR = None
+
+
+def _get_s3_write_executor():
+    """Get or create a shared ThreadPoolExecutor for S3 writes to reduce resource usage."""
+    global _S3_WRITE_EXECUTOR
+    if _S3_WRITE_EXECUTOR is None:
+        with _S3_WRITE_EXECUTOR_LOCK:
+            if _S3_WRITE_EXECUTOR is None:
+                _S3_WRITE_EXECUTOR = ThreadPoolExecutor(
+                    max_workers=4,  # Reasonable limit for S3 writes
+                    thread_name_prefix="hypercache-s3-shared"
+                )
+    return _S3_WRITE_EXECUTOR
 
 
 class HyperCache:
@@ -201,14 +220,20 @@ class HyperCache:
                     error_type=type(e).__name__,
                     error=str(e),
                     write_duration_ms=write_duration,
-                    data_present=data is not None and not isinstance(data, HyperCacheStoreMissing)
+                    data_present=data is not None and not isinstance(data, HyperCacheStoreMissing),
+                    operation="s3_write",
+                    aws_error_code=getattr(e, 'response', {}).get('Error', {}).get('Code', 'unknown') if hasattr(e, 'response') else 'unknown',
+                    http_status_code=getattr(e, 'response', {}).get('ResponseMetadata', {}).get('HTTPStatusCode', 0) if hasattr(e, 'response') else 0
                 )
                 capture_exception(e, extra_data={
                     "namespace": self.namespace,
                     "value": self.value,
                     "cache_key": self.get_cache_key(key),
                     "operation": "hypercache_s3_async_write",
-                    "write_duration_ms": write_duration
+                    "write_duration_ms": write_duration,
+                    "aws_error_code": getattr(e, 'response', {}).get('Error', {}).get('Code', 'unknown') if hasattr(e, 'response') else 'unknown',
+                    "http_status_code": getattr(e, 'response', {}).get('ResponseMetadata', {}).get('HTTPStatusCode', 0) if hasattr(e, 'response') else 0,
+                    "request_id": getattr(e, 'response', {}).get('ResponseMetadata', {}).get('RequestId', 'unknown') if hasattr(e, 'response') else 'unknown'
                 })
             except Exception as e:
                 # General exception handling
@@ -221,7 +246,8 @@ class HyperCache:
                     error_type=type(e).__name__,
                     error=str(e),
                     write_duration_ms=write_duration,
-                    data_present=data is not None and not isinstance(data, HyperCacheStoreMissing)
+                    data_present=data is not None and not isinstance(data, HyperCacheStoreMissing),
+                    stack_trace=str(e.__traceback__) if hasattr(e, '__traceback__') else None
                 )
                 capture_exception(e, extra_data={
                     "namespace": self.namespace,
@@ -231,11 +257,24 @@ class HyperCache:
                     "write_duration_ms": write_duration
                 })
         
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hypercache-s3")
+        # Use shared thread pool instead of creating new ones to reduce resource usage
+        executor = _get_s3_write_executor()
         try:
             future = executor.submit(_s3_write_task)
-            # Store executor reference to ensure proper cleanup
-            future.add_done_callback(lambda f: executor.shutdown(wait=False))
+            # Add callback for error logging if the future fails
+            def _handle_future_result(f):
+                try:
+                    f.result(timeout=0.1)  # Short timeout to avoid blocking
+                except Exception as e:
+                    logger.warning(
+                        "hypercache_s3_async_future_exception",
+                        namespace=self.namespace,
+                        value=self.value,
+                        cache_key=self.get_cache_key(key),
+                        error_type=type(e).__name__,
+                        error=str(e)
+                    )
+            future.add_done_callback(_handle_future_result)
         except Exception as e:
             logger.error(
                 "hypercache_s3_async_submit_failed",
@@ -243,7 +282,12 @@ class HyperCache:
                 value=self.value,
                 cache_key=self.get_cache_key(key),
                 error_type=type(e).__name__,
-                error=str(e)
+                error=str(e),
+                executor_state="shared_pool"
             )
-            capture_exception(e)
-            executor.shutdown(wait=False)
+            capture_exception(e, extra_data={
+                "namespace": self.namespace,
+                "value": self.value,
+                "cache_key": self.get_cache_key(key),
+                "operation": "hypercache_s3_async_submit"
+            })
