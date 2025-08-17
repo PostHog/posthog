@@ -56,7 +56,7 @@ class MatrixManager:
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
-        if existing_user is None or email_collision_handling == "log_in":
+        if existing_user is None or email_collision_handling == "disambiguate":
             if existing_user is not None:
                 print(f"User {email} already exists, trying to find a unique email...")
                 original_user, domain = email.split("@")
