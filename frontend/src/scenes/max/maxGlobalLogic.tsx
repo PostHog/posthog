@@ -33,6 +33,8 @@ export const STATIC_TOOLS: ToolRegistration[] = [
                 throw new Error(`${pageKey} not in urls`)
             }
             const url = urls[pageKey as AssistantNavigateUrls]()
+            // Include the conversation ID and panel to ensure the side panel is open
+            // (esp. when the navigate tool is used from the full-page Max)
             router.actions.push(url, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
             // First wait for navigation to complete
             await new Promise<void>((resolve, reject) => {
