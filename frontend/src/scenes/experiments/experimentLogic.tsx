@@ -70,11 +70,10 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 import {
-    EXPERIMENT_MAX_PRIMARY_METRICS,
-    EXPERIMENT_MAX_SECONDARY_METRICS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     MetricInsightId,
 } from './constants'
+import { getMetricLimits } from './hooks/useMetricLimits'
 import {
     conversionRateForVariant,
     expectedRunningTime,
@@ -664,21 +663,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return state
                     }
 
-                    // Check if duplicating would exceed the 10 metric limit
-                    const currentMetricCount = metrics.length
-                    const sharedMetricsCount =
-                        state?.saved_metrics?.filter(
-                            (savedMetric) => savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary')
-                        ).length || 0
-                    const totalMetricCount = currentMetricCount + sharedMetricsCount
-
-                    if (
-                        totalMetricCount >=
-                        (!isSecondary ? EXPERIMENT_MAX_PRIMARY_METRICS : EXPERIMENT_MAX_SECONDARY_METRICS)
-                    ) {
-                        // Return state unchanged if limit would be exceeded
-                        return state
-                    }
+                    // Note: Limit validation is handled in the duplicateMetric listener
 
                     const name = originalMetric.name
                         ? `${originalMetric.name} (copy)`
@@ -1333,6 +1318,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
+        duplicateMetric: ({ metricIndex: _, isSecondary }) => {
+            // Validate metric limits before allowing duplication
+            const { metricLimits } = values
+            const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+            const currentMetricCount = values.experiment?.[metricsKey]?.length || 0
+            const sharedMetricsCount = values.experiment?.saved_metrics?.filter(
+                (savedMetric) => savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary')
+            ).length || 0
+            const totalMetricCount = currentMetricCount + sharedMetricsCount
+            const maxMetrics = isSecondary ? metricLimits.secondary : metricLimits.primary
+
+            if (totalMetricCount >= maxMetrics) {
+                lemonToast.error(
+                    `You can only have up to ${maxMetrics} ${isSecondary ? 'secondary' : 'primary'} metrics.`
+                )
+                return
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -1909,6 +1912,10 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment: Experiment): ExperimentStatsMethod => {
                 return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
             },
+        ],
+        metricLimits: [
+            () => [teamLogic.selectors.currentTeamId],
+            (currentTeamId: number | null): { primary: number; secondary: number } => getMetricLimits(currentTeamId),
         ],
     }),
     forms(({ actions, values, props }) => ({
