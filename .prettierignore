@@ -21,4 +21,5 @@ common/hogvm/__tests__/__snapshots__/*
 rust/
 livestream/
 cli/target/
+cli/tests/_cases/**/*
 frontend/src/products.tsx

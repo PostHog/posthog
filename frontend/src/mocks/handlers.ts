@@ -1,5 +1,3 @@
-import { ResponseComposition, RestContext, RestRequest } from 'msw'
-
 import {
     MOCK_DATA_COLOR_THEMES,
     MOCK_DEFAULT_COHORT,
@@ -13,6 +11,8 @@ import {
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
 } from 'lib/api.mock'
+
+import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
 import { SharingConfigurationType } from '~/types'
 

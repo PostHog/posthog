@@ -1,8 +1,9 @@
+import { api } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
-import { api } from 'lib/api.mock'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'

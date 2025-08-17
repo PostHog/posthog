@@ -1,9 +1,20 @@
+import {
+    CONVERSATION_ID,
+    chatResponseChunk,
+    chatResponseWithEventContext,
+    failureChunk,
+    formChunk,
+    generationFailureChunk,
+    humanMessage,
+    longResponseChunk,
+} from './__mocks__/chatResponse.mocks'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -15,16 +26,6 @@ import { InsightShortId } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { MaxFloatingInput } from './MaxFloatingInput'
-import {
-    CONVERSATION_ID,
-    chatResponseChunk,
-    chatResponseWithEventContext,
-    failureChunk,
-    formChunk,
-    generationFailureChunk,
-    humanMessage,
-    longResponseChunk,
-} from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'

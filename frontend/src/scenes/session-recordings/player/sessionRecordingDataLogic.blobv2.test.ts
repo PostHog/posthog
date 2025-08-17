@@ -1,8 +1,9 @@
+import { api } from 'lib/api.mock'
+
 import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
 import { join } from 'path'
 
-import { api } from 'lib/api.mock'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'

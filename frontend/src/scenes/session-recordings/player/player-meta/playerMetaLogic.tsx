@@ -1,3 +1,5 @@
+import { aiSummaryMock } from './ai-summary.mock'
+
 import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
@@ -24,7 +26,6 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
-import { aiSummaryMock } from './ai-summary.mock'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
 

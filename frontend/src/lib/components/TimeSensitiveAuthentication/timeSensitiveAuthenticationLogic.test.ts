@@ -1,6 +1,7 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { userLogic } from 'scenes/userLogic'

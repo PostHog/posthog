@@ -1,7 +1,8 @@
+import { MOCK_TEAM_ID, api } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'

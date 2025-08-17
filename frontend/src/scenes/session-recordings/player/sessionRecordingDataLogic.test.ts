@@ -1,8 +1,9 @@
+import { api } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
-import { api } from 'lib/api.mock'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'

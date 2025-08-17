@@ -1,7 +1,8 @@
-import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { URL, fileURLToPath } from 'node:url'
 import { resolve } from 'path'
-import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vite'
+
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
 import { htmlGenerationPlugin } from './vite-html-plugin'
 import { publicAssetsPlugin } from './vite-public-assets-plugin'

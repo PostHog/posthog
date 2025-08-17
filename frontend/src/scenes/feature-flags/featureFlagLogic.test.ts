@@ -1,6 +1,6 @@
-import { expectLogic, partial } from 'kea-test-utils'
-
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
+import { expectLogic, partial } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
