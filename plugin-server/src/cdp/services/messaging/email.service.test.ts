@@ -1,4 +1,4 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { closeHub, createHub } from '~/utils/db/hub'

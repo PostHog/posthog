@@ -1,4 +1,4 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
