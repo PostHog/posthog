@@ -3,11 +3,16 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { ENTITY_MATCH_TYPE } from 'lib/constants'
+import { CohortTypeEnum, ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
-import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
+import {
+    NEW_COHORT,
+    NEW_CRITERIA,
+    NEW_CRITERIA_GROUP,
+    getDefaultCriteriaForCohortType,
+} from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
@@ -37,6 +42,7 @@ import {
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
@@ -48,11 +54,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
 
     actions({
         saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
+        setCohortType: (cohortType: CohortTypeEnum) => ({ cohortType }),
         deleteCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
         setCohortMissing: true,
@@ -78,6 +86,34 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         cohort: [
             NEW_COHORT,
             {
+                setCohortType: (state, { cohortType }) => {
+                    // Update cohort type first
+                    const stateWithNewType = {
+                        ...state,
+                        cohort_type: cohortType,
+                    }
+
+                    // Static cohorts don't have filters to update
+                    if (!cohortType || cohortType === 'static') {
+                        return stateWithNewType
+                    }
+
+                    // For non-static cohorts, reset the first criteria to the cohort type's default
+                    // Only do this if we have an existing filter structure
+                    const firstGroup = state.filters?.properties?.values?.[0]
+                    if (!firstGroup || !('values' in firstGroup) || !firstGroup.values?.[0]) {
+                        return stateWithNewType
+                    }
+
+                    const defaultCriteria = getDefaultCriteriaForCohortType(cohortType)
+
+                    // Use the existing helper to update just the first criteria
+                    return applyAllNestedCriteria(
+                        stateWithNewType,
+                        (criteriaList) => [{ ...criteriaList[0], ...defaultCriteria }, ...criteriaList.slice(1)],
+                        0 // Update first group
+                    )
+                },
                 setOuterGroupsType: (state, { type }) => ({
                     ...state,
                     filters: {
@@ -412,9 +448,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         saveCohortSuccess: () => urls.cohort(values.cohort.id),
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values }) => {
         if (!props.id || props.id === 'new') {
-            actions.setCohort(NEW_COHORT)
+            // If explicit cohort types flag is enabled, set default cohort_type
+            const explicitCohortTypes = values.featureFlags?.[FEATURE_FLAGS.EXPLICIT_COHORT_TYPES]
+            const cohortWithDefaults = explicitCohortTypes
+                ? { ...NEW_COHORT, cohort_type: CohortTypeEnum.Behavioral }
+                : NEW_COHORT
+            actions.setCohort(cohortWithDefaults)
         } else {
             actions.fetchCohort(props.id)
         }

@@ -279,6 +279,7 @@ export const FEATURE_FLAGS = {
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     SCENE_TABS: 'scene-tabs', // owner @mariusandra #team-devex
     FEATURE_FLAGS_FLAG_DEPENDENCY: 'feature-flags-flag-dependency', // owner: @haacked #team-feature-flags
+    EXPLICIT_COHORT_TYPES: 'explicit-cohort-types', // owner: @dylan #team-feature-flags
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -331,9 +332,18 @@ export const BIN_COUNT_AUTO = 'auto' as const
 export const RETENTION_MEAN_NONE = 'none' as const
 
 // Cohort types
-export enum CohortTypeEnum {
+// Simple cohort types for the old UI (is_static field)
+export enum SimpleCohortType {
     Static = 'static',
     Dynamic = 'dynamic',
+}
+
+// Full cohort types for the new UI (cohort_type field)
+export enum CohortTypeEnum {
+    Static = 'static',
+    PersonProperty = 'person_property',
+    Behavioral = 'behavioral',
+    Analytical = 'analytical',
 }
 
 /**

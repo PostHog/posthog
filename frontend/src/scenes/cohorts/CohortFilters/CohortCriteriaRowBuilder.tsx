@@ -12,7 +12,7 @@ import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, CohortType, FilterLogicalOperator } from '~/types'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -23,6 +23,8 @@ export interface CohortCriteriaRowBuilderProps {
     logicalOperator: FilterLogicalOperator
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
+    cohort?: CohortType
+    explicitCohortTypes?: boolean | string
 }
 
 export function CohortCriteriaRowBuilder({
@@ -34,24 +36,25 @@ export function CohortCriteriaRowBuilder({
     criteria,
     hideDeleteIcon = false,
     onChangeType,
+    cohort,
+    explicitCohortTypes,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
     const rowShape = ROWS[type]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
-        return (
-            <div key={_field.fieldKey ?? i}>
-                {renderField[_field.type]({
-                    fieldKey: _field.fieldKey,
-                    criteria,
-                    ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
-                    ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
-                    onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
-                    groupIndex,
-                    index,
-                } as CohortFieldProps)}
-            </div>
-        )
+        const fieldProps = {
+            fieldKey: _field.fieldKey,
+            criteria,
+            cohort,
+            explicitCohortTypes,
+            ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
+            ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
+            onChange: (newCriteria: AnyCohortCriteriaType) => setCriteria(newCriteria, groupIndex, index),
+            groupIndex,
+            index,
+        }
+        return <div key={_field.fieldKey ?? i}>{renderField[_field.type](fieldProps as CohortFieldProps)}</div>
     }
 
     return (
@@ -103,7 +106,9 @@ export function CohortCriteriaRowBuilder({
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
-                                        onChange: (newCriteria) => {
+                                        cohort,
+                                        explicitCohortTypes: !!explicitCohortTypes,
+                                        onChange: (newCriteria: AnyCohortCriteriaType) => {
                                             setCriteria(cleanCriteria(newCriteria, true), groupIndex, index)
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
                                         },
