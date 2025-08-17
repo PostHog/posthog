@@ -18,6 +18,7 @@ import { uuidFromDistinctId } from '../../person-uuid'
 import { UUIDT } from '~/utils/utils'
 import { CreatePersonResult } from  '../../../../utils/db/db'
 import { PostgresPersonRepository } from './postgres-person-repository'
+import { AnyTypeAnnotation } from '@babel/types'
 
 jest.mock('../../../../utils/logger')
 
@@ -27,6 +28,13 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     let migrationPostgres: PostgresRouter
     let dualWriteRepository: PostgresDualWritePersonRepository
     let singleWriteRepository: PostgresPersonRepository
+
+    // Common test constants
+    const TEST_UUIDS = {
+        single: '11111111-1111-1111-1111-111111111111',
+        dual: '22222222-2222-2222-2222-222222222222',
+    }
+    const TEST_TIMESTAMP = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
     async function setupMigrationDb(): Promise<void> {
         // Drop relevant tables to start clean, then re-create schema from SQL
@@ -100,6 +108,124 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         expect(primary.rows).toEqual(secondary.rows)
     }
 
+    // Helper to create persons in both repositories with consistent test data
+    async function createPersonsInBothRepos(
+        team: Team,
+        properties: Record<string, any> = { name: 'A' },
+        singleDistinctId: string = 'single-a',
+        dualDistinctId: string = 'dual-a',
+        createdAt: DateTime = TEST_TIMESTAMP,
+        singleUuid: string = TEST_UUIDS.single,
+        dualUuid: string = TEST_UUIDS.dual
+    ) {
+        const [singleResult, dualResult] = await Promise.all([
+            singleWriteRepository.createPerson(
+                createdAt,
+                properties,
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                singleUuid,
+                [{ distinctId: singleDistinctId, version: 0 }]
+            ),
+            dualWriteRepository.createPerson(
+                createdAt,
+                properties,
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                dualUuid,
+                [{ distinctId: dualDistinctId, version: 0 }]
+            )
+        ])
+        return { singleResult, dualResult }
+    }
+
+    // Helper to mock database errors for testing error handling consistency
+    function mockDatabaseError(
+        router: PostgresRouter,
+        error: Error | { message: string; code?: string },
+        tagPattern: string | RegExp
+    ) {
+        const originalQuery = router.query.bind(router)
+        return jest.spyOn(router, 'query').mockImplementation((use: any, text: any, params: any, tag: string) => {
+            const shouldThrow = typeof tagPattern === 'string' 
+                ? tag && tag.startsWith(tagPattern)
+                : tag && tagPattern.test(tag)
+            
+            if (shouldThrow) {
+                if (error instanceof Error) {
+                    throw error
+                } else {
+                    const e: any = new Error(error.message)
+                    if (error.code) e.code = error.code
+                    throw e
+                }
+            }
+            return originalQuery(use, text, params, tag)
+        })
+    }
+
+    // Helper to assert that both repositories throw similar
+    // errors when encountering a database error
+    async function assertConsistentDatabaseErrorHandling<T>(
+        error: Error | { message: string; code?: string },
+        tagPattern: string | RegExp,
+        singleWriteOperation: () => Promise<T>,
+        dualWriteOperation: () => Promise<T>,
+        expectedError?: string | RegExp | typeof Error
+    ) {
+        // Test single write repository
+        const singleSpy = mockDatabaseError(postgres, error, tagPattern)
+        let singleError: any
+        try {
+            await singleWriteOperation()
+        } catch (e) {
+            singleError = e
+        }
+        singleSpy.mockRestore()
+
+        // Test dual write repository
+        const dualSpy = mockDatabaseError(postgres, error, tagPattern)
+        let dualError: any
+        try {
+            await dualWriteOperation()
+        } catch (e) {
+            dualError = e
+        }
+        dualSpy.mockRestore()
+
+        // Both should handle the error the same way
+        if (expectedError) {
+            expect(singleError).toBeDefined()
+            expect(dualError).toBeDefined()
+            
+            if (typeof expectedError === 'string') {
+                expect(singleError.message).toContain(expectedError)
+                expect(dualError.message).toContain(expectedError)
+            } else if (expectedError instanceof RegExp) {
+                expect(singleError.message).toMatch(expectedError)
+                expect(dualError.message).toMatch(expectedError)
+            } else {
+                expect(singleError).toBeInstanceOf(expectedError)
+                expect(dualError).toBeInstanceOf(expectedError)
+            }
+        } else {
+            // Both should throw the same error
+            expect(singleError).toBeDefined()
+            expect(dualError).toBeDefined()
+            expect(singleError.message).toBe(dualError.message)
+            if ((error as any).code) {
+                expect(singleError.code).toBe((error as any).code)
+                expect(dualError.code).toBe((error as any).code)
+            }
+        }
+    }
+
 
 
     beforeEach(async () => {
@@ -144,31 +270,28 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('happy path createPerson()', async () => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
-            const uuid2 = '22222222-2222-2222-2222-222222222222'
-
+            
             const singleResult = await singleWriteRepository.createPerson(
-                createdAt,
+                TEST_TIMESTAMP,
                 { name: 'Bob' },
                 {},
                 {},
                 team.id,
                 null,
                 true,
-                uuid,
+                TEST_UUIDS.single,
                 [{ distinctId: 'single-a', version: 0 }]
             )
 
             const dualResult = await dualWriteRepository.createPerson(
-                createdAt,
+                TEST_TIMESTAMP,
                 { name: 'Bob' },
                 {},
                 {},
                 team.id,
                 null,
                 true,
-                uuid2,
+                TEST_UUIDS.dual,
                 [{ distinctId: 'dual-a', version: 0 }]
             )
 
@@ -178,7 +301,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [uuid2],
+                [TEST_UUIDS.dual],
                 'verify-primary-create',
                 'verify-secondary-create'
             )
@@ -186,38 +309,40 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('createPerson() PersonPropertiesSizeViolation', async () => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
 
-            const spy = jest
-                .spyOn((singleWriteRepository as any), 'createPerson')
-                .mockRejectedValue(new PersonPropertiesSizeViolationError('too big', team.id, undefined))
+            const singleSpy = mockDatabaseError(postgres, new PersonPropertiesSizeViolationError('too big', team.id, undefined), 'insertPerson')
+            let singleError: any
+            try {
+                await singleWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.single, [{ distinctId: 'single-a', version: 0 }])
+            } catch (e) {
+                singleError = e
+            }
+            singleSpy.mockRestore()
 
-            const dualSpy = jest
-                .spyOn((dualWriteRepository as any).primaryRepo, 'createPerson')
-                .mockRejectedValue(new PersonPropertiesSizeViolationError('too big', team.id, undefined))
-
-            // Single write throws; contract is the same
-            await expect(singleWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'single-a', version: 0 }])).rejects.toThrow(PersonPropertiesSizeViolationError)
-
-            spy.mockRestore()
-            // Dual write throws; contract is the same
-            await expect(dualWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'dual-a', version: 0 }])).rejects.toThrow(PersonPropertiesSizeViolationError)
+            const dualSpy = mockDatabaseError(migrationPostgres, new PersonPropertiesSizeViolationError('too big', team.id, undefined), 'insertPerson')
+            let dualError: any
+            try {
+                await dualWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.dual, [{ distinctId: 'dual-a', version: 0 }])
+            } catch (e) {
+                dualError = e
+            }
             dualSpy.mockRestore()
+
+            expect(singleError).toEqual(dualError)
 
             // Database results are consistent
             assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [uuid],
+                [TEST_UUIDS.single],
                 'verify-primary-create',
                 'verify-secondary-create'
             )
         })
+
         it('createPerson() CreationConflict', async () => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const distinctId = 'primary-conflict-distinct'
 
             // seed the primary database with a person with the above distinctId
@@ -241,8 +366,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             expect(seedP.rows.length).toBe(1)
 
             // both single and dual write should conflict when we try to create a person with the same distinctId
-            const singleResult = await singleWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuidFromDistinctId(team.id, distinctId), [{ distinctId, version: 0 }])
-            const dualResult = await dualWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuidFromDistinctId(team.id, distinctId), [{ distinctId, version: 0 }])
+            const singleResult = await singleWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, uuidFromDistinctId(team.id, distinctId), [{ distinctId, version: 0 }])
+            const dualResult = await dualWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, uuidFromDistinctId(team.id, distinctId), [{ distinctId, version: 0 }])
 
             assertCreatePersonConflictContractParity(singleResult, dualResult)
 
@@ -257,28 +382,19 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         })
         it('createPerson() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
 
-            const spy = jest
-                .spyOn((singleWriteRepository as any), 'createPerson')
-                .mockRejectedValue(new Error('unhandled error'))
-
-            const dualSpy = jest
-                .spyOn((dualWriteRepository as any).primaryRepo, 'createPerson')
-                .mockRejectedValue(new Error('unhandled error'))
-
-            await expect(singleWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'single-a', version: 0 }])).rejects.toThrow(Error)
-            spy.mockRestore()
-
-            await expect(dualWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'dual-a', version: 0 }])).rejects.toThrow(Error)
-            dualSpy.mockRestore()
-
+            await assertConsistentDatabaseErrorHandling(
+                new Error('unhandled database error'),
+                'insertPerson',
+                () => singleWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.single, [{ distinctId: 'single-a', version: 0 }]),
+                () => dualWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.single, [{ distinctId: 'dual-a', version: 0 }]),
+                'unhandled database error'
+            )
             assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [uuid],
+                [TEST_UUIDS.single],
                 'verify-primary-create',
                 'verify-secondary-create'
             )
@@ -292,12 +408,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         }
         it('happy path updatePerson()', async () => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
-            const uuid2 = '22222222-2222-2222-2222-222222222222'
-
-            const singleCreatePersonResult = await singleWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'single-a', version: 0 }])
-            const dualCreatePersonResult = await dualWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid2, [{ distinctId: 'dual-a', version: 0 }])
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
 
             const singleUpdateResult = await singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update')
             const dualUpdateResult = await dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update')
@@ -306,50 +417,120 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [uuid2],
+                [TEST_UUIDS.dual],
                 'verify-primary-update',
                 'verify-secondary-update'
             )
         })
         it('updatePerson() unhandled database error', async() => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
-            // NICKS TODO: change name/move these to the class or something
-            const uuid2 = '22222222-2222-2222-2222-222222222222'
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
 
-            const singleCreatePersonResult = await singleWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'single-a', version: 0 }])
-            const dualCreatePersonResult = await dualWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid2, [{ distinctId: 'dual-a', version: 0 }])
+            // Test that both repositories handle database errors consistently
+            await assertConsistentDatabaseErrorHandling(
+                new Error('unhandled database error'),
+                'updatePerson',
+                () => singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update'),
+                () => dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update'),
+                'unhandled database error'
+            )
 
-            // NICKS TODO: we need to actually mock out the DB funciton call as an error not 
-            // the updatePerson functionn
-            // This isn't testing that the contract for single write and dual write are the same
-            // because we are just mocking the updatePerson function
-            // Similar updates to do for the other tests that use this method
-            const spy = jest.spyOn((singleWriteRepository as any), 'updatePerson').mockRejectedValue(new Error('unhandled error'))
-            const dualSpy = jest.spyOn((dualWriteRepository as any).primaryRepo, 'updatePerson').mockRejectedValue(new Error('unhandled error'))
+            // Verify that the database state remains consistent (no partial updates)
+            assertConsistencyAcrossDatabases(
+                postgres,
+                migrationPostgres,
+                'SELECT * FROM posthog_person WHERE uuid = $1',
+                [TEST_UUIDS.dual],
+                'verify-primary-update',
+                'verify-secondary-update'
+            )
+        })
+        it('updatePerson() PersonPropertiesSizeViolation update attempts to violate the limit', async() => {
+            const team = await getFirstTeam(postgres)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
 
-            await expect(singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update')).rejects.toThrow(Error)
-            spy.mockRestore()
-
-            await expect(dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update')).rejects.toThrow(Error)
-            dualSpy.mockRestore()
+            // NICKS TODO: we need to fix this, it should throw the check_properties_size constraint/code error
+            // that the database throws when we try to update a person that is already oversized
+            assertConsistentDatabaseErrorHandling(
+                new PersonPropertiesSizeViolationError('PersonPropertiesSizeViolation', team.id, undefined),
+                'updatePerson',
+                () => singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update'),
+                () => dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update'),
+                'PersonPropertiesSizeViolation'
+            )
 
             assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [uuid2],
+                [TEST_UUIDS.dual],
                 'verify-primary-update',
                 'verify-secondary-update'
             )
         })
-        // NICKS TODO: do this test and other PersonPropertiesSizeViolation (where create wasn't already over the limit)
         it('updatePerson() PersonPropertiesSizeViolation existing properties trimmed', async() => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
-            const uuid2 = '22222222-2222-2222-2222-222222222222'
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+
+            // we need custom database error mocking here, cause it's a special case
+
+            // Force remediation branch by reporting the current record is already oversized
+            const spySizeSingle = jest
+                .spyOn((singleWriteRepository as any), 'personPropertiesSize')
+                .mockResolvedValue(70000000)
+
+            const spySizeDual = jest
+                .spyOn((dualWriteRepository as any).primaryRepo, 'personPropertiesSize')
+                .mockResolvedValue(70000000)
+            
+            const originalQueryPrimary = postgres.query.bind(postgres)
+            let primaryUpdateCallCount = 0
+            let sawRemediationTag = false
+            const mockQueryPrimary = jest
+                .spyOn(postgres, 'query')
+                .mockImplementation(async (use, query, values, tag) => {
+                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
+                        primaryUpdateCallCount++
+                        if (typeof tag === 'string' && tag.includes('oversized_properties_remediation')) {
+                            sawRemediationTag = true
+                            // allow remediation UPDATE to succeed
+                            return originalQueryPrimary(use, query, values, tag)
+                        }
+                        // First UPDATE attempt fails with size violation
+                        const error: any = new Error('Check constraint violation')
+                        error.code = '23514'
+                        error.constraint = 'check_properties_size'
+                        throw error
+                    }
+                    return originalQueryPrimary(use, query, values, tag)
+                })
+            
+            const updateToApply = {
+                properties: {
+                    $app_name: 'Application name with detailed information',
+                    $app_version: 'Version 1.2.3 with build metadata',
+                },
+            }
+            const singleUpdateResult = await singleWriteRepository.updatePerson(singleCreatePersonResult.person, updateToApply, 'single-update')
+            const dualUpdateResult = await dualWriteRepository.updatePerson(dualCreatePersonResult.person, updateToApply, 'dual-update')
+
+            // both single and primary called update twice
+            expect(primaryUpdateCallCount).toBe(4)
+            expect(sawRemediationTag).toBe(true)
+
+            assertUpdatePersonContractParity(singleUpdateResult, dualUpdateResult)
+
+            assertConsistencyAcrossDatabases(
+                postgres,
+                migrationPostgres,
+                'SELECT * FROM posthog_person WHERE uuid = $1',
+                [TEST_UUIDS.dual],
+                'verify-primary-update',
+                'verify-secondary-update'
+            )
+            mockQueryPrimary.mockRestore()
+            spySizeSingle.mockRestore()
+            spySizeDual.mockRestore()
         })
     })
 
@@ -361,12 +542,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         }
         it('happy path deletePerson()', async() => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
-            const uuid2 = '22222222-2222-2222-2222-222222222222'
-
-            const singleCreatePersonResult = await singleWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'single-a', version: 0 }])
-            const dualCreatePersonResult = await dualWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid2, [{ distinctId: 'dual-a', version: 0 }])
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
 
             const singleDeleteResult = await singleWriteRepository.deletePerson(singleCreatePersonResult.person)
             const dualDeleteResult = await dualWriteRepository.deletePerson(dualCreatePersonResult.person)
@@ -377,54 +553,40 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [uuid2],
+                [TEST_UUIDS.dual],
                 'verify-primary-delete',
                 'verify-secondary-delete'
             )
         })
         it('deletePerson() unhandled database error', async() => {
             const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
-            const uuid2 = '22222222-2222-2222-2222-222222222222'
-        })
-        it('deletePerson() deadlock detected', async() => {
-            const team = await getFirstTeam(postgres)
-            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
-            const uuid = '11111111-1111-1111-1111-111111111111'
-            const uuid2 = '22222222-2222-2222-2222-222222222222'
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
 
-
-            const singleCreatePersonResult = await singleWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [{ distinctId: 'single-a', version: 0 }])
-            const dualCreatePersonResult = await dualWriteRepository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid2, [{ distinctId: 'dual-a', version: 0 }])
-
-            const originalPrimaryQuery = postgres.query.bind(postgres)
-            const primaryDeadlock = jest.spyOn(postgres, 'query').mockImplementation((use: any, text: any, params: any, tag: string) => {
-                if (tag === 'deletePerson') {
-                    const e: any = new Error('deadlock detected')
-                    e.code = '40P01'
-                    throw e
-                }
-                return originalPrimaryQuery(use, text, params, tag)
-            })
-
-
-            // if deadlock detected, we don't throw an error
-            // NICKS TODO: update this so that is expecting to throw...
-            // we log on deadlock but we also re-throw the error
-            let singleDeleteResult = await singleWriteRepository.deletePerson(singleCreatePersonResult.person)
-            let dualDeleteResult = await dualWriteRepository.deletePerson(dualCreatePersonResult.person)
-
-            spy.mockRestore()
-            dualSpy.mockRestore()
-            console.log('singleDeleteResult', singleDeleteResult)
-            console.log('dualDeleteResult', dualDeleteResult)
-
+            assertConsistentDatabaseErrorHandling(
+                new Error('unhandled database error'),
+                'deletePerson',
+                () => singleWriteRepository.deletePerson(singleCreatePersonResult.person),
+                () => dualWriteRepository.deletePerson(dualCreatePersonResult.person),
+                'unhandled database error'
+            )
             assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [uuid2],
+                [TEST_UUIDS.dual],
+                'verify-primary-delete',
+                'verify-secondary-delete'
+            )
+        })
+        // NICKS TODO: implement this one
+        // we just need to get the .code correct 
+        it('deletePerson() deadlock detected', async() => {
+            const team = await getFirstTeam(postgres)
+            assertConsistencyAcrossDatabases(
+                postgres,
+                migrationPostgres,
+                'SELECT * FROM posthog_person WHERE uuid = $1',
+                [TEST_UUIDS.dual],
                 'verify-primary-delete',
                 'verify-secondary-delete'
             )
