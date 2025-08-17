@@ -51,10 +51,7 @@ impl FallbackSink {
             .components
             .contains_key(&primary_component_name)
         {
-            panic!(
-                "health registry does not contain primary component {}",
-                primary_component_name
-            )
+            panic!("health registry does not contain primary component {primary_component_name}")
         }
 
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();

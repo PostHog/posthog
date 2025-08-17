@@ -1,19 +1,21 @@
-import { IconBottomPanel, IconSidePanel, IconX } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
+import { IconBottomPanel, IconSidePanel, IconX } from '@posthog/icons'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
-import { useRef } from 'react'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
+import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
 export function PlayerSidebar(): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)

@@ -1,15 +1,17 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 import { subscriptions } from 'kea-subscriptions'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, Breadcrumb } from '~/types'
-import { Scene } from 'scenes/sceneTypes'
-import type { actionsLogicType } from './actionsLogicType'
-import { urls } from 'scenes/urls'
 
-import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import type { actionsLogicType } from './actionsLogicType'
 
 export type ActionsFilterType = 'all' | 'me'
 

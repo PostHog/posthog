@@ -1,17 +1,14 @@
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { dayjs } from 'lib/dayjs'
-import {
-    ChoiceQuestionProcessedResponses,
-    OpenQuestionProcessedResponses,
-    processResultsForSurveyQuestions,
-    surveyLogic,
-    SurveyRawResults,
-} from 'scenes/surveys/surveyLogic'
+import { processResultsForSurveyQuestions, surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
+    ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
+    OpenQuestionProcessedResponses,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -22,6 +19,7 @@ import {
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyRates,
+    SurveyRawResults,
     SurveySchedule,
     SurveyStats,
     SurveyType,

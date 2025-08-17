@@ -11,6 +11,7 @@ import {
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
 } from 'lib/api.mock'
+
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
 import { SharingConfigurationType } from '~/types'
@@ -20,7 +21,7 @@ import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
-import { Mocks, MockSignature, mocksToHandlers } from './utils'
+import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
 export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESPONSE => ({

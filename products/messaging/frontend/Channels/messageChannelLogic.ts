@@ -1,4 +1,5 @@
 import { kea, key, path, props, selectors } from 'kea'
+
 import { IntegrationType } from '~/types'
 
 import type { messageChannelLogicType } from './messageChannelLogicType'

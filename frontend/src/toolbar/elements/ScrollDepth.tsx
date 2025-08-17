@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
 import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 

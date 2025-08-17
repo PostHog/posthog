@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
@@ -13,8 +14,8 @@ import { ActionDraftType, ActionForm } from '~/toolbar/types'
 import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
 import { ActionType, ElementType } from '~/types'
 
-import type { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionStepPropertyKey } from './ActionStep'
+import type { actionsTabLogicType } from './actionsTabLogicType'
 
 function newAction(
     element: HTMLElement | null,
