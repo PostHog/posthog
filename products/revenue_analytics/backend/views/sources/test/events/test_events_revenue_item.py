@@ -95,7 +95,7 @@ class TestRevenueItemEventsBuilder(EventsSourceBaseTest):
         query_sql = subscription_query.query.to_hogql()
 
         # Should include is_recurring based on subscription property
-        self.assertIn("notEmpty(properties.subscription_id) AS is_recurring", query_sql)
+        self.assertIn("isNotNull(properties.subscription_id) AS is_recurring", query_sql)
 
         # Should include product_id from productProperty
         self.assertIn("properties.product_id AS product_id", query_sql)
