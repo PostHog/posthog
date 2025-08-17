@@ -48,6 +48,7 @@
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
+        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/uuid": "^10.0.0",
         "oxlint": "^1.8.0",
         "prettier": "^3.6.2",
