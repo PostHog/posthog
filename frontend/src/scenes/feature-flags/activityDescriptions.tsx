@@ -1,14 +1,14 @@
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
-    detectBoolean,
     HumanizedChange,
+    defaultDescriber,
+    detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'

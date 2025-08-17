@@ -2,13 +2,11 @@ from .revenue_analytics_base_view import RevenueAnalyticsBaseView
 from typing import cast
 from posthog.hogql import ast
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import DatabaseSchemaManagedViewTableKind, SubscriptionDropoffMode
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
-)
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     StringDatabaseField,
@@ -70,8 +68,18 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                         if event.productProperty
                         else ast.Constant(value=None),
                     ),
-                    ast.Alias(alias="started_at", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-                    ast.Alias(alias="ended_at", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+                    ast.Alias(alias="min_timestamp", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+                    ast.Alias(alias="max_timestamp", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+                    ast.Alias(
+                        alias="max_timestamp_plus_dropoff_days",
+                        expr=ast.Call(
+                            name="addDays",
+                            args=[
+                                ast.Field(chain=["max_timestamp"]),
+                                ast.Constant(value=event.subscriptionDropoffDays),
+                            ],
+                        ),
+                    ),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 where=events_expr_for_team(team),
@@ -91,8 +99,25 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                         alias="customer_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["person_id"])])
                     ),
                     ast.Alias(alias="status", expr=ast.Constant(value=None)),
-                    ast.Alias(alias="started_at", expr=ast.Field(chain=["started_at"])),
-                    ast.Alias(alias="ended_at", expr=ast.Field(chain=["ended_at"])),
+                    ast.Alias(alias="started_at", expr=ast.Field(chain=["min_timestamp"])),
+                    # If has an end date, but it's in the future, then just not include `ended_at`
+                    ast.Alias(
+                        alias="ended_at",
+                        expr=ast.Call(
+                            name="if",
+                            args=[
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Gt,
+                                    left=ast.Field(chain=["max_timestamp_plus_dropoff_days"]),
+                                    right=ast.Call(name="today", args=[]),
+                                ),
+                                ast.Constant(value=None),
+                                ast.Field(chain=["max_timestamp"])
+                                if event.subscriptionDropoffMode == SubscriptionDropoffMode.LAST_EVENT
+                                else ast.Field(chain=["max_timestamp_plus_dropoff_days"]),
+                            ],
+                        ),
+                    ),
                     ast.Alias(alias="metadata", expr=ast.Constant(value=None)),
                 ],
                 select_from=ast.JoinExpr(table=events_query),
@@ -114,8 +139,12 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
 
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.temporal.data_imports.sources.stripe.constants import (
+            SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+        )
+
         # Currently only works for stripe sources
-        if not source.source_type == ExternalDataSource.Type.STRIPE:
+        if not source.source_type == ExternalDataSourceType.STRIPE:
             return []
 
         # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
@@ -149,7 +178,22 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
                 ast.Alias(alias="status", expr=ast.Field(chain=["status"])),
                 ast.Alias(alias="started_at", expr=ast.Field(chain=["created_at"])),
-                ast.Alias(alias="ended_at", expr=ast.Field(chain=["ended_at"])),
+                # If has an end date, but it's in the future, then just not include `ended_at`
+                ast.Alias(
+                    alias="ended_at",
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=["ended_at"]),
+                                right=ast.Call(name="today", args=[]),
+                            ),
+                            ast.Constant(value=None),
+                            ast.Field(chain=["ended_at"]),
+                        ],
+                    ),
+                ),
                 ast.Alias(alias="metadata", expr=ast.Field(chain=["metadata"])),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),

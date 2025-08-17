@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import {
     LemonButton,
     LemonDialog,
@@ -10,35 +14,33 @@ import {
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import posthog from 'posthog-js'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
-import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
-import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
+import { SurveysTabs, getSurveyStatus, surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -63,9 +65,7 @@ function NewSurveyButton(): JSX.Element {
 
     return (
         <MaxTool
-            name="create_survey"
-            description="Max can create surveys to collect qualitative feedback from your users on new or existing features."
-            displayName="Create survey"
+            identifier="create_survey"
             initialMaxPrompt="Create a survey to collect "
             suggestions={[
                 'Create an NPS survey for customers who completed checkout',
@@ -182,14 +182,7 @@ function Surveys(): JSX.Element {
                     </div>
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
-                        <ProductIntroduction
-                            productName="Surveys"
-                            thingName="survey"
-                            description="Use surveys to gather qualitative feedback from your users on new or existing features."
-                            action={() => router.actions.push(urls.surveyTemplates())}
-                            isEmpty={surveys.length === 0}
-                            productKey={ProductKey.SURVEYS}
-                        />
+                        <SurveysEmptyState numOfSurveys={surveys.length} />
                     )}
                     {!shouldShowEmptyState && (
                         <>

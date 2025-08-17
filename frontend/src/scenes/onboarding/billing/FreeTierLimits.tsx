@@ -1,5 +1,7 @@
-import * as Icons from '@posthog/icons'
 import { useValues } from 'kea'
+
+import * as Icons from '@posthog/icons'
+
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { availableOnboardingProducts } from '../utils'

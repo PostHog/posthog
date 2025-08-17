@@ -29,6 +29,7 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -305,7 +306,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         if not source.source_type:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
 
-        source_type_enum = ExternalDataSource.Type(source.source_type)
+        source_type_enum = ExternalDataSourceType(source.source_type)
 
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)

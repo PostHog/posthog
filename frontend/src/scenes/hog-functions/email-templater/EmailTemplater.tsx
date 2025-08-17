@@ -1,19 +1,20 @@
-import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import EmailEditor from 'react-email-editor'
+
+import { IconExternal } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
-import EmailEditor from 'react-email-editor'
-
-import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
+import { urls } from 'scenes/urls'
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconExternal } from '@posthog/icons'
-import { urls } from 'scenes/urls'
-import clsx from 'clsx'
+import { EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 
 export type EmailEditorMode = 'full' | 'preview'
 

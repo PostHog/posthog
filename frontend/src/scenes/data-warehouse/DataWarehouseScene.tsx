@@ -16,6 +16,12 @@ import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogi
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { externalDataSourcesLogic, DashboardDataSource, type UnifiedRecentActivity } from './externalDataSourcesLogic'
+import { useValues } from 'kea'
+
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 

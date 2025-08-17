@@ -1,9 +1,10 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
 import { useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
     component: NewTabScene,

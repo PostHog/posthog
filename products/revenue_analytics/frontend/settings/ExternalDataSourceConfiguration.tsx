@@ -1,14 +1,18 @@
-import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
-import { urls } from 'scenes/urls'
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
+
 import { IconInfo, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { urls } from 'scenes/urls'
+
+import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 
@@ -26,7 +30,7 @@ export function ExternalDataSourceConfiguration({
 
     return (
         <div>
-            <h3 className="mb-2">Data Warehouse Sources Configuration</h3>
+            <h3 className="mb-2">Data warehouse sources configuration</h3>
             <p className="mb-4">
                 PostHog can display revenue data in our Revenue Analytics product from the following data warehouse
                 sources. You can enable/disable each source to stop it from being used for revenue data. You can also
@@ -99,8 +103,11 @@ export function ExternalDataSourceConfiguration({
                             )
 
                             return (
-                                <span className="flex flex-row items-center gap-2">
-                                    Joined to <code>persons</code> via:
+                                <span className="flex flex-row items-center gap-2 my-2">
+                                    <span>
+                                        Joined to <code>persons</code> via:
+                                    </span>
+
                                     {join ? (
                                         <LemonButton
                                             type="secondary"
@@ -113,6 +120,7 @@ export function ExternalDataSourceConfiguration({
                                         <LemonButton
                                             type="secondary"
                                             size="small"
+                                            icon={<IconPlus />}
                                             onClick={() =>
                                                 // This is all very hardcoded, but it's the exact kind of join we want to add
                                                 // and that we're expecting in the backend.

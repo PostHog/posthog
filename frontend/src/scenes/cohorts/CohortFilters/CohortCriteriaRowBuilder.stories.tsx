@@ -1,14 +1,15 @@
 import { Meta } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { Form } from 'kea-forms'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { useState } from 'react'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+
+import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import {
     CohortCriteriaRowBuilder,
     CohortCriteriaRowBuilderProps,
 } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'

@@ -3,7 +3,6 @@ import { dayjs } from 'lib/dayjs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import type { SpanAggregation } from './llmObservabilityTraceDataLogic'
-
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,
@@ -216,7 +215,7 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
  * @returns The normalized message.
  */
 export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
-    const role = defaultRole || 'assistant'
+    const role = defaultRole || 'user'
 
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
@@ -370,7 +369,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     console.warn('Unsupported AI message type', output)
     return [
         {
-            role: 'user',
+            role: role,
             content: typeof output === 'string' ? output : JSON.stringify(output),
         },
     ]
@@ -389,17 +388,15 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
 
     if (Array.isArray(messages)) {
         normalizedMessages.push(...messages.map((message) => normalizeMessage(message, defaultRole)).flat())
-    }
-
-    if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
+    } else if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
-    }
-
-    if (typeof messages === 'string') {
+    } else if (typeof messages === 'string') {
         normalizedMessages.push({
-            role: 'user',
+            role: defaultRole || 'user',
             content: messages,
         })
+    } else if (typeof messages === 'object' && messages !== null) {
+        normalizedMessages.push(...normalizeMessage(messages, defaultRole))
     }
 
     return normalizedMessages
@@ -417,6 +414,19 @@ export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
                 return `${spanName}`
             }
             const title = event.properties.$ai_model || 'Generation'
+            if (event.properties.$ai_provider) {
+                return `${title} (${event.properties.$ai_provider})`
+            }
+
+            return title
+        }
+
+        if (event.event === '$ai_embedding') {
+            const spanName = event.properties.$ai_span_name
+            if (spanName) {
+                return `${spanName}`
+            }
+            const title = event.properties.$ai_model || 'Embedding'
             if (event.properties.$ai_provider) {
                 return `${title} (${event.properties.$ai_provider})`
             }
