@@ -148,7 +148,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     // Helper to mock database errors for testing error handling consistency
     function mockDatabaseError(
         router: PostgresRouter,
-        error: Error | { message: string; code?: string },
+        error: Error | { message: string; code?: string; constraint?: string },
         tagPattern: string | RegExp
     ) {
         const originalQuery = router.query.bind(router)
@@ -163,6 +163,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 } else {
                     const e: any = new Error(error.message)
                     if (error.code) e.code = error.code
+                    if ((error as any).constraint) e.constraint = (error as any).constraint
                     throw e
                 }
             }
@@ -173,7 +174,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     // Helper to assert that both repositories throw similar
     // errors when encountering a database error
     async function assertConsistentDatabaseErrorHandling<T>(
-        error: Error | { message: string; code?: string },
+        error: Error | { message: string; code?: string; constraint?: string },
         tagPattern: string | RegExp,
         singleWriteOperation: () => Promise<T>,
         dualWriteOperation: () => Promise<T>,
@@ -223,6 +224,10 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 expect(singleError.code).toBe((error as any).code)
                 expect(dualError.code).toBe((error as any).code)
             }
+            if ((error as any).constraint) {
+                expect(singleError.constraint).toBe((error as any).constraint)
+                expect(dualError.constraint).toBe((error as any).constraint)
+            }
         }
     }
 
@@ -238,7 +243,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         dualWriteRepository = new PostgresDualWritePersonRepository(postgres, migrationPostgres)
         singleWriteRepository = new PostgresPersonRepository(postgres)
 
-        // NICKS TODO: do we need this?
         const redis = await hub.redisPool.acquire()
         await redis.flushdb()
         await hub.redisPool.release(redis)
@@ -449,14 +453,14 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             const team = await getFirstTeam(postgres)
             const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
 
-            // NICKS TODO: we need to fix this, it should throw the check_properties_size constraint/code error
-            // that the database throws when we try to update a person that is already oversized
-            assertConsistentDatabaseErrorHandling(
-                new PersonPropertiesSizeViolationError('PersonPropertiesSizeViolation', team.id, undefined),
+            // Test that both repositories handle the check_properties_size constraint violation consistently
+            // PostgreSQL error code '23514' is for check constraint violation
+            await assertConsistentDatabaseErrorHandling(
+                { message: 'Check constraint violation', code: '23514', constraint: 'check_properties_size' },
                 'updatePerson',
                 () => singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update'),
                 () => dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update'),
-                'PersonPropertiesSizeViolation'
+                PersonPropertiesSizeViolationError
             )
 
             assertConsistencyAcrossDatabases(
@@ -578,10 +582,21 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'verify-secondary-delete'
             )
         })
-        // NICKS TODO: implement this one
-        // we just need to get the .code correct 
         it('deletePerson() deadlock detected', async() => {
             const team = await getFirstTeam(postgres)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+
+            // Test that both repositories handle deadlock errors consistently
+            // PostgreSQL error code '40P01' is for deadlock detected
+            await assertConsistentDatabaseErrorHandling(
+                { message: 'deadlock detected', code: '40P01' },
+                'deletePerson',
+                () => singleWriteRepository.deletePerson(singleCreatePersonResult.person),
+                () => dualWriteRepository.deletePerson(dualCreatePersonResult.person),
+                'deadlock detected'
+            )
+            
+            // Verify that the database state remains consistent (persons should still exist as delete failed)
             assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
