@@ -1,9 +1,10 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'

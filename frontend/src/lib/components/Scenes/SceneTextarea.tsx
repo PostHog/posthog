@@ -1,10 +1,13 @@
+import { useEffect, useState } from 'react'
+
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
-import { useEffect, useState } from 'react'
+
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+
 import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
 import { SceneSaveCancelButtons, SceneTextareaProps } from './utils'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export function SceneTextarea({
     defaultValue = '',

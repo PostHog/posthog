@@ -2,10 +2,12 @@ import './EditSurvey.scss'
 
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
+
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
@@ -18,15 +20,15 @@ import {
     SurveyType,
 } from '~/types'
 
+import { HTMLEditor } from './SurveyAppearanceUtils'
+import { SurveyDragHandle } from './SurveyDragHandle'
 import {
-    defaultSurveyFieldValues,
     NewSurvey,
     SCALE_OPTIONS,
     SURVEY_RATING_SCALE,
     SurveyQuestionLabel,
+    defaultSurveyFieldValues,
 } from './constants'
-import { HTMLEditor } from './SurveyAppearanceUtils'
-import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
 
 type SurveyQuestionHeaderProps = {

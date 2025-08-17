@@ -1,19 +1,20 @@
 import './FeatureFlag.scss'
 
-import { IconCopy, IconPlus, IconTrash, IconFlag } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -21,15 +22,18 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { featureFlagLogic } from './featureFlagLogic'
 import {
-    featureFlagReleaseConditionsLogic,
     FeatureFlagReleaseConditionsLogicProps,
+    featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {

@@ -1,6 +1,8 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { forwardRef, Ref } from 'react'
+import { Ref, forwardRef } from 'react'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'

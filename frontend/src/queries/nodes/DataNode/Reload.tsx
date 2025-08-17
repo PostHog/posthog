@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'

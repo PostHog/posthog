@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import { IconInfo, IconPlay, IconRedo, IconTestTube, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,17 +13,16 @@ import {
     ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 import { campaignLogic } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (

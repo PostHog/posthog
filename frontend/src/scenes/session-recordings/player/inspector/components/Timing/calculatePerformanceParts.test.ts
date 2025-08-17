@@ -1,4 +1,5 @@
 import { InitiatorType } from 'posthog-js'
+
 import { mapRRWebNetworkRequest } from 'scenes/session-recordings/apm/performance-event-utils'
 import { calculatePerformanceParts } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 
