@@ -8,6 +8,10 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 
 import { PostgresDualWritePersonRepository } from './postgres-dualwrite-person-repository'
+import { PersonPropertiesSizeViolationError } from './person-repository'
+import { uuidFromDistinctId } from '../../person-uuid'
+import { UUIDT } from '~/utils/utils'
+import { PostgresPersonRepository } from './postgres-person-repository'
 
 jest.mock('../../../../utils/logger')
 
@@ -91,7 +95,7 @@ describe('PostgresDualWritePersonRepository', () => {
         )
         return teams.rows[0]
     }
-    describe('createPerson()', () => {
+    describe('createPerson() simple consistency tests', () => {
         it('createPerson writes to both primary and secondary', async () => {
             const team = await getFirstTeam(hub)
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
@@ -174,8 +178,203 @@ describe('PostgresDualWritePersonRepository', () => {
             expect(secondaryPersons.rows.length).toBe(0)
         })
     })
+    describe('createPerson() dual write matches single write behaviour', () => {
 
-    describe('updatePerson()', () => {
+        it('createPerson: primary throws PersonPropertiesSizeViolationError -> secondary untouched, error bubbled', async () => {
+            const team = await getFirstTeam(hub)
+            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
+            const distinctId = 'oversize-primary'
+            const uuid = uuidFromDistinctId(team.id, distinctId)
+
+            const spy = jest
+                .spyOn((repository as any).primaryRepo, 'createPerson')
+                .mockRejectedValue(new PersonPropertiesSizeViolationError('too big', team.id, undefined))
+
+            await expect(
+                repository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [
+                    { distinctId, version: 0 },
+                ])
+            ).rejects.toBeInstanceOf(PersonPropertiesSizeViolationError)
+
+            spy.mockRestore()
+
+            const [p, s] = await Promise.all([
+                postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT id FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                    [team.id, uuid],
+                    'verify-primary-no-create'
+                ),
+                migrationPostgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT id FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                    [team.id, uuid],
+                    'verify-secondary-no-create'
+                )
+            ])
+            expect(p.rows.length).toBe(0)
+            expect(s.rows.length).toBe(0)
+        })
+
+        it('createPerson: secondary throws PersonPropertiesSizeViolationError → primary rolled back, error bubbled', async () => {
+            const team = await getFirstTeam(hub)
+            const createdAt = DateTime.fromISO('2024-03-01T11:00:00.000Z').toUTC()
+            const distinctId = 'oversize-secondary'
+            const uuid = uuidFromDistinctId(team.id, distinctId)
+    
+            const spy = jest
+                .spyOn((repository as any).secondaryRepo, 'createPerson')
+                .mockRejectedValue(new PersonPropertiesSizeViolationError('too big', team.id, undefined))
+    
+            await expect(
+                repository.createPerson(createdAt, { name: 'y' }, {}, {}, team.id, null, false, uuid, [
+                    { distinctId, version: 0 },
+                ])
+            ).rejects.toBeInstanceOf(PersonPropertiesSizeViolationError)
+    
+            spy.mockRestore()
+    
+            const [pdiP, pdiS, personP, personS] = await Promise.all([
+                postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT 1 FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                    [team.id, distinctId],
+                    'verify-primary-pdi-oversize-secondary'
+                ),
+                migrationPostgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT 1 FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                    [team.id, distinctId],
+                    'verify-secondary-pdi-oversize-secondary'
+                ),
+                postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT 1 FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                    [team.id, uuid],
+                    'verify-primary-person-oversize-secondary'
+                ),
+                migrationPostgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT 1 FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                    [team.id, uuid],
+                    'verify-secondary-person-oversize-secondary'
+                ),
+            ])
+            expect(pdiP.rows.length).toBe(0)
+            expect(pdiS.rows.length).toBe(0)
+            expect(personP.rows.length).toBe(0)
+            expect(personS.rows.length).toBe(0)
+        })
+
+        it('createPerson: primary has unique pdi conflict -> secondary untouched, error not bubbled but result with error returned', async () => {
+            const team = await getFirstTeam(hub)
+            const createdAt = DateTime.fromISO('2024-02-03T10:00:00.000Z').toUTC()
+            const distinctId = 'primary-conflict-distinct'
+
+            // Seed conflict on PRIMARY only: make the distinct ID already exist on primary.
+            const seedP = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `
+                WITH p AS (
+                    INSERT INTO posthog_person (
+                        created_at, properties, properties_last_updated_at, properties_last_operation,
+                        team_id, is_user_id, is_identified, uuid, version
+                    )
+                    VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, NULL, false, $2, 0)
+                    RETURNING id
+                )
+                INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                SELECT $3, p.id, $1, 0 FROM p
+                RETURNING person_id`,
+                [team.id, new UUIDT().toString(), distinctId],
+                'seed-primary-pdi-conflict'
+            )
+            expect(seedP.rows.length).toBe(1)
+
+            // Attempt dual-write create with the same distinct ID
+            const result = await repository.createPerson(
+                createdAt,
+                { name: 'Primary User' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuidFromDistinctId(team.id, 'primary-conflict-uuid'),
+                [{ distinctId, version: 0 }]
+            ) as any
+
+            // Matches single-write contract/behaviour
+            expect(result.success).toBe(false)
+            expect(result.error).toBe('CreationConflict')
+            expect(result.distinctIds).toEqual([distinctId])
+
+            const secondaryPdi = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT 1 FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [team.id, distinctId],
+                'verify-secondary-not-touched'
+            )
+            expect(secondaryPdi.rows.length).toBe(0)
+
+        })
+        it('createPerson: secondary has unique pdi conflict -> primary rolled back, no error but result with error returned', async () => {
+            const team = await getFirstTeam(hub)
+            const createdAt = DateTime.fromISO('2024-02-03T10:00:00.000Z').toUTC()
+            const distinctId = 'secondary-conflict-distinct'
+
+            // Seed conflict on SECONDARY only: make the distinct ID already exist on secondary.
+            const seedS = await migrationPostgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `
+                WITH p AS (
+                    INSERT INTO posthog_person (
+                        created_at, properties, properties_last_updated_at, properties_last_operation,
+                        team_id, is_user_id, is_identified, uuid, version
+                    )
+                    VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, NULL, false, $2, 0)
+                    RETURNING id
+                )
+                INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                SELECT $3, p.id, $1, 0 FROM p
+                RETURNING person_id`,
+                [team.id, new UUIDT().toString(), distinctId],
+                'seed-secondary-pdi-conflict'
+            )
+            expect(seedS.rows.length).toBe(1)
+
+            // Attempt dual-write create with the same distinct ID
+            const result = await repository.createPerson(
+                createdAt,
+                { name: 'User' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuidFromDistinctId(team.id, 'secondary-conflict-uuid'),
+                [{ distinctId, version: 0 }]
+            ) as any
+
+            // Matches single-writer return contract
+            expect(result.success).toBe(false)
+            expect(result.error).toBe('CreationConflict')
+            expect(result.distinctIds).toEqual([distinctId])
+
+            // Verify primary was rolled back (no pdi created for the attempted distinctId)
+            const primaryPdi = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT 1 FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [team.id, distinctId],
+                'verify-primary-rolled-back'
+            )
+            expect(primaryPdi.rows.length).toBe(0)
+
+        })
+        it.todo('createPerson: generic error -> both rolled back, error bubbled')
+    })
+
+    describe('updatePerson() simple consistency tests', () => {
         it('replicates to secondary (happy path)', async () => {
             const team = await getFirstTeam(hub)
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
@@ -242,6 +441,167 @@ describe('PostgresDualWritePersonRepository', () => {
             )
             expect(p.rows[0].properties).toEqual({ y: 1 })
             expect(s.rows[0].properties).toEqual({ y: 1 })
+        })
+    })
+    describe('updatePerson() dual write matches single write behaviour', () => {
+        let singleRepo: PostgresPersonRepository
+
+        beforeEach(() => {
+            singleRepo = new PostgresPersonRepository(postgres)
+        })
+        it('parity: happy path update (shape, version messages minimal invariants)', async () => {
+            const team = await getFirstTeam(hub)
+            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
+
+            // person A -> single-writer baseline
+            const { person: singlePerson } = (await singleRepo.createPerson(
+                createdAt,
+                { base: 'x' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                [{ distinctId: 'single-a', version: 0 }]
+            )) as any
+    
+            // person B -> dual-writer subject
+            const { person: dualPerson } = (await repository.createPerson(
+                createdAt,
+                { base: 'x' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                [{ distinctId: 'dual-b', version: 0 }]
+            )) as any
+            const [singleUpdated, singleMsgs, singleMismatch] = await singleRepo.updatePerson(
+                singlePerson,
+                { properties: {base: 'x', k: 'v'}},
+                'parity'
+            )
+
+            const [dualUpdated, dualMsgs, dualMismatch] = await repository.updatePerson(
+                dualPerson,
+                { properties: {base: 'x', k: 'v'}},
+                'parity'
+            )
+
+            // core contract parity
+            expect(singleUpdated.properties).toEqual(dualUpdated.properties)
+            expect(singleUpdated.version).toBe(dualUpdated.version)
+            expect(singleMismatch).toBe(dualMismatch)
+
+            // Message shape parity
+            expect(singleMsgs.length).toBe(dualMsgs.length)
+            expect(singleMsgs[0].topic).toBe(dualMsgs[0].topic)
+
+            const s = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT properties FROM posthog_person WHERE uuid = $1',
+                [dualPerson.uuid],
+                'verify-secondary-update'
+            )
+            expect(s.rows[0].properties).toEqual({base: 'x', k: 'v'})
+        })
+
+        it('parity: updatePerson trims oversized existing properties and updates successfully on primary and secondary', async () => {
+            const team = await getFirstTeam(hub)
+            const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
+            const repoWithLimits = new PostgresDualWritePersonRepository(postgres, migrationPostgres, {
+                calculatePropertiesSize: 0,
+                personPropertiesDbConstraintLimitBytes: 50,
+                personPropertiesTrimTargetBytes: 25,
+            })
+
+            const largeUnprotectedProperties = {
+                name: 'John Doe with a very long name that takes up significant space',
+                description: 'This is a trimmable property',
+                customData: 'This can be removed',
+                moreCustomData: 'large property that can be removed and that will be trimmed',
+            }
+
+            const { person: dualPerson } = (await repoWithLimits.createPerson(
+                createdAt,
+                largeUnprotectedProperties,
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc',
+                [{ distinctId: 'dual-b-remediate', version: 0 }]
+            )) as any
+
+            // Force remediation branch by reporting the current record is already oversized
+            const spySize = jest
+                .spyOn((repoWithLimits as any).primaryRepo, 'personPropertiesSize')
+                .mockResolvedValue(60)
+
+            const originalQueryPrimary = postgres.query.bind(postgres)
+            let primaryUpdateCallCount = 0
+            let sawRemediationTag = false
+            const mockQueryPrimary = jest
+                .spyOn(postgres, 'query')
+                .mockImplementation(async (use, query, values, tag) => {
+                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
+                        primaryUpdateCallCount++
+                        if (typeof tag === 'string' && tag.includes('oversized_properties_remediation')) {
+                            sawRemediationTag = true
+                            // allow remediation UPDATE to succeed
+                            return originalQueryPrimary(use, query, values, tag)
+                        }
+                        // First UPDATE attempt fails with size violation
+                        const error: any = new Error('Check constraint violation')
+                        error.code = '23514'
+                        error.constraint = 'check_properties_size'
+                        throw error
+                    }
+                    return originalQueryPrimary(use, query, values, tag)
+                })
+
+            const update = {
+                properties: {
+                    $app_name: 'Application name with detailed information',
+                    $app_version: 'Version 1.2.3 with build metadata',
+                },
+            }
+
+            const [updatedPerson] = await repoWithLimits.updatePerson(dualPerson, update)
+
+            expect(primaryUpdateCallCount).toBe(2)
+            expect(sawRemediationTag).toBe(true)
+
+            // Primary should have trimmed properties (keeps protected like name, removes some unprotected)
+            expect(updatedPerson.properties).toHaveProperty('name')
+            expect(Object.keys(updatedPerson.properties).length).toBeLessThan(
+                Object.keys(dualPerson.properties).length
+            )
+
+            // Verify consistency across primary and secondary
+            const [p, s] = await Promise.all([
+                postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT properties FROM posthog_person WHERE uuid = $1',
+                    [updatedPerson.uuid],
+                    'verify-primary-remediation'
+                ),
+                migrationPostgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT properties FROM posthog_person WHERE uuid = $1',
+                    [updatedPerson.uuid],
+                    'verify-secondary-remediation'
+                ),
+            ])
+            expect(p.rows[0].properties).toEqual(updatedPerson.properties)
+            expect(s.rows[0].properties).toEqual(updatedPerson.properties)
+            expect(p.rows[0].properties).toEqual(s.rows[0].properties)
+
+            mockQueryPrimary.mockRestore()
+            spySize.mockRestore()
         })
     })
 

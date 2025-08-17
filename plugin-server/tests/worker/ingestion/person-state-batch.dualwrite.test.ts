@@ -90,6 +90,113 @@ describe('PersonState dual-write compatibility', () => {
             properties: {},
             ...event,
         }
+        describe('audited tests', () => {
+            it('returns CreationConflict and does not touch secondary when primary has unique pdi conflict', async () => {
+                const team = await getFirstTeam(hub)
+                const createdAt = DateTime.fromISO('2024-02-03T10:00:00.000Z').toUTC()
+                const distinctId = 'primary-conflict-distinct'
+
+                // Seed conflict on PRIMARY only: make the distinct ID already exist on primary.
+                const seedP = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `
+                    WITH p AS (
+                        INSERT INTO posthog_person (
+                            created_at, properties, properties_last_updated_at, properties_last_operation,
+                            team_id, is_user_id, is_identified, uuid, version
+                        )
+                        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, NULL, false, $2, 0)
+                        RETURNING id
+                    )
+                    INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                    SELECT $3, p.id, $1, 0 FROM p
+                    RETURNING person_id`,
+                    [team.id, new UUIDT().toString(), distinctId],
+                    'seed-primary-pdi-conflict'
+                )
+                expect(seedP.rows.length).toBe(1)
+
+                // Attempt dual-write create with the same distinct ID
+                const result = await repository.createPerson(
+                    createdAt,
+                    { name: 'Primary User' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    uuidFromDistinctId(team.id, 'primary-conflict-uuid'),
+                    [{ distinctId, version: 0 }]
+                ) as any
+
+                // Matches single-write contract/behaviour
+                expect(result.success).toBe(false)
+                expect(result.error).toBe('CreationConflict')
+                expect(result.distinctIds).toEqual([distinctId])
+
+                const secondaryPdi = await migrationPostgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT 1 FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                    [team.id, distinctId],
+                    'verify-secondary-not-touched'
+                )
+                expect(secondaryPdi.rows.length).toBe(0)
+
+            })
+            it('returns CreationConflict and rolls back primary if secondary create has unique pdi conflict', async () => {
+                const team = await getFirstTeam(hub)
+                const createdAt = DateTime.fromISO('2024-02-03T10:00:00.000Z').toUTC()
+                const distinctId = 'secondary-conflict-distinct'
+
+                // Seed conflict on SECONDARY only: make the distinct ID already exist on secondary.
+                const seedS = await migrationPostgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `
+                    WITH p AS (
+                        INSERT INTO posthog_person (
+                            created_at, properties, properties_last_updated_at, properties_last_operation,
+                            team_id, is_user_id, is_identified, uuid, version
+                        )
+                        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, NULL, false, $2, 0)
+                        RETURNING id
+                    )
+                    INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                    SELECT $3, p.id, $1, 0 FROM p
+                    RETURNING person_id`,
+                    [team.id, new UUIDT().toString(), distinctId],
+                    'seed-secondary-pdi-conflict'
+                )
+                expect(seedS.rows.length).toBe(1)
+
+                // Attempt dual-write create with the same distinct ID
+                const result = await repository.createPerson(
+                    createdAt,
+                    { name: 'User' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    uuidFromDistinctId(team.id, 'secondary-conflict-uuid'),
+                    [{ distinctId, version: 0 }]
+                ) as any
+
+                // Matches single-writer return contract
+                expect(result.success).toBe(false)
+                expect(result.error).toBe('CreationConflict')
+                expect(result.distinctIds).toEqual([distinctId])
+
+                // Verify primary was rolled back (no pdi created for the attempted distinctId)
+                const primaryPdi = await postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT 1 FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                    [team.id, distinctId],
+                    'verify-primary-rolled-back'
+                )
+                expect(primaryPdi.rows.length).toBe(0)
+
+            })
+        })
 
         const personsStore = new BatchWritingPersonsStoreForBatch(repository, hub.db.kafkaProducer)
 
