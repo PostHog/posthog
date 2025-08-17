@@ -1,15 +1,17 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { EventType } from '~/types'
 
 import { llmObservabilityPlaygroundLogic } from '../llmObservabilityPlaygroundLogic'
+import { normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
-import { normalizeMessages } from '../utils'
 
 export function ConversationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)

@@ -1,8 +1,9 @@
-import { CacheOptions } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+
+import { CacheOptions } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
@@ -30,7 +31,7 @@ import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { tryTwice, UUID, UUIDT } from '../utils'
+import { UUID, UUIDT, tryTwice } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
 import { pluginLogEntryCounter } from './metrics'
@@ -127,6 +128,8 @@ export class DB {
     postgres: PostgresRouter
     /** Redis used for various caches. */
     redisPool: GenericPool<Redis.Redis>
+    /** Redis used to store state for cookieless ingestion. */
+    redisPoolCookieless: GenericPool<Redis.Redis>
 
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     kafkaProducer: KafkaProducerWrapper
@@ -140,12 +143,14 @@ export class DB {
     constructor(
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
+        redisPoolCookieless: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
+        this.redisPoolCookieless = redisPoolCookieless
         this.kafkaProducer = kafkaProducer
         this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl

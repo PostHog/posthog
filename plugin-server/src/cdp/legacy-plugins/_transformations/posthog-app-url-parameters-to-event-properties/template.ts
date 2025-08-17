@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent, setupPlugin } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const posthogAppUrlParametersToEventProperties: LegacyTransformationPlugin = {
     processEvent,

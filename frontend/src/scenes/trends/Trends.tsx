@@ -1,11 +1,14 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 
@@ -14,7 +17,7 @@ import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
 
 interface Props {
     view: InsightType
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     embedded?: boolean
     inSharedMode?: boolean
 }

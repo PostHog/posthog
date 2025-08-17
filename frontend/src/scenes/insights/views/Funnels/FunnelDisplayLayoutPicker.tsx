@@ -1,5 +1,7 @@
-import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { FunnelLayout } from 'lib/constants'
 import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'

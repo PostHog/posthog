@@ -1,9 +1,8 @@
-import {} from 'kea'
+import { IconAtSign, IconMemory } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-
-import { IconAtSign, IconMemory } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
+
 import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 
 /** Static tool definition for display purposes. */

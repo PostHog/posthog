@@ -1,6 +1,8 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -9,7 +11,6 @@ import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@cu
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     component: App,

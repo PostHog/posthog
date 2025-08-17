@@ -1,12 +1,14 @@
-import { IconFilter, IconGear, IconGlobe } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconFilter, IconGear, IconGlobe } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { useState } from 'react'
+import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -15,10 +17,10 @@ import { AvailableFeature, PropertyMathType } from '~/types'
 
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
-import { webAnalyticsLogic } from './webAnalyticsLogic'
-import { ProductTab } from './common'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WebPropertyFilters } from './WebPropertyFilters'
+import { ProductTab } from './common'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export const WebAnalyticsFilters = (): JSX.Element => {
     const [expanded, setExpanded] = useState(false)

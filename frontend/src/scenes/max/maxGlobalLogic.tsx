@@ -1,20 +1,22 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
-
-import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
-import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
-import { routes } from 'scenes/scenes'
-import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
-import { Scene } from 'scenes/sceneTypes'
-import { SidePanelTab } from '~/types'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { routes } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { SidePanelTab } from '~/types'
+
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import type { maxGlobalLogicType } from './maxGlobalLogicType'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -36,7 +38,7 @@ export const STATIC_TOOLS: ToolRegistration[] = [
                 const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
                 const startTime = performance.now()
                 const checkPathname = (): void => {
-                    if (sceneLogic.values.activeScene === routes[url]?.[0]) {
+                    if (sceneLogic.values.activeSceneId === routes[url]?.[0]) {
                         resolve()
                     } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
                         reject(new Error('Navigation timeout'))
@@ -75,7 +77,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             organizationLogic,
             ['currentOrganization'],
             sceneLogic,
-            ['scene', 'sceneConfig'],
+            ['sceneId', 'sceneConfig'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -153,18 +155,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     selectors({
         showFloatingMax: [
             (s) => [
-                s.scene,
+                s.sceneId,
                 s.sceneConfig,
                 s.isFloatingMaxExpanded,
                 sidePanelLogic.selectors.sidePanelOpen,
                 sidePanelLogic.selectors.selectedTab,
                 s.featureFlags,
             ],
-            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
+            (sceneId, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
                 sceneConfig &&
                 !sceneConfig.onlyUnauthenticated &&
                 sceneConfig.layout !== 'plain' &&
-                !(scene === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
+                !(sceneId === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
                 !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
                 featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
                 featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],

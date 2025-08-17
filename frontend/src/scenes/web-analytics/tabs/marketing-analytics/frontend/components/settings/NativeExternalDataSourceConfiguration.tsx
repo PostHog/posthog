@@ -1,7 +1,9 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'

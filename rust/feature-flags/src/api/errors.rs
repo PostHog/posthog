@@ -91,10 +91,10 @@ impl IntoResponse for FlagError {
                 )
             }
             FlagError::RequestDecodingError(msg) => {
-                (StatusCode::BAD_REQUEST, format!("Failed to decode request: {}. Please check your request format and try again.", msg))
+                (StatusCode::BAD_REQUEST, format!("Failed to decode request: {msg}. Please check your request format and try again."))
             }
             FlagError::RequestParsingError(err) => {
-                (StatusCode::BAD_REQUEST, format!("Failed to parse request: {}. Please ensure your request is properly formatted and all required fields are present.", err))
+                (StatusCode::BAD_REQUEST, format!("Failed to parse request: {err}. Please ensure your request is properly formatted and all required fields are present."))
             }
             FlagError::EmptyDistinctId => {
                 (StatusCode::BAD_REQUEST, "The distinct_id field cannot be empty. Please provide a valid identifier.".to_string())
@@ -196,11 +196,11 @@ impl IntoResponse for FlagError {
                 match err {
                     // 400 Bad Request errors - client-side issues
                     CookielessManagerError::MissingProperty(prop) =>
-                        (StatusCode::BAD_REQUEST, format!("Missing required property: {}", prop)),
+                        (StatusCode::BAD_REQUEST, format!("Missing required property: {prop}")),
                     CookielessManagerError::UrlParseError(e) =>
-                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {}", e)),
+                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {e}")),
                     CookielessManagerError::InvalidTimestamp(msg) =>
-                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {}", msg)),
+                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}")),
 
                     // 500 Internal Server Error - server-side issues
                     err @ (CookielessManagerError::HashError(_) |

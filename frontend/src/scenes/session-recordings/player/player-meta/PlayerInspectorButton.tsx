@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 

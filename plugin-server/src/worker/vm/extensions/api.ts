@@ -1,5 +1,5 @@
 import { Hub, PluginConfig } from '../../../types'
-import { legacyFetch, Response } from '../../../utils/request'
+import { Response, legacyFetch } from '../../../utils/request'
 
 const DEFAULT_API_HOST = 'https://app.posthog.com'
 

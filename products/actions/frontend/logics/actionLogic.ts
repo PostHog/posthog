@@ -1,6 +1,9 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,6 +21,9 @@ export interface ActionLogicProps {
 export const actionLogic = kea<actionLogicType>([
     props({} as ActionLogicProps),
     key((props) => props.id || 'new'),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     path((key) => ['scenes', 'actions', 'actionLogic', key]),
     actions(() => ({
         updateAction: (action: Partial<ActionType>) => ({ action }),
@@ -74,10 +80,11 @@ export const actionLogic = kea<actionLogicType>([
         breadcrumbs: [
             (s) => [
                 s.action,
+                s.featureFlags,
                 (state, props) =>
                     actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
             ],
-            (action, inProgressName): Breadcrumb[] => [
+            (action, featureFlags, inProgressName): Breadcrumb[] => [
                 {
                     key: Scene.DataManagement,
                     name: `Data management`,
@@ -91,14 +98,17 @@ export const actionLogic = kea<actionLogicType>([
                 {
                     key: [Scene.Action, action?.id || 'new'],
                     name: inProgressName ?? (action?.name || ''),
-                    onRename: async (name: string) => {
-                        const id = action?.id
-                        const actionEditLogicActions = actionEditLogic.find(String(id || 'new'))
-                        actionEditLogicActions.actions.setActionValue('name', name)
-                        if (id) {
-                            await actionEditLogicActions.asyncActions.submitAction()
-                        }
-                    },
+                    // We don't want to enable renaming if the flag is enabled
+                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT] && {
+                        onRename: async (name: string) => {
+                            const id = action?.id
+                            const actionEditLogicActions = actionEditLogic.find(String(id || 'new'))
+                            actionEditLogicActions.actions.setActionValue('name', name)
+                            if (id) {
+                                await actionEditLogicActions.asyncActions.submitAction()
+                            }
+                        },
+                    }),
                     forceEditMode: !action?.id,
                 },
             ],

@@ -4,9 +4,9 @@ import { Hub, LogLevel, Plugin, PluginConfig } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import {
-    constructInlinePluginInstance,
     INLINE_PLUGIN_MAP,
     INLINE_PLUGIN_URLS,
+    constructInlinePluginInstance,
     syncInlinePlugins,
 } from '../../../src/worker/vm/inline/inline'
 import { VersionParts } from '../../../src/worker/vm/inline/semver-flattener'

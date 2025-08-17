@@ -1,46 +1,50 @@
+import classNames from 'classnames'
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import React, { useEffect, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { IconAIText, IconChat, IconCopy, IconGear, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
     LemonInput,
     LemonTable,
+    LemonTabs,
     LemonTag,
     LemonTagProps,
-    LemonTabs,
     Link,
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import classNames from 'classnames'
-import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import React, { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { useDebouncedCallback } from 'use-debounce'
 
-import { SearchHighlight } from './SearchHighlight'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { FeedbackTag } from './components/FeedbackTag'
-import { MetricTag } from './components/MetricTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { DisplayOptionsModal } from './ConversationDisplay/DisplayOptionsModal'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
+import { SearchHighlight } from './SearchHighlight'
+import { FeedbackTag } from './components/FeedbackTag'
+import { MetricTag } from './components/MetricTag'
 import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
-import { llmObservabilityTraceDataLogic, EnrichedTraceTreeNode } from './llmObservabilityTraceDataLogic'
+import { EnrichedTraceTreeNode, llmObservabilityTraceDataLogic } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
+import { exportTraceToClipboard } from './traceExportUtils'
 import {
     formatLLMCost,
     formatLLMEventTitle,
@@ -52,8 +56,6 @@ import {
     normalizeMessages,
     removeMilliseconds,
 } from './utils'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { exportTraceToClipboard } from './traceExportUtils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
