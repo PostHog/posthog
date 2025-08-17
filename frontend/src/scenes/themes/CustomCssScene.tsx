@@ -1,14 +1,16 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { urls } from '../urls'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export const scene: SceneExport = {
     component: CustomCssScene,

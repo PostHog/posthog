@@ -1,3 +1,9 @@
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+import React from 'react'
+
 import {
     IconAI,
     IconChat,
@@ -22,17 +28,13 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import { Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'

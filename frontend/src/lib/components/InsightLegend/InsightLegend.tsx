@@ -2,6 +2,7 @@ import './InsightLegend.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 

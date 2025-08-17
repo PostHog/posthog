@@ -1,14 +1,17 @@
-import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
+
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
+import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import {
     ActivityLogItem,
-    defaultDescriber,
     Describer,
-    humanize,
     HumanizedActivityLogItem,
+    defaultDescriber,
+    humanize,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
@@ -26,10 +29,9 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
-import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
+import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
-import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'

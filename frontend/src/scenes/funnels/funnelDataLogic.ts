@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -10,7 +11,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
@@ -22,9 +23,9 @@ import {
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
-    FunnelsTimeConversionBins,
     FunnelTimeConversionMetrics,
     FunnelVizType,
+    FunnelsTimeConversionBins,
     HistogramGraphDatum,
     InsightLogicProps,
     InsightType,
@@ -44,6 +45,7 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
+
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
 export const funnelDataLogic = kea<funnelDataLogicType>([

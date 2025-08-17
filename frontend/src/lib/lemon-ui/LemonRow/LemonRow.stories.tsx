@@ -1,5 +1,7 @@
-import { IconInfo } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { IconInfo } from '@posthog/icons'
+
 import { IconPremium } from 'lib/lemon-ui/icons'
 
 import { LemonRow, LemonRowProps } from './LemonRow'

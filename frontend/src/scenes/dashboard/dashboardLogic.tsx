@@ -1,8 +1,12 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import uniqBy from 'lodash.uniqby'
+import { Layout, Layouts } from 'react-grid-layout'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
@@ -12,11 +16,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import uniqBy from 'lodash.uniqby'
-import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { createMaxContextHelpers, MaxContextInput } from 'scenes/max/maxTypes'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -62,13 +64,13 @@ import {
     AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
+    IS_TEST_MODE,
+    MAX_TILES_FOR_AUTOPREVIEW,
+    QUERY_VARIABLES_KEY,
     encodeURLVariables,
     getInsightWithRetry,
-    IS_TEST_MODE,
     layoutsByTile,
-    MAX_TILES_FOR_AUTOPREVIEW,
     parseURLVariables,
-    QUERY_VARIABLES_KEY,
     runWithLimit,
 } from './dashboardUtils'
 

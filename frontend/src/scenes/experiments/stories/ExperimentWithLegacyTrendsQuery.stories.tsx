@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+
+import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -7,7 +9,6 @@ import EXPERIMENT_WITH_TRENDS_QUERY from '~/mocks/fixtures/api/experiments/exper
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import TRENDS_QUERY_RESULT from '~/mocks/fixtures/api/experiments/trends_query_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { makeDelay } from 'lib/utils'
 
 const meta: Meta = {
     component: App,

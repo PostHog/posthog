@@ -1,22 +1,17 @@
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import {
-    RevenueAnalyticsGrowthRateNode,
-    RevenueAnalyticsMetricsNode,
-    RevenueAnalyticsOverviewNode,
-    RevenueAnalyticsRevenueNode,
-    RevenueAnalyticsTopCustomersNode,
-} from 'products/revenue_analytics/frontend/nodes'
+import { BuiltLogic, LogicWrapper } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { WebActiveHoursHeatmap } from 'scenes/web-analytics/WebActiveHoursHeatmap/WebActiveHoursHeatmap'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -27,6 +22,14 @@ import {
     Node,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+import {
+    RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsMetricsNode,
+    RevenueAnalyticsOverviewNode,
+    RevenueAnalyticsRevenueNode,
+    RevenueAnalyticsTopCustomersNode,
+} from 'products/revenue_analytics/frontend/nodes'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
@@ -47,7 +50,6 @@ import {
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '../utils'
-import { BuiltLogic, LogicWrapper } from 'kea'
 
 export interface QueryProps<Q extends Node> {
     /** An optional key to identify the query */

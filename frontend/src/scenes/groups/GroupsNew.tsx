@@ -1,13 +1,15 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { groupsNewLogic } from 'scenes/groups/groupsNewLogic'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { router } from 'kea-router'
+
 import { IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { groupsNewLogic } from 'scenes/groups/groupsNewLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 interface GroupsNewSceneProps {
     groupTypeIndex?: string

@@ -1,11 +1,14 @@
 import './SessionRecordingPreview.scss'
 
-import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
 import clsx from 'clsx'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
+
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,7 +17,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
@@ -26,7 +29,6 @@ import {
     MAX_SELECTED_RECORDINGS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
