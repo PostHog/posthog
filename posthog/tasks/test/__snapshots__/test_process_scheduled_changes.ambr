@@ -390,6 +390,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -417,6 +418,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -564,6 +566,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -593,6 +596,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -1657,6 +1661,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -2012,6 +2017,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
