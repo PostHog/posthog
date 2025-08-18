@@ -1,7 +1,9 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+
 import api from 'lib/api'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -68,8 +70,9 @@ describe('savedInsightsLogic', () => {
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
         router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
-        logic = savedInsightsLogic()
+        logic = savedInsightsLogic({ tabId: '1' })
         logic.mount()
     })
 

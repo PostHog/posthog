@@ -1,10 +1,12 @@
-import { IconPeople, IconChevronDown } from '@posthog/icons'
 import { useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconChevronDown, IconPeople } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { SessionRecordingType } from '~/types'

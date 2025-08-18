@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -13,14 +14,15 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
+
 import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { ExternalReferences } from './components/ExternalReferences'
 import { StatusIndicator } from './components/Indicator'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 
 const RESOURCE_TYPE = 'issue'
 

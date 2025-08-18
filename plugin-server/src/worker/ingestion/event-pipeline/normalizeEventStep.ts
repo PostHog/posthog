@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { normalizeEvent, normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'

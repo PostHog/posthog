@@ -1,14 +1,16 @@
-import { IconAtSign, IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import React from 'react'
 
+import { IconAtSign, IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
+
 import { maxContextLogic } from './maxContextLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
-import clsx from 'clsx'
 
 function pluralize(count: number, word: string): string {
     return `${count} ${word}${count > 1 ? 's' : ''}`

@@ -1,4 +1,5 @@
 import { actions, kea, path } from 'kea'
+
 import { RecordingCommentForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 
 import type { playerCommentModelType } from './playerCommentModelType'

@@ -1,8 +1,9 @@
-import { IncrementalSource } from '@posthog/rrweb-types'
-import { EventType } from '@posthog/rrweb-types'
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import posthog from 'posthog-js'
 import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
+
+import { IncrementalSource } from '@posthog/rrweb-types'
+import { EventType } from '@posthog/rrweb-types'
 
 import { throttleCapture } from './throttle-capturing'
 

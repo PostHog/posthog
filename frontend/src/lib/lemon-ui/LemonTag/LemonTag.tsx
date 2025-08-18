@@ -1,10 +1,12 @@
 import './LemonTag.scss'
 
-import { IconEllipsis, IconX } from '@posthog/icons'
 import clsx from 'clsx'
+import { HTMLProps, forwardRef } from 'react'
+
+import { IconEllipsis, IconX } from '@posthog/icons'
+
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton'
-import { forwardRef, HTMLProps } from 'react'
 
 export type LemonTagType =
     | 'primary'

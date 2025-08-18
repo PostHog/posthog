@@ -1,13 +1,15 @@
 import './PropertyGroupFilters.scss'
 
-import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import React from 'react'
+
+import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'

@@ -1,6 +1,7 @@
 /* oxlint-disable no-restricted-imports */
-import { Chart as RawChart, ChartType, DefaultDataPoint, registerables, Tooltip } from 'chart.js'
+import { ChartType, DefaultDataPoint, Chart as RawChart, Tooltip, registerables } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
+
 import { inStorybookTestRunner } from 'lib/utils'
 
 if (registerables) {

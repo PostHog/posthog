@@ -20,7 +20,7 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
     response: SuggestedQuestionsQueryResponse
     cached_response: CachedSuggestedQuestionsQueryResponse
 
-    def calculate(self):
+    def _calculate(self):
         team = self.team
         assert team.project is not None
 

@@ -17,9 +17,10 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel, execute_with_timeout
+from posthog.models.utils import UUIDTModel, execute_with_timeout
 
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
@@ -93,7 +94,7 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
     return config
 
 
-class RemoteConfig(UUIDModel):
+class RemoteConfig(UUIDTModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
     as well as JS code for the frontend. It's main function is to react to changes that would affect it,
@@ -472,7 +473,9 @@ def team_saved(sender, instance: "Team", created, **kwargs):
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    # Use transaction.on_commit to ensure cache update happens after DB transaction commits
+    # This prevents race condition where cache sees stale database state
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=PluginConfig)

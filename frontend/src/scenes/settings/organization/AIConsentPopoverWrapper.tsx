@@ -1,7 +1,9 @@
+import { useAsyncActions, useValues } from 'kea'
+
 import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
-import { useAsyncActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
