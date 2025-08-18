@@ -27,6 +27,8 @@ import {
 } from '~/types'
 
 import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 
@@ -530,8 +532,15 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
                 groupsModel.selectors.groupsTaxonomicTypes,
+                featureFlagLogic.selectors.featureFlags,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                groupsTaxonomicTypes,
+                featureFlags
+            ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.TracesQuery,
@@ -545,8 +554,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 columns: [
                     'id',
                     'traceName',
-                    'inputState',
-                    'outputState',
+                    ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                        ? ['inputState', 'outputState']
+                        : []),
                     'person',
                     'totalLatency',
                     'usage',
@@ -580,13 +590,15 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.propertyFilters,
                 s.generationsColumns,
                 groupsModel.selectors.groupsTaxonomicTypes,
+                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
                 generationsColumns,
-                groupsTaxonomicTypes
+                groupsTaxonomicTypes,
+                featureFlags
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -594,9 +606,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     select: generationsColumns || [
                         'uuid',
                         'properties.$ai_trace_id',
-                        // Include input/output payloads early so columns appear first
-                        'properties.$ai_input',
-                        'properties.$ai_output',
+                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                            ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices']
+                            : []),
                         'person',
                         "f'{properties.$ai_model}' -- Model",
                         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",

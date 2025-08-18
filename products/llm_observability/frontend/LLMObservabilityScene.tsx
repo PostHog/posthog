@@ -26,6 +26,8 @@ import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { normalizeMessages } from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -153,6 +155,37 @@ function LLMObservabilityGenerations(): JSX.Element {
                                         </Link>
                                     </Tooltip>
                                 </strong>
+                            )
+                        },
+                    },
+                    'properties.$ai_input[-1]': {
+                        title: 'Input',
+                        render: ({ value }) => {
+                            const inputNormalized = normalizeMessages(JSON.parse(value as string), 'user')
+                            if (!inputNormalized.length) {
+                                return <>–</>
+                            }
+                            return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+                        },
+                    },
+                    'properties.$ai_output_choices': {
+                        title: 'Output',
+                        render: ({ value }) => {
+                            const outputNormalized = normalizeMessages(JSON.parse(value as string), 'assistant')
+                            if (!outputNormalized.length) {
+                                return <>–</>
+                            }
+                            return (
+                                <div>
+                                    {outputNormalized.map(
+                                        (
+                                            message,
+                                            index // All output choices, if multiple
+                                        ) => (
+                                            <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
+                                        )
+                                    )}
+                                </div>
                             )
                         },
                     },

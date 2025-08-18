@@ -367,11 +367,17 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         ]
     }
     // Unsupported message.
-    console.warn('Unsupported AI message type', output)
+    console.warn("AI message isn't in a shape of any known AI provider", output)
     return [
         {
             role: role,
-            content: typeof output === 'string' ? output : JSON.stringify(output),
+            content: !output
+                ? 'null'
+                : typeof output === 'string'
+                  ? output
+                  : typeof output === 'object' && 'content' in output && typeof output.content === 'string'
+                    ? output.content
+                    : JSON.stringify(output),
         },
     ]
 }
