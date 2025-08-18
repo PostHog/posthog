@@ -1,4 +1,3 @@
-import './buffer-polyfill'
 import '~/styles'
 
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
@@ -6,8 +5,10 @@ import { getContext } from 'kea'
 import posthog from 'posthog-js'
 import { PostHogProvider } from 'posthog-js/react'
 import { createRoot } from 'react-dom/client'
+
 import { App } from 'scenes/App'
 
+import './buffer-polyfill'
 import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'

@@ -1,14 +1,15 @@
-import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
-import { experimentLogic } from '../experimentLogic'
 import { MetricTitle } from '../MetricsView/shared/MetricTitle'
+import { experimentLogic } from '../experimentLogic'
 import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
-import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
 type MetricOption = {
     metric: ExperimentMetric

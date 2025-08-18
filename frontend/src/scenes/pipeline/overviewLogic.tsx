@@ -1,4 +1,5 @@
 import { connect, kea, path } from 'kea'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DESTINATION_TYPES } from './destinations/constants'

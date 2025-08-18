@@ -2,8 +2,10 @@ import './InsightViz.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useState } from 'react'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -15,11 +17,10 @@ import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, ItemMode } from '~/types'
 
-import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { getCachedResults } from './utils'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps<any>): string => {

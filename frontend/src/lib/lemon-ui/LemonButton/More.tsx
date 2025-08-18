@@ -1,8 +1,9 @@
+import { LemonButtonWithDropdown } from '.'
 import { forwardRef } from 'react'
+
 import { IconEllipsis } from '@posthog/icons'
 
 import { PopoverProps } from '../Popover/Popover'
-import { LemonButtonWithDropdown } from '.'
 import { LemonButtonDropdown, LemonButtonProps } from './LemonButton'
 
 export type MoreProps = Partial<Pick<PopoverProps, 'overlay' | 'placement'>> &

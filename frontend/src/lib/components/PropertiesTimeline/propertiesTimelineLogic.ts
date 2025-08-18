@@ -1,10 +1,12 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
+import { Properties } from '@posthog/plugin-scaffold'
+
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
 import { toParams, uuid } from 'lib/utils'
-import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ActorType, PropertiesTimelineFilterType } from '~/types'

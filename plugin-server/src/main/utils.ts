@@ -1,4 +1,4 @@
-import { exponentialBuckets, Histogram } from 'prom-client'
+import { Histogram, exponentialBuckets } from 'prom-client'
 
 import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 

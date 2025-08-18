@@ -1,4 +1,5 @@
 import { combineUrl } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'

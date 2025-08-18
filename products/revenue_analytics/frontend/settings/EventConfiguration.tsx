@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconInfo, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'

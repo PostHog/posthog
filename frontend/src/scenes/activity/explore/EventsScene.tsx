@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { Query } from '~/queries/Query/Query'
-
-import { eventsSceneLogic } from './eventsSceneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { ActivityTab } from '~/types'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { IconApps } from '@posthog/icons'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 const RESOURCE_TYPE = 'event'
+
+import { Query } from '~/queries/Query/Query'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { ActivityTab } from '~/types'
+
+import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(eventsSceneLogic)

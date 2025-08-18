@@ -1,5 +1,7 @@
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
+
 import { urls } from 'scenes/urls'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

@@ -1,11 +1,14 @@
+import { kea, path, selectors } from 'kea'
+
+import { IconDatabase, IconHogQL } from '@posthog/icons'
+
 import {
     getDefaultTreeData,
     getDefaultTreeNew,
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { kea, path, selectors } from 'kea'
-import { IconDatabase, IconHogQL } from '@posthog/icons'
+
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export interface ItemsGridItem {
