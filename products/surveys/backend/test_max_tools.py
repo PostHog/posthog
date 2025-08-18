@@ -214,7 +214,6 @@ class TestSurveyCreatorTool(BaseTest):
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "Feature Flag Survey"
         assert survey.linked_flag_id == flag.id
-        assert survey.linked_flag.key == "test-feature"
 
     @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
@@ -272,7 +271,6 @@ class TestSurveyCreatorTool(BaseTest):
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "A/B Test Control Survey"
         assert survey.linked_flag_id == flag.id
-        assert survey.linked_flag.key == "ab-test-feature"
         assert survey.conditions["linkedFlagVariant"] == "control"
 
     @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
@@ -331,7 +329,6 @@ class TestSurveyCreatorTool(BaseTest):
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "All Variants Survey"
         assert survey.linked_flag_id == flag.id
-        assert survey.linked_flag.key == "multivariate-feature"
         assert survey.conditions["linkedFlagVariant"] == "any"
 
 

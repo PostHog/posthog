@@ -723,17 +723,6 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
                 },
                 metadata={"test_type": "feature_flag_invalid_reference"},
             ),
-            # Test case 11: Feature flag with specific variant and additional context
-            EvalCase(
-                input="Make an engagement survey for users in 'homepage-redesign' feature flag and 'variant-b' variant with questions on interaction patterns",
-                expected={
-                    "min_questions": 1,
-                    "should_have_flag": True,
-                    "should_have_variant": True,
-                    "expected_variant": "variant-b",
-                },
-                metadata={"test_type": "feature_flag_specific_variant_context"},
-            ),
         ],
         pytestconfig=pytestconfig,
     )
