@@ -90,11 +90,11 @@ def test_hash_format():
 def test_compose_postgres_dump_path():
     """Test that compose_postgres_dump_path generates correct S3 path with hash."""
     project_id = 123
-    file_name = "test_dump"
+    dir_name = "test_dump"
     code_version = "v1.0"
 
     with override_settings(DAGSTER_AI_EVALS_S3_BUCKET="test-bucket"):
-        result = compose_postgres_dump_path(project_id, file_name, code_version)
+        result = compose_postgres_dump_path(project_id, dir_name, code_version)
 
         # Should contain the project ID in path
         assert f"/{project_id}/" in result
@@ -106,14 +106,14 @@ def test_compose_postgres_dump_path():
         assert result.endswith(".avro")
 
         # Should contain the file name and hash suffix
-        assert file_name in result
+        assert dir_name in result
 
         # Should be deterministic - same inputs produce same output
-        result2 = compose_postgres_dump_path(project_id, file_name, code_version)
+        result2 = compose_postgres_dump_path(project_id, dir_name, code_version)
         assert result == result2
 
         # Different code version should produce different path
-        result_different_version = compose_postgres_dump_path(project_id, file_name, "v2.0")
+        result_different_version = compose_postgres_dump_path(project_id, dir_name, "v2.0")
         assert result != result_different_version
 
 
