@@ -158,7 +158,11 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
         <MessageGroupContainer groupType={groupType}>
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
-                    user={groupType === 'human' ? { ...user, hedgehog_config: undefined } : minimalHedgehogConfig}
+                    user={
+                        groupType === 'human'
+                            ? { ...user, hedgehog_config: undefined }
+                            : { hedgehog_config: minimalHedgehogConfig }
+                    }
                     size="lg"
                     className="hidden @md/thread:flex mt-1 border"
                 />
