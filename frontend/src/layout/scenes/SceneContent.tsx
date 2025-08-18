@@ -225,7 +225,7 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
 
     if (isLoading) {
         return (
-            <div className="max-w-prose w-full flex-1 ">
+            <div className="max-w-prose w-full flex-1">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
