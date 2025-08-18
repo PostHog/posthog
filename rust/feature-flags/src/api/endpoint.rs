@@ -72,7 +72,7 @@ pub async fn flags(
     if is_from_decide && modified_query_params.config.is_none() {
         modified_query_params.config = Some(true);
     }
-    
+
     // Default to v=2 and config=true when both params are missing
     // This provides the latest response format for clients that don't specify these params
     if modified_query_params.version.is_none() && modified_query_params.config.is_none() {
@@ -297,11 +297,11 @@ mod tests {
 
         assert!(matches!(params.compression, Some(Compression::Unsupported)));
     }
-    
+
     #[test]
-    fn test_default_params_when_both_missing() {
-        // When both v and config params are missing, we should default to v=2 and config=true
-        let params = FlagsQueryParams {
+    fn test_default_params_logic() {
+        // Test the parameter modification logic that's applied in the flags endpoint
+        let mut params_both_none = FlagsQueryParams {
             version: None,
             config: None,
             compression: None,
@@ -309,28 +309,18 @@ mod tests {
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
         };
-        
-        // This test verifies the logic we added to the flags endpoint
-        // In the actual endpoint, when both params are None, we set:
-        // - version = Some("2")
-        // - config = Some(true)
-        assert_eq!(params.version, None);
-        assert_eq!(params.config, None);
-        
-        // When only v is present (config is missing), no defaults apply
-        let params_v_only = FlagsQueryParams {
-            version: Some("1".to_string()),
-            config: None,
-            compression: None,
-            lib_version: None,
-            sent_at: None,
-            only_evaluate_survey_feature_flags: None,
-        };
-        assert_eq!(params_v_only.version, Some("1".to_string()));
-        assert_eq!(params_v_only.config, None);
-        
-        // When only config is present (v is missing), no defaults apply
-        let params_config_only = FlagsQueryParams {
+
+        // Simulate the logic from lines 78-81 in the flags endpoint
+        if params_both_none.version.is_none() && params_both_none.config.is_none() {
+            params_both_none.version = Some("2".to_string());
+            params_both_none.config = Some(true);
+        }
+
+        assert_eq!(params_both_none.version, Some("2".to_string()));
+        assert_eq!(params_both_none.config, Some(true));
+
+        // Test when only version is missing - no defaults should apply
+        let mut params_version_missing = FlagsQueryParams {
             version: None,
             config: Some(false),
             compression: None,
@@ -338,7 +328,31 @@ mod tests {
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
         };
-        assert_eq!(params_config_only.version, None);
-        assert_eq!(params_config_only.config, Some(false));
+
+        if params_version_missing.version.is_none() && params_version_missing.config.is_none() {
+            params_version_missing.version = Some("2".to_string());
+            params_version_missing.config = Some(true);
+        }
+
+        assert_eq!(params_version_missing.version, None);
+        assert_eq!(params_version_missing.config, Some(false));
+
+        // Test when only config is missing - no defaults should apply
+        let mut params_config_missing = FlagsQueryParams {
+            version: Some("1".to_string()),
+            config: None,
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+
+        if params_config_missing.version.is_none() && params_config_missing.config.is_none() {
+            params_config_missing.version = Some("2".to_string());
+            params_config_missing.config = Some(true);
+        }
+
+        assert_eq!(params_config_missing.version, Some("1".to_string()));
+        assert_eq!(params_config_missing.config, None);
     }
 }
