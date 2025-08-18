@@ -27,16 +27,16 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-4">
             <div>
+                <LemonBanner type="warning" className="mb-4">
+                    This configuration on applies to the JS Web SDK. For all other SDKs autocapture can be configured
+                    directly in code. See the{' '}
+                    <Link to="https://posthog.com/docs/error-tracking/installation">installation instructions</Link> for
+                    more details.
+                </LemonBanner>
                 <p>
                     Captures frontend exceptions thrown on a customers using `onError` and `onUnhandledRejection`
                     listeners in our web JavaScript SDK.
                 </p>
-                <LemonBanner type="warning" className="mb-4">
-                    Remotely configured exception autocapture and suppression rules only apply to the JS Web SDK. For
-                    all other SDKs autocapture can be configured directly in code. See the{' '}
-                    <Link to="https://posthog.com/docs/error-tracking/installation">installation instructions</Link> for
-                    more details.
-                </LemonBanner>
                 <LemonSwitch
                     id="posthog-autocapture-exceptions-switch"
                     onChange={(checked) => {
