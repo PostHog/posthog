@@ -389,6 +389,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "last_paused_at",
         "batchexportrun_set",
         "batchexportbackfill_set",
+        "deleted",
     ],
     "BatchImport": [
         "lease_id",
