@@ -106,7 +106,7 @@ export function ProjectDropdownMenu({
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 
-                        <Combobox.Group>
+                        <Combobox.Group value={[currentTeam.name]}>
                             <ButtonGroupPrimitive fullWidth>
                                 <Combobox.Item asChild>
                                     <ButtonPrimitive
@@ -140,7 +140,7 @@ export function ProjectDropdownMenu({
                             </ButtonGroupPrimitive>
                         </Combobox.Group>
 
-                        {currentOrganization?.teams?.filter((team) => team.id !== currentTeam?.id).length > 0 && (
+                        {currentOrganization && currentOrganization?.teams?.filter((team) => team.id !== currentTeam?.id).length > 0 && (
                             <>
                                 <Label intent="menu" className="px-2 mt-2">
                                     Other projects
