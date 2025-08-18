@@ -1043,6 +1043,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   }
                                                                               }}
                                                                               className="w-12"
+                                                                              id="survey-wait-period-input"
                                                                           />{' '}
                                                                           {value?.seenSurveyWaitPeriodInDays === 1 ? (
                                                                               <span>day.</span>

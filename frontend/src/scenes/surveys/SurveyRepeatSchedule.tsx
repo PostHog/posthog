@@ -29,8 +29,20 @@ function AlwaysScheduleBanner({
 }: {
     survey: Pick<Survey, 'type' | 'schedule' | 'conditions'>
 }): JSX.Element | null {
-    const { setSelectedSection } = useActions(surveyLogic)
+    const { setSelectedSection, setSurveyValue } = useActions(surveyLogic)
     const doesSurveyHaveWaitPeriod = (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0
+
+    const handleWaitPeriodClick = (): void => {
+        setSelectedSection(SurveyEditSection.DisplayConditions)
+        setSurveyValue('conditions', {
+            ...survey.conditions,
+            seenSurveyWaitPeriodInDays: 30,
+        })
+        // timeout necessary so the section is rendered
+        setTimeout(() => {
+            document.getElementById('survey-wait-period-input')?.focus()
+        }, 200)
+    }
 
     if (doesSurveyHaveWaitPeriod) {
         return (
@@ -50,10 +62,7 @@ function AlwaysScheduleBanner({
                 </p>
                 <p className="font-normal">
                     If this isn't intended, consider&nbsp;
-                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                        adding a wait period
-                    </Link>
-                    .
+                    <Link onClick={handleWaitPeriodClick}>adding a wait period</Link>.
                 </p>
             </LemonBanner>
         )
@@ -67,10 +76,8 @@ function AlwaysScheduleBanner({
             </p>
             <p className="font-normal">
                 If not, consider&nbsp;
-                <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                    adding a wait period
-                </Link>
-                &nbsp; or changing its frequency.
+                <Link onClick={handleWaitPeriodClick}>adding a wait period</Link>
+                &nbsp;or changing its frequency.
             </p>
         </LemonBanner>
     )
