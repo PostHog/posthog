@@ -7,12 +7,13 @@ import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
 import { logger as _logger } from '../../../../utils/logger'
+import { dualWriteComparisonCounter, dualWriteDataMismatchCounter } from '../metrics'
 import { PersonUpdate } from '../person-update-batch'
 import { DualWritePersonRepositoryTransaction } from './dualwrite-person-repository-transaction'
 import { PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
-import { PostgresPersonRepository } from './postgres-person-repository'
 import type { PostgresPersonRepositoryOptions } from './postgres-person-repository'
+import { PostgresPersonRepository } from './postgres-person-repository'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export class PostgresDualWritePersonRepository implements PersonRepository {
@@ -43,8 +44,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     }
 
     /*
-    * needs to have the exact same contract as the single-write repo
-    */
+     * needs to have the exact same contract as the single-write repo
+     */
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -58,58 +59,61 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     ): Promise<CreatePersonResult> {
         let result!: CreatePersonResult
         try {
-          await this.coordinator.run('createPerson', async (leftTx, rightTx) => {
-              // create is serial: create on primary first, then use returned id the DB generated on secondary
-              const p = await this.primaryRepo.createPerson(
-                  createdAt,
-                  properties,
-                  propertiesLastUpdatedAt,
-                  propertiesLastOperation,
-                  teamId,
-                  isUserId,
-                  isIdentified,
-                  uuid,
-                  distinctIds,
-                  leftTx
-              )
-              if (!p.success) {
-                // NICKS TODO: do we want any metrics/logs/observability here?
+            await this.coordinator.run('createPerson', async (leftTx, rightTx) => {
+                // create is serial: create on primary first, then use returned id the DB generated on secondary
+                const p = await this.primaryRepo.createPerson(
+                    createdAt,
+                    properties,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    uuid,
+                    distinctIds,
+                    leftTx
+                )
+                if (!p.success) {
+                    // NICKS TODO: do we want any metrics/logs/observability here?
+                    result = p
+                    throw new Error('DualWrite abort: primary creation conflict')
+                }
+
+                // force same id on secondary
+                const forcedId = Number(p.person.id)
+                const s = await this.secondaryRepo.createPerson(
+                    createdAt,
+                    properties,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    uuid,
+                    distinctIds,
+                    rightTx,
+                    forcedId
+                )
+                if (!s.success) {
+                    result = s
+                    throw new Error('DualWrite abort: secondary creation conflict')
+                }
+
+                // Compare results between primary and secondary
+                this.compareCreatePersonResults(p, s)
+
                 result = p
-                throw new Error('DualWrite abort: primary creation conflict')
-              }
-
-              // force same id on secondary
-              const forcedId = Number(p.person.id)
-              const s = await this.secondaryRepo.createPerson(
-                  createdAt,
-                  properties,
-                  propertiesLastUpdatedAt,
-                  propertiesLastOperation,
-                  teamId,
-                  isUserId,
-                  isIdentified,
-                  uuid,
-                  distinctIds,
-                  rightTx,
-                  forcedId
-              )
-              if (!s.success) {
-                result = s
-                throw new Error('DualWrite abort: secondary creation conflict')
-              }
-              result = p
-              return true
-          })
-      } catch (err) {
-        // if we captured a handled conflict from either side, surface it to match single-write behaviour
-        if (result && !result.success && result.error === 'CreationConflict') {
-          return result
+                return true
+            })
+        } catch (err) {
+            // if we captured a handled conflict from either side, surface it to match single-write behaviour
+            if (result && !result.success && result.error === 'CreationConflict') {
+                return result
+            }
+            throw err
         }
-        throw err
-      }
-      return result
+        return result
     }
-
 
     async updatePerson(
         person: InternalPerson,
@@ -131,12 +135,16 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 version: primaryUpdated.version,
             }
 
-            await this.secondaryRepo.updatePerson(
+            const secondaryOut = await this.secondaryRepo.updatePerson(
                 person,
                 secondaryUpdate,
                 tag ? `${tag}-secondary` : undefined,
                 rightTx
             )
+
+            // Compare results between primary and secondary
+            this.compareUpdatePersonResults(primaryOut, secondaryOut, tag)
+
             return true
         })
         return primaryOut
@@ -151,7 +159,25 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
             // Only perform secondary if the optimistic update succeeded on primary
             if (p[0] !== undefined) {
-                await this.secondaryRepo.updatePersonAssertVersion({ ...personUpdate })
+                const s = await this.secondaryRepo.updatePersonAssertVersion({ ...personUpdate })
+
+                // Compare results
+                if (p[0] !== s[0]) {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'updatePersonAssertVersion',
+                        comparison_type: 'version_mismatch',
+                        result: 'mismatch',
+                    })
+                } else {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'updatePersonAssertVersion',
+                        comparison_type: 'version_match',
+                        result: 'match',
+                    })
+                }
+
+                // Compare message counts
+                this.compareTopicMessages('updatePersonAssertVersion', p[1], s[1])
             }
             return true
         })
@@ -161,10 +187,14 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     async deletePerson(person: InternalPerson): Promise<TopicMessage[]> {
         let messages!: TopicMessage[]
         await this.coordinator.run('deletePerson', async (lTx, rTx) => {
-            const [p] = await Promise.all([
+            const [p, s] = await Promise.all([
                 this.primaryRepo.deletePerson(person, lTx),
                 this.secondaryRepo.deletePerson(person, rTx),
             ])
+
+            // Compare results
+            this.compareTopicMessages('deletePerson', p, s)
+
             messages = p
             return true
         })
@@ -174,10 +204,14 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]> {
         let messages!: TopicMessage[]
         await this.coordinator.run('addDistinctId', async (lTx, rTx) => {
-            const [p] = await Promise.all([
+            const [p, s] = await Promise.all([
                 this.primaryRepo.addDistinctId(person, distinctId, version, lTx),
                 this.secondaryRepo.addDistinctId(person, distinctId, version, rTx),
             ])
+
+            // Compare results
+            this.compareTopicMessages('addDistinctId', p, s)
+
             messages = p
             return true
         })
@@ -194,16 +228,21 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             // If both repositories return the same failure result, that's expected behavior
             // (e.g., both detected that the target person was deleted)
             if (!p.success && !s.success && p.error === s.error) {
-              pResult = p
-              // return false to rollback the transaction; the database failed anyhow so probably don't need to rollback
-              return false
+                pResult = p
+                // return false to rollback the transaction; the database failed anyhow so probably don't need to rollback
+                return false
             }
             // If there's a mismatch in success or error type, that's unexpected
             if (p.success !== s.success || p.error !== s.error) {
-              pResult = p
-              // NICKS TODO: emit a metric here
-              // need to make sure we rollback this transaction
-              return false
+                // Emit metric for mismatch
+                dualWriteComparisonCounter.inc({
+                    operation: 'moveDistinctIds',
+                    comparison_type: p.success !== s.success ? 'success_mismatch' : 'error_mismatch',
+                    result: 'mismatch',
+                })
+                pResult = p
+                // need to make sure we rollback this transaction
+                return false
             }
             pResult = p
             return p.success
@@ -214,10 +253,26 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
         let isMerged!: boolean
         await this.coordinator.run('addPersonlessDistinctIds', async (lTx, rTx) => {
-            const [p, _s] = await Promise.all([
+            const [p, s] = await Promise.all([
                 this.primaryRepo.addPersonlessDistinctId(teamId, distinctId, lTx),
                 this.secondaryRepo.addPersonlessDistinctId(teamId, distinctId, rTx),
             ])
+
+            // Compare boolean results
+            if (p !== s) {
+                dualWriteComparisonCounter.inc({
+                    operation: 'addPersonlessDistinctId',
+                    comparison_type: 'boolean_mismatch',
+                    result: 'mismatch',
+                })
+            } else {
+                dualWriteComparisonCounter.inc({
+                    operation: 'addPersonlessDistinctId',
+                    comparison_type: 'boolean_match',
+                    result: 'match',
+                })
+            }
+
             isMerged = p
         })
         return isMerged
@@ -226,10 +281,26 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
         let isMerged!: boolean
         await this.coordinator.run('addPersonlessDistinctIdForMerge', async (lTx, rTx) => {
-            const [p, _s] = await Promise.all([
+            const [p, s] = await Promise.all([
                 this.primaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, lTx),
                 this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, rTx),
             ])
+
+            // Compare boolean results
+            if (p !== s) {
+                dualWriteComparisonCounter.inc({
+                    operation: 'addPersonlessDistinctIdForMerge',
+                    comparison_type: 'boolean_mismatch',
+                    result: 'mismatch',
+                })
+            } else {
+                dualWriteComparisonCounter.inc({
+                    operation: 'addPersonlessDistinctIdForMerge',
+                    comparison_type: 'boolean_match',
+                    result: 'match',
+                })
+            }
+
             isMerged = p
         })
         return isMerged
@@ -264,5 +335,119 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             return true
         })
         return result
+    }
+
+    private compareCreatePersonResults(primary: CreatePersonResult, secondary: CreatePersonResult): void {
+        if (primary.success !== secondary.success) {
+            dualWriteComparisonCounter.inc({
+                operation: 'createPerson',
+                comparison_type: 'success_mismatch',
+                result: 'mismatch',
+            })
+            return
+        }
+
+        if (!primary.success || !secondary.success) {
+            // Both failed, check if error types match
+            if (primary.error !== secondary.error) {
+                dualWriteComparisonCounter.inc({
+                    operation: 'createPerson',
+                    comparison_type: 'error_mismatch',
+                    result: 'mismatch',
+                })
+            } else {
+                dualWriteComparisonCounter.inc({
+                    operation: 'createPerson',
+                    comparison_type: 'error_match',
+                    result: 'match',
+                })
+            }
+            return
+        }
+
+        // Both succeeded, compare person data
+        const p = primary.person
+        const s = secondary.person
+        let hasMismatch = false
+
+        if (JSON.stringify(p.properties) !== JSON.stringify(s.properties)) {
+            dualWriteDataMismatchCounter.inc({ operation: 'createPerson', field: 'properties' })
+            hasMismatch = true
+        }
+        if (p.version !== s.version) {
+            dualWriteDataMismatchCounter.inc({ operation: 'createPerson', field: 'version' })
+            hasMismatch = true
+        }
+        if (p.is_identified !== s.is_identified) {
+            dualWriteDataMismatchCounter.inc({ operation: 'createPerson', field: 'is_identified' })
+            hasMismatch = true
+        }
+        if (p.is_user_id !== s.is_user_id) {
+            dualWriteDataMismatchCounter.inc({ operation: 'createPerson', field: 'is_user_id' })
+            hasMismatch = true
+        }
+
+        dualWriteComparisonCounter.inc({
+            operation: 'createPerson',
+            comparison_type: 'data_comparison',
+            result: hasMismatch ? 'mismatch' : 'match',
+        })
+    }
+
+    private compareUpdatePersonResults(
+        primary: [InternalPerson, TopicMessage[], boolean],
+        secondary: [InternalPerson, TopicMessage[], boolean],
+        tag?: string
+    ): void {
+        const [pPerson, pMessages, pChanged] = primary
+        const [sPerson, sMessages, sChanged] = secondary
+        let hasMismatch = false
+
+        // Compare person data
+        if (JSON.stringify(pPerson.properties) !== JSON.stringify(sPerson.properties)) {
+            dualWriteDataMismatchCounter.inc({ operation: `updatePerson:${tag ?? 'update'}`, field: 'properties' })
+            hasMismatch = true
+        }
+        if (pPerson.version !== sPerson.version) {
+            dualWriteDataMismatchCounter.inc({ operation: `updatePerson:${tag ?? 'update'}`, field: 'version' })
+            hasMismatch = true
+        }
+        if (pPerson.is_identified !== sPerson.is_identified) {
+            dualWriteDataMismatchCounter.inc({ operation: `updatePerson:${tag ?? 'update'}`, field: 'is_identified' })
+            hasMismatch = true
+        }
+        if (pChanged !== sChanged) {
+            dualWriteDataMismatchCounter.inc({ operation: `updatePerson:${tag ?? 'update'}`, field: 'changed_flag' })
+            hasMismatch = true
+        }
+
+        // Compare message counts (not content, as they might have different timestamps)
+        if (pMessages.length !== sMessages.length) {
+            dualWriteDataMismatchCounter.inc({ operation: `updatePerson:${tag ?? 'update'}`, field: 'message_count' })
+            hasMismatch = true
+        }
+
+        dualWriteComparisonCounter.inc({
+            operation: `updatePerson:${tag ?? 'update'}`,
+            comparison_type: 'data_comparison',
+            result: hasMismatch ? 'mismatch' : 'match',
+        })
+    }
+
+    private compareTopicMessages(operation: string, primary: TopicMessage[], secondary: TopicMessage[]): void {
+        // Compare message counts (not content, as they might have different timestamps)
+        if (primary.length !== secondary.length) {
+            dualWriteComparisonCounter.inc({
+                operation,
+                comparison_type: 'message_count_mismatch',
+                result: 'mismatch',
+            })
+        } else {
+            dualWriteComparisonCounter.inc({
+                operation,
+                comparison_type: 'message_count_match',
+                result: 'match',
+            })
+        }
     }
 }
