@@ -35,14 +35,14 @@ export const exportsLogic = kea<exportsLogicType>([
             sessionRecordingId: string,
             format?: ExporterFormat,
             timestamp?: number,
-            length?: number,
+            duration?: number,
             options?: {
                 width?: number
                 height?: number
                 css_selector?: string
                 filename?: string
             }
-        ) => ({ sessionRecordingId, format, timestamp, length, options }),
+        ) => ({ sessionRecordingId, format, timestamp, duration, options }),
     }),
 
     connect(() => ({
@@ -125,7 +125,7 @@ export const exportsLogic = kea<exportsLogicType>([
             sessionRecordingId,
             format = ExporterFormat.PNG,
             timestamp,
-            length = 5,
+            duration = 5,
             options,
         }) => {
             const exportData: TriggerExportProps = {
@@ -137,7 +137,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     width: options?.width || 1400,
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
-                    length: length,
+                    duration: duration,
                 },
             }
 

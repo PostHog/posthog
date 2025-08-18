@@ -26,6 +26,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     css = asset.export_context.get("css_selector", ".replayer-wrapper")
     width = int(asset.export_context.get("width", 1400))
     height = int(asset.export_context.get("height", 600))
+    duration = int(asset.export_context.get("duration", 5))
 
     fmt = asset.export_format
     tmp_ext = "mp4" if fmt == "video/mp4" else "gif" if fmt == "image/gif" else "webm"
@@ -36,6 +37,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
         "height": height,
         "export_format": fmt,
         "tmp_ext": tmp_ext,
+        "duration": duration,
     }
 
 
@@ -52,7 +54,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
             screenshot_width=build["width"],
             wait_for_css_selector=build["css_selector"],
             screenshot_height=build["height"],
-            recording_duration=5,
+            recording_duration=build["duration"],
         )
         return {"tmp_path": tmp_path}
     except Exception:

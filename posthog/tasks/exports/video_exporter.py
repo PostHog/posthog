@@ -11,6 +11,7 @@ from posthog.exceptions_capture import capture_exception
 
 ScreenWidth = Literal[800, 1920, 1400]
 HEIGHT_OFFSET = 85
+PLAYBACK_SPEED_MULTIPLIER = 8  # Speed up playback during recording for long videos
 
 
 def record_replay_to_file(
@@ -76,7 +77,14 @@ def record_replay_to_file(
                 pass
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
-            page.wait_for_timeout(int(recording_duration * 1000))
+
+            # Speed up playback for long MP4 recordings to reduce recording time
+            ext = os.path.splitext(image_path)[1].lower()
+            playback_speed = PLAYBACK_SPEED_MULTIPLIER if (ext == ".mp4" and recording_duration > 5) else 1
+
+            # Record for actual_duration (shorter if sped up)
+            actual_duration = recording_duration / playback_speed
+            page.wait_for_timeout(int(actual_duration * 1000))
             video = page.video
             page.close()
             if video is None:
@@ -92,37 +100,38 @@ def record_replay_to_file(
                     raise RuntimeError("Playwright did not provide a video path.")
                 shutil.move(src, tmp_webm)
             try:
-                ext = os.path.splitext(image_path)[1].lower()
                 if ext == ".mp4":
-                    subprocess.run(
-                        [
-                            "ffmpeg",
-                            "-hide_banner",
-                            "-loglevel",
-                            "error",
-                            "-y",
-                            "-ss",
-                            f"{pre_roll:.2f}",
-                            "-i",
-                            tmp_webm,
-                            "-t",
-                            f"{float(recording_duration):.2f}",
-                            "-c:v",
-                            "libx264",
-                            "-preset",
-                            "veryfast",
-                            "-crf",
-                            "23",
-                            "-pix_fmt",
-                            "yuv420p",
-                            "-movflags",
-                            "+faststart",
-                            "-f",
-                            "mp4",
-                            image_path,
-                        ],
-                        check=True,
-                    )
+                    # Slow down video if it was recorded at high speed
+                    video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
+                    cmd = [
+                        "ffmpeg",
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-ss",
+                        f"{pre_roll:.2f}",
+                        "-i",
+                        tmp_webm,
+                        "-t",
+                        f"{float(recording_duration):.2f}",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "veryfast",
+                        "-crf",
+                        "23",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-movflags",
+                        "+faststart",
+                        "-f",
+                        "mp4",
+                    ]
+                    if video_filter:
+                        cmd.extend(["-vf", video_filter])
+                    cmd.append(image_path)
+                    subprocess.run(cmd, check=True)
                 elif ext == ".gif":
                     vf_parts = ["fps=12"]
                     if measured_width is not None:

@@ -91,6 +91,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         seekBackward,
         seekForward,
         setSpeed,
+        setSkipInactivitySetting,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
@@ -114,6 +115,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isLikelyPastTTL]
     )
+
+    /** If it's screenshot mode, we want to speed up the playback and disable inactivity skipping */
+    useEffect(() => {
+        if (mode === SessionRecordingPlayerMode.Screenshot) {
+            setSkipInactivitySetting(false)
+
+            //Not the maximum, but 8
+            setSpeed(PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.length - 1])
+        }
+    }, [mode, setSkipInactivitySetting, setSpeed])
 
     useEffect(
         () => {

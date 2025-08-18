@@ -1400,7 +1400,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            actions.startReplayExport(values.sessionRecordingId, ExporterFormat.MP4, 0, 0, {
+            const duration = values.sessionPlayerData?.durationMs
+                ? Math.floor(values.sessionPlayerData?.durationMs / 1000)
+                : 5
+
+            actions.startReplayExport(values.sessionRecordingId, ExporterFormat.MP4, 0, duration, {
                 width: iframe?.width ? Number(iframe.width) : 1400,
                 height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',
