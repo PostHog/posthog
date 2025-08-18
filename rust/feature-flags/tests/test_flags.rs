@@ -339,7 +339,7 @@ async fn it_accepts_empty_distinct_id() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
-    
+
     // Should return a valid response even with empty distinct_id
     let json_data = res.json::<Value>().await?;
     assert_json_include!(
