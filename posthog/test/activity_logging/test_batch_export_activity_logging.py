@@ -37,7 +37,6 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         self.assertIn("last_paused_at", batch_export_exclusions)
         self.assertIn("batchexportrun_set", batch_export_exclusions)
         self.assertIn("batchexportbackfill_set", batch_export_exclusions)
-        self.assertIn("deleted", batch_export_exclusions)
 
     def test_batch_export_scope_in_activity_log_types(self):
         """Test that BatchExport scope is defined in ActivityScope"""
@@ -151,11 +150,16 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
             activity_log = ActivityLog.objects.filter(
-                scope="BatchExport", activity="deleted", item_id=batch_export_id
+                scope="BatchExport", activity="updated", item_id=batch_export_id
             ).first()
 
             self.assertIsNotNone(activity_log)
             assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
+
+            assert activity_log.detail is not None
+            changes = activity_log.detail.get("changes", [])
+            deleted_change = next((change for change in changes if change["field"] == "deleted"), None)
+            self.assertIsNotNone(deleted_change)
         finally:
             activity_storage.clear_user()

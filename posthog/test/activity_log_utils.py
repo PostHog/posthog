@@ -822,10 +822,8 @@ class ActivityLogTestHelper(APILicensedTest):
 
     def delete_batch_export(self, export_id: str) -> None:
         """Delete a batch export."""
-        from posthog.batch_exports.models import BatchExport
-
-        batch_export = BatchExport.objects.get(id=export_id)
-        batch_export.delete()
+        response = self.client.delete(f"/api/projects/{self.team.id}/batch_exports/{export_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     # TaggedItem
     def create_tagged_item(self, tag_name: str, item_type: str, item_id: str) -> dict[str, Any]:
