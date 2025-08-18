@@ -20,11 +20,6 @@ exports.up = (pgm) => {
         primaryKey: ['team_id', 'person_id', 'event_name'],
     })
 
-    // Index for efficient lookups by team_id and person_id
-    pgm.createIndex('person_performed_events', ['team_id', 'person_id'], {
-        name: 'idx_person_performed_events_team_person',
-    })
-
     // Table for behavioural filter matched events
     pgm.createTable('behavioural_filter_matched_events', {
         team_id: {
@@ -53,11 +48,6 @@ exports.up = (pgm) => {
     // Add composite primary key
     pgm.addConstraint('behavioural_filter_matched_events', 'behavioural_filter_matched_events_pkey', {
         primaryKey: ['team_id', 'person_id', 'filter_hash', 'date'],
-    })
-
-    // Index for queries by just team_id and person_id
-    pgm.createIndex('behavioural_filter_matched_events', ['team_id', 'person_id'], {
-        name: 'idx_behavioural_filter_team_person',
     })
 }
 
