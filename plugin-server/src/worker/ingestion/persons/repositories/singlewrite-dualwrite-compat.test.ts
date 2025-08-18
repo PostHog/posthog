@@ -3,30 +3,29 @@
 // we should test: 1. contract returned is the same, 2. consistency across primary and secondary
 import { DateTime } from 'luxon'
 
+import { TopicMessage } from '~/kafka/producer'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
+import { InternalPerson } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { InternalPerson } from '~/types'
-import { TopicMessage } from '~/kafka/producer'
-
-import { PostgresDualWritePersonRepository } from './postgres-dualwrite-person-repository'
-import { PersonPropertiesSizeViolationError } from './person-repository'
-import { uuidFromDistinctId } from '../../person-uuid'
 import { UUIDT } from '~/utils/utils'
-import { CreatePersonResult } from  '../../../../utils/db/db'
+
+import { uuidFromDistinctId } from '../../person-uuid'
+import { PersonPropertiesSizeViolationError } from './person-repository'
+import { PostgresDualWritePersonRepository } from './postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import {
-    TEST_UUIDS,
-    TEST_TIMESTAMP,
-    setupMigrationDb,
+    assertConsistencyAcrossDatabases,
+    assertConsistentDatabaseErrorHandling,
+    assertCreatePersonConflictContractParity,
+    assertCreatePersonContractParity,
     cleanupPrepared,
     getFirstTeam,
-    assertConsistencyAcrossDatabases,
     mockDatabaseError,
-    assertConsistentDatabaseErrorHandling,
-    assertCreatePersonContractParity,
-    assertCreatePersonConflictContractParity
+    setupMigrationDb,
+    TEST_TIMESTAMP,
+    TEST_UUIDS,
 } from './test-helpers'
 
 jest.mock('../../../../utils/logger')
@@ -37,8 +36,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     let migrationPostgres: PostgresRouter
     let dualWriteRepository: PostgresDualWritePersonRepository
     let singleWriteRepository: PostgresPersonRepository
-
-
 
     // Helper to create persons in both repositories with consistent test data
     async function createPersonsInBothRepos(
@@ -51,34 +48,24 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         dualUuid: string = TEST_UUIDS.dual
     ) {
         const [singleResult, dualResult] = await Promise.all([
-            singleWriteRepository.createPerson(
-                createdAt,
-                properties,
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                singleUuid,
-                [{ distinctId: singleDistinctId, version: 0 }]
-            ),
-            dualWriteRepository.createPerson(
-                createdAt,
-                properties,
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                dualUuid,
-                [{ distinctId: dualDistinctId, version: 0 }]
-            )
+            singleWriteRepository.createPerson(createdAt, properties, {}, {}, team.id, null, false, singleUuid, [
+                { distinctId: singleDistinctId, version: 0 },
+            ]),
+            dualWriteRepository.createPerson(createdAt, properties, {}, {}, team.id, null, false, dualUuid, [
+                { distinctId: dualDistinctId, version: 0 },
+            ]),
         ])
-        return { singleResult, dualResult }
+
+        // Ensure both results are successful before returning
+        if (!singleResult.success || !dualResult.success) {
+            throw new Error('Failed to create test persons')
+        }
+
+        return {
+            singleResult: { ...singleResult, person: singleResult.person },
+            dualResult: { ...dualResult, person: dualResult.person },
+        }
     }
-
-
-
 
     beforeEach(async () => {
         hub = await createHub()
@@ -102,10 +89,9 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     })
 
     describe('createPerson() is compatible between single and dual write and consistent between primary and secondary', () => {
-
         it('happy path createPerson()', async () => {
             const team = await getFirstTeam(postgres)
-            
+
             const singleResult = await singleWriteRepository.createPerson(
                 TEST_TIMESTAMP,
                 { name: 'Bob' },
@@ -132,7 +118,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
             assertCreatePersonContractParity(singleResult, dualResult)
 
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -145,19 +131,47 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         it('createPerson() PersonPropertiesSizeViolation', async () => {
             const team = await getFirstTeam(postgres)
 
-            const singleSpy = mockDatabaseError(postgres, new PersonPropertiesSizeViolationError('too big', team.id, undefined), 'insertPerson')
+            const singleSpy = mockDatabaseError(
+                postgres,
+                new PersonPropertiesSizeViolationError('too big', team.id, undefined),
+                'insertPerson'
+            )
             let singleError: any
             try {
-                await singleWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.single, [{ distinctId: 'single-a', version: 0 }])
+                await singleWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    TEST_UUIDS.single,
+                    [{ distinctId: 'single-a', version: 0 }]
+                )
             } catch (e) {
                 singleError = e
             }
             singleSpy.mockRestore()
 
-            const dualSpy = mockDatabaseError(migrationPostgres, new PersonPropertiesSizeViolationError('too big', team.id, undefined), 'insertPerson')
+            const dualSpy = mockDatabaseError(
+                migrationPostgres,
+                new PersonPropertiesSizeViolationError('too big', team.id, undefined),
+                'insertPerson'
+            )
             let dualError: any
             try {
-                await dualWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.dual, [{ distinctId: 'dual-a', version: 0 }])
+                await dualWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    TEST_UUIDS.dual,
+                    [{ distinctId: 'dual-a', version: 0 }]
+                )
             } catch (e) {
                 dualError = e
             }
@@ -166,7 +180,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             expect(singleError).toEqual(dualError)
 
             // Database results are consistent
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -201,12 +215,32 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             expect(seedP.rows.length).toBe(1)
 
             // both single and dual write should conflict when we try to create a person with the same distinctId
-            const singleResult = await singleWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, uuidFromDistinctId(team.id, distinctId), [{ distinctId, version: 0 }])
-            const dualResult = await dualWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, uuidFromDistinctId(team.id, distinctId), [{ distinctId, version: 0 }])
+            const singleResult = await singleWriteRepository.createPerson(
+                TEST_TIMESTAMP,
+                { name: 'A' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuidFromDistinctId(team.id, distinctId),
+                [{ distinctId, version: 0 }]
+            )
+            const dualResult = await dualWriteRepository.createPerson(
+                TEST_TIMESTAMP,
+                { name: 'A' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuidFromDistinctId(team.id, distinctId),
+                [{ distinctId, version: 0 }]
+            )
 
             assertCreatePersonConflictContractParity(singleResult, dualResult)
 
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -222,11 +256,33 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 postgres,
                 new Error('unhandled database error'),
                 'insertPerson',
-                () => singleWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.single, [{ distinctId: 'single-a', version: 0 }]),
-                () => dualWriteRepository.createPerson(TEST_TIMESTAMP, { name: 'A' }, {}, {}, team.id, null, false, TEST_UUIDS.single, [{ distinctId: 'dual-a', version: 0 }]),
+                () =>
+                    singleWriteRepository.createPerson(
+                        TEST_TIMESTAMP,
+                        { name: 'A' },
+                        {},
+                        {},
+                        team.id,
+                        null,
+                        false,
+                        TEST_UUIDS.single,
+                        [{ distinctId: 'single-a', version: 0 }]
+                    ),
+                () =>
+                    dualWriteRepository.createPerson(
+                        TEST_TIMESTAMP,
+                        { name: 'A' },
+                        {},
+                        {},
+                        team.id,
+                        null,
+                        false,
+                        TEST_UUIDS.single,
+                        [{ distinctId: 'dual-a', version: 0 }]
+                    ),
                 'unhandled database error'
             )
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -237,19 +293,32 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         })
     })
     describe('updatePerson() is compatible between single and dual write and consistent between primary and secondary', () => {
-        function assertUpdatePersonContractParity(singleResult: [InternalPerson, TopicMessage[], boolean], dualResult: [InternalPerson, TopicMessage[], boolean]) {
+        function assertUpdatePersonContractParity(
+            singleResult: [InternalPerson, TopicMessage[], boolean],
+            dualResult: [InternalPerson, TopicMessage[], boolean]
+        ) {
             expect(singleResult[0].properties).toEqual(dualResult[0].properties)
-            expect(singleResult[1].properties).toEqual(dualResult[1].properties)
+            // Compare messages arrays, not properties on the array
+            expect(singleResult[1]).toEqual(dualResult[1])
             expect(singleResult[2]).toEqual(dualResult[2])
         }
         it('happy path updatePerson()', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
-            const singleUpdateResult = await singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update')
-            const dualUpdateResult = await dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update')
+            const singleUpdateResult = await singleWriteRepository.updatePerson(
+                singleCreatePersonResult.person,
+                { properties: { name: 'B' } },
+                'single-update'
+            )
+            const dualUpdateResult = await dualWriteRepository.updatePerson(
+                dualCreatePersonResult.person,
+                { properties: { name: 'B' } },
+                'dual-update'
+            )
             assertUpdatePersonContractParity(singleUpdateResult, dualUpdateResult)
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -258,22 +327,33 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'verify-secondary-update'
             )
         })
-        it('updatePerson() unhandled database error', async() => {
+        it('updatePerson() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             // Test that both repositories handle database errors consistently
             await assertConsistentDatabaseErrorHandling(
                 postgres,
                 new Error('unhandled database error'),
                 'updatePerson',
-                () => singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update'),
-                () => dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update'),
+                () =>
+                    singleWriteRepository.updatePerson(
+                        singleCreatePersonResult.person,
+                        { properties: { name: 'B' } },
+                        'single-update'
+                    ),
+                () =>
+                    dualWriteRepository.updatePerson(
+                        dualCreatePersonResult.person,
+                        { properties: { name: 'B' } },
+                        'dual-update'
+                    ),
                 'unhandled database error'
             )
 
             // Verify that the database state remains consistent (no partial updates)
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -282,9 +362,10 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'verify-secondary-update'
             )
         })
-        it('updatePerson() PersonPropertiesSizeViolation update attempts to violate the limit', async() => {
+        it('updatePerson() PersonPropertiesSizeViolation update attempts to violate the limit', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             // Test that both repositories handle the check_properties_size constraint violation consistently
             // PostgreSQL error code '23514' is for check constraint violation
@@ -292,12 +373,22 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 postgres,
                 { message: 'Check constraint violation', code: '23514', constraint: 'check_properties_size' },
                 'updatePerson',
-                () => singleWriteRepository.updatePerson(singleCreatePersonResult.person, { properties: { name: 'B' } }, 'single-update'),
-                () => dualWriteRepository.updatePerson(dualCreatePersonResult.person, { properties: { name: 'B' } }, 'dual-update'),
-                PersonPropertiesSizeViolationError
+                () =>
+                    singleWriteRepository.updatePerson(
+                        singleCreatePersonResult.person,
+                        { properties: { name: 'B' } },
+                        'single-update'
+                    ),
+                () =>
+                    dualWriteRepository.updatePerson(
+                        dualCreatePersonResult.person,
+                        { properties: { name: 'B' } },
+                        'dual-update'
+                    ),
+                PersonPropertiesSizeViolationError as any
             )
 
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -306,21 +397,22 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'verify-secondary-update'
             )
         })
-        it('updatePerson() PersonPropertiesSizeViolation existing properties trimmed', async() => {
+        it('updatePerson() PersonPropertiesSizeViolation existing properties trimmed', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             // we need custom database error mocking here, cause it's a special case
 
             // Force remediation branch by reporting the current record is already oversized
             const spySizeSingle = jest
-                .spyOn((singleWriteRepository as any), 'personPropertiesSize')
+                .spyOn(singleWriteRepository as any, 'personPropertiesSize')
                 .mockResolvedValue(70000000)
 
             const spySizeDual = jest
                 .spyOn((dualWriteRepository as any).primaryRepo, 'personPropertiesSize')
                 .mockResolvedValue(70000000)
-            
+
             const originalQueryPrimary = postgres.query.bind(postgres)
             let primaryUpdateCallCount = 0
             let sawRemediationTag = false
@@ -342,15 +434,23 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     }
                     return originalQueryPrimary(use, query, values, tag)
                 })
-            
+
             const updateToApply = {
                 properties: {
                     $app_name: 'Application name with detailed information',
                     $app_version: 'Version 1.2.3 with build metadata',
                 },
             }
-            const singleUpdateResult = await singleWriteRepository.updatePerson(singleCreatePersonResult.person, updateToApply, 'single-update')
-            const dualUpdateResult = await dualWriteRepository.updatePerson(dualCreatePersonResult.person, updateToApply, 'dual-update')
+            const singleUpdateResult = await singleWriteRepository.updatePerson(
+                singleCreatePersonResult.person,
+                updateToApply,
+                'single-update'
+            )
+            const dualUpdateResult = await dualWriteRepository.updatePerson(
+                dualCreatePersonResult.person,
+                updateToApply,
+                'dual-update'
+            )
 
             // both single and primary called update twice
             expect(primaryUpdateCallCount).toBe(4)
@@ -358,7 +458,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
             assertUpdatePersonContractParity(singleUpdateResult, dualUpdateResult)
 
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -378,16 +478,17 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             expect(singleResult.length).toEqual(dualResult.length)
             expect(singleResult[0].topic).toEqual(dualResult[0].topic)
         }
-        it('happy path deletePerson()', async() => {
+        it('happy path deletePerson()', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             const singleDeleteResult = await singleWriteRepository.deletePerson(singleCreatePersonResult.person)
             const dualDeleteResult = await dualWriteRepository.deletePerson(dualCreatePersonResult.person)
 
             assertDeletePersonContractParity(singleDeleteResult, dualDeleteResult)
 
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -396,11 +497,12 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'verify-secondary-delete'
             )
         })
-        it('deletePerson() unhandled database error', async() => {
+        it('deletePerson() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
-            assertConsistentDatabaseErrorHandling(
+            await assertConsistentDatabaseErrorHandling(
                 postgres,
                 new Error('unhandled database error'),
                 'deletePerson',
@@ -408,7 +510,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 () => dualWriteRepository.deletePerson(dualCreatePersonResult.person),
                 'unhandled database error'
             )
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -417,9 +519,10 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'verify-secondary-delete'
             )
         })
-        it('deletePerson() deadlock detected', async() => {
+        it('deletePerson() deadlock detected', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             // Test that both repositories handle deadlock errors consistently
             // PostgreSQL error code '40P01' is for deadlock detected
@@ -431,9 +534,9 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 () => dualWriteRepository.deletePerson(dualCreatePersonResult.person),
                 'deadlock detected'
             )
-            
+
             // Verify that the database state remains consistent (persons should still exist as delete failed)
-            assertConsistencyAcrossDatabases(
+            await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
@@ -445,7 +548,10 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     })
 
     describe('fetchPerson() is compatible between single and dual write', () => {
-        function assertFetchPersonContractParity(singleResult: InternalPerson | undefined, dualResult: InternalPerson | undefined) {
+        function assertFetchPersonContractParity(
+            singleResult: InternalPerson | undefined,
+            dualResult: InternalPerson | undefined
+        ) {
             if (singleResult === undefined) {
                 expect(dualResult).toBeUndefined()
             } else if (dualResult === undefined) {
@@ -459,7 +565,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('happy path fetchPerson()', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: _singleCreatePersonResult, dualResult: _dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             const singleFetchResult = await singleWriteRepository.fetchPerson(team.id, 'single-a')
             const dualFetchResult = await dualWriteRepository.fetchPerson(team.id, 'dual-a')
@@ -480,7 +587,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('fetchPerson() with forUpdate lock', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: _singleCreatePersonResult, dualResult: _dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             const singleFetchResult = await singleWriteRepository.fetchPerson(team.id, 'single-a', { forUpdate: true })
             const dualFetchResult = await dualWriteRepository.fetchPerson(team.id, 'dual-a', { forUpdate: true })
@@ -513,9 +621,14 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('happy path addDistinctId()', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
-            const singleAddResult = await singleWriteRepository.addDistinctId(singleCreatePersonResult.person, 'single-b', 1)
+            const singleAddResult = await singleWriteRepository.addDistinctId(
+                singleCreatePersonResult.person,
+                'single-b',
+                1
+            )
             const dualAddResult = await dualWriteRepository.addDistinctId(dualCreatePersonResult.person, 'dual-b', 1)
 
             assertAddDistinctIdContractParity(singleAddResult, dualAddResult)
@@ -532,7 +645,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('addDistinctId() duplicate distinct id conflict', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             // Try to add a distinct ID that already exists
             let singleError: any
@@ -558,7 +672,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('addDistinctId() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             await assertConsistentDatabaseErrorHandling(
                 postgres,
@@ -588,7 +703,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('happy path moveDistinctIds()', async () => {
             const team = await getFirstTeam(postgres)
-            
+
             // Create source persons with distinct IDs to move
             const sourceSingleResult = await singleWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -637,6 +752,16 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 [{ distinctId: 'dual-target', version: 0 }]
             )
 
+            // Ensure all persons were created successfully
+            if (
+                !sourceSingleResult.success ||
+                !targetSingleResult.success ||
+                !sourceDualResult.success ||
+                !targetDualResult.success
+            ) {
+                throw new Error('Failed to create test persons')
+            }
+
             const singleMoveResult = await singleWriteRepository.moveDistinctIds(
                 sourceSingleResult.person,
                 targetSingleResult.person
@@ -660,7 +785,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('moveDistinctIds() foreign key constraint error when target deleted', async () => {
             const team = await getFirstTeam(postgres)
-            
+
             // Create source persons
             const sourceSingleResult = await singleWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -685,9 +810,22 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 [{ distinctId: 'dual-source-fk', version: 0 }]
             )
 
+            // Ensure all persons were created successfully
+            if (!sourceSingleResult.success || !sourceDualResult.success) {
+                throw new Error('Failed to create test persons')
+            }
+
             // Create mock target persons (will simulate them being deleted)
-            const targetSingle = { ...sourceSingleResult.person, id: '999999', uuid: '99999999-9999-9999-9999-999999999999' }
-            const targetDual = { ...sourceDualResult.person, id: '999998', uuid: '99999999-9999-9999-9999-999999999998' }
+            const targetSingle = {
+                ...sourceSingleResult.person,
+                id: '999999',
+                uuid: '99999999-9999-9999-9999-999999999999',
+            }
+            const targetDual = {
+                ...sourceDualResult.person,
+                id: '999998',
+                uuid: '99999999-9999-9999-9999-999999999998',
+            }
 
             // moveDistinctIds catches foreign key errors and returns { success: false, error: 'TargetNotFound' }
             // So we test that both repositories handle this case the same way
@@ -724,13 +862,18 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('moveDistinctIds() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             await assertConsistentDatabaseErrorHandling(
                 postgres,
                 new Error('unhandled database error'),
                 'updateDistinctIdPerson',
-                () => singleWriteRepository.moveDistinctIds(singleCreatePersonResult.person, singleCreatePersonResult.person),
+                () =>
+                    singleWriteRepository.moveDistinctIds(
+                        singleCreatePersonResult.person,
+                        singleCreatePersonResult.person
+                    ),
                 () => dualWriteRepository.moveDistinctIds(dualCreatePersonResult.person, dualCreatePersonResult.person),
                 'unhandled database error'
             )
@@ -859,7 +1002,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     describe('updateCohortsAndFeatureFlagsForMerge() is compatible between single and dual write and consistent between primary and secondary', () => {
         it('happy path updateCohortsAndFeatureFlagsForMerge()', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             // This method doesn't return anything, just verify it doesn't error
             await expect(
@@ -891,7 +1035,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
         it('updateCohortsAndFeatureFlagsForMerge() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } = await createPersonsInBothRepos(team)
+            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
+                await createPersonsInBothRepos(team)
 
             // This method doesn't have special error handling, it just throws
             // We need to mock the specific query tag that this method uses: 'updateCohortAndFeatureFlagsPeople'
@@ -937,4 +1082,3 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         })
     })
 })
-

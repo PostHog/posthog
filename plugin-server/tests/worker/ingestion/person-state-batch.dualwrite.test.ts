@@ -245,8 +245,9 @@ describe('PersonState dual-write compatibility', () => {
                 dualUpdateEvent
             )
 
-            singleProcessor.context.person = singlePerson
-            dualProcessor.context.person = dualPerson
+            // Use type assertion to access private context for testing
+            ;(singleProcessor as any).context.person = singlePerson
+            ;(dualProcessor as any).context.person = dualPerson
 
             await Promise.all([singleProcessor.processEvent(), dualProcessor.processEvent()])
 
@@ -374,8 +375,10 @@ describe('PersonState dual-write compatibility', () => {
 
             expect(singleResult.success).toBe(false)
             expect(dualResult.success).toBe(false)
-            expect(singleResult.error).toBe('CreationConflict')
-            expect(dualResult.error).toBe('CreationConflict')
+            if (!singleResult.success && !dualResult.success) {
+                expect(singleResult.error).toBe('CreationConflict')
+                expect(dualResult.error).toBe('CreationConflict')
+            }
         })
 
         it('handles person not found consistently', async () => {
@@ -491,7 +494,10 @@ describe('PersonState dual-write compatibility', () => {
                 )
 
                 expect(existingPersonResult.success).toBe(true)
-                const existingPerson = existingPersonResult.person!
+                if (!existingPersonResult.success) {
+                    throw new Error('Expected person creation to succeed')
+                }
+                const existingPerson = existingPersonResult.person
 
                 // Create a PersonMergeService with dual-write repository
                 // We need to set up the context similar to how it's done during event processing
@@ -507,6 +513,8 @@ describe('PersonState dual-write compatibility', () => {
                     now: timestamp.toISO(),
                     event: '$identify',
                     uuid: new UUIDT().toString(),
+                    ip: '',
+                    site_url: '',
                 } as PluginEvent
 
                 const context = new PersonContext(
@@ -524,7 +532,7 @@ describe('PersonState dual-write compatibility', () => {
 
                 // Call the private mergeDistinctIds method (we'll need to make it accessible for testing)
                 // For now, let's test through the public handleIdentifyOrAlias method
-                context.anonDistinctId = existingDistinctId
+                ;(context as any).anonDistinctId = existingDistinctId
                 const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
                 await updatePromise
 
@@ -593,6 +601,8 @@ describe('PersonState dual-write compatibility', () => {
                     now: timestamp.toISO(),
                     event: '$identify',
                     uuid: new UUIDT().toString(),
+                    ip: '',
+                    site_url: '',
                 } as PluginEvent
 
                 const context = new PersonContext(
@@ -609,7 +619,7 @@ describe('PersonState dual-write compatibility', () => {
                 const mergeService = new PersonMergeService(context)
 
                 // Set up the context for merging
-                context.anonDistinctId = secondDistinctId
+                ;(context as any).anonDistinctId = secondDistinctId
 
                 // Execute the merge - this should create a new person with both distinct IDs
                 const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
@@ -703,7 +713,10 @@ describe('PersonState dual-write compatibility', () => {
                     [{ distinctId: person1DistinctId, version: 0 }]
                 )
                 expect(person1Result.success).toBe(true)
-                const person1 = person1Result.person!
+                if (!person1Result.success) {
+                    throw new Error('Expected person creation to succeed')
+                }
+                const person1 = person1Result.person
 
                 // Add extra distinct ID to person1
                 await dualWriteRepository.addDistinctId(person1, person1ExtraId, 0)
@@ -721,7 +734,10 @@ describe('PersonState dual-write compatibility', () => {
                     [{ distinctId: person2DistinctId, version: 0 }]
                 )
                 expect(person2Result.success).toBe(true)
-                const person2 = person2Result.person!
+                if (!person2Result.success) {
+                    throw new Error('Expected person creation to succeed')
+                }
+                const person2 = person2Result.person
 
                 // Add extra distinct ID to person2
                 await dualWriteRepository.addDistinctId(person2, person2ExtraId, 0)
@@ -741,6 +757,8 @@ describe('PersonState dual-write compatibility', () => {
                     now: timestamp.plus({ minutes: 2 }).toISO(),
                     event: '$identify',
                     uuid: new UUIDT().toString(),
+                    ip: '',
+                    site_url: '',
                 } as PluginEvent
 
                 const context = new PersonContext(
@@ -757,7 +775,7 @@ describe('PersonState dual-write compatibility', () => {
                 const mergeService = new PersonMergeService(context)
 
                 // Set up the context for merging two existing persons
-                context.anonDistinctId = person2DistinctId
+                ;(context as any).anonDistinctId = person2DistinctId
 
                 // Execute the merge
                 const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
@@ -869,8 +887,11 @@ describe('PersonState dual-write compatibility', () => {
 
                 expect(person1Result.success).toBe(true)
                 expect(person2Result.success).toBe(true)
-                const person1 = person1Result.person!
-                const person2 = person2Result.person!
+                if (!person1Result.success || !person2Result.success) {
+                    throw new Error('Expected person creations to succeed')
+                }
+                const person1 = person1Result.person
+                const person2 = person2Result.person
 
                 // Mock the secondary repository to fail during moveDistinctIds
                 // Need to fail 3 times to exhaust the default retry count
@@ -892,6 +913,8 @@ describe('PersonState dual-write compatibility', () => {
                     now: timestamp.plus({ minutes: 2 }).toISO(),
                     event: '$identify',
                     uuid: new UUIDT().toString(),
+                    ip: '',
+                    site_url: '',
                 } as PluginEvent
 
                 const context = new PersonContext(
@@ -906,7 +929,7 @@ describe('PersonState dual-write compatibility', () => {
                 )
 
                 const mergeService = new PersonMergeService(context)
-                context.anonDistinctId = person2Id
+                ;(context as any).anonDistinctId = person2Id
 
                 // The merge should fail internally but PersonMergeService catches errors
                 // We need to check that the operation didn't succeed
@@ -989,7 +1012,10 @@ describe('PersonState dual-write compatibility', () => {
                 )
 
                 expect(existingResult.success).toBe(true)
-                const existingPerson = existingResult.person!
+                if (!existingResult.success) {
+                    throw new Error('Expected person creation to succeed')
+                }
+                const existingPerson = existingResult.person
 
                 // Mock to simulate a constraint violation when adding distinct ID
                 // Need to fail 3 times to exhaust the default retry count
@@ -1012,6 +1038,8 @@ describe('PersonState dual-write compatibility', () => {
                     now: timestamp.toISO(),
                     event: '$identify',
                     uuid: new UUIDT().toString(),
+                    ip: '',
+                    site_url: '',
                 } as PluginEvent
 
                 const context = new PersonContext(
@@ -1026,7 +1054,7 @@ describe('PersonState dual-write compatibility', () => {
                 )
 
                 const mergeService = new PersonMergeService(context)
-                context.anonDistinctId = existingId
+                ;(context as any).anonDistinctId = existingId
 
                 // The operation should fail internally
                 try {

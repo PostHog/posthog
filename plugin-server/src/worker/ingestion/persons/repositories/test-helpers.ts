@@ -114,7 +114,7 @@ export async function assertConsistentDatabaseErrorHandling<T>(
     tagPattern: string | RegExp,
     singleWriteOperation: () => Promise<T>,
     dualWriteOperation: () => Promise<T>,
-    expectedError?: string | RegExp | typeof Error
+    expectedError?: string | RegExp | ErrorConstructor
 ) {
     const singleSpy = mockDatabaseError(postgres, error, tagPattern)
     let singleError: any
@@ -166,7 +166,9 @@ export async function assertConsistentDatabaseErrorHandling<T>(
 export function assertCreatePersonContractParity(singleResult: CreatePersonResult, dualResult: CreatePersonResult) {
     expect(singleResult.success).toBe(true)
     expect(dualResult.success).toBe(true)
-    expect(singleResult.person.properties).toEqual(dualResult.person.properties)
+    if (singleResult.success && dualResult.success) {
+        expect(singleResult.person.properties).toEqual(dualResult.person.properties)
+    }
 }
 
 export function assertCreatePersonConflictContractParity(
@@ -175,6 +177,8 @@ export function assertCreatePersonConflictContractParity(
 ) {
     expect(singleResult.success).toBe(false)
     expect(dualResult.success).toBe(false)
-    expect(singleResult.error).toBe(dualResult.error)
-    expect(singleResult.distinctIds).toEqual(dualResult.distinctIds)
+    if (!singleResult.success && !dualResult.success) {
+        expect(singleResult.error).toBe(dualResult.error)
+        expect(singleResult.distinctIds).toEqual(dualResult.distinctIds)
+    }
 }

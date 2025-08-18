@@ -246,7 +246,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 return false
             }
             // If there's a mismatch in success or error type, that's unexpected
-            if (p.success !== s.success || p.error !== s.error) {
+            if (p.success !== s.success || (!p.success && !s.success && p.error !== s.error)) {
                 // Emit metric for mismatch
                 if (this.comparisonEnabled) {
                     dualWriteComparisonCounter.inc({
@@ -380,7 +380,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
         if (!primary.success || !secondary.success) {
             // Both failed, check if error types match
-            if (primary.error !== secondary.error) {
+            if (!primary.success && !secondary.success && primary.error !== secondary.error) {
                 dualWriteComparisonCounter.inc({
                     operation: 'createPerson',
                     comparison_type: 'error_mismatch',
