@@ -95,9 +95,9 @@ async def create_test_feature_flags(team, user):
     return created_flags
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 async def create_feature_flags(demo_org_team_user):
-    """Create test feature flags once per test module."""
+    """Create test feature flags for the test."""
     _, team, user = demo_org_team_user
     return await create_test_feature_flags(team, user)
 
