@@ -533,7 +533,7 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                const { status, message } = await this.emailTrackingService.handleWebhook(req)
+                const { status, message } = await this.emailTrackingService.handleMailjetWebhook(req)
                 return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })

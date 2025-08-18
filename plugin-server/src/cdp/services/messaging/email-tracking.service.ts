@@ -162,7 +162,7 @@ export class EmailTrackingService {
         })
     }
 
-    public async handleWebhook(
+    public async handleMailjetWebhook(
         req: ModifiedRequest
     ): Promise<{ status: number; message?: string; metrics?: AppMetricType[] }> {
         const signature = req.headers['x-mailjet-signature'] as string
@@ -203,7 +203,7 @@ export class EmailTrackingService {
                 return { status: 400, message: 'Unmapped event type' }
             }
 
-            this.trackMetric({
+            await this.trackMetric({
                 functionId,
                 invocationId,
                 metricName: category,
