@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
+
 import { LemonTag } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
@@ -10,10 +12,9 @@ import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmObservabilityLogic } from './llmObservabilityLogic'
 import { formatLLMCost, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
-
-import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } =

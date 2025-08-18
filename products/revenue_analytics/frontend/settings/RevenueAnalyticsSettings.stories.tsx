@@ -1,11 +1,14 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
-import DatabaseSchemaQuery from '../__mocks__/DatabaseSchemaQuery.json'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+
+import DatabaseSchemaQuery from '../__mocks__/DatabaseSchemaQuery.json'
 
 const meta: Meta = {
     component: App,

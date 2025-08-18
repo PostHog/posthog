@@ -84,7 +84,7 @@ HAVING value >= 0
 
         return parse_expr(f"{percentile_function}(toFloat({metric_value_field}))")
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         response = execute_hogql_query(
             query_type="web_vitals_path_breakdown_query",

@@ -4,6 +4,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.database.models import (
     DecimalDatabaseField,
+    IntegerDatabaseField,
     StringDatabaseField,
     LazyTable,
     FieldOrTable,
@@ -19,7 +20,7 @@ def join_with_persons_revenue_analytics_table(
     node: ast.SelectQuery,
 ):
     if not join_to_add.fields_accessed:
-        raise ResolutionError("No fields requested from revenue_analytics")
+        raise ResolutionError("No fields requested from `persons_revenue_analytics`")
 
     return ast.JoinExpr(
         alias=join_to_add.to_table,
@@ -28,7 +29,7 @@ def join_with_persons_revenue_analytics_table(
         constraint=ast.JoinConstraint(
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
                 right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
             ),
             constraint_type="ON",
@@ -82,6 +83,14 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
             queries.append(
                 ast.SelectQuery(
                     select=[
+                        # `team_id` is required to make HogQL happy and edge-case free
+                        # by avoiding the need to add an exception when querying this table
+                        #
+                        # This table is always safe to query "without a `team_id` filter"
+                        # because it's simply aggregating data from revenue warehouse views,
+                        # and those views are, on their own, safe to query "without a `team_id` filter"
+                        # since they're getting data from either the data warehouse (safe) or the events table (safe)
+                        ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
                         ast.Alias(
                             alias="person_id", expr=ast.Call(name="toUUID", args=[ast.Field(chain=person_id_chain)])
                         ),
@@ -112,6 +121,10 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
                                                 "timestamp",
                                             ]
                                         ),
+                                        # For POE, we *should* be able to use the events.timestamp field
+                                        # but that's not possible given Clickhouse's limitations on what you can do in a subquery
+                                        # We should figure out a way to do this in the future
+                                        # "toDate(events.timestamp) - INTERVAL {interval} DAY" if is_poe else "today() - INTERVAL {interval} DAY",
                                         right=parse_expr("today() - INTERVAL 30 DAY"),
                                     ),
                                 ],
@@ -149,8 +162,9 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
 
-class RawPersonsRevenueAnalyticsTable(LazyTable):
+class PersonsRevenueAnalyticsTable(LazyTable):
     fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id"),
         "person_id": StringDatabaseField(name="person_id"),
         "revenue": DecimalDatabaseField(name="revenue", nullable=False),
         "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
@@ -165,7 +179,7 @@ class RawPersonsRevenueAnalyticsTable(LazyTable):
         return select_from_persons_revenue_analytics_table(context)
 
     def to_printed_clickhouse(self, context):
-        return "raw_persons_revenue_analytics"
+        return "persons_revenue_analytics"
 
     def to_printed_hogql(self):
-        return "raw_persons_revenue_analytics"
+        return "persons_revenue_analytics"

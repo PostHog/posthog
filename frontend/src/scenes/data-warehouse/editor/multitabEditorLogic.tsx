@@ -1,18 +1,20 @@
 import { Monaco } from '@monaco-editor/react'
-import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import isEqual from 'lodash.isequal'
+import { Uri, editor } from 'monaco-editor'
+import posthog from 'posthog-js'
+
+import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import isEqual from 'lodash.isequal'
-import { editor, Uri } from 'monaco-editor'
-import posthog from 'posthog-js'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -21,8 +23,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import {
-    DatabaseSchemaViewTable,
     DataVisualizationNode,
+    DatabaseSchemaViewTable,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -39,19 +41,19 @@ import {
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
+import { ViewEmptyState } from './ViewLoadingState'
 import { get, set } from './db'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
-import { outputPaneLogic, OutputTab } from './outputPaneLogic'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import {
     aiSuggestionOnAccept,
     aiSuggestionOnAcceptText,
     aiSuggestionOnReject,
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
-import { ViewEmptyState } from './ViewLoadingState'
 
 export interface MultitabEditorLogicProps {
     key: string

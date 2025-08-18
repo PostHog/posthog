@@ -1,12 +1,15 @@
-import { IconGear } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
-import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
-import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
+import posthog from 'posthog-js'
+
+import { IconGear } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
+import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
+
 import api from 'lib/api'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -28,6 +31,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -50,7 +54,6 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
-import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { hogql } from '~/queries/utils'
 import {
     AvailableFeature,
@@ -73,37 +76,36 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
-import posthog from 'posthog-js'
-import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import {
     ActiveHoursTab,
     ConversionGoalWarning,
     DeviceTab,
     DeviceType,
-    GeographyTab,
     GEOIP_TEMPLATE_IDS,
-    getWebAnalyticsBreakdownFilter,
+    GeographyTab,
     GraphsTab,
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
     INITIAL_INTERVAL,
     INITIAL_WEB_ANALYTICS_FILTER,
-    loadPriorityMap,
     PathTab,
     ProductTab,
     SourceTab,
+    TILES_ALLOWED_ON_PRE_AGGREGATED,
     TabsTileTab,
     TileId,
-    TILES_ALLOWED_ON_PRE_AGGREGATED,
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsStatusCheck,
     WebAnalyticsTile,
     WebVitalsPercentile,
+    getWebAnalyticsBreakdownFilter,
+    loadPriorityMap,
 } from './common'
+import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
+import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }

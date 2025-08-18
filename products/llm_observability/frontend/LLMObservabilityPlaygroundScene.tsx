@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useRef, useState } from 'react'
+
 import { IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -11,9 +14,8 @@ import {
     LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { useRef, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'

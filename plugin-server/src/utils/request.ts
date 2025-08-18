@@ -5,22 +5,23 @@ import net from 'node:net'
 import { Counter } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
-    type HeadersInit,
     Agent,
-    errors,
-    fetch as undiciFetch,
-    request,
+    type HeadersInit,
     RequestInfo,
     RequestInit,
     Response,
+    errors,
+    request,
+    fetch as undiciFetch,
 } from 'undici'
-// eslint-disable-next-line no-restricted-imports
-export { Response } from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
+
+// eslint-disable-next-line no-restricted-imports
+export { Response } from 'undici'
 
 const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',

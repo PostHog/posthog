@@ -1,8 +1,10 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { CSSProperties, useEffect } from 'react'
+
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { objectsEqual } from 'lib/utils'
-import { CSSProperties, useEffect } from 'react'
 
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 

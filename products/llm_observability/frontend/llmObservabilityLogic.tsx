@@ -1,9 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -11,8 +14,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
+import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
@@ -27,8 +30,6 @@ import {
 } from '~/types'
 
 import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 

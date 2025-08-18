@@ -1,23 +1,25 @@
-import { IconEye, IconMarkdown, IconMarkdownFilled, IconCode } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { XMLViewer } from './XMLViewer'
-import { HighlightedXMLViewer } from './HighlightedXMLViewer'
-import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
+import React from 'react'
+
+import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
-import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
-import { looksLikeXml } from '../utils'
-import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
-import { containsSearchQuery } from '../searchUtils'
 import { llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
+import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
+import { looksLikeXml } from '../utils'
+import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
+import { HighlightedXMLViewer } from './HighlightedXMLViewer'
+import { XMLViewer } from './XMLViewer'
 
 export function ConversationMessagesDisplay({
     inputNormalized,

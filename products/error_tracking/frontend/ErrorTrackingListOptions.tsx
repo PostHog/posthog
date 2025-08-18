@@ -2,11 +2,11 @@ import { useValues } from 'kea'
 
 import { BulkActions } from './components/IssueActions/BulkActions'
 import { IssueQueryOptions } from './components/IssueQueryOptions/IssueQueryOptions'
+import { errorTrackingBulkSelectLogic } from './errorTrackingBulkSelectLogic'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 export const ErrorTrackingListOptions = (): JSX.Element => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
 
     return (

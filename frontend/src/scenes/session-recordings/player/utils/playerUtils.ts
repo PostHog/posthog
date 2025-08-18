@@ -1,7 +1,8 @@
 import { router } from 'kea-router'
+import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'

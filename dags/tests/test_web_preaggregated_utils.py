@@ -1,75 +1,176 @@
-from dags.web_preaggregated_utils import (
-    CLICKHOUSE_SETTINGS,
-    format_clickhouse_settings,
-    merge_clickhouse_settings,
+import inspect
+from unittest.mock import Mock
+
+from dagster import (
+    DagsterInstance,
+    job,
+    op,
+    schedule,
+    SkipReason,
+    DagsterRunStatus,
+    RunsFilter,
 )
+from dags.web_preaggregated_utils import check_for_concurrent_runs
+from dags.web_preaggregated import (
+    web_pre_aggregate_historical_schedule,
+    web_pre_aggregate_current_day_schedule,
+    web_pre_aggregate_job,
+)
+from dags.web_preaggregated_daily import (
+    web_pre_aggregate_daily_schedule,
+    web_pre_aggregate_daily_job,
+)
+from dags.web_preaggregated_hourly import (
+    web_pre_aggregate_current_day_hourly_schedule,
+    web_pre_aggregate_current_day_hourly_job,
+)
+import dags.web_preaggregated as wp
+import dags.web_preaggregated_daily as wpd
+import dags.web_preaggregated_hourly as wph
 
 
-class TestWebAnalyticsUtilities:
-    def test_format_clickhouse_settings(self):
-        settings = {
-            "max_execution_time": "1200",
-            "max_memory_usage": "50000000000",
-            "max_threads": "8",
-        }
+class TestWebPreaggregatedUtils:
+    def test_check_for_concurrent_runs_with_dagster_instance(self):
+        def create_test_context(instance, schedule_def, schedule_name):
+            context = Mock()
+            context._schedule_name = schedule_name
+            context.instance = instance
+            context.log = Mock()
 
-        result = format_clickhouse_settings(settings)
-        expected = "max_execution_time=1200,max_memory_usage=50000000000,max_threads=8"
-        assert result == expected
+            mock_repo_def = Mock()
+            mock_repo_def.get_schedule_def.return_value = schedule_def
+            context.repository_def = mock_repo_def
+            return context
 
-    def test_merge_clickhouse_settings(self):
-        base_settings = {
-            "max_execution_time": "1200",
-            "max_memory_usage": "50000000000",
-        }
+        @op
+        def test_op():
+            return "test"
 
-        extra_settings = "max_threads=16,join_algorithm=parallel_hash"
-        result = merge_clickhouse_settings(base_settings, extra_settings)
+        @job
+        def test_job():
+            test_op()
 
-        expected_parts = [
-            "max_execution_time=1200",
-            "max_memory_usage=50000000000",
-            "max_threads=16",
-            "join_algorithm=parallel_hash",
+        @schedule(cron_schedule="0 0 * * *", job=test_job)
+        def test_schedule(_context):
+            return {}
+
+        @job
+        def backfill_job():
+            test_op()
+
+        @schedule(cron_schedule="0 0 * * *", job=backfill_job)
+        def backfill_schedule(_context):
+            return {}
+
+        with DagsterInstance.ephemeral() as instance:
+            context = create_test_context(instance, test_schedule, "test_schedule")
+            result = check_for_concurrent_runs(context)
+            assert result is None
+
+            instance.create_run_for_job(job_def=test_job, run_config={})
+
+            result = check_for_concurrent_runs(context)
+            assert isinstance(result, SkipReason)
+            assert "test_job" in str(result)
+            assert "already active" in str(result)
+
+            instance._run_storage.wipe()
+            context_backfill = create_test_context(instance, backfill_schedule, "backfill_schedule")
+
+            result = check_for_concurrent_runs(context_backfill)
+            assert result is None
+
+            instance.create_run_for_job(job_def=backfill_job, run_config={})
+            result = check_for_concurrent_runs(context_backfill)
+            assert isinstance(result, SkipReason)
+            assert "backfill_job" in str(result)
+
+            instance._run_storage.wipe()
+            context = create_test_context(instance, test_schedule, "test_schedule")
+
+            instance.create_run_for_job(job_def=test_job, run_config={})
+            instance.create_run_for_job(job_def=test_job, run_config={})
+            instance.create_run_for_job(job_def=test_job, run_config={})
+
+            result = check_for_concurrent_runs(context)
+            assert isinstance(result, SkipReason)
+
+            context.log.info.assert_called_with("Skipping test_job due to 3 active run(s)")
+
+            instance._run_storage.wipe()
+
+            instance.create_run_for_job(job_def=test_job, run_config={})
+
+            run_records = instance.get_run_records(
+                RunsFilter(
+                    job_name="test_job",
+                    statuses=[
+                        DagsterRunStatus.QUEUED,
+                        DagsterRunStatus.NOT_STARTED,
+                        DagsterRunStatus.STARTING,
+                        DagsterRunStatus.STARTED,
+                    ],
+                )
+            )
+
+            assert len(run_records) > 0
+            assert run_records[0].dagster_run.status == DagsterRunStatus.NOT_STARTED
+
+            result = check_for_concurrent_runs(context)
+            assert isinstance(result, SkipReason)
+
+            instance._run_storage.wipe()
+            context_test = create_test_context(instance, test_schedule, "test_schedule")
+            context_backfill = create_test_context(instance, backfill_schedule, "backfill_schedule")
+
+            instance.create_run_for_job(job_def=test_job, run_config={})
+
+            result = check_for_concurrent_runs(context_test)
+            assert isinstance(result, SkipReason)
+
+            result = check_for_concurrent_runs(context_backfill)
+            assert result is None
+
+    def test_all_schedules_use_consistent_concurrent_check_pattern(self):
+        schedule_functions = [
+            web_pre_aggregate_historical_schedule,
+            web_pre_aggregate_current_day_schedule,
+            web_pre_aggregate_daily_schedule,
+            web_pre_aggregate_current_day_hourly_schedule,
         ]
 
-        for part in expected_parts:
-            assert part in result
+        for schedule_func in schedule_functions:
+            func = schedule_func.decorated_fn if hasattr(schedule_func, "decorated_fn") else schedule_func
+            source = inspect.getsource(func)
 
-    def test_merge_clickhouse_settings_empty_extra(self):
-        base_settings = {"max_execution_time": "1200"}
+            assert "check_for_concurrent_runs(context)" in source
+            assert "if skip_reason:" in source
+            assert "return skip_reason" in source
 
-        for empty_extra in ["", None]:
-            result = merge_clickhouse_settings(base_settings, empty_extra)
-            assert result == "max_execution_time=1200"
+    def test_all_schedules_have_expected_imports(self):
+        assert hasattr(wp, "check_for_concurrent_runs")
+        assert hasattr(wpd, "check_for_concurrent_runs")
+        assert hasattr(wph, "check_for_concurrent_runs")
 
-    def test_merge_clickhouse_settings_override(self):
-        base_settings = {"max_execution_time": "1200"}
-        extra_settings = "max_execution_time=1800"
-
-        result = merge_clickhouse_settings(base_settings, extra_settings)
-        assert result == "max_execution_time=1800"
-
-
-class TestClickHouseSettings:
-    def test_daily_clickhouse_settings_values(self):
-        expected_settings = [
-            "max_execution_time",
-            "max_bytes_before_external_group_by",
-            "max_memory_usage",
-            "distributed_aggregation_memory_efficient",
+    def test_job_definitions_have_concurrency_limits(self):
+        jobs = [
+            web_pre_aggregate_job,
+            web_pre_aggregate_daily_job,
+            web_pre_aggregate_current_day_hourly_job,
         ]
 
-        for setting in expected_settings:
-            assert setting in CLICKHOUSE_SETTINGS
+        for web_job in jobs:
+            assert hasattr(web_job, "executor_def")
+            assert web_job.executor_def is not None
 
-        # Test that timeout is reasonable
-        timeout = int(CLICKHOUSE_SETTINGS["max_execution_time"])
-        assert 300 <= timeout <= 3600  # Between 5 minutes and 1 hour
+            # Check that it's a multiprocess executor with max_concurrent configured
+            assert web_job.executor_def.name == "multiprocess"
 
-        # Test that memory limits are set to reasonable values
-        memory_limit = int(CLICKHOUSE_SETTINGS["max_memory_usage"])
-        assert 1024 * 1024 * 1024 < memory_limit <= 150 * 1024 * 1024 * 1024  # Between 1GB and 150GB
+            # Check that the executor has the expected configuration
+            # We can't easily inspect the internal config, but we can verify it exists
+            assert web_job.executor_def is not None
 
-        # Test that distributed aggregation is enabled for efficiency
-        assert CLICKHOUSE_SETTINGS["distributed_aggregation_memory_efficient"] == "1"
+            assert hasattr(web_job, "tags")
+            assert "dagster/max_runtime" in web_job.tags
+            web_job_timeout = int(web_job.tags["dagster/max_runtime"])
+            assert web_job_timeout >= 600

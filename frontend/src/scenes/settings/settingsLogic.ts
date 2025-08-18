@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -8,8 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Realm } from '~/types'
 
-import type { settingsLogicType } from './settingsLogicType'
 import { SETTINGS_MAP } from './SettingsMap'
+import type { settingsLogicType } from './settingsLogicType'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
 export const settingsLogic = kea<settingsLogicType>([

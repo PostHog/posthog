@@ -1,6 +1,7 @@
 import { actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils'

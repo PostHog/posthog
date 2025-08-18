@@ -1,7 +1,9 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'

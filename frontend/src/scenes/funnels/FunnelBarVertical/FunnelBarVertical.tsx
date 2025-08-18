@@ -1,16 +1,17 @@
 import './FunnelBarVertical.scss'
 
 import { useValues } from 'kea'
+import { useLayoutEffect, useRef, useState } from 'react'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useLayoutEffect, useRef, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams } from '~/types'
 
+import { useFunnelTooltip } from '../FunnelTooltip'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { useFunnelTooltip } from '../FunnelTooltip'
 import { StepBarLabels } from './StepBarLabels'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'

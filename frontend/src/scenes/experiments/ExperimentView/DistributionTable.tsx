@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import { IconBalance, IconFlag } from '@posthog/icons'
 import {
     LemonBanner,
@@ -8,18 +10,19 @@ import {
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
+import { modalsLogic } from '../modalsLogic'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
-import { modalsLogic } from '../modalsLogic'
+import { VariantTag } from './components'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
