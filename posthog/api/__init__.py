@@ -19,6 +19,7 @@ from posthog.api.batch_imports import BatchImportViewSet
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
     data_modeling_job,
+    data_warehouse,
     external_data_schema,
     external_data_source,
     modeling,
@@ -201,9 +202,7 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 
-register_grandfathered_environment_nested_viewset(
-    r"tasks", tasks.TaskViewSet, "environment_tasks", ["team_id"]
-)
+register_grandfathered_environment_nested_viewset(r"tasks", tasks.TaskViewSet, "environment_tasks", ["team_id"])
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
@@ -348,6 +347,12 @@ register_grandfathered_environment_nested_viewset(
     r"external_data_sources",
     external_data_source.ExternalDataSourceViewSet,
     "environment_external_data_sources",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
+    r"data_warehouse",
+    data_warehouse.DataWarehouseViewSet,
+    "environment_data_warehouse",
     ["team_id"],
 )
 projects_router.register(

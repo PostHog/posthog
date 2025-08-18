@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

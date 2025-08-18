@@ -1,11 +1,12 @@
-import { actions, connect, defaults, events, kea, key, path, props, reducers, selectors, propsChanged } from 'kea'
+import { actions, connect, defaults, events, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
-import type { sessionTabLogicType } from './sessionTabLogicType'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { ItemCategory, ItemCollector, TimelineItem } from './SessionTimeline/timeline'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { ItemCategory, ItemCollector, TimelineItem } from './SessionTimeline/timeline'
+import type { sessionTabLogicType } from './sessionTabLogicType'
 
 export type SessionTabLogicProps = {
     sessionId: string

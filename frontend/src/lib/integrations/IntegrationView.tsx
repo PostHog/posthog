@@ -1,13 +1,16 @@
-import { LemonBanner, Spinner, LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
-import { useActions, useValues } from 'kea'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { useEffect } from 'react'
-import api from 'lib/api'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+
 import { integrationsLogic } from './integrationsLogic'
 
 export function IntegrationView({

@@ -46,12 +46,58 @@ Events are deduplicated based on a **composite key**:
 - Two events with the same composite key are considered duplicates
 - UUID is used only for Kafka partitioning, not deduplication
 
+## Checkpoint System
+
+The service includes a comprehensive checkpoint system for backup, recovery, and horizontal scaling:
+
+### Checkpoint Strategy
+
+- **Periodic snapshots**: Creates RocksDB checkpoints at configurable intervals (default: 5 minutes)
+- **Point-in-time consistency**: Checkpoints capture the complete deduplication state at a specific moment
+- **Multi-tier storage**: Local checkpoints for fast recovery, S3 uploads for durability and scaling
+- **Incremental vs Full uploads**: 
+  - **Incremental**: Upload only changed SST files since last checkpoint
+  - **Full**: Upload complete checkpoint (every N incremental uploads, default: 10)
+
+### Checkpoint Components
+
+- **CheckpointExporter**: Orchestrates checkpoint creation and upload process
+- **CheckpointLoader**: Handles downloading and restoring checkpoints from remote storage  
+- **S3Client**: Manages S3 operations for checkpoint storage and retrieval
+- **Metadata tracking**: Records checkpoint info (timestamp, files, offsets, sizes)
+
+### Checkpoint Flow
+
+1. **Creation** (synchronous): RocksDB creates atomic snapshot with SST file tracking
+2. **Upload** (asynchronous): Background upload to S3 with configurable timeouts and retries
+3. **Cleanup** (asynchronous): Automatic removal of old local checkpoints (keeps N most recent)
+4. **Recovery** (asynchronous): On startup, can restore from latest checkpoint to resume processing
+
+### Async Operations
+
+- **Checkpoint loop**: Runs continuously in background with configurable intervals
+- **S3 uploads**: Non-blocking uploads prevent checkpoint creation from blocking message processing
+- **Directory cleanup**: Old checkpoint removal happens asynchronously
+- **Recovery downloads**: Checkpoint restoration from S3 is async and resumable
+
+### Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CHECKPOINT_INTERVAL` | Time between checkpoints | `300s` |
+| `LOCAL_CHECKPOINT_DIR` | Local checkpoint storage path | `./checkpoints` |
+| `S3_BUCKET` | S3 bucket for checkpoint uploads | (required) |
+| `S3_KEY_PREFIX` | S3 key prefix for organization | `deduplication-checkpoints` |
+| `FULL_UPLOAD_INTERVAL` | Incremental uploads before full | `10` |
+| `MAX_LOCAL_CHECKPOINTS` | Local checkpoints to retain | `5` |
+
 ## Architecture Components
 
 - **StatefulKafkaConsumer**: Main consumer orchestrating message processing
 - **MessageTracker**: Tracks in-flight messages and manages offset completion
 - **RebalanceHandler**: Handles partition assignment/revocation during rebalancing
 - **Per-partition RocksDB stores**: Isolated storage for each partition's deduplication state
+- **CheckpointExporter**: Creates and manages periodic snapshots for backup/recovery
 
 ## Configuration
 

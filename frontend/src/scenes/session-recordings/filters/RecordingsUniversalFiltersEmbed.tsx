@@ -1,21 +1,24 @@
-import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX, IconEye, IconHide } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { MaxTool } from 'scenes/max/MaxTool'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
-import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
@@ -27,7 +30,7 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, ReplayTabs, SidePanelTab, UniversalFiltersGroup } from '~/types'
 
-import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
@@ -35,7 +38,6 @@ import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSes
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)

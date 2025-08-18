@@ -1,16 +1,18 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useEffect } from 'react'
 
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
-import { hogFunctionTemplateListLogic, HogFunctionTemplateListLogicProps } from './hogFunctionTemplateListLogic'
+import { HogFunctionTemplateListLogicProps, hogFunctionTemplateListLogic } from './hogFunctionTemplateListLogic'
 
 export function HogFunctionTemplateList({
     extraControls,

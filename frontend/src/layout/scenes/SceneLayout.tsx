@@ -1,16 +1,21 @@
+import './SceneLayout.css'
+
+import { useActions, useValues } from 'kea'
+import React, { PropsWithChildren, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import React, { PropsWithChildren, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
+
 import { SceneTabs } from '~/layout/scenes/SceneTabs'
+
 import { SceneHeader } from './SceneHeader'
-import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {

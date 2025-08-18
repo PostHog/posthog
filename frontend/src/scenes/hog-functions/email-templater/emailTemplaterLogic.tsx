@@ -1,17 +1,20 @@
-import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-editor'
+
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
-import { Editor, EditorRef as _EditorRef, EmailEditorProps } from 'react-email-editor'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
-import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+
 import { EmailTemplaterType } from './EmailTemplater'
+import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 

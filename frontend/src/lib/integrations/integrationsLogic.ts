@@ -1,7 +1,9 @@
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+
 import api, { getCookie } from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -9,9 +11,10 @@ import { urls } from 'scenes/urls'
 
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
+
 import type { integrationsLogicType } from './integrationsLogicType'
 import { ICONS } from './utils'
-import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),

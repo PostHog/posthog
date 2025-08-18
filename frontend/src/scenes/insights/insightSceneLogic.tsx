@@ -1,14 +1,17 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import { BuiltLogic, actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
+
+import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { isEmptyObject } from 'lib/utils'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -18,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -33,10 +37,6 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
-import api from 'lib/api'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
-
-import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null

@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { ProductKey } from '~/types'
 
-import { webAnalyticsLogic } from './webAnalyticsLogic'
-import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 import { WebPropertyFilters } from './WebPropertyFilters'
 import { ProductTab } from './common'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const WebAnalyticsModal = (): JSX.Element | null => {
     const {

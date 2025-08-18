@@ -1,12 +1,14 @@
 import './Playlist.scss'
 
-import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { ReactNode, useRef, useState } from 'react'
+
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
-import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { SessionRecordingType } from '~/types'
