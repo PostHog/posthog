@@ -1,29 +1,31 @@
+import { useActions, useValues } from 'kea'
+
 import { IconApps, IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'
 import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -155,6 +157,12 @@ export function Annotations(): JSX.Element {
                 }}
             />
             <SceneDivider />
+            {newSceneLayout && (
+                <div className="flex flex-row items-center gap-2 justify-end">
+                    <div>Scope: </div>
+                    <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
+                </div>
+            )}
             {!newSceneLayout && (
                 <div className="flex flex-row items-center gap-2 justify-between">
                     <div>
