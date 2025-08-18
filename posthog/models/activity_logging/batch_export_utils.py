@@ -29,4 +29,4 @@ def get_batch_export_created_by_info(batch_export) -> tuple[Optional[str], Optio
 def get_batch_export_detail_name(batch_export, destination_type: str) -> str:
     """Generate detail name for BatchExport activity"""
     name = batch_export.name or "Unnamed Export"
-    return f"Batch export '{name}' to {destination_type}"
+    return f"'{name}' ({destination_type})"

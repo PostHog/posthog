@@ -32,10 +32,12 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
         batch_export_exclusions = field_exclusions.get("BatchExport", [])
 
-        # Verify reverse relation fields are excluded
         self.assertIn("latest_runs", batch_export_exclusions)
+        self.assertIn("last_updated_at", batch_export_exclusions)
+        self.assertIn("last_paused_at", batch_export_exclusions)
         self.assertIn("batchexportrun_set", batch_export_exclusions)
         self.assertIn("batchexportbackfill_set", batch_export_exclusions)
+        self.assertIn("deleted", batch_export_exclusions)
 
     def test_batch_export_scope_in_activity_log_types(self):
         """Test that BatchExport scope is defined in ActivityScope"""
@@ -66,6 +68,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         try:
             batch_export = self.create_batch_export(name="Status Test Export", paused=False)
 
+            # Test pausing/unpausing which should appear as "enabled" field in activity log
             self.update_batch_export(batch_export["id"], {"paused": True})
             self.update_batch_export(batch_export["id"], {"paused": False})
             self.update_batch_export(batch_export["id"], {"model": "persons"})
