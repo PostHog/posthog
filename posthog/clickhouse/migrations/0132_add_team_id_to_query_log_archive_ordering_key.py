@@ -219,24 +219,4 @@ operations = [
         """,
         node_role=NodeRole.ALL,
     ),
-    # Step 5: Drop the old materialized view
-    run_sql_with_exceptions(
-        "DROP VIEW IF EXISTS query_log_archive_mv ON CLUSTER '{cluster}'",
-        node_role=NodeRole.ALL,
-    ),
-    # Step 6: Rename tables (atomic swap)
-    run_sql_with_exceptions(
-        "RENAME TABLE query_log_archive TO query_log_archive_old, query_log_archive_new TO query_log_archive ON CLUSTER '{cluster}'",
-        node_role=NodeRole.ALL,
-    ),
-    # Step 7: Rename the new materialized view
-    run_sql_with_exceptions(
-        "RENAME TABLE query_log_archive_new_mv TO query_log_archive_mv ON CLUSTER '{cluster}'",
-        node_role=NodeRole.ALL,
-    ),
-    # Step 8: Drop the old table
-    run_sql_with_exceptions(
-        "DROP TABLE IF EXISTS query_log_archive_old ON CLUSTER '{cluster}'",
-        node_role=NodeRole.ALL,
-    ),
 ]

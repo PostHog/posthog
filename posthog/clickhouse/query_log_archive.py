@@ -345,6 +345,22 @@ WHERE
     )
 
 
+def DROP_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
+    return f"DROP VIEW IF EXISTS query_log_archive_mv {ON_CLUSTER_CLAUSE(on_cluster)}"
+
+
+def RENAME_QUERY_LOG_ARCHIVE_TABLES(on_cluster=True):
+    return f"RENAME TABLE query_log_archive TO query_log_archive_old, query_log_archive_new TO query_log_archive {ON_CLUSTER_CLAUSE(on_cluster)}"
+
+
+def RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
+    return f"RENAME TABLE query_log_archive_new_mv TO query_log_archive_mv {ON_CLUSTER_CLAUSE(on_cluster)}"
+
+
+def DROP_QUERY_LOG_ARCHIVE_OLD_TABLE(on_cluster=True):
+    return f"DROP TABLE IF EXISTS query_log_archive_old {ON_CLUSTER_CLAUSE(on_cluster)}"
+
+
 def QUERY_LOG_ARCHIVE_TABLE_SQL(on_cluster=True):
     return (
         CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE
