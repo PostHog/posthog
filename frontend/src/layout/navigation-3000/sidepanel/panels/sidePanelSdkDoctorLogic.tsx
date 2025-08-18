@@ -214,7 +214,6 @@ export type SdkType =
     | 'go'
     | 'flutter'
     | 'react-native'
-    | 'js-lite'
     | 'dotnet'
     | 'elixir'
     | 'other'
@@ -243,8 +242,9 @@ export type FeatureFlagMisconfiguration = {
     detected: boolean
     detectedAt: string // timestamp when first detected
     flagsCalledBeforeLoading: string[] // list of flags called before ready
-    exampleEventId?: string // UUID of a problematic event
-    exampleEventTimestamp?: string // timestamp of the problematic event
+    exampleEventId?: string // UUID of a problematic event (kept for backwards compatibility)
+    exampleEventTimestamp?: string // timestamp of the problematic event (kept for backwards compatibility)
+    flagExampleEvents: Record<string, { eventId: string; timestamp: string }> // per-flag example events
     sessionCount: number
 }
 
@@ -362,8 +362,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             go: { repo: 'posthog-go' },
                             flutter: { repo: 'posthog-flutter' },
                             'react-native': { repo: 'posthog-react-native' },
-                            'js-lite': { repo: 'posthog-js' }, // posthog-js-lite is in packages/web of posthog-js repo
                             dotnet: { repo: 'posthog-dotnet', versionPrefix: 'v' },
+                            elixir: { repo: 'posthog-elixir' },
                             other: { repo: '' }, // Skip for "other"
                         }
 
@@ -648,51 +648,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                         })
                                         .then((changelogText) => {
                                             // Android CHANGELOG.md format: "## 3.20.2 - 2025-08-07"
-                                            const versionMatches = changelogText.match(
-                                                /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
-                                            )
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) =>
-                                                        match.replace(/^## /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
-                                                    ) // Remove "## " and " - YYYY-MM-DD" parts
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for JS-Lite SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'js-lite') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/web/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then((changelogText) => {
-                                            // JS-Lite CHANGELOG.md format: "## 4.1.0 - 2025-06-12"
                                             const versionMatches = changelogText.match(
                                                 /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
                                             )
@@ -1229,12 +1184,13 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             {},
         ],
 
-        // Feature flag misconfiguration detection
+        // Feature flag misconfiguration detection with contextual threshold system
         featureFlagMisconfiguration: [
             {
                 detected: false,
                 detectedAt: '',
                 flagsCalledBeforeLoading: [],
+                flagExampleEvents: {},
                 sessionCount: 0,
             } as FeatureFlagMisconfiguration,
             {
@@ -1248,90 +1204,152 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         (event) => !event.properties?.$current_url?.includes('/project/1/')
                     )
 
-                    // Filter for feature flag events from the last 10 minutes
-                    const flagEvents = customerEvents
+                    // Filter for web events from the last 10 minutes
+                    const webEvents = customerEvents
                         .filter(
                             (event) =>
-                                event.event === '$feature_flag_called' &&
                                 event.properties?.$lib === 'web' &&
+                                event.properties?.$session_id &&
                                 new Date(event.timestamp).getTime() > tenMinutesAgo
                         )
                         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
-                    // Find PostHog init events (any event with SDK loaded, not just pageviews for autocapture-disabled users)
-                    const initEvents = customerEvents
-                        .filter(
-                            (event) =>
-                                event.properties?.$lib === 'web' &&
-                                event.properties?.hasOwnProperty('$lib_version') &&
-                                event.event !== '$feature_flag_called' && // Any event except flags = SDK initialization
-                                new Date(event.timestamp).getTime() > tenMinutesAgo
-                        )
-                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                    if (webEvents.length === 0) {
+                        return state
+                    }
 
-                    // Group events by session to track timing
-                    const sessionEvents: Record<
-                        string,
-                        { flagEvents: typeof flagEvents; initEvents: typeof initEvents }
-                    > = {}
-
-                    flagEvents.forEach((event) => {
+                    // Group ALL events by session ID for session-based analysis
+                    const sessionEventMap: Record<string, typeof webEvents> = {}
+                    webEvents.forEach((event) => {
                         const sessionId = event.properties?.$session_id
                         if (sessionId) {
-                            if (!sessionEvents[sessionId]) {
-                                sessionEvents[sessionId] = { flagEvents: [], initEvents: [] }
+                            if (!sessionEventMap[sessionId]) {
+                                sessionEventMap[sessionId] = []
                             }
-                            sessionEvents[sessionId].flagEvents.push(event)
+                            sessionEventMap[sessionId].push(event)
                         }
                     })
 
-                    initEvents.forEach((event) => {
-                        const sessionId = event.properties?.$session_id
-                        if (sessionId) {
-                            if (!sessionEvents[sessionId]) {
-                                sessionEvents[sessionId] = { flagEvents: [], initEvents: [] }
-                            }
-                            sessionEvents[sessionId].initEvents.push(event)
-                        }
-                    })
-
-                    // Detect flags called before PostHog init (no bootstrapping)
                     const problematicFlags = new Set<string>()
                     let exampleEventId: string | undefined
                     let exampleEventTimestamp: string | undefined
+                    const flagExampleEvents: Record<string, { eventId: string; timestamp: string }> = {}
                     const uniqueSessions = new Set<string>()
 
-                    Object.entries(sessionEvents).forEach(
-                        ([sessionId, { flagEvents: sessionFlagEvents, initEvents: sessionInitEvents }]) => {
-                            uniqueSessions.add(sessionId)
+                    // Analyze each session for flag timing issues
+                    Object.entries(sessionEventMap).forEach(([sessionId, sessionEvents]) => {
+                        if (sessionEvents.length === 0) {
+                            return
+                        }
 
-                            // If we have flag events but no init events in this session, or flag events before first init
-                            if (sessionFlagEvents.length > 0) {
-                                const firstInitTime =
-                                    sessionInitEvents.length > 0
-                                        ? new Date(sessionInitEvents[0].timestamp).getTime()
-                                        : Infinity
+                        uniqueSessions.add(sessionId)
 
-                                sessionFlagEvents.forEach((flagEvent) => {
-                                    const flagTime = new Date(flagEvent.timestamp).getTime()
+                        // Sort events by timestamp within this session
+                        const sortedEvents = sessionEvents.sort(
+                            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                        )
 
-                                    // Flag called before init or no init at all
-                                    if (flagTime < firstInitTime) {
-                                        const flagName = flagEvent.properties?.$feature_flag
-                                        if (flagName) {
-                                            problematicFlags.add(flagName)
+                        console.info(`[SDK Doctor Debug] Session ${sessionId}: ${sortedEvents.length} events`)
+                        console.info(
+                            `[SDK Doctor Debug] Session events:`,
+                            sortedEvents.map((e) => ({
+                                event: e.event,
+                                timestamp: e.timestamp,
+                                flag: e.properties?.$feature_flag,
+                                bootstrapped: e.properties?.$feature_flag_bootstrapped,
+                            }))
+                        )
 
-                                            // Capture first example (most useful for troubleshooting root cause)
-                                            if (!exampleEventId && flagEvent.id) {
-                                                exampleEventId = flagEvent.id
-                                                exampleEventTimestamp = flagEvent.timestamp
-                                            }
+                        // Find the first event of any type as baseline (SDK initialization baseline)
+                        const firstEvent = sortedEvents[0]
+                        const firstEventTime = new Date(firstEvent.timestamp).getTime()
+
+                        console.info(
+                            `[SDK Doctor Debug] First event: ${firstEvent.event} at ${firstEvent.timestamp} (${firstEventTime})`
+                        )
+
+                        // Get flag events in this session
+                        const flagEvents = sortedEvents.filter((event) => event.event === '$feature_flag_called')
+
+                        if (flagEvents.length === 0) {
+                            console.info(`[SDK Doctor Debug] No flag events in session ${sessionId}`)
+                            return
+                        }
+
+                        console.info(`[SDK Doctor Debug] Found ${flagEvents.length} flag events in session`)
+
+                        // Detect bootstrap state for contextual thresholds
+                        const hasBootstrap = sortedEvents.some(
+                            (event) => event.properties?.$feature_flag_bootstrapped === true
+                        )
+
+                        // Detect proper init patterns (e.g., presence of specific ready events)
+                        const hasProperInitPattern = sortedEvents.some(
+                            (event) =>
+                                event.event === '$pageview' ||
+                                event.event === '$identify' ||
+                                event.properties?.$device_type // Common indicators of proper initialization
+                        )
+
+                        // Contextual threshold system based on mitigation patterns
+                        let threshold: number
+                        if (hasBootstrap) {
+                            threshold = 0 // Bootstrap detected: no timing restrictions
+                        } else if (hasProperInitPattern) {
+                            threshold = 350 // FOUC prevention friendly, reduces false positives
+                        } else {
+                            threshold = 500 // Default/unmitigated: catches race conditions
+                        }
+
+                        console.info(
+                            `[SDK Doctor Debug] Session analysis - Bootstrap: ${hasBootstrap}, ProperInit: ${hasProperInitPattern}, Threshold: ${threshold}ms`
+                        )
+
+                        // Check each flag event for timing issues
+                        flagEvents.forEach((flagEvent, index) => {
+                            const flagTime = new Date(flagEvent.timestamp).getTime()
+                            const timeDiff = flagTime - firstEventTime
+
+                            console.info(`[SDK Doctor Debug] Flag ${index + 1}: ${flagEvent.properties?.$feature_flag}`)
+                            console.info(`[SDK Doctor Debug]   - Flag time: ${flagEvent.timestamp} (${flagTime})`)
+                            console.info(`[SDK Doctor Debug]   - Time diff: ${timeDiff}ms`)
+                            console.info(
+                                `[SDK Doctor Debug]   - Bootstrapped: ${flagEvent.properties?.$feature_flag_bootstrapped}`
+                            )
+
+                            // Enhanced timing logic: flagTime < firstEventTime OR (timeDiff >= 0 AND timeDiff < threshold)
+                            const isProblematic = flagTime < firstEventTime || (timeDiff >= 0 && timeDiff < threshold)
+
+                            console.info(
+                                `[SDK Doctor Debug]   - Is problematic: ${isProblematic} (${timeDiff}ms < ${threshold}ms threshold)`
+                            )
+
+                            if (isProblematic) {
+                                const flagName = flagEvent.properties?.$feature_flag
+                                if (flagName && flagEvent.id) {
+                                    problematicFlags.add(flagName)
+
+                                    // Capture per-flag example events (only first occurrence per flag)
+                                    if (!flagExampleEvents[flagName]) {
+                                        flagExampleEvents[flagName] = {
+                                            eventId: flagEvent.id,
+                                            timestamp: flagEvent.timestamp,
                                         }
                                     }
-                                })
+
+                                    // Capture first global example for backwards compatibility
+                                    if (!exampleEventId) {
+                                        exampleEventId = flagEvent.id
+                                        exampleEventTimestamp = flagEvent.timestamp
+                                    }
+
+                                    console.warn(
+                                        `[SDK Doctor] Flag timing issue detected: ${flagName} called ${timeDiff}ms after init (threshold: ${threshold}ms, bootstrap: ${hasBootstrap})`
+                                    )
+                                }
                             }
-                        }
-                    )
+                        })
+                    })
 
                     // If we detect new problems, update state
                     if (problematicFlags.size > 0) {
@@ -1343,37 +1361,64 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             ),
                             exampleEventId: exampleEventId || state.exampleEventId,
                             exampleEventTimestamp: exampleEventTimestamp || state.exampleEventTimestamp,
+                            flagExampleEvents: { ...state.flagExampleEvents, ...flagExampleEvents },
                             sessionCount: Math.max(uniqueSessions.size, state.sessionCount),
                         }
                     }
 
-                    // Check if issue appears resolved (recent flag events with proper timing)
+                    // Enhanced resolution detection: Check recent flag events for improved timing patterns
                     if (state.detected) {
-                        const recentFlagEvents = flagEvents.slice(-5) // Last 5 flag events
+                        const recentFlagEvents = webEvents
+                            .filter((event) => event.event === '$feature_flag_called')
+                            .slice(-5) // Last 5 flag events
 
                         if (recentFlagEvents.length >= 2) {
-                            // Lowered threshold to 2 events for quicker resolution
-                            // If recent flag events all have proper timing relative to inits, consider resolved
-                            const hasProperTiming = recentFlagEvents.every((flagEvent) => {
+                            // Check if recent flag events demonstrate proper timing patterns
+                            const hasImprovedTiming = recentFlagEvents.every((flagEvent) => {
                                 const sessionId = flagEvent.properties?.$session_id
-                                const sessionInits = sessionEvents[sessionId]?.initEvents || []
+                                const sessionEvents = sessionEventMap[sessionId] || []
 
-                                if (sessionInits.length === 0) {
+                                if (sessionEvents.length === 0) {
                                     return false
-                                } // No init events
+                                }
 
+                                const firstEvent = sessionEvents.sort(
+                                    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                                )[0]
+                                const firstEventTime = new Date(firstEvent.timestamp).getTime()
                                 const flagTime = new Date(flagEvent.timestamp).getTime()
-                                const initTime = new Date(sessionInits[0].timestamp).getTime()
+                                const timeDiff = flagTime - firstEventTime
 
-                                return flagTime >= initTime // Flag called after init
+                                // Check if timing is now acceptable (using same contextual thresholds)
+                                const hasBootstrap = sessionEvents.some(
+                                    (event) => event.properties?.$feature_flag_bootstrapped === true
+                                )
+                                const hasProperInitPattern = sessionEvents.some(
+                                    (event) =>
+                                        event.event === '$pageview' ||
+                                        event.event === '$identify' ||
+                                        event.properties?.$device_type
+                                )
+
+                                let threshold: number
+                                if (hasBootstrap) {
+                                    threshold = 0
+                                } else if (hasProperInitPattern) {
+                                    threshold = 350
+                                } else {
+                                    threshold = 500
+                                }
+
+                                return flagTime >= firstEventTime && timeDiff >= threshold
                             })
 
-                            if (hasProperTiming && problematicFlags.size === 0) {
-                                // Check both conditions
+                            if (hasImprovedTiming && problematicFlags.size === 0) {
+                                console.info('[SDK Doctor] Flag timing has improved - clearing detection state')
                                 return {
                                     detected: false,
                                     detectedAt: '',
                                     flagsCalledBeforeLoading: [],
+                                    flagExampleEvents: {},
                                     sessionCount: 0,
                                 }
                             }
@@ -1559,7 +1604,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             } else if (lib === 'posthog-react-native') {
                                 type = 'react-native'
                             } else if (lib === 'posthog-js-lite') {
-                                type = 'js-lite'
+                                type = 'web' // js-lite is actually the web SDK
                             } else if (lib === 'posthog-dotnet') {
                                 type = 'dotnet'
                             } else if (lib === 'posthog-elixir') {
@@ -1655,9 +1700,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                             if (info.type === 'react-native') {
                                 libName = 'posthog-react-native'
-                            }
-                            if (info.type === 'js-lite') {
-                                libName = 'posthog-js-lite'
                             }
                             if (info.type === 'dotnet') {
                                 libName = 'posthog-dotnet'
@@ -1890,9 +1932,6 @@ function checkVersionAgainstLatest(
     }
     if (type === 'react-native') {
         lib = 'posthog-react-native'
-    }
-    if (type === 'js-lite') {
-        lib = 'posthog-js-lite'
     }
     if (type === 'dotnet') {
         lib = 'posthog-dotnet'

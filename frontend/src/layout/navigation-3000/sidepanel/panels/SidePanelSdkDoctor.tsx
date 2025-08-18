@@ -16,6 +16,52 @@ import React from 'react'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { SdkType, SdkVersionInfo, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
 
+// Helper function to create enhanced event URLs with SDK debugging columns
+const createEnhancedEventUrl = (eventId: string, timestamp: string): string => {
+    const eventTime = new Date(timestamp).getTime()
+    const timeWindow = 30000 // 30 seconds window around the event
+    const before = new Date(eventTime + timeWindow).toISOString()
+    const after = new Date(eventTime - timeWindow).toISOString()
+
+    const query = {
+        kind: 'DataTableNode',
+        full: true,
+        source: {
+            kind: 'EventsQuery',
+            select: [
+                '*',
+                'person_display_name -- Person',
+                'event',
+                'properties.$session_id',
+                'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
+                'properties.$feature_flag',
+                'properties.$lib',
+                'properties.$lib_version',
+                'timestamp',
+            ],
+            orderBy: ['timestamp DESC'],
+            after,
+            properties: [
+                {
+                    type: 'hogql',
+                    key: `uuid = '${eventId}'`,
+                    value: null,
+                },
+            ],
+            modifiers: {
+                usePresortedEventsTable: true,
+            },
+            before,
+        },
+        propertiesViaUrl: true,
+        showSavedQueries: true,
+        showPersistentColumnConfigurator: true,
+    }
+
+    const encodedQuery = encodeURIComponent(JSON.stringify(query))
+    return `/project/1/activity/explore#q=${encodedQuery}`
+}
+
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
         <section className="mb-6">
@@ -68,19 +114,18 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
 
 // SDK type to human-readable name and color mapping
 const sdkTypeMapping: Record<SdkType, { name: string; color: LemonTagProps['type'] }> = {
-    web: { name: 'Web', color: 'primary' },
-    ios: { name: 'iOS', color: 'highlight' },
-    android: { name: 'Android', color: 'success' },
+    web: { name: 'Web', color: 'warning' },
+    ios: { name: 'iOS', color: 'warning' },
+    android: { name: 'Android', color: 'warning' },
     node: { name: 'Node.js', color: 'warning' },
-    python: { name: 'Python', color: 'primary' },
-    php: { name: 'PHP', color: 'default' },
-    ruby: { name: 'Ruby', color: 'danger' },
-    go: { name: 'Go', color: 'muted' },
-    flutter: { name: 'Flutter', color: 'default' },
-    'react-native': { name: 'React Native', color: 'highlight' },
-    'js-lite': { name: 'JS-Lite', color: 'primary' },
-    dotnet: { name: '.NET', color: 'muted' },
-    elixir: { name: 'Elixir', color: 'highlight' },
+    python: { name: 'Python', color: 'warning' },
+    php: { name: 'PHP', color: 'warning' },
+    ruby: { name: 'Ruby', color: 'warning' },
+    go: { name: 'Go', color: 'warning' },
+    flutter: { name: 'Flutter', color: 'warning' },
+    'react-native': { name: 'React Native', color: 'warning' },
+    dotnet: { name: '.NET', color: 'warning' },
+    elixir: { name: 'Elixir', color: 'warning' },
     other: { name: 'Other', color: 'default' },
 }
 
@@ -123,12 +168,8 @@ const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
         docs: 'https://posthog.com/docs/libraries/flutter',
     },
     'react-native': {
-        releases: 'https://github.com/PostHog/posthog-react-native/releases',
+        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/react-native/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/react-native',
-    },
-    'js-lite': {
-        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/web/CHANGELOG.md',
-        docs: 'https://posthog.com/docs/libraries/js',
     },
     dotnet: {
         releases: 'https://github.com/PostHog/posthog-dotnet/releases',
@@ -388,28 +429,15 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                             target="_blank"
                                             disableDocsPanel
                                         >
-                                            View bootstrapping docs
+                                            Bootstrapping docs
                                         </Link>
                                         <Link
                                             to="https://posthog.com/docs/libraries/js/features#ensuring-flags-are-loaded-before-usage"
                                             target="_blank"
                                             disableDocsPanel
                                         >
-                                            onFeatureFlags callback docs
+                                            'onFeatureFlags' docs
                                         </Link>
-                                        {featureFlagMisconfiguration.exampleEventId && (
-                                            <Link
-                                                to={`/project/1/events/${
-                                                    featureFlagMisconfiguration.exampleEventId
-                                                }/${encodeURIComponent(
-                                                    featureFlagMisconfiguration.exampleEventTimestamp || ''
-                                                )}`}
-                                                target="_blank"
-                                                targetBlankIcon
-                                            >
-                                                View example event
-                                            </Link>
-                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -421,6 +449,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             <LemonTable
                                 dataSource={featureFlagMisconfiguration.flagsCalledBeforeLoading.map((flag) => ({
                                     flag,
+                                    exampleEvent: featureFlagMisconfiguration.flagExampleEvents[flag],
                                 }))}
                                 columns={[
                                     {
@@ -428,6 +457,28 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         dataIndex: 'flag',
                                         render: function RenderFlag(flag) {
                                             return <code className="text-xs">{flag}</code>
+                                        },
+                                    },
+                                    {
+                                        title: 'Example Event',
+                                        dataIndex: 'exampleEvent',
+                                        render: function RenderExampleEvent(exampleEvent) {
+                                            if (!exampleEvent || typeof exampleEvent === 'string') {
+                                                return <span className="text-muted text-xs">No example</span>
+                                            }
+                                            return (
+                                                <Link
+                                                    to={createEnhancedEventUrl(
+                                                        exampleEvent.eventId,
+                                                        exampleEvent.timestamp
+                                                    )}
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                    className="text-xs"
+                                                >
+                                                    View event
+                                                </Link>
+                                            )
                                         },
                                     },
                                 ]}
@@ -491,12 +542,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
 
                                                     return hasMultipleVersions ? (
                                                         <>
-                                                            {!hasWebSnippet && (
-                                                                <>
-                                                                    <br />
-                                                                    <br />
-                                                                </>
-                                                            )}
+                                                            {!hasWebSnippet && ' '}
                                                             Multiple versions of the same SDK can cause inaccuracies in
                                                             your data.
                                                         </>
