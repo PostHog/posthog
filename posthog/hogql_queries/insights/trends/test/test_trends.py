@@ -2495,8 +2495,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "properties": [],
                     },
                     "label": "event_name",
-                    "count": 4.0,
-                    "data": [1.0, 2.0, 1.0, 0.0],
+                    "count": 3.0,  # includes only events after date_from
+                    "data": [0.0, 2.0, 1.0, 0.0],
                     "labels": [
                         "4–7 Nov",
                         "8–14 Nov",
