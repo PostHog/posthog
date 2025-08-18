@@ -42,6 +42,7 @@ import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
+import { onShutdown } from './lifecycle'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -349,7 +350,7 @@ export class PluginServer {
         })
 
         logger.info('💤', ' Shutting down services...')
-        await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
+        await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown(), onShutdown()])
 
         if (this.hub) {
             logger.info('💤', ' Shutting down plugins...')

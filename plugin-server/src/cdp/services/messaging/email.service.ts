@@ -8,23 +8,25 @@ import { fetch } from '~/utils/request'
 import { Hub } from '../../../types'
 import { generateMailjetCustomId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
+import { runInstrumentedFunction } from '~/main/utils'
+import { delay } from '~/utils/utils'
 
 export class EmailService {
     constructor(private hub: Hub) {}
 
-    private validateEmailDomain(integration: IntegrationType, email: string): void {
-        // First check its a valid domain in general
-        const domain = email.split('@')[1]
-        // Then check its the same as the integration domain
-        if (!domain || (integration.config.domain && integration.config.domain !== domain)) {
-            throw new Error(
-                `The selected email integration domain (${integration.config.domain}) does not match the 'from' email domain (${domain})`
-            )
-        }
+    private validateEmailDomain(integration: IntegrationType, params: CyclotronInvocationQueueParametersEmailType): void {
+        // Currently we enforce using the name and email set on the integratio
 
         if (!integration.config.mailjet_verified) {
             throw new Error('The selected email integration domain is not verified')
         }
+
+        if (!integration.config.email || !integration.config.name) {
+            throw new Error('The selected email integration is not configured correctly')
+        }
+
+        params.from.email = integration.config.email
+        params.from.name = integration.config.name
     }
 
     private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'unsupported' {
@@ -84,13 +86,30 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
-        const response = await mailDevTransport!.sendMail({
-            from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
-            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
-            subject: params.subject,
-            text: params.text,
-            html: params.html,
-        })
+        // This can timeout but there is no native timeout so we do our own one
+        const response = await runInstrumentedFunction({
+            statsKey: 'sendEmailWithMaildev',
+            timeout: 1000,
+            func: async () => {
+                const response = await Promise.race([
+                    mailDevTransport!.sendMail({
+                        from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+                        to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+                        subject: params.subject,
+                        text: params.text,
+                        html: params.html,
+                    }),
+                    delay(5000)
+                ])
+
+                if (!response ) {
+                    throw new Error('timeout to send email to maildev')
+                }
+
+                return response
+            }
+        }) 
+        
 
         if (!response.accepted) {
             throw new Error(`Failed to send email to maildev: ${JSON.stringify(response)}`)
@@ -126,7 +145,7 @@ export class EmailService {
                 throw new Error('Email integration not found')
             }
 
-            this.validateEmailDomain(integration, params.from.email)
+            this.validateEmailDomain(integration, params)
 
             switch (this.getEmailDeliveryMode()) {
                 case 'maildev':
