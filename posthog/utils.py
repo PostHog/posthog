@@ -1155,7 +1155,7 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> Optional[dict]:
+def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
     raw_filters_override_param = request.query_params.get("filters_override")
 
     request_filters = {}
