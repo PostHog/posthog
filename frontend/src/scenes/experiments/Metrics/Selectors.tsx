@@ -1,6 +1,8 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'

@@ -1,39 +1,41 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { actions, beforeUnmount, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
-import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
+import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import {
-    buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
+    buildTimestampCommentContent,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
+import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
-import type { notebookLogicType } from './notebookLogicType'
-import { notebookSettingsLogic } from './notebookSettingsLogic'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
 import {
-    NotebookTarget,
-    NotebookNodeType,
     NotebookEditor,
-    NotebookType,
+    NotebookNodeType,
     NotebookSyncStatus,
+    NotebookTarget,
+    NotebookType,
     TableOfContentData,
 } from '../types'
+import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import type { notebookLogicType } from './notebookLogicType'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000

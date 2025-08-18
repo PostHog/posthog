@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
-import { actionLogic, ActionLogicProps } from 'products/actions/frontend/logics/actionLogic'
+
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { ActionLogicProps, actionLogic } from 'products/actions/frontend/logics/actionLogic'
 
 import { ActionEdit } from './ActionEdit'
 

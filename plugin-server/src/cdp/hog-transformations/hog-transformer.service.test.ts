@@ -1,7 +1,9 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { parseJSON } from '~/utils/json-parse'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'

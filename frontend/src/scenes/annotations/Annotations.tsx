@@ -1,8 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -19,8 +23,6 @@ import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/t
 import { AnnotationModal } from './AnnotationModal'
 import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { TZLabel } from 'lib/components/TZLabel'
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

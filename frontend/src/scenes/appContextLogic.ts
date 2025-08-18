@@ -1,7 +1,8 @@
 import { afterMount, connect, kea, path } from 'kea'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 
 import { UserType } from '~/types'
 

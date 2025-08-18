@@ -1,6 +1,7 @@
+import { useValues } from 'kea'
+
 import { IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
 
 import { PropertyOperator } from '~/types'
 

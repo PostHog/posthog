@@ -1,7 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { P, match } from 'ts-pattern'
+
 import { FunnelLayout } from 'lib/constants'
-import { match, P } from 'ts-pattern'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import type {
@@ -11,7 +13,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -29,7 +31,6 @@ import {
     StepOrderValue,
 } from '~/types'
 
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import type { resultsBreakdownLogicType } from './resultsBreakdownLogicType'
 
 const filterFunnelSteps = (steps: FunnelStep[], variants: string[]): FunnelStep[] =>

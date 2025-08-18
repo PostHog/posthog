@@ -1,11 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
-import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -18,25 +15,30 @@ import {
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
+import posthog from 'posthog-js'
+import { RefObject } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+
 import api from 'lib/api'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
-import posthog from 'posthog-js'
-import { RefObject } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
-    sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 
 import {
     AvailableFeature,

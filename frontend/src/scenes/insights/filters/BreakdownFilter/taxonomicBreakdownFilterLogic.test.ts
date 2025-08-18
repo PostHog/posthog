@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { initKeaTests } from '~/test/init'

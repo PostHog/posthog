@@ -1,7 +1,9 @@
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+
 import api from 'lib/api'
-import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'

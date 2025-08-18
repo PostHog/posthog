@@ -2,20 +2,21 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
-import { actionLogic } from './actionLogic'
 
-import { urls } from 'scenes/urls'
 import type { actionEditLogicType } from './actionEditLogicType'
+import { actionLogic } from './actionLogic'
 
 export interface SetActionProps {
     merge?: boolean

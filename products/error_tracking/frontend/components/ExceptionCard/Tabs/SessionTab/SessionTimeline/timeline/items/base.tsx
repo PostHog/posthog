@@ -1,7 +1,9 @@
-import { Dayjs } from 'lib/dayjs'
 import { ItemCache, ItemLoader, TimelineItem } from '..'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+
 import api from 'lib/api'
+import { Dayjs } from 'lib/dayjs'
+
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 export function BasePreview({
     name,

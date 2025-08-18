@@ -6,8 +6,8 @@ import {
     HumanMessage,
     ReasoningMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { MaxContextType } from '../maxTypes'
 
+import { MaxContextType } from '../maxTypes'
 import failureMessage from './failureMessage.json'
 import summaryMessage from './summaryMessage.json'
 import visualizationMessage from './visualizationMessage.json'

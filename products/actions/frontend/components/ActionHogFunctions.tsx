@@ -1,13 +1,17 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+
+import { SceneSection } from '~/layout/scenes/SceneContent'
+import { ActionType } from '~/types'
+
 import { actionEditLogic } from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
-import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
-import { SceneSection } from '~/layout/scenes/SceneContent'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { cn } from 'lib/utils/css-classes'
-import { ActionType } from '~/types'
 
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)

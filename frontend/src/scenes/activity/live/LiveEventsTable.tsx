@@ -1,20 +1,24 @@
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { EventName } from 'products/actions/frontend/components/EventName'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { urls } from 'scenes/urls'
+
+import { EventName } from 'products/actions/frontend/components/EventName'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {

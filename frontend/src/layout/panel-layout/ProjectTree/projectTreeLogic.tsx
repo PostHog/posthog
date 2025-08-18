@@ -1,9 +1,11 @@
-import { IconPlus } from '@posthog/icons'
-import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
+import { IconPlus } from '@posthog/icons'
+import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'

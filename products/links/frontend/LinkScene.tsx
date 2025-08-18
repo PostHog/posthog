@@ -1,3 +1,8 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { QRCodeSVG } from 'qrcode.react'
+
 import { IconCopy, IconDownload } from '@posthog/icons'
 import {
     LemonButton,
@@ -11,18 +16,15 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { QRCodeSVG } from 'qrcode.react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AVAILABLE_DOMAINS, AvailableDomain, linkLogic, LinkLogicProps } from './linkLogic'
+import { AVAILABLE_DOMAINS, AvailableDomain, LinkLogicProps, linkLogic } from './linkLogic'
 
 export const scene: SceneExport<LinkLogicProps> = {
     component: LinkScene,

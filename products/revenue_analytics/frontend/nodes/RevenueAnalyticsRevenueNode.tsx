@@ -1,7 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
+
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,15 +20,13 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import {
     AlphaTag,
     DISPLAY_MODE_OPTIONS,
-    extractLabelAndDatasets,
     RevenueAnalyticsLineGraph,
     TileProps,
     TileWrapper,
+    extractLabelAndDatasets,
 } from './shared'
 
 let uniqueNode = 0

@@ -3,11 +3,11 @@
  *
  * If you just want to observe a real producer class then use `producer.spy.ts`
  */
+import { KafkaProducerObserver } from './producer.spy'
 
 import { HighLevelProducer } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
-import { KafkaProducerObserver } from './producer.spy'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../../src/kafka/producer').KafkaProducerWrapper
 

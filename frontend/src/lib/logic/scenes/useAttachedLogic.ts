@@ -1,5 +1,5 @@
+import { BuiltLogic, Logic, LogicWrapper, beforeUnmount, useMountedLogic } from 'kea'
 import { useEffect, useState } from 'react'
-import { beforeUnmount, BuiltLogic, Logic, LogicWrapper, useMountedLogic } from 'kea'
 
 /**
  * Attach a logic to another logic. The logics stay connected even if the React component unmounts.

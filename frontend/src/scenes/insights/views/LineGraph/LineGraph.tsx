@@ -1,12 +1,15 @@
-import 'chartjs-adapter-dayjs-3'
-
 import { DeepPartial } from 'chart.js/dist/types/utils'
+import 'chartjs-adapter-dayjs-3'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
+import { Root, createRoot } from 'react-dom/client'
+
 import {
     ActiveElement,
     Chart,
@@ -28,20 +31,17 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
-import { createRoot, Root } from 'react-dom/client'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'

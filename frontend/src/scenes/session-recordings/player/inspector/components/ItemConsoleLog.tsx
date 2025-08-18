@@ -1,5 +1,7 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 

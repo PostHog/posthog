@@ -1,37 +1,39 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import {
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldConfig,
+    SourceFieldSwitchGroupConfig,
+    externalDataSources,
+} from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
-    manualLinkSources,
     ManualLinkSourceType,
     PipelineStage,
     PipelineTab,
     ProductKey,
+    manualLinkSources,
 } from '~/types'
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
-import {
-    externalDataSources,
-    ExternalDataSourceType,
-    SourceConfig,
-    SourceFieldConfig,
-    SourceFieldSwitchGroupConfig,
-} from '~/queries/schema/schema-general'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
     name: 'ssh_tunnel',

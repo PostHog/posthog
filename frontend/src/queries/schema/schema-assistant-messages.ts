@@ -1,8 +1,5 @@
-import type { MaxUIContext } from 'scenes/max/maxTypes'
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
-
-// re-export MaxBillingContext to make it available in the schema
-export type { MaxBillingContext }
+import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import {
     AssistantFunnelsQuery,
@@ -10,6 +7,9 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
+
+// re-export MaxBillingContext to make it available in the schema
+export type { MaxBillingContext }
 
 // Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
 // which leads to improper type naming
