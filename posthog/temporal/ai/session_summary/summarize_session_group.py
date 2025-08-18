@@ -256,9 +256,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         self._raw_patterns_extracted_keys: list[str] = []
 
     @temporalio.workflow.query
-    def get_current_status(self) -> tuple[SessionSummaryStep, str]:
+    def get_current_status(self) -> tuple[str, str]:
         """Query handler to get the current progress of summary processing."""
-        return self._current_status
+        step, message = self._current_status
+        return (step.value, message)
 
     @temporalio.workflow.query
     def get_single_sessions_status(self) -> dict[str, bool]:
@@ -593,7 +594,8 @@ async def _start_session_group_summary_workflow(
         expected_progress_status_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.UI_STATUS]
         expected_notebook_update_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.NOTEBOOK_UPDATE]
         # Query the current activities status
-        step, progress_status = await handle.query("get_current_status")
+        step_value, progress_status = await handle.query("get_current_status")
+        step = SessionSummaryStep(step_value)
         # Query the intermediate data
         sessions_status: dict[str, bool] = await handle.query("get_single_sessions_status")
         patterns_keys: list[str] = await handle.query("get_raw_patterns_extraction_keys")
