@@ -141,7 +141,7 @@ CostColumn.displayName = 'CostColumn'
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    const inputNormalized = normalizeMessages(row.inputState.messages, 'user')
+    const inputNormalized = normalizeMessages(row.inputState?.messages, 'user')
     if (!inputNormalized.length) {
         return <>–</>
     }
@@ -161,7 +161,7 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
             </LemonTag>
         )
     }
-    const outputNormalized = normalizeMessages(row.outputState.messages, 'assistant')
+    const outputNormalized = normalizeMessages(row.outputState?.messages, 'assistant')
     if (!outputNormalized.length) {
         return <>–</>
     }

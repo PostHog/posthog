@@ -29,6 +29,7 @@ import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { CompatMessage } from './types'
 import { normalizeMessages } from './utils'
 
 export const scene: SceneExport = {
@@ -163,8 +164,15 @@ function LLMObservabilityGenerations(): JSX.Element {
                     'properties.$ai_input[-1]': {
                         title: 'Input',
                         render: ({ value }) => {
-                            const inputNormalized = normalizeMessages(JSON.parse(value as string), 'user')
-                            if (!inputNormalized.length) {
+                            let inputNormalized: CompatMessage[] | undefined
+                            if (typeof value === 'string') {
+                                try {
+                                    inputNormalized = normalizeMessages(JSON.parse(value as string), 'user')
+                                } catch (e) {
+                                    console.warn('Error parsing properties.$ai_input[-1] as JSON', e)
+                                }
+                            }
+                            if (!inputNormalized?.length) {
                                 return <>–</>
                             }
                             return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
@@ -173,8 +181,15 @@ function LLMObservabilityGenerations(): JSX.Element {
                     'properties.$ai_output_choices': {
                         title: 'Output',
                         render: ({ value }) => {
-                            const outputNormalized = normalizeMessages(JSON.parse(value as string), 'assistant')
-                            if (!outputNormalized.length) {
+                            let outputNormalized: CompatMessage[] | undefined
+                            if (typeof value === 'string') {
+                                try {
+                                    outputNormalized = normalizeMessages(JSON.parse(value as string), 'assistant')
+                                } catch (e) {
+                                    console.warn('Error parsing properties.$ai_output_choices as JSON', e)
+                                }
+                            }
+                            if (!outputNormalized?.length) {
                                 return <>–</>
                             }
                             return (
