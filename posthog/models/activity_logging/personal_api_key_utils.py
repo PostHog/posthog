@@ -4,7 +4,7 @@ from typing import Optional
 
 from django.db.models import Count
 from posthog.models import PersonalAPIKey
-from posthog.models.activity_logging.activity_log import Detail, log_activity, ActivityContextBase
+from posthog.models.activity_logging.activity_log import Detail, bulk_log_activity, ActivityContextBase
 from posthog.models.team.team import Team
 from posthog.user_permissions import UserPermissions
 import dataclasses
@@ -166,6 +166,7 @@ def log_personal_api_key_scope_change(
     """Log activity for PersonalAPIKey scope changes with proper created/revoked logic."""
     log_entries = calculate_scope_change_logs(before_api_key, after_api_key, changes)
 
+    bulk_entries = []
     for log_entry in log_entries:
         team_id = log_entry["team_id"]
         org_id = log_entry["organization_id"]
@@ -184,16 +185,20 @@ def log_personal_api_key_scope_change(
             ),
         )
 
-        log_activity(
-            organization_id=uuid.UUID(org_id),
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=after_api_key.id,
-            scope="PersonalAPIKey",
-            activity=log_entry["activity"],
-            detail=detail_data,
+        bulk_entries.append(
+            {
+                "organization_id": uuid.UUID(org_id),
+                "team_id": team_id,
+                "user": user,
+                "was_impersonated": was_impersonated,
+                "item_id": after_api_key.id,
+                "scope": "PersonalAPIKey",
+                "activity": log_entry["activity"],
+                "detail": detail_data,
+            }
         )
+
+    bulk_log_activity(bulk_entries)
 
 
 def get_organization_name(org_id: str) -> str:
@@ -224,24 +229,29 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
     """Create activity logs for PersonalAPIKey operations at appropriate organization/team levels."""
     access_locations = get_personal_api_key_access_locations(api_key)
 
+    log_entries = []
     for location in access_locations:
-        log_activity(
-            organization_id=uuid.UUID(location.org_id),
-            team_id=location.team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=api_key.id,
-            scope="PersonalAPIKey",
-            activity=activity,
-            detail=Detail(
-                changes=changes,
-                name=api_key.label,
-                context=PersonalAPIKeyContext(
-                    user_id=api_key.user_id,
-                    user_email=api_key.user.email,
-                    user_name=api_key.user.get_full_name(),
-                    organization_name=get_organization_name(location.org_id),
-                    team_name=get_team_name(location.team_id),
+        log_entries.append(
+            {
+                "organization_id": uuid.UUID(location.org_id),
+                "team_id": location.team_id,
+                "user": user,
+                "was_impersonated": was_impersonated,
+                "item_id": api_key.id,
+                "scope": "PersonalAPIKey",
+                "activity": activity,
+                "detail": Detail(
+                    changes=changes,
+                    name=api_key.label,
+                    context=PersonalAPIKeyContext(
+                        user_id=api_key.user_id,
+                        user_email=api_key.user.email,
+                        user_name=api_key.user.get_full_name(),
+                        organization_name=get_organization_name(location.org_id),
+                        team_name=get_team_name(location.team_id),
+                    ),
                 ),
-            ),
+            }
         )
+
+    bulk_log_activity(log_entries)

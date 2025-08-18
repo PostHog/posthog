@@ -647,6 +647,27 @@ def dict_changes_between(
     return changes
 
 
+def _handle_activity_log_transaction(create_fn, error_context: dict):
+    try:
+        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
+        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+            transaction.on_commit(create_fn)
+            return None
+        else:
+            return create_fn()
+
+    except Exception as e:
+        logger.warn(
+            "activity_log.failed_to_write_to_activity_log",
+            **error_context,
+            exception=e,
+        )
+        capture_exception(e)
+        if settings.TEST:
+            raise
+        return None
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -658,6 +679,7 @@ def log_activity(
     detail: Detail,
     was_impersonated: Optional[bool],
     force_save: bool = False,
+    instance_only: bool = False,
 ) -> ActivityLog | None:
     if was_impersonated and user is None:
         logger.warn(
@@ -680,8 +702,8 @@ def log_activity(
             )
             return None
 
-        def _do_log_activity():
-            return ActivityLog.objects.create(
+        def _create_activity_log_instance():
+            return ActivityLog(
                 organization_id=organization_id,
                 team_id=team_id,
                 user=user,
@@ -693,12 +715,32 @@ def log_activity(
                 detail=detail,
             )
 
-        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
-            transaction.on_commit(_do_log_activity)
-            return None
-        else:
-            return _do_log_activity()
+        def _do_log_activity():
+            log = _create_activity_log_instance()
+            return ActivityLog.objects.create(
+                organization_id=log.organization_id,
+                team_id=log.team_id,
+                user=log.user,
+                was_impersonated=log.was_impersonated,
+                is_system=log.is_system,
+                item_id=log.item_id,
+                scope=log.scope,
+                activity=log.activity,
+                detail=log.detail,
+            )
+
+        if instance_only:
+            return _create_activity_log_instance()
+
+        return _handle_activity_log_transaction(
+            _do_log_activity,
+            {
+                "team": team_id,
+                "organization_id": organization_id,
+                "scope": scope,
+                "activity": activity,
+            },
+        )
 
     except Exception as e:
         logger.warn(
@@ -711,11 +753,49 @@ def log_activity(
         )
         capture_exception(e)
         if settings.TEST:
-            # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
-            # as we currently don't treat activity logs as critical
             raise
+        return None
 
-    return None
+
+def bulk_log_activity(log_entries: list[dict], batch_size: int = 500) -> list[ActivityLog]:
+    if not log_entries:
+        return []
+
+    activity_logs = []
+    for entry in log_entries:
+        log = log_activity(
+            organization_id=entry.get("organization_id"),
+            team_id=entry.get("team_id"),
+            user=entry.get("user"),
+            item_id=entry.get("item_id"),
+            scope=entry.get("scope"),
+            activity=entry.get("activity"),
+            detail=entry.get("detail"),
+            was_impersonated=entry.get("was_impersonated"),
+            force_save=entry.get("force_save", False),
+            instance_only=True,  # only create the instance, don't save it to the database
+        )
+
+        if log:
+            activity_logs.append(log)
+
+    if not activity_logs:
+        return []
+
+    def _do_bulk_create():
+        return ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+
+    result = _handle_activity_log_transaction(
+        _do_bulk_create,
+        {
+            "count": len(activity_logs),
+            "scope": "bulk_log_activity",
+            "activity": "bulk_create",
+            "log_entries": log_entries,
+        },
+    )
+
+    return result or []
 
 
 @dataclasses.dataclass(frozen=True)
