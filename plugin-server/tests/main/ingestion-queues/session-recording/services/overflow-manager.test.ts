@@ -1,3 +1,5 @@
+// sort-imports-ignore
+
 import { Redis } from 'ioredis'
 
 import { OverflowManager } from '../../../../../src/main/ingestion-queues/session-recording/services/overflow-manager'

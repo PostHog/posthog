@@ -1,21 +1,29 @@
 import { useActions, useValues } from 'kea'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { IconApps } from '@posthog/icons'
+
+import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { Query } from '~/queries/Query/Query'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { ActivityTab } from '~/types'
 
 import { eventsSceneLogic } from './eventsSceneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { ActivityTab } from '~/types'
-import { urls } from 'scenes/urls'
+
+const RESOURCE_TYPE = 'event'
 
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(eventsSceneLogic)
     const { setQuery } = useActions(eventsSceneLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <>
+        <SceneContent>
             <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.ExploreEvents}
@@ -31,7 +39,18 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
+                sceneInset={newSceneLayout}
             />
+            <SceneTitleSection
+                name="Explore events"
+                description="A catalog of all user interactions with your app or website."
+                resourceType={{
+                    type: RESOURCE_TYPE,
+                    typePlural: 'events',
+                    forceIcon: <IconApps />,
+                }}
+            />
+            <SceneDivider />
             <Query
                 attachTo={eventsSceneLogic({ tabId })}
                 uniqueKey={`events-scene-${tabId}`}
@@ -42,7 +61,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                 }}
             />
-        </>
+        </SceneContent>
     )
 }
 

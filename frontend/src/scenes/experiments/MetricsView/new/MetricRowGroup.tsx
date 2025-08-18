@@ -1,24 +1,31 @@
-import { IconTrending } from '@posthog/icons'
-import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber } from 'lib/utils'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+
+import { IconTrending } from '@posthog/icons'
+
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
+
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
+
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
+import { useChartColors } from '../shared/colors'
 import {
+    type ExperimentVariantResult,
     formatDeltaPercent,
+    getDelta,
     getNiceTickValues,
     isDeltaPositive,
     isSignificant,
-    type ExperimentVariantResult,
-    getDelta,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
-
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { GridLines } from './GridLines'
+import { renderTooltipContent } from './MetricRowGroupTooltip'
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -26,10 +33,6 @@ import {
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
 } from './constants'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { GridLines } from './GridLines'
-import { renderTooltipContent } from './MetricRowGroupTooltip'
 import { useAxisScale } from './useAxisScale'
 
 interface MetricRowGroupProps {

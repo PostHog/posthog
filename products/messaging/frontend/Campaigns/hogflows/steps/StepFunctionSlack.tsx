@@ -1,10 +1,11 @@
 import { Node } from '@xyflow/react'
 
+import { IconSlack } from 'lib/lemon-ui/icons/icons'
+
 import { HogFlowAction } from '../types'
+import { StepFunctionConfiguration } from './StepFunction'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
-import { StepFunctionConfiguration } from './StepFunction'
-import { IconSlack } from 'lib/lemon-ui/icons/icons'
 
 export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
     type: 'function_slack',

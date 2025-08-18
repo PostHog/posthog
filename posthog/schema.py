@@ -93,6 +93,8 @@ class AssistantContextualTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     SEARCH_DOCS = "search_docs"
+    SEARCH_INSIGHTS = "search_insights"
+    SESSION_SUMMARIZATION = "session_summarization"
 
 
 class AssistantDateRange(BaseModel):
@@ -2190,7 +2192,8 @@ class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class ResultCustomizationBy(StrEnum):
@@ -2203,7 +2206,8 @@ class ResultCustomizationByPosition(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["position"] = "position"
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -2211,7 +2215,8 @@ class ResultCustomizationByValue(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["value"] = "value"
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class RetentionDashboardDisplayType(StrEnum):
@@ -10431,6 +10436,7 @@ class SurveyCreationSchema(BaseModel):
     end_date: Optional[str] = None
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
+    linked_flag_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None

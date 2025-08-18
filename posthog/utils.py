@@ -367,7 +367,7 @@ def render_template(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
@@ -376,7 +376,7 @@ def render_template(
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
@@ -526,8 +526,8 @@ async def initialize_self_capture_api_token():
         if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
-            team = await Team.objects.only("api_token").aget()
-        local_api_key = team.api_token
+            team = await Team.objects.only("api_token").afirst()
+        local_api_key = team.api_token if team else None
     except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
         local_api_key = None
 

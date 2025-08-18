@@ -1,4 +1,5 @@
 import type { Meta } from '@storybook/react'
+
 import ViewRecordingButton from './ViewRecordingButton'
 
 const meta = {

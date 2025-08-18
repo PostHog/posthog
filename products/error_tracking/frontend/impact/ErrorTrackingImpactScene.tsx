@@ -1,17 +1,21 @@
-import { SceneExport } from 'scenes/sceneTypes'
-
-import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
 import { useActions, useValues } from 'kea'
-import { EventName } from 'products/actions/frontend/components/EventName'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
-import { IssueListTitleColumn, IssueListTitleHeader } from '../components/TableColumns'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
+
+import { EventName } from 'products/actions/frontend/components/EventName'
+
+import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { BulkActions } from '../components/IssueActions/BulkActions'
+import { IssueListTitleColumn, IssueListTitleHeader } from '../components/TableColumns'
 import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
+import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
 
 export const scene: SceneExport = {
     component: ErrorTrackingImpactScene,

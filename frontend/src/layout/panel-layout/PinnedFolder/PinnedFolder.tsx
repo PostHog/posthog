@@ -1,5 +1,7 @@
-import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
+
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -12,10 +14,10 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)

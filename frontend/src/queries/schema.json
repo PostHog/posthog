@@ -905,7 +905,9 @@
                 "search_error_tracking_issues",
                 "experiment_results_summary",
                 "create_survey",
-                "search_docs"
+                "search_docs",
+                "search_insights",
+                "session_summarization"
             ],
             "type": "string"
         },
@@ -20782,9 +20784,11 @@
             "properties": {
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["color"],
             "type": "object"
         },
         "ResultCustomizationBy": {
@@ -20800,9 +20804,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "ResultCustomizationByValue": {
@@ -20814,9 +20821,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "RetentionDashboardDisplayType": {
@@ -23430,6 +23440,9 @@
                     "type": "number"
                 },
                 "iteration_frequency_days": {
+                    "type": "number"
+                },
+                "linked_flag_id": {
                     "type": "number"
                 },
                 "name": {

@@ -1,5 +1,7 @@
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'

@@ -1,10 +1,13 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { sceneLogic } from '~/scenes/sceneLogic'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
+import React from 'react'
+
+import { IconChevronLeft, IconChevronRight, IconCopy, IconExternal, IconPencil, IconX } from '@posthog/icons'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { IconCopy, IconX, IconChevronRight, IconChevronLeft, IconExternal, IconPencil } from '@posthog/icons'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { SceneTab } from 'scenes/sceneTypes'
+
+import { sceneLogic } from '~/scenes/sceneLogic'
 
 export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children: React.ReactElement }): JSX.Element {
     const { tabs } = useValues(sceneLogic)

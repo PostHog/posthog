@@ -1,3 +1,5 @@
+import React, { CSSProperties } from 'react'
+
 import {
     IconAI,
     IconApp,
@@ -24,9 +26,9 @@ import {
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
