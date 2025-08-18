@@ -446,7 +446,7 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
             for keyword in ["authentication failed", "password authentication failed", "access denied"]
         ):
             return "Database authentication failed. Please check your username and password."
-        if any(keyword in error_lower for keyword in ["connection refused", "could not connect", "timeout"]):
+        if any(keyword in error_lower for keyword in ["connection refused", "could not connect"]):
             return "Unable to connect to the database. Please check your connection details and network access."
         if "does not exist" in error_lower or "database" in error_lower and "not found" in error_lower:
             return "Database or table not found. Please verify your database name and table names."
