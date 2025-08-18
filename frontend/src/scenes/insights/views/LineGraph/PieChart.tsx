@@ -1,7 +1,8 @@
 import 'chartjs-adapter-dayjs-3'
-
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import {
     ActiveElement,
     Chart,
@@ -14,19 +15,18 @@ import {
     TooltipModel,
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { useEffect, useRef } from 'react'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { ensureTooltip, LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { LineGraphProps, ensureTooltip, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { GraphType } from '~/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 let timer: NodeJS.Timeout | null = null
 

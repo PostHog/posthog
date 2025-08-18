@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
-
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 export function ResultCustomizationByPicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
