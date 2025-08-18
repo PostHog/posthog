@@ -11,7 +11,6 @@ import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
-import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
