@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react'
 import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
@@ -33,7 +34,6 @@ import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/Side
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
 import { WithinSidePanelContext, sidePanelStateLogic } from './sidePanelStateLogic'
-import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,

@@ -29,6 +29,7 @@ import {
 
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -68,7 +69,6 @@ import {
     isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
-import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -158,11 +158,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
         <MessageGroupContainer groupType={groupType}>
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
-                    user={
-                        groupType === 'human'
-                            ? { ...user, hedgehog_config: undefined }
-                            : minimalHedgehogConfig
-                    }
+                    user={groupType === 'human' ? { ...user, hedgehog_config: undefined } : minimalHedgehogConfig}
                     size="lg"
                     className="hidden @md/thread:flex mt-1 border"
                 />
