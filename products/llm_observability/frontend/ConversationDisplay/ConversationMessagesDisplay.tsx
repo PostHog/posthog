@@ -240,6 +240,7 @@ export const LLMMessageDisplay = React.memo(
     }: {
         message: CompatMessage
         isOutput?: boolean
+        /** @default true */
         show?: boolean
         /** In minimal mode, we don't show the role, toggles, or additional kwargs, and reduce padding. */
         minimal?: boolean
