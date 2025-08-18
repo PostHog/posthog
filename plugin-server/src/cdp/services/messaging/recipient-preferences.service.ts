@@ -1,5 +1,5 @@
 import { HogFlowAction } from '../../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '../../types'
+import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms'
@@ -9,7 +9,10 @@ type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 export class RecipientPreferencesService {
     constructor(private recipientsManager: RecipientsManagerService) {}
 
-    public async shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): Promise<boolean> {
+    public async shouldSkipAction(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: HogFlowAction
+    ): Promise<boolean> {
         return (
             this.isSubjectToRecipientPreferences(action) && (await this.isRecipientOptedOutOfAction(invocation, action))
         )
@@ -20,7 +23,7 @@ export class RecipientPreferencesService {
     }
 
     private async isRecipientOptedOutOfAction(
-        invocation: CyclotronJobInvocationHogFlow,
+        invocation: CyclotronJobInvocationHogFunction,
         action: MessageAction
     ): Promise<boolean> {
         // Get the identifier to be used from the action config for sms, this is an input called to_number,
@@ -28,9 +31,9 @@ export class RecipientPreferencesService {
         let identifier
 
         if (action.type === 'function_sms') {
-            identifier = action.config.inputs?.to_number
+            identifier = invocation.state.globals.inputs?.to_number?.value
         } else if (action.type === 'function_email') {
-            identifier = action.config.inputs?.email?.value?.to
+            identifier = invocation.state.globals.inputs?.email?.value?.to
         }
 
         if (!identifier) {

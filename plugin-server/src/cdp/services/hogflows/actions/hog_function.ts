@@ -112,7 +112,7 @@ export class HogFunctionHandler implements ActionHandler {
             },
         }
 
-        if (await this.recipientPreferencesService.shouldSkipAction(invocation, action)) {
+        if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
             return {
                 finished: true,
                 invocation: hogFunctionInvocation,
