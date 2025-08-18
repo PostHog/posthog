@@ -1,6 +1,7 @@
-import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { normalizeMessage, looksLikeXml, formatLLMEventTitle } from './utils'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
+import { formatLLMEventTitle, looksLikeXml, normalizeMessage } from './utils'
 
 describe('LLM Observability utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {

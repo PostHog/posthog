@@ -1,10 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import { useRef, useState } from 'react'
+
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet, uuid } from 'lib/utils'
-import { useRef, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 

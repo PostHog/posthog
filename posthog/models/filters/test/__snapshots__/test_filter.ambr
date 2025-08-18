@@ -36,6 +36,7 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -122,6 +123,7 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -208,6 +210,7 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -294,6 +297,7 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -380,6 +384,7 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -540,6 +545,7 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -789,6 +795,7 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1877,6 +1884,7 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1906,6 +1914,7 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1935,6 +1944,7 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1964,6 +1974,7 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")

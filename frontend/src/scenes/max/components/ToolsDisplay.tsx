@@ -1,25 +1,27 @@
-import { IconX, IconWrench, IconInfo, IconArrowRight } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import './QuestionInput.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { ReactNode, useState, useRef, useCallback, useMemo, useLayoutEffect } from 'react'
+import { ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import React from 'react'
+
+import { IconArrowRight, IconInfo, IconWrench, IconX } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { identifierToHuman } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 
 import {
-    ToolDefinition,
-    TOOL_DEFINITIONS,
-    ToolRegistration,
     MAX_GENERALLY_CAN,
     MAX_GENERALLY_CANNOT,
+    TOOL_DEFINITIONS,
+    ToolDefinition,
+    ToolRegistration,
 } from '../max-constants'
-import { identifierToHuman } from 'lib/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene } from 'scenes/sceneTypes'
-
-import './QuestionInput.scss'
 
 export interface ToolsDisplayProps {
     isFloating?: boolean

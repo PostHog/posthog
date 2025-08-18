@@ -8,7 +8,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_select, parse_expr, parse_order_expr
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -23,7 +23,7 @@ from posthog.schema import (
 )
 
 
-class LogsQueryRunner(QueryRunner):
+class LogsQueryRunner(AnalyticsQueryRunner):
     query: LogsQuery
     response: LogsQueryResponse
     cached_response: CachedLogsQueryResponse
@@ -84,7 +84,7 @@ class LogsQueryRunner(QueryRunner):
                     ),
                 )
 
-    def calculate(self) -> LogsQueryResponse:
+    def _calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = self.paginator.execute_hogql_query(

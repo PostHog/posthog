@@ -1,5 +1,7 @@
 import { LemonDialog } from '@posthog/lemon-ui'
+
 import { capitalizeFirstLetter } from 'lib/utils'
+
 import { FeatureFlagType } from '~/types'
 
 type ConfirmationModalType = 'flag-status' | 'rollout' | 'multi-changes'

@@ -1,20 +1,25 @@
 from typing import Any, Literal, cast, Optional
 
+from django.core.cache import cache
 from django.db.models import Manager
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import action
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.utils import relative_date_parse, get_safe_cache
+
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
@@ -247,3 +252,61 @@ class EventDefinitionViewSet(
             detail=Detail(name=cast(str, instance.name), changes=None),
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["GET"], url_path="metrics")
+    def metrics_totals(self, *args, **kwargs):
+        instance: EventDefinition = self.get_object()
+
+        query_usage_30_day = fetch_30day_event_queries(
+            team=self.team,
+            event_name=instance.name,
+        )
+
+        return response.Response(
+            {
+                "query_usage_30_day": query_usage_30_day,
+            }
+        )
+
+
+def fetch_30day_event_queries(
+    team: Team,
+    event_name: str,
+) -> int:
+    """
+    Calculate the total number of views for a specific event
+    """
+    cache_key = f"event_definition:event_views_total:{team.pk}:{event_name}"
+    cached_result = get_safe_cache(cache_key)
+    if cached_result is not None:
+        return cached_result
+
+    clickhouse_kwargs: dict[str, Any] = {
+        "team_id": team.pk,
+        "app_source": "event_usage",
+        "metric_name": "viewed",
+        "instance_id": f"event:{event_name}",
+        "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+    clickhouse_query = f"""
+        SELECT
+            sum(count) as count
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+        AND app_source = %(app_source)s
+        AND timestamp >= toDateTime64(%(after)s, 6)
+        AND instance_id = %(instance_id)s
+        AND metric_name = %(metric_name)s
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    total = results[0][0] if results else 0
+
+    cache.set(cache_key, total, timeout=24 * 60 * 60)  # 24 hours
+
+    return total

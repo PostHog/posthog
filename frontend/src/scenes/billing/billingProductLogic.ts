@@ -1,10 +1,12 @@
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import api from 'lib/api'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     BillingPlan,

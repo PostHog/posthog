@@ -1,7 +1,9 @@
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { UserBasicType } from '~/types'
-import { TZLabel } from '../TZLabel'
+
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { UserBasicType } from '~/types'
+
+import { TZLabel } from '../TZLabel'
 
 interface SceneActivityIndicatorProps {
     prefix?: string

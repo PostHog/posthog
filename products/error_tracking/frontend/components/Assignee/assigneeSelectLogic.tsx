@@ -1,5 +1,6 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 

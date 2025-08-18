@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -7,8 +8,8 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
-    hogFunctionConfigurationLogic,
     HogFunctionConfigurationLogicProps,
+    hogFunctionConfigurationLogic,
 } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionLogs } from 'scenes/hog-functions/logs/HogFunctionLogs'
 import { HogFunctionMetrics } from 'scenes/hog-functions/metrics/HogFunctionMetrics'
@@ -196,10 +197,10 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
     component: HogFunctionScene,
     logic: hogFunctionSceneLogic,
-    paramsToProps: ({ params: { id, templateId } }): (typeof hogFunctionSceneLogic)['props'] => ({ id, templateId }),
+    paramsToProps: ({ params: { id, templateId } }) => ({ id, templateId }),
 }
 
 export function HogFunctionScene(): JSX.Element {

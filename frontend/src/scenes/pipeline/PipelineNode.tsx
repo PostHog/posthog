@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
@@ -15,8 +16,8 @@ import { BatchExportRuns } from '../data-pipelines/batch-exports/BatchExportRuns
 import { HogFunctionLogs } from '../hog-functions/logs/HogFunctionLogs'
 import { HogFunctionMetrics } from '../hog-functions/metrics/HogFunctionMetrics'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
-import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
+import { PipelineNodeLogicProps, pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {

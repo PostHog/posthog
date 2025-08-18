@@ -1,8 +1,10 @@
 import './InsightLabel.scss'
 
-import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'

@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { FeatureFlagBasicType } from '~/types'
