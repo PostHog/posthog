@@ -13,7 +13,7 @@ import { FeatureFlagType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
-export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+export function AnalysisTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     return (
         <div className="NewDashboardModal">
             <BindLogic logic={newDashboardLogic} props={{ featureFlagId: featureFlag.id as number }}>

@@ -10,16 +10,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<MessageTemplateLogicProps> = {
     component: MessageTemplate,
     logic: messageTemplateLogic,
-    paramsToProps: ({ params: { id }, searchParams: { messageId } }): MessageTemplateLogicProps => ({
+    paramsToProps: ({ params: { id }, searchParams: { messageId } }) => ({
         id: id || 'new',
         messageId,
     }),
 }
 
-export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Element {
+export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element {
     const { submitTemplate, resetTemplate, setTemplateValue } = useActions(messageTemplateLogic)
     const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } =
         useValues(messageTemplateLogic)

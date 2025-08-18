@@ -33,23 +33,24 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
-        hiddenLegendIndexes,
         getTrendsColor,
+        getTrendsHidden,
         theme,
     } = useValues(trendsDataLogic(insightProps))
 
     useEffect(() => {
         if (indexedResults) {
-            const colorList = indexedResults.map(getTrendsColor)
+            const visibleResults = indexedResults.filter((item) => !getTrendsHidden(item))
+            const colorList = visibleResults.map(getTrendsColor)
 
             setData([
                 {
-                    labels: indexedResults.map((item) => item.label),
-                    data: indexedResults.map((item) => item.aggregated_value),
-                    actions: indexedResults.map((item) => item.action),
-                    personsValues: indexedResults.map((item) => item.persons),
-                    breakdownValues: indexedResults.map((item) => item.breakdown_value),
-                    breakdownLabels: indexedResults.map((item) => {
+                    labels: visibleResults.map((item) => item.label),
+                    data: visibleResults.map((item) => item.aggregated_value),
+                    actions: visibleResults.map((item) => item.action),
+                    personsValues: visibleResults.map((item) => item.persons),
+                    breakdownValues: visibleResults.map((item) => item.breakdown_value),
+                    breakdownLabels: visibleResults.map((item) => {
                         return formatBreakdownLabel(
                             item.breakdown_value,
                             breakdownFilter,
@@ -59,7 +60,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                             item.label
                         )
                     }),
-                    compareLabels: indexedResults.map((item) => item.compare_label),
+                    compareLabels: visibleResults.map((item) => item.compare_label),
                     backgroundColor: colorList,
                     hoverBackgroundColor: colorList,
                     hoverBorderColor: colorList,
@@ -68,9 +69,17 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                     borderWidth: 1,
                 },
             ])
-            setTotal(indexedResults.reduce((prev, item) => prev + item.aggregated_value, 0))
+            setTotal(visibleResults.reduce((prev, item) => prev + item.aggregated_value, 0))
         }
-    }, [indexedResults, theme, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay, getTrendsColor])
+    }, [
+        indexedResults,
+        theme,
+        breakdownFilter,
+        allCohorts?.results,
+        formatPropertyValueForDisplay,
+        getTrendsColor,
+        getTrendsHidden,
+    ])
 
     return data && total > 0 ? (
         <LineGraph
@@ -83,7 +92,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            hiddenLegendIndexes={hiddenLegendIndexes}
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}
@@ -102,7 +110,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                               context.onDataPointClick(
                                   {
                                       breakdown: dataset.breakdownValues?.[index],
-                                      compare: dataset.compareLabels?.[index],
+                                      compare: dataset.compareLabels?.[index] || undefined,
                                   },
                                   indexedResults[0]
                               )

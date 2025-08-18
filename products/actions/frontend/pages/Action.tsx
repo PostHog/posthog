@@ -2,19 +2,17 @@ import { useValues } from 'kea'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ActionType } from '~/types'
-
 import { ActionLogicProps, actionLogic } from 'products/actions/frontend/logics/actionLogic'
 
 import { ActionEdit } from './ActionEdit'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ActionLogicProps> = {
     logic: actionLogic,
     component: Action,
-    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: id ? parseInt(id) : undefined }),
+    paramsToProps: ({ params: { id } }) => ({ id: parseInt(id) }),
 }
 
-export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
+export function Action({ id }: ActionLogicProps): JSX.Element {
     const { action, actionLoading } = useValues(actionLogic({ id }))
 
     return <ActionEdit id={id} action={action} actionLoading={actionLoading} />
