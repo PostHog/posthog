@@ -709,6 +709,7 @@ def log_activity(
             activity=activity,
             exception=e,
         )
+        capture_exception(e)
         if settings.TEST:
             # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
             # as we currently don't treat activity logs as critical
