@@ -13,7 +13,7 @@
      LIMIT 100) ARRAY
   JOIN (kv).1 AS key,
        (kv).2 AS value
-  WHERE not(match(key, '(\\$sent_at|\\$ip|changed_action|survey_responded|partial_filter_chosen|window-id|survey_dismissed|__|\\$feature\\/|partial_filter|\\$set|distinct_id|changed_event|\\$set_once|phjs|\\$time)'))
+  WHERE not(match(key, '(changed_event|\\$sent_at|\\$ip|\\$set_once|window-id|survey_responded|phjs|\\$set|distinct_id|partial_filter|changed_action|\\$feature\\/|\\$time|survey_dismissed|__|partial_filter_chosen)'))
   GROUP BY key
   ORDER BY total_count DESC
   LIMIT 500 SETTINGS readonly=2,
@@ -42,7 +42,7 @@
      LIMIT 100) ARRAY
   JOIN (kv).1 AS key,
        (kv).2 AS value
-  WHERE not(match(key, '(\\$sent_at|\\$ip|changed_action|survey_responded|partial_filter_chosen|window-id|survey_dismissed|__|\\$feature\\/|partial_filter|\\$set|distinct_id|changed_event|\\$set_once|phjs|\\$time)'))
+  WHERE not(match(key, '(changed_event|\\$sent_at|\\$ip|\\$set_once|window-id|survey_responded|phjs|\\$set|distinct_id|partial_filter|changed_action|\\$feature\\/|\\$time|survey_dismissed|__|partial_filter_chosen)'))
   GROUP BY key
   ORDER BY total_count DESC
   LIMIT 500 SETTINGS readonly=2,
