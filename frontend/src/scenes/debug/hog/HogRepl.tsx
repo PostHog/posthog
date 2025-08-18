@@ -1,14 +1,16 @@
+import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+
 import { printHogStringOutput } from '@posthog/hogvm'
 import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
-import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 
-import { hogReplLogic, ReplChunk as ReplChunkType } from './hogReplLogic'
+import { ReplChunk as ReplChunkType, hogReplLogic } from './hogReplLogic'
 
 export interface ReplResultsTableProps {
     response: {

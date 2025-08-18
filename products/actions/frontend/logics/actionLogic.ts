@@ -1,6 +1,9 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -10,8 +13,6 @@ import { ActionStepType, ActionType, ActivityScope, Breadcrumb, HogFunctionType,
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface ActionLogicProps {
     id?: ActionType['id']

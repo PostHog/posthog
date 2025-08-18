@@ -1,7 +1,11 @@
 import { useValues } from 'kea'
-import { actionLogic, ActionLogicProps } from 'products/actions/frontend/logics/actionLogic'
+
 import { SceneExport } from 'scenes/sceneTypes'
+
 import { ActionType } from '~/types'
+
+import { ActionLogicProps, actionLogic } from 'products/actions/frontend/logics/actionLogic'
+
 import { ActionEdit } from './ActionEdit'
 
 export const scene: SceneExport = {

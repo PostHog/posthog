@@ -1,19 +1,22 @@
+import { useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { IconDocument } from '@posthog/icons'
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
+import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useState } from 'react'
+
 import { fileSystemTypes } from '~/products'
-import { iconForType, ProductIconWrapper } from '../panel-layout/ProjectTree/defaultTree'
-import { IconDocument } from '@posthog/icons'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FileSystemIconColor } from '~/types'
+
+import { ProductIconWrapper, iconForType } from '../panel-layout/ProjectTree/defaultTree'
 
 export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="scene-content flex flex-col gap-y-4">{children}</div>

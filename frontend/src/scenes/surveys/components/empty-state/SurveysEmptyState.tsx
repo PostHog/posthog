@@ -1,20 +1,24 @@
-import { IconSparkles } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
+
+import { IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductKey, SidePanelTab } from '~/types'
-import { defaultSurveyTemplates, SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType } from '../../constants'
-import { surveysLogic } from '../../surveysLogic'
+
 import { TemplateCard } from '../../SurveyTemplates'
+import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType, defaultSurveyTemplates } from '../../constants'
+import { surveysLogic } from '../../surveysLogic'
 
 interface Props {
     numOfSurveys: number

@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 
 import { personsManagementSceneLogic } from './personsManagementSceneLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface PersonsManagementSceneTabsProps {
     tabKey: string

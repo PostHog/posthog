@@ -198,7 +198,7 @@ class RevenueAnalyticsRevenueItemView(RevenueAnalyticsBaseView):
                     ast.Alias(
                         alias="is_recurring",
                         expr=ast.Call(
-                            name="notEmpty", args=[ast.Field(chain=["properties", event.subscriptionProperty])]
+                            name="isNotNull", args=[ast.Field(chain=["properties", event.subscriptionProperty])]
                         )
                         if event.subscriptionProperty
                         else ast.Constant(value=False),
@@ -354,7 +354,7 @@ class RevenueAnalyticsRevenueItemView(RevenueAnalyticsBaseView):
                                     name="notEmpty",
                                     args=[ast.Field(chain=["subscription_id"])],
                                 ),
-                                ast.Constant(value=0),
+                                ast.Constant(value=False),
                             ],
                         ),
                     ),

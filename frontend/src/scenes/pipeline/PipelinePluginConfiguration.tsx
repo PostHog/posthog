@@ -1,3 +1,9 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import React from 'react'
+import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
 import { IconLock } from '@posthog/icons'
 import { IconPencil } from '@posthog/icons'
 import {
@@ -13,16 +19,12 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import React from 'react'
-import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 

@@ -1,16 +1,18 @@
-import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { dayjs, Dayjs } from 'lib/dayjs'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
+
+import { IconWarning } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
-import { useActions, useValues } from 'kea'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
-import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
-import { urls } from 'scenes/urls'
-import { IconWarning } from '@posthog/icons'
 
 export default function ViewRecordingButton({
     sessionId,

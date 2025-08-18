@@ -1,16 +1,17 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import type { IDisposable } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import type { IDisposable } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {

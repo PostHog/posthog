@@ -353,7 +353,7 @@ class ExperimentTimeseries:
                     alias="num_users",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[
+                        exprs=[
                             ast.Call(
                                 name="coalesce",
                                 args=[
@@ -381,7 +381,7 @@ class ExperimentTimeseries:
                     alias="total_sum",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[
+                        exprs=[
                             ast.Call(
                                 name="coalesce",
                                 args=[
@@ -409,7 +409,7 @@ class ExperimentTimeseries:
                     alias="total_sum_of_squares",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[
+                        exprs=[
                             ast.Call(
                                 name="coalesce",
                                 args=[

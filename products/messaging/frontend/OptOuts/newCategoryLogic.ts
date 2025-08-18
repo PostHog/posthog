@@ -1,10 +1,11 @@
-import { kea, path, actions, listeners, props, key } from 'kea'
+import { actions, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 import type { newCategoryLogicType } from './newCategoryLogicType'
+import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 export type CategoryForm = {
     name: string

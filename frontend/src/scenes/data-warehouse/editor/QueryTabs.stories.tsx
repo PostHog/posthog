@@ -2,8 +2,8 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { Uri, UriComponents } from 'monaco-editor'
 
-import { multitabEditorLogic, QueryTab } from './multitabEditorLogic'
 import { QueryTabs } from './QueryTabs'
+import { QueryTab, multitabEditorLogic } from './multitabEditorLogic'
 
 type Story = StoryObj<typeof QueryTabs>
 const meta: Meta<typeof QueryTabs> = {

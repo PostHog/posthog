@@ -1,6 +1,8 @@
-import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
+
+import { IconPlus } from '@posthog/icons'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -8,9 +10,9 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant'
 import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentVariantHeader'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const { selectedExperimentId, experimentForm, addVariantAvailable, selectedVariant, experimentFormErrors } =

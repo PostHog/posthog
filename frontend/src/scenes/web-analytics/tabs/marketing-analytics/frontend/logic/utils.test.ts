@@ -1,5 +1,6 @@
 import { MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
-import { getOrderBy, orderArrayByPreference, getSortedColumnsByArray } from './utils'
+
+import { getOrderBy, getSortedColumnsByArray, orderArrayByPreference } from './utils'
 
 describe('marketing analytics utils', () => {
     describe('getOrderBy', () => {

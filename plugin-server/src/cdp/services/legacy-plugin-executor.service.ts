@@ -1,10 +1,11 @@
-import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 import { Histogram } from 'prom-client'
+
+import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
-import { fetch, FetchResponse } from '../../utils/request'
+import { FetchResponse, fetch } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
