@@ -81,7 +81,7 @@ from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
-from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
+from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
@@ -102,6 +102,26 @@ class LocalEvaluationThrottle(BurstRateThrottle):
         if team_id:
             try:
                 custom_rate = LOCAL_EVAL_RATE_LIMITS.get(team_id)
+                if custom_rate:
+                    self.rate = custom_rate
+                    self.num_requests, self.duration = self.parse_rate(self.rate)
+            except Exception:
+                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
+
+        return super().allow_request(request, view)
+
+
+class RemoteConfigThrottle(BurstRateThrottle):
+    scope = "feature_flag_remote_config"
+    rate = "600/minute"
+
+    def allow_request(self, request, view):
+        logger = logging.getLogger(__name__)
+
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            try:
+                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
                 if custom_rate:
                     self.rate = custom_rate
                     self.num_requests, self.duration = self.parse_rate(self.rate)
@@ -1410,6 +1430,7 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:read"],
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
         permission_classes=[ProjectSecretAPITokenPermission],
+        throttle_classes=[RemoteConfigThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
         is_flag_id_provided = kwargs["pk"].isdigit()
