@@ -141,7 +141,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
             columns = [col[0] for col in cursor.description]
-            results: list[DataWarehouseActivityRow] = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
             has_more = len(results) > limit
 
             return Response(
