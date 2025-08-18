@@ -34,7 +34,7 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const validationResult = HogFlowActionSchema.safeParse(action)
     const hasConfigurationErrors = !['trigger', 'exit'].includes(action.type) && !validationResult.success
     const fieldsWithErrors = (
-        validationResult.error?.issues.map((issue) => String(issue.path[issue.path.length - 1]).replaceAll('_', ' ')) ||
+        validationResult.error?.issues.map((issue) => String(issue.path[issue.path.length - 2]).replaceAll('_', ' ')) ||
         []
     ).join(', ')
 

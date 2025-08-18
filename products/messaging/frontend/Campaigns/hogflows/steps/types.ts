@@ -185,7 +185,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-slack'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.object({
+                twilio_account: z.object({}),
+            }),
         }),
     }),
     z.object({
@@ -194,7 +196,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-webhook'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.object({
+                url: z.string(),
+            }),
         }),
     }),
 
