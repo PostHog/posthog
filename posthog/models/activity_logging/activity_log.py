@@ -17,7 +17,7 @@ from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
-from posthog.models.utils import UUIDT, UUIDModel
+from posthog.models.utils import UUIDT, UUIDTModel
 
 from typing import TYPE_CHECKING
 
@@ -158,7 +158,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-class ActivityLog(UUIDModel):
+class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
