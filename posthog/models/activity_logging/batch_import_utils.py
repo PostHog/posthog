@@ -43,4 +43,4 @@ def get_batch_import_created_by_info(batch_import) -> tuple[Optional[str], Optio
 
 def get_batch_import_detail_name(source_type: str, content_type: str) -> str:
     """Generate detail name for BatchImport activity"""
-    return f"Batch import from {source_type} ({content_type})"
+    return f"{source_type} ({content_type})"

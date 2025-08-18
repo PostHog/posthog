@@ -389,6 +389,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "deleted",
     ],
     "BatchImport": [
+        "lease_id",
         "leased_until",
         "status_message",
         "state",

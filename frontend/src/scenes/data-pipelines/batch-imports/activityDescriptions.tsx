@@ -11,20 +11,18 @@ const getDisplayName = (logItem: ActivityLogItem): string => {
         return name
     }
 
-    // Try to get info from the new context first
     const context = logItem?.detail?.context as any
     if (context?.source_type && context?.content_type) {
-        return `${context.source_type} import (${context.content_type})`
+        return `source ${context.source_type} (${context.content_type})`
     }
 
-    // Fall back to the old method for backward compatibility
     const detail = logItem?.detail as any
     const config = detail?.import_config
     if (config?.source?.type) {
-        return `${config.source.type} import`
+        return `source ${config.source.type}`
     }
 
-    return 'batch import'
+    return 'unknown source'
 }
 
 export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -32,7 +30,7 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created {getDisplayName(logItem)}
+                    <strong>{userNameForLogItem(logItem)}</strong> created <strong>{getDisplayName(logItem)}</strong>
                 </>
             ),
         }
@@ -42,7 +40,7 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted {getDisplayName(logItem)}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted <strong>{getDisplayName(logItem)}</strong>
                 </>
             ),
         }
@@ -52,7 +50,7 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated {getDisplayName(logItem)}
+                    <strong>{userNameForLogItem(logItem)}</strong> updated <strong>{getDisplayName(logItem)}</strong>
                 </>
             ),
         }
