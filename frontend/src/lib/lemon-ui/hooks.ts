@@ -1,5 +1,6 @@
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useLayoutEffect, useRef, useState } from 'react'
+
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 /**
  * Dynamic slider positioning for horizontal single-choice components such as LemonSegmentedButton or LemonTabs.
@@ -32,7 +33,7 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
             }
             hasRenderedInitiallyRef.current = true
         }
-    }, [currentValue, containerWidth])
+    }, [currentValue, containerWidth]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return {
         containerRef,

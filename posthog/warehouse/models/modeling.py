@@ -17,7 +17,7 @@ from posthog.models.user import User
 from posthog.models.utils import (
     CreatedMetaFields,
     UpdatedMetaFields,
-    UUIDModel,
+    UUIDTModel,
     uuid7,
 )
 from posthog.warehouse.models import S3Table
@@ -517,7 +517,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         return DAG(edges=edges, nodes=nodes)
 
 
-class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Django model to represent paths to a data warehouse model.
 
     A data warehouse model is represented by a saved query, and the path to it contains all

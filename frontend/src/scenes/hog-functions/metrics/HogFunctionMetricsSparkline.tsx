@@ -1,11 +1,13 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
-import { inStorybookTestRunner } from 'lib/utils'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 
-import { hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
+import { inStorybookTestRunner } from 'lib/utils'
+
+import { HogFunctionMetricsLogicProps, hogFunctionMetricsLogic } from './hogFunctionMetricsLogic'
 
 export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps): JSX.Element {
     const logic = hogFunctionMetricsLogic({ id })
@@ -17,7 +19,7 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
         if (inStorybookTestRunner() || (inView && !appMetrics && !appMetricsLoading)) {
             loadMetrics()
         }
-    }, [inView])
+    }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const displayData: SparklineTimeSeries[] = [
         {

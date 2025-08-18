@@ -3,11 +3,12 @@ from datetime import datetime, UTC, timedelta
 
 from django.db import models
 from django.core.exceptions import ValidationError
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import pydantic
 
 from posthog.models.insight import Insight
-from posthog.models.utils import UUIDModel, CreatedMetaFields
+from posthog.models.utils import UUIDTModel, CreatedMetaFields
 from posthog.schema import InsightThreshold, AlertState, AlertCalculationInterval
 
 
@@ -40,7 +41,7 @@ class Alert(models.Model):
     anomaly_condition = models.JSONField(default=dict)
 
 
-class Threshold(CreatedMetaFields, UUIDModel):
+class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     """
     Threshold holds the configuration for a threshold. This can either be attached to an alert, or used as a standalone
     object for other purposes.
@@ -65,7 +66,7 @@ class Threshold(CreatedMetaFields, UUIDModel):
                 raise ValidationError("Lower threshold must be less than upper threshold")
 
 
-class AlertConfiguration(CreatedMetaFields, UUIDModel):
+class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ALERTS_ALLOWED_ON_FREE_TIER = 2
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -127,7 +128,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         super().save(*args, **kwargs)
 
 
-class AlertSubscription(CreatedMetaFields, UUIDModel):
+class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     user = models.ForeignKey(
         "User",
         on_delete=models.CASCADE,
@@ -147,7 +148,7 @@ class AlertSubscription(CreatedMetaFields, UUIDModel):
         unique_together = ["user", "alert_configuration"]
 
 
-class AlertCheck(UUIDModel):
+class AlertCheck(UUIDTModel):
     alert_configuration = models.ForeignKey(AlertConfiguration, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     calculated_value = models.FloatField(null=True, blank=True)

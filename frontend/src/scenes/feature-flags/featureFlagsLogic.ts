@@ -1,7 +1,9 @@
-import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { PaginationManual } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectsEqual, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -198,7 +200,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const searchParams: Record<string, string | number> = {

@@ -1,24 +1,24 @@
-import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { DndContext } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropsWithChildren, useEffect } from 'react'
 
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+
+import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
-
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { DndContext } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-
-import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { cn } from 'lib/utils/css-classes'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 function isRuleDisabled(rule: ErrorTrackingRule): boolean {
     return 'disabled_data' in rule && !!rule.disabled_data
@@ -172,7 +172,15 @@ export const AddRule = ({ disabledReason }: { disabledReason: string | undefined
     ) : null
 }
 
-const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean }): JSX.Element => {
+function Actions<T extends ErrorTrackingRule>({
+    rule,
+    editing,
+    validate,
+}: {
+    rule: T
+    editing: boolean
+    validate?: (rule: T) => string | undefined
+}): JSX.Element {
     const { isReorderingRules } = useValues(errorTrackingRulesLogic)
     const { saveRule, deleteRule, setRuleEditable, unsetRuleEditable } = useActions(errorTrackingRulesLogic)
 
@@ -205,7 +213,18 @@ const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean 
                     <LemonButton size="small" onClick={() => unsetRuleEditable(rule.id)}>
                         Cancel
                     </LemonButton>
-                    <LemonButton size="small" type="primary" onClick={() => saveRule(rule.id)}>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                            let invalidReason = validate?.(rule) ?? validateFilters(rule)
+                            if (invalidReason) {
+                                lemonToast.error(invalidReason)
+                                return
+                            }
+                            saveRule(rule.id)
+                        }}
+                    >
                         Save
                     </LemonButton>
                 </>
@@ -214,6 +233,10 @@ const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean 
             )}
         </div>
     )
+}
+
+function validateFilters(rule: ErrorTrackingRule): string | undefined {
+    return rule.filters.values.length === 0 ? 'You must add at least one filter to each rule.' : undefined
 }
 
 const Filters = ({

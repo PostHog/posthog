@@ -1,16 +1,18 @@
 import { Node } from '@xyflow/react'
 
+import { IconTwilio } from 'lib/lemon-ui/icons'
+
 import { HogFlowAction } from '../types'
+import { StepFunctionConfiguration } from './StepFunction'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
-import { IconTwilio } from 'lib/lemon-ui/icons'
-import { StepFunctionConfiguration } from './StepFunction'
 
 export const StepFunctionSms: HogFlowStep<'function_sms'> = {
     type: 'function_sms',
     name: 'SMS',
     description: 'Send an SMS to the user.',
-    icon: <IconTwilio />,
+    icon: <IconTwilio className="text-[#f22f46]" />,
+    color: '#f22f46',
     renderNode: (props) => <StepFunctionSmsNode {...props} />,
     renderConfiguration: (node) => <StepFunctionSmsConfiguration node={node} />,
     create: () => {

@@ -1,6 +1,7 @@
 import { actions, kea, path, reducers } from 'kea'
+
 import { FunnelLayout } from 'lib/constants'
-import { getConfig, HistogramConfig } from 'scenes/insights/views/Histogram/histogramUtils'
+import { HistogramConfig, getConfig } from 'scenes/insights/views/Histogram/histogramUtils'
 
 import type { histogramLogicType } from './histogramLogicType'
 

@@ -1,11 +1,12 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
-import { dayjs, QUnitType } from 'lib/dayjs'
+
+import { QUnitType, dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange, RetentionQuery } from '~/queries/schema/schema-general'
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
@@ -51,6 +52,13 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         index: datasetIndex,
                     }
                 })
+            },
+        ],
+
+        showTrendLines: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (querySource as RetentionQuery)?.retentionFilter?.showTrendLines ?? false
             },
         ],
 

@@ -1,13 +1,15 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
-import api from 'lib/api'
+import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,8 +25,8 @@ import {
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
+import type { supportLogicType } from './supportLogicType'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -54,21 +56,31 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
-function getErrorTrackingLink(): string {
+function getErrorTrackingLink(uuid?: string): string {
+    const values = [
+        {
+            key: '$session_id',
+            value: [posthog.get_session_id()],
+            operator: 'exact',
+            type: 'event',
+        },
+    ]
+
+    if (uuid) {
+        values.push({
+            type: 'hogql',
+            key: `uuid = '${uuid}'`,
+            value: null,
+        } as any)
+    }
+
     const filterGroup = encodeURIComponent(
         JSON.stringify({
             type: 'AND',
             values: [
                 {
                     type: 'AND',
-                    values: [
-                        {
-                            key: '$session_id',
-                            value: [posthog.get_session_id()],
-                            operator: 'exact',
-                            type: 'event',
-                        },
-                    ],
+                    values,
                 },
             ],
         })
@@ -285,6 +297,8 @@ export type SupportTicketTargetArea =
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
+export type SupportTicketExceptionEvent = { uuid: string; event: string; properties?: Record<string, any> }
+
 export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): null | string => {
     for (const category of TARGET_AREA_TO_NAME) {
         for (const option of category.options) {
@@ -360,6 +374,7 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
+    exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
@@ -475,6 +490,7 @@ export const supportLogic = kea<supportLogicType>([
             target_area,
             severity_level,
             message,
+            exception_event,
         }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
@@ -488,6 +504,7 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: area,
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
+                exception_event,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -505,13 +522,21 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
+        submitZendeskTicket: async ({
+            name,
+            email,
+            kind,
+            target_area,
+            severity_level,
+            message,
+            exception_event,
+        }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
                 ': ' +
                 (target_area
-                    ? getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`
+                    ? (getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`)
                     : 'General') +
                 ' (' +
                 zendesk_ticket_uuid +
@@ -602,12 +627,16 @@ export const supportLogic = kea<supportLogicType>([
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                                ? 'email_support'
-                                : 'free_support',
+                                  ? 'email_support'
+                                  : 'free_support',
                         },
                         {
                             id: 37742340880411,
                             value: accountOwner?.name || 'unassigned',
+                        },
+                        {
+                            id: 39967113285659,
+                            value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],
                     comment: {
@@ -618,7 +647,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
-                            getErrorTrackingLink() +
+                            getErrorTrackingLink(exception_event?.uuid) +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,

@@ -30,6 +30,15 @@ impl rdkafka::ClientContext for KafkaContext {
             self.liveness.report_healthy_blocking();
         }
 
+        let total_brokers = stats.brokers.len();
+        let up_brokers = stats
+            .brokers
+            .values()
+            .filter(|broker| broker.state == "UP")
+            .count();
+        let down_brokers = total_brokers.saturating_sub(up_brokers);
+        gauge!("capture_kafka_any_brokers_down").set(if down_brokers > 0 { 1.0 } else { 0.0 });
+
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
@@ -52,6 +61,13 @@ impl rdkafka::ClientContext for KafkaContext {
 
         for (_, stats) in stats.brokers {
             let id_string = format!("{}", stats.nodeid);
+
+            // Per-broker connectivity (1 = connected/UP, 0 = not connected)
+            gauge!(
+                "capture_kafka_broker_connected",
+                "broker" => id_string.clone()
+            )
+            .set(if stats.state == "UP" { 1.0 } else { 0.0 });
             if let Some(rtt) = stats.rtt {
                 gauge!(
                     "capture_kafka_produce_rtt_latency_us",
@@ -308,15 +324,6 @@ impl KafkaSink {
                         "Event rejected by kafka during send".to_string(),
                     ))
                 }
-                Some(RDKafkaErrorCode::QueueFull) => {
-                    // Don't make this retryable, the queue is already full
-                    report_dropped_events("kafka_queue_full", 1);
-                    error!(
-                        "Kafka producer queue full - dropping event to prevent retry storm: {}",
-                        e
-                    );
-                    Err(CaptureError::NonRetryableSinkError)
-                }
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
                     report_dropped_events("kafka_write_error", 1);
@@ -557,7 +564,7 @@ mod tests {
 
         match sink.send(big_event).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
 
@@ -567,7 +574,7 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
@@ -575,7 +582,7 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send_batch(vec![event.clone(), event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
 
@@ -599,12 +606,12 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
         match sink.send_batch(vec![event.clone(), event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
     }

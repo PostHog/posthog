@@ -1,15 +1,26 @@
-import 'chartjs-adapter-dayjs-3'
+import './BillingLineGraph.scss'
 
+import 'chartjs-adapter-dayjs-3'
+import annotationPlugin from 'chartjs-plugin-annotation'
 import { useValues } from 'kea'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Root, createRoot } from 'react-dom/client'
+
+import { IconInfo } from '@posthog/icons'
+
 import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { getGraphColors } from 'lib/colors'
-import { useCallback, useEffect, useRef } from 'react'
-import { createRoot, Root } from 'react-dom/client'
+import { Dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
+import { useBillingMarkersPositioning } from './useBillingMarkersPositioning'
+
+Chart.register(annotationPlugin)
 
 export interface BillingSeriesType {
     id: number
@@ -20,6 +31,10 @@ export interface BillingSeriesType {
     showLegend?: boolean
 }
 
+export interface BillingPeriodMarker {
+    date: Dayjs
+}
+
 export interface BillingLineGraphProps {
     series: BillingSeriesType[]
     dates: string[]
@@ -28,6 +43,7 @@ export interface BillingLineGraphProps {
     valueFormatter?: (value: number) => string
     showLegend?: boolean
     interval?: 'day' | 'week' | 'month'
+    billingPeriodMarkers?: BillingPeriodMarker[]
 }
 
 const defaultFormatter = (value: number): string => value.toLocaleString()
@@ -60,15 +76,14 @@ function useBillingTooltip(): {
         }
     }, [])
 
-    useEffect(
-        () => () => {
+    useOnMountEffect(() => {
+        return () => {
             if (tooltipRootRef.current) {
                 setTimeout(() => tooltipRootRef.current?.unmount(), 0)
             }
             tooltipElRef.current?.remove()
-        },
-        []
-    )
+        }
+    })
 
     return { ensureBillingTooltip, hideBillingTooltip }
 }
@@ -85,12 +100,24 @@ export function BillingLineGraph({
     valueFormatter = defaultFormatter,
     showLegend = true,
     interval = 'day',
+    billingPeriodMarkers = [],
 }: BillingLineGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
+    const [chartReady, setChartReady] = useState(false)
+    const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 })
+    const [axisLabelColor, setAxisLabelColor] = useState('#666666')
+    const [markersReady, setMarkersReady] = useState(false)
+    const [stableChartAreaLeft, setStableChartAreaLeft] = useState<number | null>(null)
+    const markerTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
     const { isDarkModeOn } = useValues(themeLogic)
-    const graphColors = getGraphColors()
+
+    const { chartAreaLeft, chartAreaTop, getMarkerPosition } = useBillingMarkersPositioning(
+        chartRef.current || undefined,
+        chartDimensions.width,
+        chartDimensions.height
+    )
 
     useEffect(() => {
         if (!canvasRef.current) {
@@ -102,6 +129,9 @@ export function BillingLineGraph({
         }
 
         const visibleSeries = series.filter((s) => !hiddenSeries.includes(s.id))
+        const graphColors = getGraphColors()
+        const currentAxisLabelColor = graphColors.axisLabel || '#666666'
+        setAxisLabelColor(currentAxisLabelColor)
 
         const datasets: ChartDataset<'line'>[] = visibleSeries.map((s) => ({
             label: s.label,
@@ -130,10 +160,13 @@ export function BillingLineGraph({
                     type: 'time',
                     time: {
                         unit: interval,
+                        displayFormats: {
+                            day: 'MMM DD',
+                        },
                     },
                     ticks: {
                         source: 'labels',
-                        color: graphColors.axisLabel || '#666666',
+                        color: currentAxisLabelColor,
                     },
                     grid: {
                         display: false,
@@ -149,7 +182,7 @@ export function BillingLineGraph({
                             // Use the provided formatter, fallback shouldn't be needed due to default prop
                             return typeof value === 'number' ? valueFormatter(value) : value
                         },
-                        color: graphColors.axisLabel || '#666666',
+                        color: currentAxisLabelColor,
                     },
                 },
             },
@@ -177,7 +210,9 @@ export function BillingLineGraph({
                                 .map((point) => {
                                     // Add checks for dataset existence
                                     const dataset =
-                                        point.datasetIndex < series.length ? series[point.datasetIndex] : null
+                                        point.datasetIndex < visibleSeries.length
+                                            ? visibleSeries[point.datasetIndex]
+                                            : null
                                     if (!dataset) {
                                         return null
                                     } // Skip if dataset index is out of bounds
@@ -239,6 +274,19 @@ export function BillingLineGraph({
                         boxWidth: 6,
                     },
                 },
+                annotation: {
+                    annotations: billingPeriodMarkers.reduce((acc: Record<string, any>, marker, idx) => {
+                        acc[`billing-period-${idx}`] = {
+                            type: 'line',
+                            xMin: marker.date.utc().format('YYYY-MM-DD'),
+                            xMax: marker.date.utc().format('YYYY-MM-DD'),
+                            borderColor: isDarkModeOn ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
+                            borderWidth: 2,
+                            borderDash: [8, 4],
+                        }
+                        return acc
+                    }, {}),
+                },
             },
         }
 
@@ -252,13 +300,49 @@ export function BillingLineGraph({
                 },
                 options,
             })
+
+            // Track chart dimensions for positioning
+            const chartInstance = chartRef.current
+            setChartDimensions({
+                width: chartInstance.width,
+                height: chartInstance.height,
+            })
+            setChartReady(true)
+            const currentChartAreaLeft = chartInstance.chartArea?.left
+
+            // Only show markers if chart area has stabilized
+            if (stableChartAreaLeft !== null && Math.abs(currentChartAreaLeft - stableChartAreaLeft) < 1) {
+                setMarkersReady(true)
+            } else {
+                setStableChartAreaLeft(currentChartAreaLeft)
+                setMarkersReady(false)
+
+                // Clear any existing timeout
+                if (markerTimeoutRef.current) {
+                    clearTimeout(markerTimeoutRef.current)
+                }
+                // Delay marker visibility to allow chart to stabilize
+                markerTimeoutRef.current = setTimeout(() => {
+                    setMarkersReady(true)
+                }, 200)
+            }
         }
 
         return () => {
+            if (markerTimeoutRef.current) {
+                clearTimeout(markerTimeoutRef.current)
+            }
             if (chartRef.current) {
                 chartRef.current.destroy()
+                chartRef.current = null
+                setChartReady(false)
+                setMarkersReady(false)
+                setStableChartAreaLeft(null)
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // Note: stableChartAreaLeft is intentionally excluded from dependencies to prevent re-render loops
+        // since it's updated inside this useEffect itself
     }, [
         series,
         dates,
@@ -269,17 +353,81 @@ export function BillingLineGraph({
         ensureBillingTooltip,
         hideBillingTooltip,
         isDarkModeOn,
-        graphColors,
+        billingPeriodMarkers,
     ])
 
     return (
-        <div className="relative h-96">
+        <div className="relative h-96" onMouseLeave={hideBillingTooltip}>
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
                     <div className="text-muted">Loading...</div>
                 </div>
             )}
             <canvas ref={canvasRef} />
+            {/* Billing period marker overlays with tooltips */}
+            {chartReady && markersReady && billingPeriodMarkers.length > 0 && (
+                <div
+                    className="BillingMarkersOverlay"
+                    style={
+                        {
+                            '--billing-markers-chart-area-left': `${chartAreaLeft}px`,
+                            '--billing-markers-chart-area-top': `${chartAreaTop}px`,
+                            '--billing-marker-text-color': axisLabelColor,
+                            '--billing-marker-bg-color': 'var(--color-bg-surface-primary)',
+                            '--billing-marker-border-color': 'var(--color-border-primary)',
+                        } as React.CSSProperties & Record<string, string>
+                    }
+                >
+                    {billingPeriodMarkers
+                        .filter((marker) => getMarkerPosition(marker.date).visible)
+                        .slice(-1) // Show only the most recent visible marker
+                        .map((marker, idx) => {
+                            const position = getMarkerPosition(marker.date)
+
+                            return (
+                                <div
+                                    key={`marker-${idx}`}
+                                    className="BillingMarker"
+                                    style={
+                                        {
+                                            '--billing-marker-left': `${position.left}px`,
+                                        } as React.CSSProperties & Record<string, string>
+                                    }
+                                    onMouseEnter={hideBillingTooltip}
+                                >
+                                    <Tooltip
+                                        title={
+                                            <div className="p-2">
+                                                <strong>New billing period started</strong>
+                                                <p className="mt-2 text-xs">
+                                                    Pricing tiers reset when billing periods begin, which can cause
+                                                    temporary usage and spend changes:
+                                                </p>
+                                                <ul className="mt-1 text-xs list-disc list-inside">
+                                                    <li>
+                                                        Usage may drop to zero in last days of the billing period after
+                                                        billing limits are reached
+                                                    </li>
+                                                    <li>Zero spend in first days due to free tier allowance</li>
+                                                    <li>
+                                                        Higher daily spend in first days due to higher rates at lower
+                                                        volume tiers
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        }
+                                        placement="bottom"
+                                    >
+                                        <div className="BillingMarkerLabel">
+                                            New billing period
+                                            <IconInfo className="w-3 h-3" />
+                                        </div>
+                                    </Tooltip>
+                                </div>
+                            )
+                        })}
+                </div>
+            )}
         </div>
     )
 }

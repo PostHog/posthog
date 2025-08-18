@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react'
+
 import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
+
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { dateFromToText } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
 import { CompareFilter as CompareFilterType } from '~/queries/schema/schema-general'
 
@@ -29,7 +31,7 @@ export function CompareFilter({
         if (!!newCompareTo && tentativeCompareTo !== newCompareTo) {
             setTentativeCompareTo(newCompareTo)
         }
-    }, [compareFilter?.compare_to]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [compareFilter?.compare_to]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
     if (disabled) {

@@ -1,7 +1,8 @@
-import { IconMinus, IconTrending } from '@posthog/icons'
-import { LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
+import { IconMinus, IconTrending } from '@posthog/icons'
+import { LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { experimentLogic } from '../../experimentLogic'
 
@@ -43,7 +44,7 @@ export function SignificanceHighlight({
             <div
                 className={clsx({
                     'cursor-default': true,
-                    'bg-[var(--bg-table)]': true,
+                    'bg-[var(--color-bg-table)]': true,
                     [className]: true,
                 })}
             >
@@ -51,6 +52,6 @@ export function SignificanceHighlight({
             </div>
         </Tooltip>
     ) : (
-        <div className={clsx({ 'bg-[var(--bg-table)]': true, [className]: true })}>{inner}</div>
+        <div className={clsx({ 'bg-[var(--color-bg-table)]': true, [className]: true })}>{inner}</div>
     )
 }

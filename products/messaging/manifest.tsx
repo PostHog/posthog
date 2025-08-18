@@ -1,4 +1,5 @@
 import { IconCursor } from '@posthog/icons'
+
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -53,7 +54,7 @@ export const manifest: ProductManifest = {
         messaging: {
             name: 'Campaign',
             icon: <IconCursor />,
-            iconColor: ['var(--product-messaging-light)'],
+            iconColor: ['var(--color-product-messaging-light)'],
             href: (ref: string) => urls.messagingCampaign(ref),
             filterKey: 'messaging',
         },

@@ -1,10 +1,13 @@
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
-import { createAddLogFunction } from '~/cdp/utils'
+import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { isDevEnv } from '~/utils/env-utils'
 import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
 import { generateMailjetCustomId } from './email-tracking.service'
+import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 
 export class EmailService {
     constructor(private hub: Hub) {}
@@ -24,6 +27,78 @@ export class EmailService {
         }
     }
 
+    private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'unsupported' {
+        if (this.hub.MAILJET_PUBLIC_KEY && this.hub.MAILJET_SECRET_KEY) {
+            return 'mailjet'
+        }
+
+        if (isDevEnv() && mailDevTransport) {
+            return 'maildev'
+        }
+        return 'unsupported'
+    }
+
+    private async sendEmailWithMailjet(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): Promise<void> {
+        // First we need to lookup the email sending domain of the given team
+        const response = await fetch('https://api.mailjet.com/v3.1/send', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Basic ${Buffer.from(
+                    `${this.hub.MAILJET_PUBLIC_KEY}:${this.hub.MAILJET_SECRET_KEY}`
+                ).toString('base64')}`,
+            },
+            body: JSON.stringify({
+                Messages: [
+                    {
+                        From: {
+                            Email: params.from.email,
+                            Name: params.from.name,
+                        },
+                        To: [
+                            {
+                                Email: params.to.email,
+                                Name: params.to.name,
+                            },
+                        ],
+                        Subject: params.subject,
+                        TextPart: params.text,
+                        HTMLPart: params.html,
+                        CustomID: generateMailjetCustomId(result.invocation),
+                    },
+                ],
+            }),
+        })
+
+        // TODO: Add support for retries - in fact if it fails should we actually crash out the service?
+        if (response.status >= 400) {
+            throw new Error(`Failed to send email to ${params.to.email} with status ${response.status}`)
+        }
+    }
+
+    // Send email to local maildev instance for testing (DEBUG=1 only)
+    private async sendEmailWithMaildev(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): Promise<void> {
+        const response = await mailDevTransport!.sendMail({
+            from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            subject: params.subject,
+            text: params.text,
+            html: params.html,
+        })
+
+        if (!response.accepted) {
+            throw new Error(`Failed to send email to maildev: ${JSON.stringify(response)}`)
+        }
+
+        result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
+    }
+
     // Send email
     public async executeSendEmail(
         invocation: CyclotronJobInvocationHogFunction
@@ -41,8 +116,8 @@ export class EmailService {
         )
         const addLog = createAddLogFunction(result.logs)
 
-        const { integrationId, ...params } = invocation.queueParameters
-        const integration = await this.hub.integrationManager.get(integrationId)
+        const params = invocation.queueParameters
+        const integration = await this.hub.integrationManager.get(params.from.integrationId)
 
         let success: boolean = false
 
@@ -53,45 +128,18 @@ export class EmailService {
 
             this.validateEmailDomain(integration, params.from.email)
 
-            // First we need to lookup the email sending domain of the given team
-            const response = await fetch('https://api.mailjet.com/v3.1/send', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Basic ${Buffer.from(
-                        `${this.hub.MAILJET_PUBLIC_KEY}:${this.hub.MAILJET_SECRET_KEY}`
-                    ).toString('base64')}`,
-                },
-                body: JSON.stringify({
-                    Messages: [
-                        {
-                            From: {
-                                Email: params.from.email,
-                                Name: params.from.name,
-                            },
-                            To: [
-                                {
-                                    Email: params.to.email,
-                                    Name: params.to.name,
-                                },
-                            ],
-                            Subject: params.subject,
-                            TextPart: params.text,
-                            HTMLPart: params.html,
-                            CustomID: generateMailjetCustomId(invocation),
-                        },
-                    ],
-                }),
-            })
-
-            // TODO: Add support for retries - in fact if it fails should we actually crash out the service?
-
-            if (response.status >= 400) {
-                throw new Error(`Failed to send email to ${params.to.email} with status ${response.status}`)
-            } else {
-                addLog('info', `Email sent to ${params.to.email}`)
+            switch (this.getEmailDeliveryMode()) {
+                case 'maildev':
+                    await this.sendEmailWithMaildev(result, params)
+                    break
+                case 'mailjet':
+                    await this.sendEmailWithMailjet(result, params)
+                    break
+                case 'unsupported':
+                    throw new Error('Email delivery mode not supported')
             }
 
+            addLog('info', `Email sent to ${params.to.email}`)
             success = true
         } catch (error) {
             addLog('error', error.message)

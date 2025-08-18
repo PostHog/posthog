@@ -1,10 +1,13 @@
-import { IconDay } from '@posthog/icons'
-import { LemonLabel, LemonSelect, LemonInputSelect, LemonDivider } from '@posthog/lemon-ui'
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+
+import { IconDay } from '@posthog/icons'
+import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+
+import { timeZoneLabel } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { timeZoneLabel } from 'lib/utils'
+
 import { WeekdayType } from '~/types'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -52,7 +55,8 @@ export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
     type: 'wait_until_time_window',
     name: 'Time window',
     description: 'Wait until a specific time window is reached.',
-    icon: <IconDay />,
+    icon: <IconDay className="text-[#005841]" />,
+    color: '#005841',
     renderNode: (props) => <StepWaitUntilTimeWindowNode {...props} />,
     renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
     create: () => ({

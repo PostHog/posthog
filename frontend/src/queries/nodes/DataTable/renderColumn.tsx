@@ -1,15 +1,16 @@
 import { combineUrl, router } from 'kea-router'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { autoCaptureEventToDescription, humanFriendlyNumber } from 'lib/utils'
+import { autoCaptureEventToDescription } from 'lib/utils'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -35,6 +36,7 @@ import {
     trimQuotes,
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
 export function getContextColumn(
@@ -281,11 +283,13 @@ export function renderColumn(
 
         return <PersonDisplay {...displayProps} />
     } else if (key === 'person_display_name') {
+        // Hide the popover on people list only
+        const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
             person: { id: value.id },
             displayName: value.display_name,
-            noPopover: false,
+            noPopover,
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
@@ -335,7 +339,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent)' }}
+                iconStyle={{ color: 'var(--color-accent)' }}
                 description="person id"
             >
                 {String(value)}
@@ -345,7 +349,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent)' }}
+                iconStyle={{ color: 'var(--color-accent)' }}
                 description="group id"
             >
                 {String(value)}
@@ -366,11 +370,6 @@ export function renderColumn(
         } catch {
             // do nothing
         }
-    }
-
-    // Add number formatting for numeric values
-    if (context?.formatNumbers && typeof value === 'number') {
-        return humanFriendlyNumber(value)
     }
 
     return String(value)

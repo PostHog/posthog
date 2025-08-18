@@ -1,16 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { MutableRefObject, memo, useEffect, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
-import { memo, MutableRefObject, useEffect, useRef, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from '../sessionRecordingPlayerLogic'
 
 const TWENTY_MINUTES_IN_MS = 20 * 60 * 1000
@@ -59,7 +60,7 @@ const PlayerSeekbarPreviewFrame = ({
         if (isVisible) {
             debouncedSeekToTime(minMs + (maxMs - minMs) * percentage)
         }
-    }, [percentage, minMs, maxMs, isVisible])
+    }, [percentage, minMs, maxMs, isVisible]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={seekPlayerLogicProps}>
@@ -90,8 +91,8 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
         timestampFormat === TimestampFormat.Relative
             ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
             : absoluteTime
-            ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
-            : '00:00:00'
+              ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
+              : '00:00:00'
 
     const isHovering = useIsHovering(seekBarRef)
 
@@ -120,7 +121,7 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
         // fixes react-hooks/exhaustive-deps warning about stale ref elements
         const { current } = ref
         return () => current?.removeEventListener('mousemove', handleMouseMove)
-    }, [seekBarRef])
+    }, [seekBarRef, percentage])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>

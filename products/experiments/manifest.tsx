@@ -1,4 +1,5 @@
 import { IconFlask } from '@posthog/icons'
+
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -30,7 +31,7 @@ export const manifest: ProductManifest = {
             name: 'Experiment',
             icon: <IconFlask />,
             href: (ref: string) => urls.experiment(ref),
-            iconColor: ['var(--product-experiments-light)'],
+            iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },
     },

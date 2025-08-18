@@ -1,6 +1,8 @@
-import { LemonCalendarSelect } from '@posthog/lemon-ui'
-import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
+
+import { LemonCalendarSelect } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
 
 export const VariableCalendar = ({
     value,
@@ -19,7 +21,7 @@ export const VariableCalendar = ({
             value={value}
             onChange={(date) => {
                 updateVariable(
-                    calendarTime ? date?.format('YYYY-MM-DD HH:mm:00') ?? '' : date?.format('YYYY-MM-DD') ?? ''
+                    calendarTime ? (date?.format('YYYY-MM-DD HH:mm:00') ?? '') : (date?.format('YYYY-MM-DD') ?? '')
                 )
             }}
             showTimeToggle={true}

@@ -1,10 +1,12 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { createMemoryHistory } from 'history'
 import { testUtilsPlugin } from 'kea-test-utils'
-import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-import { dayjs } from 'lib/dayjs'
 import posthog from 'posthog-js'
-import { organizationLogic } from 'scenes/organizationLogic'
+
+import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

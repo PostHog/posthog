@@ -1,4 +1,5 @@
 import { IconChat } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +34,7 @@ export const manifest: ProductManifest = {
             name: 'User interview',
             icon: <IconChat />,
             href: (ref: string) => urls.userInterview(ref),
-            iconColor: ['var(--product-user-interviews-light)'],
+            iconColor: ['var(--color-product-user-interviews-light)'],
             filterKey: 'user_interview',
             flag: FEATURE_FLAGS.USER_INTERVIEWS,
         },

@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -17,7 +18,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         allExperiments: [
             [] as WebExperiment[],
             {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
                     const response = await toolbarFetch('/api/projects/@current/web_experiments/')
                     const results = await response.json()

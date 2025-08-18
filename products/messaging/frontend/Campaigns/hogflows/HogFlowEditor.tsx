@@ -5,6 +5,7 @@ import {
     BackgroundVariant,
     Controls,
     Edge,
+    EdgeTypes,
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
@@ -16,10 +17,11 @@ import { useEffect, useRef } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { campaignLogic } from '../campaignLogic'
+import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
+import { REACT_FLOW_EDGE_TYPES } from './steps/SmartEdge'
 import { HogFlowActionNode } from './types'
-import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
@@ -59,6 +61,7 @@ function HogFlowEditorContent(): JSX.Element {
                 onDrop={onDrop}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
                 nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
+                edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 onPaneClick={() => setSelectedNodeId(null)}

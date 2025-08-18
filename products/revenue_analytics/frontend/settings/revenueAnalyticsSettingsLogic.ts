@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,11 +16,11 @@ import {
     RevenueAnalyticsEventItem,
     RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
+    SubscriptionDropoffMode,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
@@ -34,7 +36,8 @@ type PropertyUpdater<T extends keyof RevenueAnalyticsEventItem> = {
     eventName: string
     property: RevenueAnalyticsEventItem[T]
 }
-const updateStatePropertyBuilder =
+
+const updatePropertyReducerBuilder =
     (propertyKey: keyof RevenueAnalyticsEventItem) =>
     (state: RevenueAnalyticsConfig | null, { eventName, property }: PropertyUpdater<typeof propertyKey>) => {
         if (!state) {
@@ -68,14 +71,21 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
     actions({
         addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),
         deleteEvent: (eventName: string) => ({ eventName }),
-        updateEventRevenueProperty: (eventName: string, property: string) => ({ eventName, property }),
-        updateEventProductProperty: (eventName: string, property: string) => ({ eventName, property }),
+
         updateEventCouponProperty: (eventName: string, property: string) => ({ eventName, property }),
         updateEventCurrencyProperty: (eventName: string, property: RevenueCurrencyPropertyConfig) => ({
             eventName,
             property,
         }),
         updateEventCurrencyAwareDecimalProperty: (eventName: string, property: boolean) => ({
+            eventName,
+            property,
+        }),
+        updateEventProductProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventRevenueProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventSubscriptionProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventSubscriptionDropoffDays: (eventName: string, property: number) => ({ eventName, property }),
+        updateEventSubscriptionDropoffMode: (eventName: string, property: SubscriptionDropoffMode) => ({
             eventName,
             property,
         }),
@@ -114,6 +124,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                                 revenueProperty: '',
                                 revenueCurrencyProperty: { static: revenueCurrency },
                                 currencyAwareDecimal: false,
+                                subscriptionDropoffDays: 45,
+                                subscriptionDropoffMode: 'last_event',
                             },
                         ],
                     }
@@ -125,11 +137,14 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     return { ...state, events: state.events.filter((item) => item.eventName !== eventName) }
                 },
 
-                updateEventCouponProperty: updateStatePropertyBuilder('couponProperty'),
-                updateEventCurrencyAwareDecimalProperty: updateStatePropertyBuilder('currencyAwareDecimal'),
-                updateEventCurrencyProperty: updateStatePropertyBuilder('revenueCurrencyProperty'),
-                updateEventProductProperty: updateStatePropertyBuilder('productProperty'),
-                updateEventRevenueProperty: updateStatePropertyBuilder('revenueProperty'),
+                updateEventCouponProperty: updatePropertyReducerBuilder('couponProperty'),
+                updateEventCurrencyAwareDecimalProperty: updatePropertyReducerBuilder('currencyAwareDecimal'),
+                updateEventCurrencyProperty: updatePropertyReducerBuilder('revenueCurrencyProperty'),
+                updateEventProductProperty: updatePropertyReducerBuilder('productProperty'),
+                updateEventRevenueProperty: updatePropertyReducerBuilder('revenueProperty'),
+                updateEventSubscriptionProperty: updatePropertyReducerBuilder('subscriptionProperty'),
+                updateEventSubscriptionDropoffDays: updatePropertyReducerBuilder('subscriptionDropoffDays'),
+                updateEventSubscriptionDropoffMode: updatePropertyReducerBuilder('subscriptionDropoffMode'),
 
                 addGoal: (state: RevenueAnalyticsConfig | null, { goal }) => {
                     if (!state) {

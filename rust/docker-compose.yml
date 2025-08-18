@@ -1,0 +1,110 @@
+version: '3'
+
+services:
+    kafka:
+        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        restart: on-failure
+        command:
+            - redpanda
+            - start
+            - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+            - --advertise-kafka-addr internal://kafka:9092,external://localhost:19092
+            - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+            - --advertise-pandaproxy-addr internal://kafka:8082,external://localhost:18082
+            - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+            - --rpc-addr kafka:33145
+            - --advertise-rpc-addr kafka:33145
+            - --mode dev-container
+            - --smp 1
+            - --memory 1G
+            - --reserve-memory 200M
+            - --overprovisioned
+            - --set redpanda.empty_seed_starts_cluster=false
+            - --seeds kafka:33145
+            - --set redpanda.auto_create_topics_enabled=true
+            - --set redpanda.log_segment_size=16777216
+            - --set redpanda.retention_bytes=536870912
+        environment:
+            ALLOW_PLAINTEXT_LISTENER: 'true'
+            KAFKA_OPTS: -XX:-UseContainerSupport
+        ports:
+            - '9092:9092'
+        healthcheck:
+            test: curl -f http://localhost:9644/v1/status/ready || exit 1
+            interval: 5s
+            timeout: 15s
+            retries: 30
+            start_period: 60s
+
+    redis:
+        image: redis:6.2.7-alpine
+        restart: on-failure
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        ports:
+            - '6379:6379'
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 3s
+            timeout: 10s
+            retries: 10
+
+    objectstorage:
+        image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+        restart: on-failure
+        ports:
+            - '19000:19000'
+            - '19001:19001'
+        environment:
+            MINIO_ROOT_USER: object_storage_root_user
+            MINIO_ROOT_PASSWORD: object_storage_root_password
+        entrypoint: sh
+        command: -c 'mkdir -p /data/capture && minio server --address ":19000" --console-address ":19001" /data' # create the 'capture' bucket before starting the service
+
+    kafka-ui:
+        image: provectuslabs/kafka-ui:latest
+        profiles: ['ui']
+        ports:
+            - '8080:8080'
+        depends_on:
+            - kafka
+        environment:
+            KAFKA_CLUSTERS_0_NAME: local
+            KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+    db:
+        container_name: db
+        image: docker.io/library/postgres:16-alpine
+        restart: on-failure
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            interval: 5s
+            timeout: 5s
+        ports:
+            - '15432:5432'
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+
+    setup_test_db:
+        container_name: setup-test-db
+        build:
+            context: .
+            dockerfile: Dockerfile.migrate-hooks
+        restart: on-failure
+        depends_on:
+            db:
+                condition: service_healthy
+                restart: true
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/test_database
+
+    echo_server:
+        image: docker.io/library/caddy:2
+        container_name: echo-server
+        restart: on-failure
+        ports:
+            - '18081:8081'
+        volumes:
+            - ./docker/echo-server/Caddyfile:/etc/caddy/Caddyfile

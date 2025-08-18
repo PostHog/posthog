@@ -1,7 +1,8 @@
 import 'chartjs-adapter-dayjs-3'
-
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import {
     ActiveElement,
     Chart,
@@ -14,19 +15,14 @@ import {
     TooltipModel,
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { useEffect, useRef } from 'react'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import {
-    ensureTooltip,
-    filterNestedDataset,
-    LineGraphProps,
-    onChartClick,
-    onChartHover,
-} from 'scenes/insights/views/LineGraph/LineGraph'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { LineGraphProps, ensureTooltip, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
@@ -60,7 +56,6 @@ export interface PieChartProps extends LineGraphProps {
 
 export function PieChart({
     datasets: _datasets,
-    hiddenLegendIndexes,
     labels,
     type,
     onClick,
@@ -91,21 +86,15 @@ export function PieChart({
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     // Remove tooltip element on unmount
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
         }
-    }, [])
+    })
 
     // Build chart
     useEffect(() => {
-        // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
-            // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-            datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
-        }
-
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
         const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
@@ -213,7 +202,7 @@ export function PieChart({
                                     (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
                                 )
 
-                                highlightSeries(seriesData[0].dataIndex)
+                                highlightSeries(seriesData[0] as unknown as IndexedTrendResult)
 
                                 tooltipRoot.render(
                                     <InsightTooltip
@@ -258,8 +247,8 @@ export function PieChart({
                                             labelGroupType === 'people'
                                                 ? 'people'
                                                 : labelGroupType === 'none'
-                                                ? ''
-                                                : aggregationLabel(labelGroupType).plural
+                                                  ? ''
+                                                  : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
                                     />
@@ -273,7 +262,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendIndexes])
+    }, [datasets]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>

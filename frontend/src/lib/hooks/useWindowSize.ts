@@ -1,5 +1,8 @@
+import { useCallback, useState } from 'react'
+
 import { TAILWIND_BREAKPOINTS } from 'lib/constants'
-import { useCallback, useEffect, useState } from 'react'
+
+import { useOnMountEffect } from './useOnMountEffect'
 
 type WindowSize = {
     width: number | undefined
@@ -31,25 +34,19 @@ export function useWindowSize(): UseWindowSize {
         [windowSize]
     )
 
-    useEffect(
-        () => {
-            if (!isClient) {
-                return
-            }
+    useOnMountEffect(() => {
+        if (!isClient) {
+            return
+        }
 
-            function handleResize(): void {
-                const size = getSize()
-                setWindowSize(size)
-            }
+        function handleResize(): void {
+            const size = getSize()
+            setWindowSize(size)
+        }
 
-            window.addEventListener('resize', handleResize)
-            return () => window.removeEventListener('resize', handleResize)
-        },
-
-        // Empty array ensures that effect is only run on mount
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        []
-    )
+        window.addEventListener('resize', handleResize)
+        return () => window.removeEventListener('resize', handleResize)
+    })
 
     return { windowSize, isWindowLessThan }
 }

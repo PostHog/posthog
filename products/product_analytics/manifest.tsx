@@ -1,5 +1,7 @@
-import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+
+import { IconGraph } from '@posthog/icons'
+
 import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -75,7 +77,7 @@ export const manifest: ProductManifest = {
             name: 'Insight',
             icon: <IconGraph />,
             href: (ref: string) => urls.insightView(ref as InsightShortId),
-            iconColor: ['var(--product-product-analytics-light)'],
+            iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },
     },

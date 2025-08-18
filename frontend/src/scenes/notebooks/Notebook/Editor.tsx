@@ -1,13 +1,23 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import ExtensionPlaceholder from '@tiptap/extension-placeholder'
-import TaskItem from '@tiptap/extension-task-item'
-import TaskList from '@tiptap/extension-task-list'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
+import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
+import { Placeholder } from '@tiptap/extensions'
 import StarterKit from '@tiptap/starter-kit'
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { sampleOne, uuid } from 'lib/utils'
+import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { IconComment } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
+import { RichContentEditor } from 'lib/components/RichContentEditor'
+import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
+import { createEditor } from 'lib/components/RichContentEditor/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { sampleOne, uuid } from 'lib/utils'
+
+import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
@@ -31,21 +41,12 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { InlineMenu } from './InlineMenu'
-import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
-import { notebookLogic } from './notebookLogic'
-import { SlashCommandsExtension } from './SlashCommands'
-import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
-import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
-import { createEditor } from 'lib/components/RichContentEditor/utils'
-import { textContent } from '../utils'
-import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
-import { RichContentEditor } from 'lib/components/RichContentEditor'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { NotebookEditor } from '../types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from '@posthog/icons'
+import { textContent } from '../utils'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
+import { InlineMenu } from './InlineMenu'
+import { SlashCommandsExtension } from './SlashCommands'
+import { notebookLogic } from './notebookLogic'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -55,8 +56,8 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
-    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents } = useActions(notebookLogic)
-    const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
+        useActions(notebookLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -78,6 +79,7 @@ export function Editor(): JSX.Element {
                 StarterKit.configure({
                     document: false,
                     gapcursor: false,
+                    link: false,
                 }),
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,
@@ -85,7 +87,7 @@ export function Editor(): JSX.Element {
                         setTableOfContents(content)
                     },
                 }),
-                ExtensionPlaceholder.configure({
+                Placeholder.configure({
                     placeholder: ({ node }: { node: any }) => {
                         if (node.type.name === 'heading' && node.attrs.level === 1) {
                             return `Untitled - maybe.. "${headingPlaceholder}"`
@@ -139,9 +141,6 @@ export function Editor(): JSX.Element {
             onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}
             onCreate={(editor) => {
-                // NOTE: This could be the wrong way of passing state to extensions but this is what we are using for now!
-                editor.extensionStorage._notebookLogic = mountedNotebookLogic
-
                 const notebookEditor: NotebookEditor = {
                     ...createEditor(editor),
                     findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
@@ -162,7 +161,7 @@ export function Editor(): JSX.Element {
                                 onClick={() => {
                                     const markId = uuid()
                                     editor.setMark(markId)
-                                    mountedNotebookLogic.actions.insertComment({ type: 'mark', id: markId })
+                                    insertComment({ type: 'mark', id: markId })
                                 }}
                                 icon={<IconComment className="w-4 h-4" />}
                                 size="small"

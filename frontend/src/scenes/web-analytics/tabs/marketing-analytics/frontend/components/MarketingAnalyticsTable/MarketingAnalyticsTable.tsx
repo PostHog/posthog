@@ -1,17 +1,22 @@
-import { useActions } from 'kea'
-import { Query } from '~/queries/Query/Query'
-import { QueryContext } from '~/queries/types'
-import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
-import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
-import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
-import { DataTableNode } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
-import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconGear } from '@posthog/icons'
 import './MarketingAnalyticsTableStyleOverride.scss'
+
+import { useActions } from 'kea'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { Query } from '~/queries/Query/Query'
+import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import { DataTableNode, MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
+import { QueryContext, QueryContextColumn } from '~/queries/types'
+import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
+import { InsightLogicProps } from '~/types'
+
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
+import { MarketingAnalyticsCell } from '../../shared'
+import { DraftConversionGoalControls } from './DraftConversionGoalControls'
+import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -26,8 +31,17 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
         insightProps,
-        formatNumbers: true,
-        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove],
+        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
+        columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
+            (acc, column) => {
+                acc[column] = {
+                    title: column,
+                    render: MarketingAnalyticsCell,
+                }
+                return acc
+            },
+            {} as Record<string, QueryContextColumn>
+        ),
     }
 
     return (

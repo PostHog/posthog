@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
+
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -11,7 +14,6 @@ import {
     isOperatorRange,
     isOperatorRegex,
 } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
 import {
     GroupTypeIndex,
@@ -114,6 +116,8 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Selector
         } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
             propertyType = PropertyType.Cohort
+        } else if (type === PropertyFilterType.Flag) {
+            propertyType = PropertyType.Flag
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
         } else if (
@@ -143,7 +147,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator])
+    }, [propertyDefinition, propertyKey, operator]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>

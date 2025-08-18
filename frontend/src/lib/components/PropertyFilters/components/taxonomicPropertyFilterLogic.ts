@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     createDefaultPropertyFilter,
@@ -15,7 +16,13 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, CohortPropertyFilter, EventMetadataPropertyFilter, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    CohortPropertyFilter,
+    EventMetadataPropertyFilter,
+    FlagPropertyFilter,
+    PropertyFilterType,
+} from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 
@@ -97,6 +104,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 if (propertyType === 'cohort' && item?.name) {
                     const cohortFilter = filter as CohortPropertyFilter
                     cohortFilter.cohort_name = item.name
+                }
+
+                // Add flag key for display if this is a feature flag filter
+                if (propertyType === PropertyFilterType.Flag && item?.key) {
+                    const featureFilter = filter as FlagPropertyFilter
+                    featureFilter.label = item.key
                 }
 
                 if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {

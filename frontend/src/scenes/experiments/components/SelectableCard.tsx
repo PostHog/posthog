@@ -1,7 +1,9 @@
+import { ReactNode } from 'react'
+
 import { IconCheckCircle } from '@posthog/icons'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { ReactNode } from 'react'
 
 type SelectableCardProps = {
     title: string
@@ -49,7 +51,7 @@ export function SelectableCard({
         >
             <div className="font-semibold flex justify-between items-center">
                 <span>{title}</span>
-                {selected && <IconCheckCircle fontSize={18} color="var(--accent)" />}
+                {selected && <IconCheckCircle fontSize={18} color="var(--color-accent)" />}
             </div>
             <div className="text-secondary text-sm leading-relaxed mt-1">{description}</div>
         </div>

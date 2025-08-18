@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
@@ -14,8 +15,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
+import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -37,17 +39,12 @@ import {
 
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
-import { NotebookNodeType } from 'scenes/notebooks/types'
+import { GroupNotebookCard } from './cards/GroupNotebookCard'
 
-interface GroupSceneProps {
-    groupTypeIndex?: string
-    groupKey?: string
-}
-
-export const scene: SceneExport = {
+export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
     logic: groupLogic,
-    paramsToProps: ({ params: { groupTypeIndex, groupKey } }: { params: GroupSceneProps }): GroupLogicProps => ({
+    paramsToProps: ({ params: { groupTypeIndex, groupKey } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
         groupKey: decodeURIComponent(groupKey ?? ''),
     }),
@@ -117,6 +114,15 @@ export function Group(): JSX.Element {
                         label: <span data-attr="groups-overview-tab">Overview</span>,
                         content: <GroupOverview groupData={groupData} />,
                     },
+                    ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
+                        ? [
+                              {
+                                  key: 'notebook',
+                                  label: <span data-attr="groups-notebook-tab">Notebook</span>,
+                                  content: <GroupNotebookCard shortId={groupData.notebook} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,

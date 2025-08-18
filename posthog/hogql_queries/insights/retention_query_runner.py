@@ -20,7 +20,7 @@ from posthog.hogql.property import entity_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.action.action import Action
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -48,7 +48,7 @@ DEFAULT_ENTITY = RetentionEntity(
 )
 
 
-class RetentionQueryRunner(QueryRunner):
+class RetentionQueryRunner(AnalyticsQueryRunner):
     query: RetentionQuery
     response: RetentionQueryResponse
     cached_response: CachedRetentionQueryResponse
@@ -449,20 +449,24 @@ class RetentionQueryRunner(QueryRunner):
             )
 
         if self.query.breakdownFilter:
+            breakdown_expr = None
+
             if self.query.breakdownFilter.breakdowns:
                 # supporting only single breakdowns for now
                 breakdown = self.query.breakdownFilter.breakdowns[0]
                 breakdown_expr = self.breakdown_extract_expr(
                     breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
                 )
+            elif self.query.breakdownFilter.breakdown is not None:
+                breakdown_expr = self.breakdown_extract_expr(
+                    cast(str, self.query.breakdownFilter.breakdown),
+                    cast(str, self.query.breakdownFilter.breakdown_type),
+                    self.query.breakdownFilter.breakdown_group_type_index,
+                )
 
-                # update both select and group by
+            if breakdown_expr:
                 inner_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
                 cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=["breakdown_value"]))
-            elif self.query.breakdownFilter.breakdown is not None:
-                raise ValueError(
-                    "Single breakdowns are deprecated, make sure multiple-breakdowns feature flag is enabled"
-                )
 
         return inner_query
 
@@ -538,7 +542,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return date
 
-    def calculate(self) -> RetentionQueryResponse:
+    def _calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

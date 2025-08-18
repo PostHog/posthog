@@ -1,5 +1,5 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -134,7 +134,6 @@ describe('HogFunctionHandler', () => {
                     "Content-Type": "application/json",
                   },
                   "method": "POST",
-                  "timeoutMs": 3000,
                 },
               ],
             ]

@@ -1,11 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { EarlyAccessFeature, posthog } from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { EarlyAccessFeature, posthog } from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -26,7 +26,11 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         actions: [supportLogic, ['submitZendeskTicket']],
     })),
     actions({
-        updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean) => ({ flagKey, enabled }),
+        updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean, stage?: string) => ({
+            flagKey,
+            enabled,
+            stage,
+        }),
         beginEarlyAccessFeatureFeedback: (flagKey: string) => ({ flagKey }),
         cancelEarlyAccessFeatureFeedback: true,
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
@@ -74,8 +78,8 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         },
     }),
     listeners(() => ({
-        updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled }) => {
-            posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled)
+        updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled, stage }) => {
+            posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled, stage)
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))

@@ -1,8 +1,10 @@
-import { useLayoutEffect, useRef, useState } from 'react'
 import { useValues } from 'kea'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { maxGlobalLogic } from '../maxGlobalLogic'
+import { useLayoutEffect, useRef, useState } from 'react'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+
+import { maxGlobalLogic } from '../maxGlobalLogic'
 
 /**
  * Positioning utilities and drag behavior for Max AI floating components

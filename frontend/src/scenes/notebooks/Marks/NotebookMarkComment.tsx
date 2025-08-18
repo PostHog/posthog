@@ -1,8 +1,8 @@
-import { Mark, mergeAttributes } from '@tiptap/core'
-import clsx from 'clsx'
-import { BuiltLogic } from 'kea'
+import { Mark, MarkViewProps, mergeAttributes } from '@tiptap/core'
+import { MarkViewContent, ReactMarkViewRenderer } from '@tiptap/react'
+import { useMountedLogic } from 'kea'
 
-import type { notebookLogicType } from '../Notebook/notebookLogicType'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 export const NotebookMarkComment = Mark.create({
     name: 'comment',
@@ -27,20 +27,31 @@ export const NotebookMarkComment = Mark.create({
         ]
     },
 
-    onSelectionUpdate() {
-        if (this.editor.isActive('comment')) {
-            const notebookLogic = this.editor.extensionStorage._notebookLogic as BuiltLogic<notebookLogicType>
-            notebookLogic.actions.selectComment(this.editor.getAttributes('comment').id)
-        }
-    },
-
     renderHTML({ HTMLAttributes }) {
         return [
             'span',
             mergeAttributes(HTMLAttributes, {
-                class: clsx('NotebookComment'),
+                class: 'NotebookComment',
             }),
             0,
         ]
     },
+
+    addMarkView() {
+        return ReactMarkViewRenderer(Component)
+    },
 })
+
+const Component = (props: MarkViewProps): JSX.Element => {
+    const mountedNotebookLogic = useMountedLogic(notebookLogic)
+
+    const attributes = mergeAttributes(props.HTMLAttributes, {
+        class: 'NotebookComment',
+    })
+
+    return (
+        <span {...attributes} onClick={() => mountedNotebookLogic.actions.selectComment(props.mark.attrs.id)}>
+            <MarkViewContent />
+        </span>
+    )
+}

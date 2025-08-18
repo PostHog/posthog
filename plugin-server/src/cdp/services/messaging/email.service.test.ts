@@ -1,21 +1,19 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
 import { EmailService } from './email.service'
-import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
 ): CyclotronInvocationQueueParametersEmailType => {
     return {
         type: 'email',
-        integrationId: 1,
         to: {
             email: 'test@example.com',
             name: 'Test User',
@@ -23,6 +21,7 @@ const createEmailParams = (
         from: {
             email: 'test@posthog.com',
             name: 'Test User',
+            integrationId: 1,
         },
         subject: 'Test Subject',
         text: 'Test Text',
@@ -71,7 +70,7 @@ describe('EmailService', () => {
             })
             invocation.id = 'invocation-1'
             invocation.state.vmState = { stack: [] } as any
-            invocation.queueParameters = createEmailParams({ integrationId: 1 })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
         })
 
         describe('integration validation', () => {
@@ -93,28 +92,33 @@ describe('EmailService', () => {
             })
 
             it('should validate if the integration is not found', async () => {
-                invocation.queueParameters = createEmailParams({ integrationId: 100 })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 100, email: 'test@posthog.com' },
+                })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
             })
 
             it('should validate if the integration is not an email integration', async () => {
-                invocation.queueParameters = createEmailParams({ integrationId: 3 })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 3, email: 'test@posthog.com' },
+                })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
             })
 
             it('should validate if the integration is not the correct team', async () => {
                 invocation.teamId = 100
-                invocation.queueParameters = createEmailParams({ integrationId: 1 })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, email: 'test@posthog.com' },
+                })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
             })
 
             it('should validate if the email domain is not the same as the integration domain', async () => {
                 invocation.queueParameters = createEmailParams({
-                    integrationId: 1,
-                    from: { email: 'test@other-domain.com', name: '' },
+                    from: { integrationId: 1, email: 'test@other-domain.com', name: '' },
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(
@@ -124,15 +128,16 @@ describe('EmailService', () => {
 
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
-                    integrationId: 2,
-                    from: { email: 'test@other-domain.com', name: '' },
+                    from: { integrationId: 2, email: 'test@other-domain.com', name: '' },
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"The selected email integration domain is not verified"`)
             })
 
             it('should allow a valid email integration and domain', async () => {
-                invocation.queueParameters = createEmailParams({ integrationId: 1 })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, email: 'test@posthog.com' },
+                })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
             })
@@ -146,7 +151,7 @@ describe('EmailService', () => {
                     [
                       "https://api.mailjet.com/v3.1/send",
                       {
-                        "body": "{"Messages":[{"From":{"Email":"test@posthog.com","Name":"Test User"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","CustomID":"ph_fn_id=function-1&ph_inv_id=invocation-1"}]}",
+                        "body": "{"Messages":[{"From":{"Email":"test@posthog.com"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","CustomID":"ph_fn_id=function-1&ph_inv_id=invocation-1"}]}",
                         "headers": {
                           "Authorization": "Basic bWFpbGpldC1wdWJsaWMta2V5Om1haWxqZXQtc2VjcmV0LWtleQ==",
                           "Content-Type": "application/json",

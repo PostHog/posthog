@@ -1,11 +1,12 @@
 import './LemonCollapse.scss'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { ReactNode, useEffect, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
+
+import { IconCollapse, IconExpand } from '@posthog/icons'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 
@@ -127,8 +128,8 @@ function LemonCollapsePanel({
     const headerProps: LemonButtonProps = React.isValidElement(header)
         ? { children: header }
         : typeof header === 'string'
-        ? { children: header }
-        : header ?? {}
+          ? { children: header }
+          : (header ?? {})
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>

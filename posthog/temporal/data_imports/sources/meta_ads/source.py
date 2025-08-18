@@ -1,10 +1,10 @@
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldOauthConfig,
-    Type4,
+    SourceFieldInputConfigType,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -13,14 +13,14 @@ from posthog.temporal.data_imports.sources.meta_ads.meta_ads import meta_ads_sou
 from posthog.temporal.data_imports.sources.meta_ads.schemas import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.METAADS
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.METAADS
 
     def get_schemas(self, config: MetaAdsSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
@@ -49,7 +49,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.META_ADS,
+            name=SchemaExternalDataSourceType.META_ADS,
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             fields=cast(
@@ -58,7 +58,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
                     SourceFieldInputConfig(
                         name="account_id",
                         label="Account ID",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
                     ),

@@ -1,15 +1,18 @@
 import './TaxonomicPropertyFilter.scss'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
-    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -20,7 +23,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { useMemo } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -144,6 +146,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            selectFirstItem={!cohortOrOtherValue}
         />
     )
 
@@ -164,7 +167,7 @@ export function TaxonomicPropertyFilter({
                 if (filter?.key && filter?.type) {
                     setFilter(index, {
                         key: filter?.key,
-                        value: newValue || null,
+                        value: newValue === undefined ? null : newValue,
                         operator: newOperator,
                         type: filter?.type,
                         label: filter?.label,
@@ -188,15 +191,17 @@ export function TaxonomicPropertyFilter({
         filter?.type === 'cohort'
             ? filter.cohort_name || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
-            ? filter.label || `Group ${filter?.value}`
-            : filter?.key && (
-                  <PropertyKeyInfo
-                      value={filter.key}
-                      disablePopover
-                      ellipsis
-                      type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                  />
-              )
+              ? filter.label || `Group ${filter?.value}`
+              : filter?.type === PropertyFilterType.Flag && filter?.label
+                ? filter.label
+                : filter?.key && (
+                      <PropertyKeyInfo
+                          value={filter.key}
+                          disablePopover
+                          ellipsis
+                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                      />
+                  )
 
     return (
         <div

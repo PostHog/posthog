@@ -1,5 +1,7 @@
-import { IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconTrash } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
@@ -27,7 +29,7 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
                     <span>
                         {`Rollout: ${
                             experimentForm.variants && experimentForm.variants[variant]
-                                ? experimentForm.variants[variant].rollout_percentage ?? 0
+                                ? (experimentForm.variants[variant].rollout_percentage ?? 0)
                                 : 0
                         } %`}
                     </span>

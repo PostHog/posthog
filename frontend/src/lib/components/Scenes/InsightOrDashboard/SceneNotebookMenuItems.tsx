@@ -1,5 +1,8 @@
-import { IconNotebook, IconPlus } from '@posthog/icons'
 import { BuiltLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { IconNotebook, IconPlus } from '@posthog/icons'
+
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -8,19 +11,20 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { useEffect } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { notebookNodeLogicType } from 'scenes/notebooks/Nodes/notebookNodeLogicType'
 import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 import {
-    notebookSelectButtonLogic,
     NotebookSelectButtonLogicProps,
+    notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
+import { NotebookListItemType, NotebookTarget } from 'scenes/notebooks/types'
+
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { AccessControlAction } from '../../AccessControlAction'
 import { SceneDataAttrKeyProps } from '../utils'
-import { NotebookListItemType, NotebookTarget } from 'scenes/notebooks/types'
 
 type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps & {
     notebookSelectButtonProps?: NotebookSelectButtonLogicProps

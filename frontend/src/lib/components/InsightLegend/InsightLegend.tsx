@@ -2,6 +2,7 @@ import './InsightLegend.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -26,8 +27,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
             })}
         >
             <div className="grid grid-cols-1">
-                {indexedResults &&
-                    indexedResults.map((item, index) => <InsightLegendRow key={index} item={item} rowIndex={index} />)}
+                {indexedResults && indexedResults.map((item, index) => <InsightLegendRow key={index} item={item} />)}
             </div>
         </div>
     ) : null

@@ -1,19 +1,21 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl } from 'kea-router'
+import { router } from 'kea-router'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
+import { Breadcrumb, CreateGroupParams, Group, GroupTypeIndex } from '~/types'
 
 import type { groupsNewLogicType } from './groupsNewLogicType'
-import { forms } from 'kea-forms'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { CreateGroupParams, Group, GroupTypeIndex, Breadcrumb } from '~/types'
-import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
-import { Scene } from 'scenes/sceneTypes'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { router } from 'kea-router'
 
 export type GroupsNewLogicProps = {
     groupTypeIndex: number
@@ -55,11 +57,6 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
             (s) => [s.logicProps, s.groupTypeName],
             (logicProps, groupTypeName): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    },
                     {
                         key: Scene.Groups,
                         name: capitalizeFirstLetter(groupTypeName),
@@ -220,28 +217,31 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
 export function flattenProperties(properties: GroupProperty[]): Record<string, any> {
     return properties
         .filter((prop) => prop.name.trim() && prop.value.trim())
-        .reduce((acc, prop) => {
-            const key = prop.name.trim()
-            let value: any = prop.value
+        .reduce(
+            (acc, prop) => {
+                const key = prop.name.trim()
+                let value: any = prop.value
 
-            // Convert boolean type values to proper types
-            if (prop.type === 'boolean') {
-                if (value === 'true') {
-                    value = true
-                } else if (value === 'false') {
-                    value = false
-                } else if (value === 'null') {
-                    value = null
+                // Convert boolean type values to proper types
+                if (prop.type === 'boolean') {
+                    if (value === 'true') {
+                        value = true
+                    } else if (value === 'false') {
+                        value = false
+                    } else if (value === 'null') {
+                        value = null
+                    }
+                } else if (prop.type === 'string') {
+                    // Convert numeric strings to numbers
+                    const numericValue = Number(value)
+                    if (!isNaN(numericValue) && isFinite(numericValue) && value.trim() !== '') {
+                        value = numericValue
+                    }
                 }
-            } else if (prop.type === 'string') {
-                // Convert numeric strings to numbers
-                const numericValue = Number(value)
-                if (!isNaN(numericValue) && isFinite(numericValue) && value.trim() !== '') {
-                    value = numericValue
-                }
-            }
 
-            acc[key] = value
-            return acc
-        }, {} as Record<string, any>)
+                acc[key] = value
+                return acc
+            },
+            {} as Record<string, any>
+        )
 }

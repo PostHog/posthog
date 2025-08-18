@@ -1,5 +1,6 @@
-import { ApiError } from 'lib/api'
 import posthog from 'posthog-js'
+
+import { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, queryExportContext } from '~/queries/query'

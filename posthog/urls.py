@@ -25,6 +25,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     decide,
+    github,
     hog_function_template,
     remote_config,
     report,
@@ -167,7 +168,7 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
-    re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
+    path(r"admin/apikeysearch", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
@@ -175,6 +176,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    path("api/alerts/github", github.SecretAlert.as_view()),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),

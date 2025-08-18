@@ -1,28 +1,31 @@
+import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
 import { IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    sidePanelActivityLogic,
     SidePanelActivityTab,
+    sidePanelActivityLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { ActivityScope, AvailableFeature } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
 import { SidePanelActivitySubscriptions } from './SidePanelActivitySubscriptions'
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -37,8 +40,15 @@ export const SidePanelActivityIcon = (props: { className?: string }): JSX.Elemen
 }
 
 export const SidePanelActivity = (): JSX.Element => {
-    const { activeTab, allActivity, allActivityResponseLoading, allActivityHasNext, filters, filtersForCurrentPage } =
-        useValues(sidePanelActivityLogic)
+    const {
+        activeTab,
+        allActivity,
+        allActivityResponseLoading,
+        allActivityHasNext,
+        filters,
+        filtersForCurrentPage,
+        visibleActivityScopes,
+    } = useValues(sidePanelActivityLogic)
     const { setActiveTab, maybeLoadOlderActivity, setFilters } = useActions(sidePanelActivityLogic)
 
     const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
@@ -52,13 +62,14 @@ export const SidePanelActivity = (): JSX.Element => {
         togglePolling(pageIsVisible)
     })
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         loadImportantChanges(false)
+
         return () => {
             markAllAsRead()
             togglePolling(false)
         }
-    }, [])
+    })
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -77,7 +88,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
     const scopeMenuOptions: LemonSelectOption<ActivityScope | null>[] = [
         { value: null, label: 'All activity' },
-        ...Object.values(ActivityScope).map((x) => ({
+        ...visibleActivityScopes.map((x) => ({
             value: x,
             label: humanizeScope(x),
         })),

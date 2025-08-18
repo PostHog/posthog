@@ -34,6 +34,9 @@ from posthog.schema import (
     HogQLVariable,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from opentelemetry import trace
+
+tracer = trace.get_tracer(__name__)
 
 
 @dataclasses.dataclass
@@ -56,6 +59,7 @@ class HogQLQueryExecutor:
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
             self.context = HogQLContext(team_id=self.team.pk)
@@ -68,6 +72,7 @@ class HogQLQueryExecutor:
         self.types = None
         self.metadata: Optional[HogQLMetadataResponse] = None
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
         with self.timings.measure("query"):
             if isinstance(self.query, ast.SelectQuery) or isinstance(self.query, ast.SelectSetQuery):
@@ -76,6 +81,7 @@ class HogQLQueryExecutor:
             else:
                 self.select_query = parse_select(str(self.query), timings=self.timings)
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):
         with self.timings.measure("variables"):
             if self.variables and len(self.variables.keys()) > 0:
@@ -83,6 +89,7 @@ class HogQLQueryExecutor:
                     node=self.select_query, variables=list(self.variables.values()), team=self.team
                 )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
     def _process_placeholders(self):
         with self.timings.measure("replace_placeholders"):
             if not self.placeholders:
@@ -99,6 +106,7 @@ class HogQLQueryExecutor:
             if finder.placeholder_fields or finder.placeholder_expressions:
                 self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._apply_limit")
     def _apply_limit(self):
         if self.limit_context in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY):
             self.context.limit_top_select = False
@@ -110,6 +118,7 @@ class HogQLQueryExecutor:
                         value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
                     )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
         if self.query_modifiers.useWebAnalyticsPreAggregatedTables:
             with self.timings.measure("preaggregated_table_transforms"):
@@ -117,6 +126,7 @@ class HogQLQueryExecutor:
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -163,6 +173,7 @@ class HogQLQueryExecutor:
                         )
                     )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
         settings = self.settings or HogQLGlobalSettings()
         if self.limit_context in (
@@ -207,6 +218,7 @@ class HogQLQueryExecutor:
             else:
                 raise
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
@@ -258,6 +270,7 @@ class HogQLQueryExecutor:
                     HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True), self.team
                 )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
         self._parse_query()
         self._process_variables()
@@ -270,6 +283,7 @@ class HogQLQueryExecutor:
             self._generate_clickhouse_sql()
         return self.clickhouse_sql, self.clickhouse_context
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         self.generate_clickhouse_sql()
         if self.clickhouse_sql is not None:

@@ -2,10 +2,12 @@ import './BridgePage.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 
 import { Region } from '~/types'
 
@@ -50,12 +52,13 @@ export function BridgePage({
     const [messageShowing, setMessageShowing] = useState(false)
     const { preflight } = useValues(preflightLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const t = setTimeout(() => {
             setMessageShowing(true)
         }, 200)
+
         return () => clearTimeout(t)
-    }, [])
+    })
 
     return (
         <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width')}>
@@ -68,7 +71,7 @@ export function BridgePage({
                                     <WelcomeLogo view={view} />
                                 </div>
                             )}
-                            {leftContainerContent && leftContainerContent}
+                            {leftContainerContent}
                             {hedgehog && (
                                 <div className="BridgePage__left__art">
                                     {preflight?.region === Region.EU ? (

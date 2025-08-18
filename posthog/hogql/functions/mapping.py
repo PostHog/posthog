@@ -20,6 +20,7 @@ from posthog.hogql.ast import (
 )
 from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
+from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
 
 
 def validate_function_args(
@@ -1631,6 +1632,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
         "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
     ),
+    # Translates languages codes to full language name
+    "languageCodeToName": HogQLFunctionMeta(
+        clickhouse_name="transform",
+        min_args=1,
+        max_args=1,
+        suffix_args=[
+            ast.Constant(value=LANGUAGE_CODES),
+            ast.Constant(value=LANGUAGE_NAMES),
+            ast.Constant(value="Unknown"),
+        ],
+        signatures=[((StringType(),), StringType())],
+    ),
 }
 
 # Permitted HogQL aggregations
@@ -1649,6 +1662,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
     "sumForEach": HogQLFunctionMeta("sumForEach", 1, 1, aggregate=True),
+    "minForEach": HogQLFunctionMeta("minForEach", 1, 1, aggregate=True),
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),

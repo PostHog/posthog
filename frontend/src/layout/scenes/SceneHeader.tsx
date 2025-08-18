@@ -1,23 +1,26 @@
+import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+
 import { IconChevronDown, IconGear, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
-import React, { useState } from 'react'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { cn } from 'lib/utils/css-classes'
+
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
+
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
@@ -28,8 +31,14 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const { scenePanelOpen, scenePanelIsPresent, useSceneTabs } = useValues(sceneLayoutLogic)
-    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const {
+        scenePanelOpen,
+        scenePanelIsPresent,
+        useSceneTabs,
+        scenePanelIsRelative,
+        forceScenePanelClosedWhenRelative,
+    } = useValues(sceneLayoutLogic)
+    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
 
     const effectiveBreadcrumbs = useSceneTabs ? breadcrumbs.slice(1) : breadcrumbs
     return effectiveBreadcrumbs.length || projectTreeRefEntry ? (
@@ -75,17 +84,34 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                     <div className="flex gap-1 items-center shrink-0 pr-px">
                         <div className="contents" ref={setActionsContainer} />
 
+                        <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
+
                         {scenePanelIsPresent && (
                             <LemonButton
-                                onClick={() => setScenePanelOpen(!scenePanelOpen)}
+                                onClick={() =>
+                                    scenePanelIsRelative
+                                        ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                                        : setScenePanelOpen(!scenePanelOpen)
+                                }
                                 icon={<IconInfo className="text-primary" />}
-                                tooltip={scenePanelOpen ? 'Close info panel' : 'Open info panel'}
+                                tooltip={
+                                    !scenePanelOpen
+                                        ? 'Open info panel'
+                                        : scenePanelIsRelative
+                                          ? 'Force close info panel'
+                                          : 'Close info panel'
+                                }
+                                aria-label={
+                                    !scenePanelOpen
+                                        ? 'Open info panel'
+                                        : scenePanelIsRelative
+                                          ? 'Force close info panel'
+                                          : 'Close info panel'
+                                }
                                 active={scenePanelOpen}
                                 size="small"
                             />
                         )}
-
-                        <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
                     </div>
                 </div>
             </div>

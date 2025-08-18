@@ -1,11 +1,11 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
+    PerformanceMeasures,
+    TimingBar,
     calculatePerformanceParts,
     perfDescriptions,
-    PerformanceMeasures,
     perfSections,
-    TimingBar,
 } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 
 import { PerformanceEvent } from '~/types'
@@ -22,8 +22,8 @@ export const convertForTimelineView = (
     const rangeEnd = performanceEvent.load_event_end
         ? performanceEvent.load_event_end
         : performanceEvent.response_end
-        ? performanceEvent.response_end
-        : performanceEvent.end_time
+          ? performanceEvent.response_end
+          : performanceEvent.end_time
     const performanceMeasures =
         typeof rangeStart === 'number' && typeof rangeEnd === 'number'
             ? calculatePerformanceParts(performanceEvent)

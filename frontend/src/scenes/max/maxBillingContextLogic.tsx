@@ -1,19 +1,21 @@
 import { connect, kea, path, selectors } from 'kea'
+
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isAddonVisible } from 'scenes/billing/billing-utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
+import { billingUsageLogic } from 'scenes/billing/billingUsageLogic'
+import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
+import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
+import { Destination } from 'scenes/pipeline/types'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { BillingType, TeamType } from '~/types'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { billingUsageLogic } from 'scenes/billing/billingUsageLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
-import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
-import { Destination } from 'scenes/pipeline/types'
-import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
-import { isAddonVisible } from 'scenes/billing/billing-utils'
 import type { maxBillingContextLogicType } from './maxBillingContextLogicType'
-import { billingSpendLogic, BillingSpendResponse } from 'scenes/billing/billingSpendLogic'
-import { dayjs } from 'lib/dayjs'
 
 export const DEFAULT_BILLING_DATE_FROM = dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
 export const DEFAULT_BILLING_DATE_TO = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
@@ -143,7 +145,7 @@ export const billingToMaxContext = (
             return customLimit
         }
 
-        return usageKey ? billing[key]?.[usageKey] ?? null : null
+        return usageKey ? (billing[key]?.[usageKey] ?? null) : null
     }
 
     // Filter platform products to only include the highest tier available
@@ -253,12 +255,14 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 initialFilters: { breakdowns: ['type', 'team'] },
                 dateFrom: DEFAULT_BILLING_DATE_FROM, // we set them here so we are sure it will stay fixed to a 1 month period even if the usage logic changes default values
                 dateTo: DEFAULT_BILLING_DATE_TO,
+                dashboardItemId: 'max-billing-context', // This makes it a separate instance, prevents conflicts with the spend logic on the usage page
             }),
             ['billingUsageResponse'],
             billingSpendLogic({
                 initialFilters: { breakdowns: ['type', 'team'] },
                 dateFrom: DEFAULT_BILLING_DATE_FROM, // same here for spend
                 dateTo: DEFAULT_BILLING_DATE_TO,
+                dashboardItemId: 'max-billing-context', // This makes it a separate instance, prevents conflicts with the spend logic on the spend page
             }),
             ['billingSpendResponse'],
             organizationLogic,

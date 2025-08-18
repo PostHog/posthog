@@ -1,5 +1,5 @@
 from django.db import models
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 
 
 class MessageCategoryType(models.TextChoices):
@@ -7,7 +7,7 @@ class MessageCategoryType(models.TextChoices):
     TRANSACTIONAL = "transactional"
 
 
-class MessageCategory(UUIDModel):
+class MessageCategory(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

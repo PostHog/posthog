@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.graph.root.prompts import (
+    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
@@ -569,16 +570,16 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (membership_level, has_billing_context, expected_access, expected_prompt)
+            # (membership_level, has_billing_context, should_add_billing_tool, expected_prompt)
             [OrganizationMembership.Level.ADMIN, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.ADMIN, False, False, ""],
+            [OrganizationMembership.Level.ADMIN, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
             [OrganizationMembership.Level.OWNER, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.OWNER, False, False, ""],
+            [OrganizationMembership.Level.OWNER, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
             [OrganizationMembership.Level.MEMBER, True, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
-            [OrganizationMembership.Level.MEMBER, False, False, ""],
+            [OrganizationMembership.Level.MEMBER, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
         ]
     )
-    def test_has_billing_access(self, membership_level, has_billing_context, expected_access, expected_prompt):
+    def test_has_billing_access(self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt):
         # Set membership level
         membership = self.user.organization_memberships.get(organization=self.team.organization)
         membership.level = membership_level
@@ -593,7 +594,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             config = {"configurable": {}}
 
-        self.assertEqual(node._get_billing_info(config), (expected_access, expected_prompt))
+        self.assertEqual(node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
 
     # Note: More complex mocking tests for billing tool availability were removed
     # as they were difficult to maintain. The core billing access logic is tested above
@@ -692,7 +693,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_call_id, None)  # Tool was fully handled by the node
         self.assertIsNone(result.root_tool_insight_plan)  # No insight plan for contextual tools
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
-        self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
+        self.assertFalse(result.messages[-1].visible)  # This tool must not be visible by default
 
     async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
@@ -1159,3 +1160,162 @@ Query results: 42 events
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")
+
+    @patch("posthoganalytics.feature_enabled")
+    def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
+        """Test that session_summarization tool is included when feature flag is enabled"""
+
+        def feature_enabled_side_effect(flag_name, *args, **kwargs):
+            if flag_name == "max-session-summarization":
+                return True
+            return False
+
+        mock_feature_enabled.side_effect = feature_enabled_side_effect
+
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
+
+            node._get_model(state, {})
+
+            self.assertEqual(mock_feature_enabled.call_count, 2)
+
+            # Find the call for session summarization flag
+            session_summarization_calls = [
+                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-session-summarization"
+            ]
+            self.assertEqual(len(session_summarization_calls), 1)
+
+            # Verify the session summarization flag was checked with correct parameters
+            call_args, call_kwargs = session_summarization_calls[0]
+            self.assertEqual(call_args[0], "max-session-summarization")
+            self.assertEqual(call_args[1], str(self.user.distinct_id))
+            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
+            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
+            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
+
+            # Verify bind_tools was called with session_summarization
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertIn("session_summarization", tool_names)
+
+    @patch("posthoganalytics.feature_enabled")
+    def test_session_summarization_tool_excluded_without_feature_flag(self, mock_feature_enabled):
+        """Test that session_summarization tool is excluded when feature flag is disabled"""
+        mock_feature_enabled.return_value = False
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
+
+            node._get_model(state, {})
+
+            self.assertEqual(mock_feature_enabled.call_count, 2)
+            session_summarization_calls = [
+                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-session-summarization"
+            ]
+            self.assertEqual(len(session_summarization_calls), 1)
+
+            # Verify the session summarization flag was checked with correct parameters
+            call_args, call_kwargs = session_summarization_calls[0]
+            self.assertEqual(call_args[0], "max-session-summarization")
+            self.assertEqual(call_args[1], str(self.user.distinct_id))
+            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
+            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
+            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
+
+            # Verify bind_tools was called without session_summarization
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertNotIn("session_summarization", tool_names)
+
+    @patch("posthoganalytics.feature_enabled")
+    def test_insight_search_tool_included_with_feature_flag(self, mock_feature_enabled):
+        """Test that search_insights tool is included when feature flag is enabled"""
+
+        def feature_enabled_side_effect(flag_name, *args, **kwargs):
+            if flag_name == "max-ai-insight-search":
+                return True
+            return False
+
+        mock_feature_enabled.side_effect = feature_enabled_side_effect
+
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="search for insights")])
+
+            node._get_model(state, {})
+
+            self.assertEqual(mock_feature_enabled.call_count, 2)
+            # Find the call for insight search flag
+            insight_search_calls = [
+                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-ai-insight-search"
+            ]
+            self.assertEqual(len(insight_search_calls), 1)
+
+            # Verify the insight search flag was checked with correct parameters
+            call_args, call_kwargs = insight_search_calls[0]
+            self.assertEqual(call_args[0], "max-ai-insight-search")
+            self.assertEqual(call_args[1], str(self.user.distinct_id))
+            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
+            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
+            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
+
+            # Verify bind_tools was called with search_insights
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertIn("search_insights", tool_names)
+
+    @patch("posthoganalytics.feature_enabled")
+    def test_insight_search_tool_excluded_without_feature_flag(self, mock_feature_enabled):
+        """Test that search_insights tool is excluded when feature flag is disabled"""
+        mock_feature_enabled.return_value = False
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="search for insights")])
+
+            node._get_model(state, {})
+
+            self.assertEqual(mock_feature_enabled.call_count, 2)
+
+            # Find the call for insight search flag
+            insight_search_calls = [
+                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-ai-insight-search"
+            ]
+            self.assertEqual(len(insight_search_calls), 1)
+
+            # Verify the insight search flag was checked with correct parameters
+            call_args, call_kwargs = insight_search_calls[0]
+            self.assertEqual(call_args[0], "max-ai-insight-search")
+            self.assertEqual(call_args[1], str(self.user.distinct_id))
+            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
+            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
+            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
+
+            # Verify bind_tools was called without session_summarization
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertNotIn("session_summarization", tool_names)

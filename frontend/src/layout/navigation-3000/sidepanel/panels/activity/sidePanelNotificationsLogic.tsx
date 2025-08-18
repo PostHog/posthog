@@ -1,18 +1,19 @@
-import { actions, beforeUnmount, connect, kea, listeners, reducers, selectors, path } from 'kea'
+import { actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+import posthog, { JsonRecord } from 'posthog-js'
+
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
-import posthog, { JsonRecord } from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
+
+import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
-import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
@@ -140,7 +141,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                       notificationDate: dayjs(notification.notificationDate as string),
                                       email: notification.email,
                                       name: notification.name,
-                                  } as ChangelogFlagPayload)
+                                  }) as ChangelogFlagPayload
                           )
                         : null
 
@@ -158,7 +159,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                         description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
                                         created_at: changelogNotification.notificationDate,
                                         unread: lastRead?.isSameOrBefore(changelogNotification.notificationDate),
-                                    } as HumanizedActivityLogItem)
+                                    }) as HumanizedActivityLogItem
                             ),
                         ]
 

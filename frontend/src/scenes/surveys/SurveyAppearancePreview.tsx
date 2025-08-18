@@ -1,5 +1,6 @@
 import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useMemo, useRef } from 'react'
+
 import { sanitizeSurvey } from 'scenes/surveys/utils'
 
 import { Survey } from '~/types'
@@ -61,7 +62,7 @@ export function SurveyAppearancePreview({
                 root: feedbackWidgetPreviewRef.current,
             })
         }
-    }, [survey, previewPageIndex, onPreviewSubmit, positionStyles])
+    }, [survey, previewPageIndex, onPreviewSubmit, positionStyles]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return <div ref={surveyPreviewRef} />
 }
