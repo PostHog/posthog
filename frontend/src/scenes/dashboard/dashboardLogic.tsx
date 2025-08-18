@@ -838,6 +838,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               breakdown_filter: dashboard?.filters.breakdown_filter || null,
                           }
                         : state,
+                resetIntermittentFilters: () => ({
+                    date_from: null,
+                    date_to: null,
+                    properties: null,
+                    breakdown_filter: null,
+                }),
             },
         ],
     })),
