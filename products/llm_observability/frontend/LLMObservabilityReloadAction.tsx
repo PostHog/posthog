@@ -1,8 +1,10 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
 

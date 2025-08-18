@@ -1,4 +1,5 @@
 import { IconExternal } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 

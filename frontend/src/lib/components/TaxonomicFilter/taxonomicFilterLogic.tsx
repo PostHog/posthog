@@ -1,6 +1,9 @@
-import { IconServer } from '@posthog/icons'
-import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { IconServer } from '@posthog/icons'
+
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -15,7 +18,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
-import posthog from 'posthog-js'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -26,6 +28,7 @@ import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWare
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
@@ -57,7 +60,6 @@ import {
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
-import { NotebookType } from 'scenes/notebooks/types'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {

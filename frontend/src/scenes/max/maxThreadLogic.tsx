@@ -1,9 +1,9 @@
 import { createParser } from 'eventsource-parser'
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -14,14 +14,23 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api, { ApiError } from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
-import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { openNotebook } from '~/models/notebooksModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -34,9 +43,11 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 
+import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
+import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import {
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -44,17 +55,7 @@ import {
     isNotebookUpdateMessage,
     isReasoningMessage,
 } from './utils'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { maxBillingContextLogic } from './maxBillingContextLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
-import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { NotebookTarget } from 'scenes/notebooks/types'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { openNotebook } from '~/models/notebooksModel'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 

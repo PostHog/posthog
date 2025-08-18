@@ -2177,6 +2177,8 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    last_seen: string
+    library: string | null
     event: string
     odds_ratio: number
     population: {
@@ -3380,6 +3382,8 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
+export type SubscriptionDropoffMode = 'last_event' | 'after_dropoff_period'
+
 export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
@@ -3411,6 +3415,15 @@ export interface RevenueAnalyticsEventItem {
      * @default 45
      */
     subscriptionDropoffDays: number
+
+    /**
+     * After a subscription has dropped off, when should we consider it to have ended?
+     * It should either be at the date of the last event (will alter past periods, the default),
+     * or at the date of the last event plus the dropoff period.
+     *
+     * @default "last_event"
+     */
+    subscriptionDropoffMode: SubscriptionDropoffMode
 
     /**
      * TODO: In the future, this should probably be renamed to

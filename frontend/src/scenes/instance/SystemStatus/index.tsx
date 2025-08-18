@@ -1,15 +1,17 @@
 import './index.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 

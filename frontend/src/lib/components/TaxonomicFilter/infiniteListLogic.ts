@@ -2,6 +2,8 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
+import { RenderedRows } from 'react-virtualized/dist/es/List'
+
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -15,15 +17,14 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { isEmail, isURL } from 'lib/utils'
-import { RenderedRows } from 'react-virtualized/dist/es/List'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
-import type { infiniteListLogicType } from './infiniteListLogicType'
 import { getItemGroup } from './InfiniteList'
+import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
  by default the pop-up starts open for the first item in the list

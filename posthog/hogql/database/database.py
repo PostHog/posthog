@@ -45,7 +45,7 @@ from posthog.hogql.database.schema.channel_type import (
     create_initial_channel_type,
     create_initial_domain_type,
 )
-from posthog.hogql.database.schema.revenue_analytics import RawPersonsRevenueAnalyticsTable
+from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -101,6 +101,8 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesHourlyTable,
     WebStatsCombinedTable,
     WebBouncesCombinedTable,
+    WebPreAggregatedStatsTable,
+    WebPreAggregatedBouncesTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -161,8 +163,12 @@ class Database(BaseModel):
     web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
     web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
 
+    # V2 Pre-aggregated tables (will replace the above tables after we backfill)
+    web_pre_aggregated_stats: WebPreAggregatedStatsTable = WebPreAggregatedStatsTable()
+    web_pre_aggregated_bounces: WebPreAggregatedBouncesTable = WebPreAggregatedBouncesTable()
+
     # Revenue analytics tables
-    raw_persons_revenue_analytics: RawPersonsRevenueAnalyticsTable = RawPersonsRevenueAnalyticsTable()
+    persons_revenue_analytics: PersonsRevenueAnalyticsTable = PersonsRevenueAnalyticsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()

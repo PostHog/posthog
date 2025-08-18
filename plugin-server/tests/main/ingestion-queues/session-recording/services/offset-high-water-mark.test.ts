@@ -2,8 +2,8 @@ import { TopicPartition } from 'kafkajs'
 
 import {
     OffsetHighWaterMarker,
-    offsetHighWaterMarkKey,
     OffsetHighWaterMarks,
+    offsetHighWaterMarkKey,
 } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { Hub } from '../../../../../src/types'
 import { closeHub, createHub } from '../../../../../src/utils/db/hub'

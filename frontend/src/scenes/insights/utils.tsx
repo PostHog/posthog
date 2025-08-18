@@ -1,14 +1,16 @@
+import isEqual from 'lodash.isequal'
+import { ReactNode } from 'react'
+
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { ReactNode } from 'react'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
-import isEqual from 'lodash.isequal'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
+import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
@@ -27,6 +29,7 @@ import {
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
@@ -49,8 +52,6 @@ import {
 
 import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
-import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
-import { removeUndefinedAndNull } from '~/lib/utils'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (

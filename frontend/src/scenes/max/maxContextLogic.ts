@@ -1,8 +1,11 @@
-import { IconDashboard, IconGraph } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+
+import { IconDashboard, IconGraph } from '@posthog/icons'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
+import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -14,17 +17,15 @@ import type { maxContextLogicType } from './maxContextLogicType'
 import {
     InsightWithQuery,
     MaxActionContext,
+    MaxContextInput,
     MaxContextItem,
     MaxContextTaxonomicFilterOption,
-    MaxUIContext,
     MaxContextType,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
-    MaxContextInput,
+    MaxUIContext,
 } from './maxTypes'
-
-import { DashboardLoadAction, dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import {
     actionToMaxContextPayload,
     dashboardToMaxContext,

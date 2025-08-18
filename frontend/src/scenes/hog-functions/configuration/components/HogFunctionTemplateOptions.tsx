@@ -1,6 +1,8 @@
-import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 
 export function HogFunctionTemplateOptions(): JSX.Element {
     const { hogFunction, templateHasChanged } = useValues(hogFunctionConfigurationLogic)

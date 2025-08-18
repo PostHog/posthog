@@ -1,24 +1,26 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { SceneExport } from 'scenes/sceneTypes'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { SceneExport } from 'scenes/sceneTypes'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+
 import {
     ScenePanel,
     ScenePanelActions,
@@ -26,6 +28,7 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
+
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'

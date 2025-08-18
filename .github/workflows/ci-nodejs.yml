@@ -31,7 +31,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -53,7 +53,7 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.nodejs == 'true'
 
             - name: Install pnpm
@@ -62,7 +62,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.nodejs == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -86,7 +86,7 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.nodejs == 'true'
 
             - name: Install pnpm
@@ -95,7 +95,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.nodejs == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -143,7 +143,7 @@ jobs:
             - name: Code check out
               # NOTE: We need this check on every step so that it still runs if skipped as we need it to suceed for the CI
               if: needs.changes.outputs.nodejs == 'true'
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
 
             - name: Stop/Start stack with Docker Compose
               if: needs.changes.outputs.nodejs == 'true'
@@ -157,7 +157,7 @@ jobs:
 
             - name: Set up Python
               if: needs.changes.outputs.nodejs == 'true'
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -172,7 +172,7 @@ jobs:
               if: needs.changes.outputs.nodejs == 'true'
               uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
 
-            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+            - uses: actions/cache@v4
               with:
                   path: |
                       ~/.cargo/registry
@@ -202,7 +202,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.nodejs == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm

@@ -1,10 +1,14 @@
-import { IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconPlusSmall } from '@posthog/icons'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, OrganizationBasicType } from '~/types'
+
 import { globalModalsLogic } from '../GlobalModals'
 import { AccessLevelIndicator } from './AccessLevelIndicator'
 import { navigationLogic } from './navigationLogic'

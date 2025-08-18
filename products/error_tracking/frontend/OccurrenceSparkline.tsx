@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
+
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
-import { useCallback, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 
 import {
@@ -19,7 +20,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import type { pageReportsLogicType } from './pageReportsLogicType'
 import {
     DeviceTab,
     GeographyTab,
@@ -30,10 +30,11 @@ import {
     TileId,
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebTileLayout,
-    WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from './common'
+import type { pageReportsLogicType } from './pageReportsLogicType'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export interface PageURLSearchResult {
