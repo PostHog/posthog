@@ -118,7 +118,10 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         key={rowIndex}
                                         onClick={() => {
                                             if (!inSharedMode) {
-                                                openModal(rowIndex)
+                                                openModal(
+                                                    rowIndex,
+                                                    breakdownValue === NO_BREAKDOWN_VALUE ? null : breakdownValue
+                                                )
                                             }
                                         }}
                                         className={clsx({
