@@ -1,11 +1,15 @@
-import { IconPencil } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
+import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List } from 'react-virtualized/dist/es/List'
+
+import { IconPencil } from '@posthog/icons'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -14,8 +18,6 @@ import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 import { TooltipTitle } from '../Tooltip/Tooltip'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List } from 'react-virtualized/dist/es/List'
 
 const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
 

@@ -1,8 +1,10 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { liveWebAnalyticsLogicType } from './liveWebAnalyticsLogicType'
+
 export interface StatsResponse {
     users_on_product?: number
 }

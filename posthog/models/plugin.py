@@ -29,7 +29,7 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from .utils import UUIDModel, sane_repr
+from .utils import UUIDTModel, sane_repr
 
 try:
     from posthog.clickhouse.client import sync_execute
@@ -450,7 +450,7 @@ class PluginSourceFileManager(models.Manager):
         )
 
 
-class PluginSourceFile(UUIDModel):
+class PluginSourceFile(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 

@@ -1,3 +1,11 @@
+import { Pool as GenericPool } from 'generic-pool'
+import { Redis } from 'ioredis'
+import { Kafka } from 'kafkajs'
+import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
+import { VM } from 'vm2'
+import { z } from 'zod'
+
 import {
     Element,
     PluginAttachment,
@@ -9,13 +17,6 @@ import {
     Properties,
     Webhook,
 } from '@posthog/plugin-scaffold'
-import { Pool as GenericPool } from 'generic-pool'
-import { Redis } from 'ioredis'
-import { Kafka } from 'kafkajs'
-import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
-import { VM } from 'vm2'
-import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
@@ -338,6 +339,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_SALT_TTL_SECONDS: number
     COOKIELESS_SESSION_INACTIVITY_MS: number
     COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+    COOKIELESS_REDIS_HOST: string
+    COOKIELESS_REDIS_PORT: number
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number
@@ -381,6 +384,7 @@ export interface Hub extends PluginsServerConfig {
     db: DB
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
+    cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     objectStorage?: ObjectStorage

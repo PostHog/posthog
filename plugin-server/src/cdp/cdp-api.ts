@@ -1,12 +1,13 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
-import { delay, UUID, UUIDT } from '../utils/utils'
+import { UUID, UUIDT, delay } from '../utils/utils'
 import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'

@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 
+use common_types::RawEvent;
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
-use kafka_deduplicator::event::EventData;
 use kafka_deduplicator::rocksdb::deduplication_store::{
     DeduplicationStore, DeduplicationStoreConfig,
 };
@@ -178,40 +178,6 @@ impl CheckpointUploader for MockUploader {
         Ok(uploaded_keys)
     }
 
-    async fn list_checkpoints(&self) -> Result<Vec<String>> {
-        let files = self.get_stored_files().await?;
-        let keys: Vec<String> = files.keys().cloned().collect();
-        Ok(keys)
-    }
-
-    async fn cleanup_old_checkpoints(&self, keep_count: usize) -> Result<()> {
-        let files = self.get_stored_files().await?;
-        let mut keys: Vec<String> = files.keys().cloned().collect();
-
-        // Sort by key name
-        keys.sort();
-
-        if keys.len() <= keep_count {
-            return Ok(());
-        }
-
-        let keys_to_delete: Vec<String> = keys
-            .into_iter()
-            .rev() // Keep the most recent ones
-            .skip(keep_count)
-            .collect();
-
-        for key in keys_to_delete {
-            let file_path = self.upload_dir.join(&key);
-            if file_path.exists() {
-                tokio::fs::remove_file(&file_path).await?;
-                info!("Mock deleted checkpoint: {}", key);
-            }
-        }
-
-        Ok(())
-    }
-
     async fn is_available(&self) -> bool {
         self.available
     }
@@ -226,17 +192,21 @@ fn create_test_dedup_store() -> (DeduplicationStore, TempDir) {
     (store, temp_dir)
 }
 
-fn create_test_event(distinct_id: &str, token: &str, event_name: &str) -> EventData {
-    EventData {
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-        distinct_id: distinct_id.to_string(),
-        token: token.to_string(),
-        event_name: event_name.to_string(),
-        source: 1,
-        team_id: 100,
+fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
+    RawEvent {
+        uuid: None,
+        event: event_name.to_string(),
+        distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
+        token: Some(token.to_string()),
+        properties: std::collections::HashMap::new(),
+        timestamp: Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .to_string(),
+        ),
+        ..Default::default()
     }
 }
 
@@ -268,10 +238,14 @@ async fn test_manual_checkpoint() {
 
     // Add some test data
     let events = vec![
-        create_test_event("user1", "token1", "event1"),
-        create_test_event("user2", "token1", "event2"),
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
     ];
-    store.handle_event_batch(events).unwrap();
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
@@ -334,8 +308,8 @@ async fn test_checkpoint_skips_when_in_progress() {
     let first_completed = result1.unwrap();
     let second_completed = result2.unwrap();
 
-    println!("First checkpoint completed: {}", first_completed);
-    println!("Second checkpoint completed: {}", second_completed);
+    println!("First checkpoint completed: {first_completed}");
+    println!("Second checkpoint completed: {second_completed}");
 
     // Exactly one should have completed the checkpoint, one should have been skipped
     assert!(
@@ -366,8 +340,7 @@ async fn test_checkpoint_skips_when_in_progress() {
     assert_eq!(
         checkpoint_dirs.len(),
         1,
-        "All files should belong to exactly one checkpoint directory, found: {:?}",
-        checkpoint_dirs
+        "All files should belong to exactly one checkpoint directory, found: {checkpoint_dirs:?}"
     );
 }
 
@@ -378,10 +351,14 @@ async fn test_checkpoint_with_mock_uploader() {
 
     // Add some test data
     let events = vec![
-        create_test_event("user1", "token1", "event1"),
-        create_test_event("user2", "token1", "event2"),
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
     ];
-    store.handle_event_batch(events).unwrap();
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
@@ -417,8 +394,12 @@ async fn test_incremental_vs_full_upload() {
     let temp_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
-    let events = vec![create_test_event("user1", "token1", "event1")];
-    store.handle_event_batch(events).unwrap();
+    let events = vec![create_test_raw_event("user1", "token1", "event1")];
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
@@ -452,8 +433,7 @@ async fn test_incremental_vs_full_upload() {
         let has_incremental_uploads = stored_files.keys().any(|k| k.contains("/incremental/"));
 
         println!(
-            "Checkpoint {}: should_be_full={}, has_full={}, has_incremental={}",
-            i, should_be_full, has_full_uploads, has_incremental_uploads
+            "Checkpoint {i}: should_be_full={should_be_full}, has_full={has_full_uploads}, has_incremental={has_incremental_uploads}"
         );
         println!("Keys: {:?}", stored_files.keys().collect::<Vec<_>>());
 
@@ -463,14 +443,12 @@ async fn test_incremental_vs_full_upload() {
         if should_be_full {
             assert!(
                 has_full_uploads,
-                "Checkpoint {} should create full uploads",
-                i
+                "Checkpoint {i} should create full uploads"
             );
         } else {
             assert!(
                 has_incremental_uploads,
-                "Checkpoint {} should create incremental uploads",
-                i
+                "Checkpoint {i} should create incremental uploads"
             );
         }
     }
@@ -481,8 +459,12 @@ async fn test_unavailable_uploader() {
     let temp_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
-    let events = vec![create_test_event("user1", "token1", "event1")];
-    store.handle_event_batch(events).unwrap();
+    let events = vec![create_test_raw_event("user1", "token1", "event1")];
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),

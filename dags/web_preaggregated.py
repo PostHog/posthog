@@ -7,6 +7,7 @@ from dagster import DailyPartitionsDefinition, BackfillPolicy
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     CLICKHOUSE_SETTINGS,
+    DAGSTER_DAILY_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
     drop_partitions_for_date_range,
@@ -14,6 +15,7 @@ from dags.web_preaggregated_utils import (
     WEB_ANALYTICS_CONFIG_SCHEMA,
     swap_partitions_from_staging,
     web_analytics_retry_policy_def,
+    check_for_concurrent_runs,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -27,7 +29,7 @@ from posthog.models.web_preaggregated.sql import (
 MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN"
 max_partitions_per_run = int(os.getenv(MAX_PARTITIONS_PER_RUN_ENV_VAR, 14))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
-partition_def = DailyPartitionsDefinition(start_date="2024-01-01")
+partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=1)
 
 
 def pre_aggregate_web_analytics_data(
@@ -87,7 +89,7 @@ def pre_aggregate_web_analytics_data(
     name="web_pre_aggregated_bounces",
     group_name="web_analytics_v2",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_team_selection"],
+    deps=["web_analytics_team_selection_v2"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_pre_aggregated_bounces"},
@@ -111,7 +113,7 @@ def web_pre_aggregated_bounces(
     name="web_pre_aggregated_stats",
     group_name="web_analytics_v2",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_team_selection"],
+    deps=["web_analytics_team_selection_v2"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_pre_aggregated_stats"},
@@ -134,16 +136,11 @@ def web_pre_aggregated_stats(
 web_pre_aggregate_job = dagster.define_asset_job(
     name="web_pre_aggregate_job",
     selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-    config={
-        "execution": {
-            "config": {
-                "multiprocess": {
-                    "max_concurrent": 1,
-                }
-            }
-        }
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
     },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
 
 
@@ -154,6 +151,11 @@ web_pre_aggregate_job = dagster.define_asset_job(
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationContext):
+    # Check for existing runs of the same job to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
 
     return dagster.RunRequest(
@@ -168,6 +170,11 @@ def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationCon
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationContext):
+    # Check for existing runs of the same job to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
     )

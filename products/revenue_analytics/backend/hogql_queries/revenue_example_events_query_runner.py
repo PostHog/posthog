@@ -12,7 +12,7 @@ from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
 )
 
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -110,7 +110,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
         )
 
-    def calculate(self):
+    def _calculate(self):
         response = self.paginator.execute_hogql_query(
             query_type="revenue_example_events_query",
             query=self.to_query(),

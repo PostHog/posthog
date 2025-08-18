@@ -1,15 +1,16 @@
-import { IconPlus } from '@posthog/icons'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { IconPlus } from '@posthog/icons'
+
+import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
+import { StepView } from './components/StepView'
 import { HogFlowStepNodeProps } from './types'
-import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
 
@@ -73,12 +74,12 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const node = nodesById[props.id]
 
     return (
-        <>
+        <div className="transition-all hover:translate-y-[-2px]">
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
             {Step?.renderNode(props) || <StepView action={props.data} />}
-        </>
+        </div>
     )
 }
