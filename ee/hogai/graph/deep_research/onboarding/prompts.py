@@ -22,6 +22,14 @@ Clarify the research question by gathering ALL necessary context in ONE interact
 - Number questions and group by dimension
 - Be specific and exhaustive—you get one chance
 - The answers will guide the full research flow
+- **Format your entire response in proper Markdown syntax**
+- Use markdown headings: ## for main sections, ### for subsections
+- Use proper markdown lists:
+  - Numbered lists: `1.` not `1.1`
+  - Bullet points: `-` or `*` not `•`
+  - Nested items with proper indentation (2 or 4 spaces)
+- Use **bold** for emphasis and *italics* for examples
+- Structure: Start with a brief intro paragraph, then use headings for each dimension
 </instructions>
 
 <available_tools>
