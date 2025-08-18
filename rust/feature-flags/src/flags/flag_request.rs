@@ -59,7 +59,7 @@ pub struct FlagRequest {
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
     pub ip_address: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "flag_keys_to_evaluate")]
     pub flag_keys: Option<Vec<String>>,
     #[serde(default)]
     pub timezone: Option<String>,
@@ -517,5 +517,48 @@ mod tests {
         };
         let result = flag_request.extract_distinct_id();
         assert!(matches!(result, Err(FlagError::MissingDistinctId)));
+    }
+
+    #[test]
+    fn test_flag_keys_field_accepts_flag_keys() {
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "flag_keys": ["flag1", "flag2", "flag3"]
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        assert!(flag_payload.flag_keys.is_some());
+        let flag_keys = flag_payload.flag_keys.unwrap();
+        assert_eq!(flag_keys.len(), 3);
+        assert_eq!(flag_keys[0], "flag1");
+        assert_eq!(flag_keys[1], "flag2");
+        assert_eq!(flag_keys[2], "flag3");
+    }
+
+    #[test]
+    fn test_flag_keys_field_accepts_flag_keys_to_evaluate() {
+        // This test should fail until we add the alias
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "flag_keys_to_evaluate": ["flag1", "flag2", "flag3"]
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        // This assertion should fail because flag_keys_to_evaluate is not recognized
+        assert!(
+            flag_payload.flag_keys.is_some(),
+            "flag_keys_to_evaluate should be parsed into flag_keys field"
+        );
+        let flag_keys = flag_payload.flag_keys.unwrap();
+        assert_eq!(flag_keys.len(), 3);
+        assert_eq!(flag_keys[0], "flag1");
+        assert_eq!(flag_keys[1], "flag2");
+        assert_eq!(flag_keys[2], "flag3");
     }
 }
