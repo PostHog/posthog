@@ -180,7 +180,7 @@ class SessionSummarizationNode(AssistantNode):
         initial_state = self._intermediate_state.format_intermediate_state()
         self._stream_notebook_content(initial_state, state, writer)
 
-        async for update_type, data in execute_summarize_session_group(
+        async for update_type, step, data in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=self._user.id,
             team=self._team,
@@ -205,19 +205,11 @@ class SessionSummarizationNode(AssistantNode):
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
                         f"(expected: dict)"
                     )
-                # Update intermediate state based on current step
+                # Update intermediate state based on step enum
                 if self._intermediate_state:
-                    # TODO: Use something better than string check
-                    # Determine which step we're in based on the data structure
-                    if "Session Processing Status" in str(data):
-                        # Step 1: Watching sessions
-                        self._intermediate_state.update_step_progress(data)
-                    elif "Extracted Patterns" in str(data):
-                        # Transition from step 1 to step 2
-                        if self._intermediate_state.current_step_index == 0:
-                            self._intermediate_state.complete_current_step()
-                        # Step 2: Finding patterns
-                        self._intermediate_state.update_step_progress(data)
+                    # Pass the step enum directly to the intermediate state
+                    self._intermediate_state.update_step_progress(data, step)
+
                     # Stream the updated intermediate state
                     formatted_state = self._intermediate_state.format_intermediate_state()
                     self._stream_notebook_content(formatted_state, state, writer)
@@ -229,10 +221,11 @@ class SessionSummarizationNode(AssistantNode):
                 summary = data
 
                 # Transition to final step and immediately complete it
-                if self._intermediate_state and self._intermediate_state.current_step_index == 1:
-                    # Complete patterns step
-                    self._intermediate_state.complete_current_step()
-                    # Show "Generating final report" briefly
+                if self._intermediate_state:
+                    # TODO: Move enum to file with types to avoid circular/inline imports
+                    from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
+
+                    # Mark the final step as being processed
                     self._intermediate_state.update_step_progress(
                         {
                             "type": "doc",
@@ -242,7 +235,8 @@ class SessionSummarizationNode(AssistantNode):
                                     "content": [{"type": "text", "text": "Generating final report..."}],
                                 }
                             ],
-                        }
+                        },
+                        SessionSummaryStep.GENERATING_REPORT,
                     )
                     # Stream this state briefly
                     formatted_state = self._intermediate_state.format_intermediate_state()
