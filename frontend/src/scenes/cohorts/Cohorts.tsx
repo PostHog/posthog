@@ -16,7 +16,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { cn } from 'lib/utils/css-classes'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -153,7 +152,7 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <SceneContent>
+        <SceneContent forceNewSpacing>
             <PersonsManagementSceneTabs
                 tabKey="cohorts"
                 buttons={
@@ -189,7 +188,7 @@ export function Cohorts(): JSX.Element {
                 customHog={ListHog}
             />
 
-            <div className={cn('flex justify-between items-center mb-0 gap-2')}>
+            <div className="flex justify-between items-center mb-0 gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for cohorts"
