@@ -1,11 +1,12 @@
 import structlog
-from datetime import datetime
 from dateutil import parser
 from django.db.models import Sum
+from django.db import connection
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from typing import TypedDict, Optional
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.warehouse.models import ExternalDataJob
@@ -97,63 +98,57 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def recent_activity(self, request: Request, **kwargs) -> Response:
-        """
-        Returns recent activity for the data warehouse including external data syncs and materialized view runs.
-        Fetches up to 250 data modeling jobs and up to 250 external data syncs and lets frontend handle pagination.
-        """
-        fetch_limit = 250
+        class DataWarehouseActivityRow(TypedDict):
+            id: str
+            type: str
+            name: Optional[str]
+            status: str
+            rows: int
+            created_at: str
+            finished_at: Optional[str]
+            latest_error: Optional[str]
+            workflow_run_id: Optional[str]
 
-        external_jobs = list(
-            ExternalDataJob.objects.filter(team_id=self.team_id)
-            .select_related("schema", "pipeline")
-            .order_by("-created_at")[:fetch_limit]
-        )
-        modeling_jobs = list(
-            DataModelingJob.objects.filter(team_id=self.team_id)
-            .select_related("saved_query")
-            .order_by("-created_at")[:fetch_limit]
-        )
+        limit = min(int(request.GET.get("limit", 50)), 250)
+        offset = max(int(request.GET.get("offset", 0)), 0)
 
-        def job_to_activity(job, is_modeling=False):
-            base = {
-                "id": str(job.id),
-                "status": job.status,
-                "created_at": job.created_at,
-                "workflow_run_id": job.workflow_run_id,
-            }
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                WITH external_jobs AS (
+                    SELECT edj.id, 'Data sync' as type, eds.name, edj.status,
+                           COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
+                           edj.finished_at, edj.latest_error, edj.workflow_run_id
+                    FROM posthog_externaldatajob edj
+                    LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
+                    WHERE edj.team_id = %s
+                ),
+                modeling_jobs AS (
+                    SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
+                           COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
+                           dmj.last_run_at, dmj.error, dmj.workflow_run_id
+                    FROM posthog_datamodelingjob dmj
+                    LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
+                    WHERE dmj.team_id = %s
+                )
+                SELECT * FROM external_jobs
+                UNION ALL
+                SELECT * FROM modeling_jobs
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """,
+                [self.team_id, self.team_id, limit + 1, offset],
+            )
 
-            if is_modeling:
-                return {
-                    **base,
-                    "type": "materialized_view",
-                    "name": job.saved_query.name if job.saved_query else None,
-                    "rows": job.rows_materialized or 0,
-                    "finished_at": job.last_run_at,
-                    "latest_error": job.error,
-                    "schema_id": None,
-                    "source_id": None,
+            columns = [col[0] for col in cursor.description]
+            results: list[DataWarehouseActivityRow] = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            has_more = len(results) > limit
+
+            return Response(
+                {
+                    "results": results[:limit],
+                    "count": len(results[:limit]),
+                    "has_more": has_more,
+                    "pagination": {"next_offset": offset + limit if has_more else None},
                 }
-            else:
-                return {
-                    **base,
-                    "type": job.pipeline.source_type if job.pipeline else "external_data_sync",
-                    "name": job.schema.name if job.schema else None,
-                    "rows": job.rows_synced or 0,
-                    "finished_at": job.finished_at,
-                    "latest_error": job.latest_error,
-                    "schema_id": str(job.schema.id) if job.schema else None,
-                    "source_id": str(job.pipeline.id) if job.pipeline else None,
-                }
-
-        activities = [job_to_activity(job) for job in external_jobs] + [
-            job_to_activity(job, True) for job in modeling_jobs
-        ]
-
-        activities.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
-
-        return Response(
-            {
-                "results": activities,
-                "count": len(activities),
-            }
-        )
+            )

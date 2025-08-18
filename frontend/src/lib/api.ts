@@ -3360,7 +3360,7 @@ const api = {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
 
-        async recentActivity(options?: ApiMethodOptions & { limit?: number }): Promise<{
+        async recentActivity(options?: ApiMethodOptions & { limit?: number; offset?: number }): Promise<{
             results: Array<{
                 id: string
                 type: string
@@ -3370,13 +3370,26 @@ const api = {
                 created_at: string
                 finished_at: string | null
                 latest_error: string | null
-                schema_id?: string
-                source_id?: string
                 workflow_run_id?: string
             }>
-            count: number
+            has_more: boolean
+            pagination: {
+                next_offset?: number
+            }
         }> {
-            return await new ApiRequest().dataWarehouse().withAction('recent_activity').get(options)
+            const params: Record<string, any> = {}
+            if (options?.limit) {
+                params.limit = options.limit
+            }
+            if (options?.offset) {
+                params.offset = options.offset
+            }
+
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('recent_activity')
+                .withQueryString(params)
+                .get(options)
         },
     },
 
