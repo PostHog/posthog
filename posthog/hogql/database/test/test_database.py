@@ -410,7 +410,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         with self.assertNumQueries(7):
-            create_hogql_database(team=self.team)
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+            )
+            create_hogql_database(team=self.team, modifiers=modifiers)
 
         for i in range(5):
             table = DataWarehouseTable.objects.create(
