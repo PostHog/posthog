@@ -8,13 +8,14 @@ import { fetch } from '~/utils/request'
 import { Hub } from '../../../types'
 import { generateMailjetCustomId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { runInstrumentedFunction } from '~/main/utils'
-import { delay } from '~/utils/utils'
 
 export class EmailService {
     constructor(private hub: Hub) {}
 
-    private validateEmailDomain(integration: IntegrationType, params: CyclotronInvocationQueueParametersEmailType): void {
+    private validateEmailDomain(
+        integration: IntegrationType,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): void {
         // Currently we enforce using the name and email set on the integratio
 
         if (!integration.config.mailjet_verified) {
@@ -87,29 +88,13 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
-        const response = await runInstrumentedFunction({
-            statsKey: 'sendEmailWithMaildev',
-            timeout: 1000,
-            func: async () => {
-                const response = await Promise.race([
-                    mailDevTransport!.sendMail({
-                        from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
-                        to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
-                        subject: params.subject,
-                        text: params.text,
-                        html: params.html,
-                    }),
-                    delay(5000)
-                ])
-
-                if (!response ) {
-                    throw new Error('timeout to send email to maildev')
-                }
-
-                return response
-            }
-        }) 
-        
+        const response = await mailDevTransport!.sendMail({
+            from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            subject: params.subject,
+            text: params.text,
+            html: params.html,
+        })
 
         if (!response.accepted) {
             throw new Error(`Failed to send email to maildev: ${JSON.stringify(response)}`)

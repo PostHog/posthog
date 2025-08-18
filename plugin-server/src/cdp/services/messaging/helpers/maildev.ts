@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer'
-import { registerShutdownHandler } from '~/lifecycle'
 
+import { registerShutdownHandler } from '~/lifecycle'
 import { isDevEnv } from '~/utils/env-utils'
 
 export const mailDevTransport = isDevEnv()
@@ -11,7 +11,6 @@ export const mailDevTransport = isDevEnv()
           connectionTimeout: 1000, // ms
           greetingTimeout: 1000,
           socketTimeout: 1000,
-        
       })
     : null
 
