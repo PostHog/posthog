@@ -120,7 +120,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                         intent_context: ProductIntentContext.SURVEY_CREATED,
                                         metadata: {
                                             survey_id: toolOutput.survey_id,
-                                            source: SURVEY_CREATED_SOURCE.MAX_AI,
+                                            source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
                                             created_successfully: !toolOutput?.error,
                                         },
                                     })
