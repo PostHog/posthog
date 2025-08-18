@@ -1,6 +1,7 @@
 import { cva } from 'cva'
+import { LabelHTMLAttributes, forwardRef } from 'react'
+
 import { cn } from 'lib/utils/css-classes'
-import { forwardRef, LabelHTMLAttributes } from 'react'
 
 const labelVariants = cva({
     base: 'font-semibold',

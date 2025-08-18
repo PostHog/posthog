@@ -1,3 +1,7 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
@@ -13,17 +17,16 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { useEffect, useState } from 'react'
-import { defaultQuery, syncAnchorIntervalToHumanReadable, SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
+import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
@@ -36,7 +39,6 @@ import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 interface SchemasProps {
     id: string

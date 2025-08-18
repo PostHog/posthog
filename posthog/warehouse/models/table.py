@@ -25,7 +25,7 @@ from posthog.models.utils import (
     CreatedMetaFields,
     DeletedMetaFields,
     UpdatedMetaFields,
-    UUIDModel,
+    UUIDTModel,
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
@@ -86,7 +86,7 @@ class DataWarehouseTableManager(CacheManager):
         )
 
 
-class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # loading external_data_source and credentials is easily N+1,
     # so we have a custom object manager meaning people can't forget to load them
     # this also means we _always_ have two joins whenever we load tables

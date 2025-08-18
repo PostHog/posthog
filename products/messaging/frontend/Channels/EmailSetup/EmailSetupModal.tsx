@@ -1,10 +1,12 @@
-import { IconCheckCircle, IconCopy, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconCheckCircle, IconCopy, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { DnsRecord, emailSetupModalLogic, EmailSetupModalLogicProps } from './emailSetupModalLogic'
+import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
     const { integration, integrationLoading, verification, verificationLoading } = useValues(

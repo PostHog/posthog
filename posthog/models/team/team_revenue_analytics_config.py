@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Intentionally not inheriting from UUIDModel because we're using a OneToOneField
+# Intentionally not inheriting from UUIDModel/UUIDTModel because we're using a OneToOneField
 # and therefore using the exact same primary key as the Team model.
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)

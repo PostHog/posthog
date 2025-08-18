@@ -1,22 +1,24 @@
-import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
+
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
-import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { BreakdownType, GroupTypeIndex } from '~/types'
 
-import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
-import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { breakdownTagLogic } from './breakdownTagLogic'
+import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 
 type EditableBreakdownTagProps = {
     breakdown: string | number

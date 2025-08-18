@@ -1,5 +1,6 @@
 import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
+
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'

@@ -141,6 +141,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               },
               "revenueProperty": "value",
               "subscriptionDropoffDays": 45,
+              "subscriptionDropoffMode": "last_event",
             },
             {
               "currencyAwareDecimal": true,
@@ -150,6 +151,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               },
               "revenueProperty": "subscription_value",
               "subscriptionDropoffDays": 45,
+              "subscriptionDropoffMode": "after_dropoff_period",
             },
           ],
           "filter_test_accounts": false,

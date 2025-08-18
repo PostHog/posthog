@@ -1,8 +1,8 @@
 import {
-    getPanelDimensions,
     calculateCSSPosition,
-    getFloatingMaxDimensions,
     calculateSnapPosition,
+    getFloatingMaxDimensions,
+    getPanelDimensions,
 } from './floatingMaxPositioning'
 
 // Mock DOM elements and methods

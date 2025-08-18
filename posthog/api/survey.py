@@ -64,6 +64,11 @@ from posthog.models.utils import UUIDT
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
+if "replica" in settings.DATABASES:
+    READ_DB_FOR_SURVEYS = "replica"
+else:
+    READ_DB_FOR_SURVEYS = "default"
+
 
 class EventStats(TypedDict):
     total_count: int
@@ -361,11 +366,29 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
+        linked_flag = None
         if linked_flag_id:
             try:
-                FeatureFlag.objects.get(pk=linked_flag_id)
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id)
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided
+        linked_flag_variant = data.get("conditions", {}).get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            # Get available variants from the linked feature flag
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
 
         if (
             self.context["request"].method == "POST"
@@ -1312,12 +1335,18 @@ def get_surveys_opt_in(team: Team) -> bool:
 
 
 def get_surveys_count(team: Team) -> int:
-    return Survey.objects.filter(team__project_id=team.project_id).exclude(archived=True).count()
+    return (
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
+        .exclude(archived=True)
+        .count()
+    )
 
 
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
         .exclude(archived=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),

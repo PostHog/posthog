@@ -1,14 +1,18 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
@@ -16,10 +20,12 @@ import {
     createBranchingConfig,
     getDefaultBranchingType,
 } from 'scenes/surveys/components/question-branching/utils'
+import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -58,25 +64,21 @@ import {
     SurveyStats,
 } from '~/types'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
-import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
-import { userLogic } from 'scenes/userLogic'
 import {
-    defaultSurveyAppearance,
-    defaultSurveyFieldValues,
     NEW_SURVEY,
     NewSurvey,
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
+    DATE_FORMAT,
     buildPartialResponsesFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
-    DATE_FORMAT,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
     getSurveyResponse,
@@ -476,12 +478,14 @@ export const surveyLogic = kea<surveyLogicType>([
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             idx: number,
+            surveyQuestion: SurveyQuestion,
             type: SurveyQuestionType,
             isEditingQuestion: boolean,
             isEditingDescription: boolean,
             isEditingThankYouMessage: boolean
         ) => ({
             idx,
+            surveyQuestion,
             type,
             isEditingQuestion,
             isEditingDescription,
@@ -1026,20 +1030,27 @@ export const surveyLogic = kea<surveyLogicType>([
             {
                 setDefaultForQuestionType: (
                     state,
-                    { idx, type, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
+                    { idx, type, surveyQuestion, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
                 ) => {
                     const question = isEditingQuestion
-                        ? state.questions[idx].question
+                        ? surveyQuestion.question
                         : defaultSurveyFieldValues[type].questions[0].question
                     const description = isEditingDescription
-                        ? state.questions[idx].description
+                        ? surveyQuestion.description
                         : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
                         ? state.appearance?.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
+
+                    const q = {
+                        ...surveyQuestion,
+                    }
+                    if (q.type === SurveyQuestionType.MultipleChoice || q.type === SurveyQuestionType.SingleChoice) {
+                        delete q.hasOpenChoice
+                    }
                     newQuestions[idx] = {
-                        ...state.questions[idx],
+                        ...q,
                         ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,

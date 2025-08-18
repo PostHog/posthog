@@ -1,24 +1,26 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconMagicWand } from '@posthog/icons'
-import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { IDisposable, editor as importedEditor } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+
+import { IconMagicWand } from '@posthog/icons'
+import { LemonInput, Link } from '@posthog/lemon-ui'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { codeEditorLogic, CodeEditorLogicProps } from 'lib/monaco/codeEditorLogic'
-import type { editor as importedEditor, IDisposable } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
+import { CodeEditorLogicProps, codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery

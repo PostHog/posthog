@@ -1,4 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
+
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'

@@ -1,5 +1,7 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
     genericOperatorToHumanName,

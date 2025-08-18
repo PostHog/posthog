@@ -13,11 +13,11 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.cache import CacheManager
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
-class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     """Deprecated model, use DataWarehouseJoin instead"""
 
     def __init_subclass__(cls, **kwargs):
@@ -37,7 +37,7 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     to_join_key = models.CharField(max_length=400)
 
 
-class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     objects: CacheManager = CacheManager()
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)

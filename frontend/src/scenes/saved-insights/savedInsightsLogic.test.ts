@@ -1,7 +1,9 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+
 import api from 'lib/api'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'

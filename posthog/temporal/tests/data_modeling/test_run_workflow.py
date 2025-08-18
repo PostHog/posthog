@@ -22,6 +22,7 @@ from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
+from posthog.models.event.util import bulk_create_events
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
@@ -964,10 +965,12 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             type=high_precision_decimal_type,
         )
 
-        table = pa.table({"high_precision_decimal": problematic_data, "regular_column": pa.array([1], type=pa.int64())})
+        batch1 = pa.RecordBatch.from_arrays(
+            [problematic_data, pa.array([1], type=pa.int64())], names=["high_precision_decimal", "regular_column"]
+        )
 
         async def async_generator():
-            yield table
+            yield batch1, [("high_precision_decimal", "Decimal(76, 32)"), ("regular_column", "Int64")]
 
         return async_generator()
 
@@ -1032,10 +1035,12 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
             type=high_precision_decimal_type,
         )
 
-        table = pa.table({"manageable_decimal": manageable_data, "regular_column": pa.array([1], type=pa.int64())})
+        batch1 = pa.RecordBatch.from_arrays(
+            [manageable_data, pa.array([1], type=pa.int64())], names=["manageable_decimal", "regular_column"]
+        )
 
         async def async_generator():
-            yield table
+            yield batch1, [("manageable_decimal", "Decimal(50, 10)"), ("regular_column", "Int64")]
 
         return async_generator()
 
@@ -1158,14 +1163,14 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
 
     def mock_hogql_table(*args, **kwargs):
         # Create multiple batches to test progress tracking
-        batch1 = pa.table({"test_column": pa.array([1, 2, 3], type=pa.int64())})
-        batch2 = pa.table({"test_column": pa.array([4, 5], type=pa.int64())})
-        batch3 = pa.table({"test_column": pa.array([6], type=pa.int64())})
+        batch1 = pa.RecordBatch.from_arrays([pa.array([1, 2, 3], type=pa.int64())], names=["test_column"])
+        batch2 = pa.RecordBatch.from_arrays([pa.array([4, 5], type=pa.int64())], names=["test_column"])
+        batch3 = pa.RecordBatch.from_arrays([pa.array([6], type=pa.int64())], names=["test_column"])
 
         async def async_generator():
-            yield batch1
-            yield batch2
-            yield batch3
+            yield batch1, [("test_column", "Int64")]
+            yield batch2, [("test_column", "Int64")]
+            yield batch3, [("test_column", "Int64")]
 
         return async_generator()
 
@@ -1275,3 +1280,199 @@ async def test_create_table_activity_invalid_uuid_fails(activity_environment, at
     mock_logger.return_value.aerror.assert_called_once()
     error_message = mock_logger.return_value.aerror.call_args[0][0]
     assert "Invalid model identifier 'invalid_model_name': expected UUID format" in error_message
+
+
+async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client):
+    await sync_to_async(bulk_create_events)(
+        [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
+    )
+
+    query = "SELECT toTimeZone(timestamp, 'US/Samoa') as timestamp FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="timezone_fix_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "timestamp" in table.column_names
+
+        timestamp_column = table.column("timestamp")
+        assert pa.types.is_timestamp(timestamp_column.type)
+
+        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0, tzinfo=dt.UTC)
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_client):
+    await sync_to_async(bulk_create_events)(
+        [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T00:00:00"}]
+    )
+
+    query = "SELECT toTimeZone(timestamp, 'UTC') as timestamp FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="timezone_fix_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "timestamp" in table.column_names
+
+        timestamp_column = table.column("timestamp")
+        assert pa.types.is_timestamp(timestamp_column.type)
+
+        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 0, 0, tzinfo=dt.UTC)
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_with_date(ateam, bucket_name, minio_client):
+    await sync_to_async(bulk_create_events)(
+        [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
+    )
+
+    query = "SELECT toStartOfMonth(timestamp) as timestamp FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="timezone_fix_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "timestamp" in table.column_names
+
+        timestamp_column = table.column("timestamp")
+        assert pa.types.is_date(timestamp_column.type)
+
+        assert timestamp_column[0].as_py() == dt.date(2022, 1, 1)
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_client):
+    await sync_to_async(bulk_create_events)(
+        [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
+    )
+
+    query = "SELECT toDateTime(timestamp) as timestamp FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="timezone_fix_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "timestamp" in table.column_names
+
+        timestamp_column = table.column("timestamp")
+        assert pa.types.is_timestamp(timestamp_column.type)
+
+        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0)
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED

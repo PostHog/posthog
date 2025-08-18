@@ -1,11 +1,14 @@
+import { useActions } from 'kea'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+
 import { integrationsLogic } from './integrationsLogic'
 
 export function IntegrationView({

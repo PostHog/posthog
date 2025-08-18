@@ -1,17 +1,18 @@
 import equal from 'fast-deep-equal'
-import Papa from 'papaparse'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
+import Papa from 'papaparse'
+
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
-import { BillingPeriod, BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
+import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
-import type { BillingFilters, BillingUsageInteractionProps, BillingSeriesForCsv, BuildBillingCsvOptions } from './types'
+import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
