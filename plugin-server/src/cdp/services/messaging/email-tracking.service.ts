@@ -6,7 +6,6 @@ import { ModifiedRequest } from '~/api/router'
 import { AppMetricType, CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
 import { captureException } from '~/utils/posthog'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
@@ -49,7 +48,7 @@ export const parseEmailTrackingCode = (customId: string): { functionId: string; 
             return null
         }
         return { functionId, invocationId }
-    } catch (error) {
+    } catch {
         return null
     }
 }
@@ -67,8 +66,6 @@ export const generateEmailTrackingPixelUrl = (
 }
 
 export class EmailTrackingService {
-    private promises = new PromiseScheduler()
-
     constructor(
         private hub: Hub,
         private hogFunctionManager: HogFunctionManagerService,
