@@ -117,7 +117,9 @@ class NotebookIntermediateState:
         if step and step != self.current_step:
             self._complete_and_transition(step)
 
-        # Update the current step content
+        # Update the current step content, if any (not for progress messages)
+        if content is None:
+            return
         self.current_step_content = content
 
     def _complete_and_transition(self, new_step: "SessionSummaryStep | None" = None) -> None:
