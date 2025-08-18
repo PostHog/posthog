@@ -179,3 +179,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 ])
+
+export const isOptOutEligibleAction = (
+    action: HogFlowAction
+): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
+    return ['function_email', 'function_sms'].includes(action.type)
+}

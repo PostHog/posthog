@@ -38,7 +38,7 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
         resetForm: true,
     }),
 
-    forms(({ props }: { props: CategoryLogicProps }) => ({
+    forms(({ actions, props }) => ({
         categoryForm: {
             defaults: props.category
                 ? {
@@ -72,6 +72,8 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                 }
                 // Reload categories in the parent logic
                 optOutCategoriesLogic.actions.loadCategories()
+
+                actions.resetForm()
 
                 // Trigger success callback if available
                 if (props.onSuccess) {
