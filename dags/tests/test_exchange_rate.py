@@ -218,12 +218,12 @@ class TestExchangeRateClickhouse:
 
         # Verify result is a MaterializeResult with correct metadata
         assert isinstance(result, dagster.MaterializeResult)
-        metadata: dict[str, Any] = result.metadata
-        assert metadata["date"] == "2023-01-15"
-        assert metadata["base_currency"] == "USD"
-        assert metadata["currencies_count"] == len(SAMPLE_EXCHANGE_RATES)
-        assert metadata["min_rate"] == min(SAMPLE_EXCHANGE_RATES.values())
-        assert metadata["max_rate"] == max(SAMPLE_EXCHANGE_RATES.values())
+        metadata: Any = result.metadata
+        assert metadata["date"].value == "2023-01-15"
+        assert metadata["base_currency"].value == "USD"
+        assert metadata["currencies_count"].value == len(SAMPLE_EXCHANGE_RATES)
+        assert metadata["min_rate"].value == min(SAMPLE_EXCHANGE_RATES.values())
+        assert metadata["max_rate"].value == max(SAMPLE_EXCHANGE_RATES.values())
 
     def test_hourly_exchange_rates_in_clickhouse(self, mock_clickhouse_cluster):
         # Create context
@@ -236,13 +236,12 @@ class TestExchangeRateClickhouse:
 
         # Verify result is a MaterializeResult with correct metadata
         assert isinstance(result, dagster.MaterializeResult)
-        metadata: dict[str, Any] = result.metadata
-        print(metadata)  # noqa: T201
-        assert metadata["date"] == "2023-01-15"
-        assert metadata["base_currency"] == "USD"
-        assert metadata["currencies_count"] == len(SAMPLE_EXCHANGE_RATES)
-        assert metadata["min_rate"] == min(SAMPLE_EXCHANGE_RATES.values())
-        assert metadata["max_rate"] == max(SAMPLE_EXCHANGE_RATES.values())
+        metadata: Any = result.metadata
+        assert metadata["date"].value == "2023-01-15"
+        assert metadata["base_currency"].value == "USD"
+        assert metadata["currencies_count"].value == len(SAMPLE_EXCHANGE_RATES)
+        assert metadata["min_rate"].value == min(SAMPLE_EXCHANGE_RATES.values())
+        assert metadata["max_rate"].value == max(SAMPLE_EXCHANGE_RATES.values())
 
 
 class TestExchangeRateSchedules:
