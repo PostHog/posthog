@@ -50,13 +50,13 @@ export const manifest: ProductManifest = {
         insightView: (
             id: InsightShortId,
             dashboardId?: number,
-            variablesOverride?: Record<string, HogQLVariable>
+            variablesOverride?: Record<string, HogQLVariable>,
             filtersOverride?: DashboardFilter
         ): string => {
             const params = [
                 { param: 'dashboard', value: dashboardId },
                 { param: 'variables_override', value: variablesOverride },
-                { param: 'filters_override', value: filtersOverride }
+                { param: 'filters_override', value: filtersOverride },
             ]
                 .filter((n) => Boolean(n.value))
                 .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
