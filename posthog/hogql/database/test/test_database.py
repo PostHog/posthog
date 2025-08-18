@@ -389,7 +389,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             url_pattern="",
         )
 
-        for i in range(10):
+        for i in range(5):
             table = DataWarehouseTable.objects.create(
                 name=f"whatever{i}",
                 team=self.team,
@@ -406,6 +406,26 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         with self.assertNumQueries(8):
+            create_hogql_database(team=self.team)
+
+        for i in range(5):
+            table = DataWarehouseTable.objects.create(
+                name=f"whatever{i + 5}",
+                team=self.team,
+                columns={"id": "String"},
+                credential=credential,
+                url_pattern="",
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"whatever_view{i + 5}",
+                query={"query": f"SELECT id FROM whatever{i + 5}"},
+                columns={"id": "String"},
+                table=table,
+            )
+
+        # initialization team query doesn't run
+        with self.assertNumQueries(7):
             create_hogql_database(team=self.team)
 
     def test_database_group_type_mappings(self):
