@@ -55,7 +55,7 @@ const renderHedgehog = (
 }
 
 // Takes a range of options and renders a static hedgehog
-export function HedgehogModeStatic({ config, size, direction = 'left' }: HedgehogModeStaticProps): JSX.Element | null {
+export function HedgehogModeStatic({ config, size, direction = 'right' }: HedgehogModeStaticProps): JSX.Element | null {
     const imgSize = size ?? 60
     const [dataUrl, setDataUrl] = useState<string | null>(null)
 
