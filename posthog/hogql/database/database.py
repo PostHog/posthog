@@ -527,7 +527,9 @@ def create_hogql_database(
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
             saved_queries = list(
-                DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True).prefetch_related("table")
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .select_related("table", "table__credential")
             )
 
         for saved_query in saved_queries:

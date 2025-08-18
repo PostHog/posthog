@@ -405,7 +405,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 table=table,
             )
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(7):
             create_hogql_database(team=self.team)
 
         for i in range(5):
@@ -425,7 +425,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(6):
             create_hogql_database(team=self.team)
 
     def test_database_group_type_mappings(self):
