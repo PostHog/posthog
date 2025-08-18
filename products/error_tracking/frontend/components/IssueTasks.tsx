@@ -1,16 +1,20 @@
 import { useValues } from 'kea'
-import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+
 import { IconPlus } from '@posthog/icons'
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
-import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'
-import { IntegrationType } from '~/types'
 import { LemonDialog, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
-import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+
 import api from 'lib/api'
+import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'
+import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { IntegrationType } from '~/types'
+
+import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export const IssueTasks = (): JSX.Element => {
     const { issue, issueLoading, selectedEvent } = useValues(errorTrackingIssueSceneLogic)

@@ -1,7 +1,9 @@
-import { kea, path, actions, reducers, selectors, listeners, afterMount, connect } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import type { repositorySelectorLogicType } from './repositorySelectorLogicType'
+
 import { RepositoryConfig } from './RepositorySelector'
+import type { repositorySelectorLogicType } from './repositorySelectorLogicType'
 
 export interface AvailableRepo {
     integration_id: number

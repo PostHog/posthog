@@ -56,9 +56,7 @@ def execute_task_processing_workflow(
         try:
             loop = asyncio.get_running_loop()
             # We're in an async context, schedule the task
-            loop.create_task(
-                _execute_task_processing_workflow(task_id, team_id, previous_status, new_status, user_id)
-            )
+            loop.create_task(_execute_task_processing_workflow(task_id, team_id, previous_status, new_status, user_id))
             logger.info(f"Scheduled workflow task for task {task_id}")
         except RuntimeError:
             # No running event loop, create one

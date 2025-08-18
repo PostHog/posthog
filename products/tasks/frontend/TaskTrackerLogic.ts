@@ -1,10 +1,11 @@
-import { kea, path, actions, reducers, selectors, listeners, afterMount, beforeUnmount } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
-import { Task, TaskStatus, KanbanColumn } from './types'
-import { demoTasks } from './demoData'
 
 import type { taskTrackerLogicType } from './TaskTrackerLogicType'
+import { demoTasks } from './demoData'
+import { KanbanColumn, Task, TaskStatus } from './types'
 
 export const taskTrackerLogic = kea<taskTrackerLogicType>([
     path(['products', 'tasks', 'frontend', 'TaskTrackerLogic']),
