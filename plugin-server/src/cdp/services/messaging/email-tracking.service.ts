@@ -1,8 +1,12 @@
 import crypto from 'crypto'
 import { Counter } from 'prom-client'
+import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
 import { AppMetricType, CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
+import { defaultConfig } from '~/config/config'
+import { captureException } from '~/utils/posthog'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
@@ -10,6 +14,8 @@ import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { MailjetEventType, MailjetWebhookEvent } from './types'
+
+const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 
 const EVENT_TYPE_TO_CATEGORY: Record<MailjetEventType, MinimalAppMetric['metric_name'] | undefined> = {
     sent: 'email_sent',
@@ -21,19 +27,19 @@ const EVENT_TYPE_TO_CATEGORY: Record<MailjetEventType, MinimalAppMetric['metric_
     unsub: 'email_unsubscribed',
 }
 
-const mailjetWebhookEventsCounter = new Counter({
-    name: 'mailjet_webhook_events_total',
-    help: 'Total number of Mailjet webhook events received',
-    labelNames: ['event_type'],
+const trackingEventsCounter = new Counter({
+    name: 'email_tracking_events_total',
+    help: 'Total number of email tracking events received',
+    labelNames: ['event_type', 'source'],
 })
 
-const mailjetWebhookErrorsCounter = new Counter({
-    name: 'mailjet_webhook_errors_total',
-    help: 'Total number of Mailjet webhook processing errors',
+const emailTrackingErrorsCounter = new Counter({
+    name: 'email_tracking_errors_total',
+    help: 'Total number of email tracking processing errors',
     labelNames: ['error_type'],
 })
 
-export const parseMailjetCustomId = (customId: string): { functionId: string; invocationId: string } | null => {
+export const parseEmailTrackingCode = (customId: string): { functionId: string; invocationId: string } | null => {
     // customId  is like ph_fn_id=function-1&ph_inv_id=invocation-1
     try {
         const params = new URLSearchParams(customId)
@@ -48,13 +54,21 @@ export const parseMailjetCustomId = (customId: string): { functionId: string; in
     }
 }
 
-export const generateMailjetCustomId = (
+export const generateEmailTrackingCode = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
 ): string => {
     return `ph_fn_id=${invocation.functionId}&ph_inv_id=${invocation.id}`
 }
 
+export const generateEmailTrackingPixelUrl = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
+): string => {
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?${generateEmailTrackingCode(invocation)}`
+}
+
 export class EmailTrackingService {
+    private promises = new PromiseScheduler()
+
     constructor(
         private hub: Hub,
         private hogFunctionManager: HogFunctionManagerService,
@@ -62,19 +76,18 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService
     ) {}
 
-    private async trackMetric(event: MailjetWebhookEvent): Promise<void> {
-        const { functionId, invocationId } = parseMailjetCustomId(event.CustomID || '') || {}
-        const category = EVENT_TYPE_TO_CATEGORY[event.event]
-
+    private async trackMetric(
+        metricName: MinimalAppMetric['metric_name'],
+        functionId?: string,
+        invocationId?: string
+    ): Promise<void> {
         if (!functionId || !invocationId) {
-            logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', { event })
-            mailjetWebhookErrorsCounter.inc({ error_type: 'invalid_custom_id' })
-            return
-        }
-
-        if (!category) {
-            logger.error('[EmailTrackingService] trackMetric: Unmapped event type', { event })
-            mailjetWebhookErrorsCounter.inc({ error_type: 'unmapped_event_type' })
+            logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
+                functionId,
+                invocationId,
+                metricName,
+            })
+            emailTrackingErrorsCounter.inc({ error_type: 'invalid_custom_id' })
             return
         }
 
@@ -92,7 +105,7 @@ export class EmailTrackingService {
                 functionId,
                 invocationId,
             })
-            mailjetWebhookErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found' })
+            emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found' })
             return
         }
 
@@ -101,7 +114,7 @@ export class EmailTrackingService {
                 team_id: teamId,
                 app_source_id: appSourceId,
                 instance_id: invocationId,
-                metric_name: category,
+                metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
             },
@@ -110,8 +123,12 @@ export class EmailTrackingService {
 
         await this.hogFunctionMonitoringService.produceQueuedMessages()
 
-        mailjetWebhookEventsCounter.inc({ event_type: category })
-        logger.debug('[EmailTrackingService] trackMetric: Mailjet webhook event', { event })
+        trackingEventsCounter.inc({ event_type: metricName, source: hogFlow ? 'hog_flow' : 'hog_function' })
+        logger.debug('[EmailTrackingService] trackMetric: Email tracking event', {
+            functionId,
+            invocationId,
+            metricName,
+        })
     }
 
     public async handleWebhook(
@@ -135,7 +152,7 @@ export class EmailTrackingService {
                 hmac.length !== signatureBuffer.length ||
                 !crypto.timingSafeEqual(new Uint8Array(hmac), new Uint8Array(signatureBuffer))
             ) {
-                mailjetWebhookErrorsCounter.inc({ error_type: 'invalid_signature' })
+                emailTrackingErrorsCounter.inc({ error_type: 'invalid_signature' })
                 logger.error('[EmailService] handleWebhook: Invalid signature', {
                     signature,
                     timestamp,
@@ -146,13 +163,37 @@ export class EmailTrackingService {
 
             const event = req.body as MailjetWebhookEvent
 
-            await this.trackMetric(event)
+            const { functionId, invocationId } = parseEmailTrackingCode(event.CustomID || '') || {}
+            const category = EVENT_TYPE_TO_CATEGORY[event.event]
+
+            if (!category) {
+                logger.error('[EmailTrackingService] trackMetric: Unmapped event type', { event })
+                emailTrackingErrorsCounter.inc({ error_type: 'unmapped_event_type' })
+                return { status: 400, message: 'Unmapped event type' }
+            }
+
+            this.trackMetric(category, functionId, invocationId)
 
             return okResponse
         } catch (error) {
-            mailjetWebhookErrorsCounter.inc({ error_type: error.name || 'unknown' })
+            emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('[EmailService] handleWebhook: Mailjet webhook error', { error })
             throw error
         }
+    }
+
+    public async handleEmailTrackingPixel(req: ModifiedRequest, res: express.Response): Promise<void> {
+        // NOTE: this is somewhat naieve. We should expand with UA checking for things like apple's tracking prevention etc.
+        const { ph_fn_id, ph_inv_id } = req.query
+
+        // Track the value
+        try {
+            await this.trackMetric('email_opened', ph_fn_id as string, ph_inv_id as string)
+        } catch (error) {
+            logger.error('[EmailTrackingService] handleEmailTrackingPixel: Error tracking metric', { error })
+            captureException(error)
+        }
+
+        res.status(200).set('Content-Type', 'image/gif').send(PIXEL_GIF)
     }
 }

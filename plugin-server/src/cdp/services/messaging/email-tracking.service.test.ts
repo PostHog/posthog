@@ -18,7 +18,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
-import { generateMailjetCustomId } from './email-tracking.service'
+import { generateEmailTrackingCode } from './email-tracking.service'
 import { MailjetEventBase, MailjetWebhookEvent } from './types'
 
 describe('EmailTrackingService', () => {
@@ -69,7 +69,7 @@ describe('EmailTrackingService', () => {
                 MessageID: 1,
                 Message_GUID: 'test-message-guid',
                 customcampaign: 'test-custom-campaign',
-                CustomID: generateMailjetCustomId({ functionId: hogFunction.id, id: invocationId }),
+                CustomID: generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }),
                 Payload: JSON.stringify({}),
             }
         })
@@ -145,7 +145,7 @@ describe('EmailTrackingService', () => {
         it('should track a hog flow if given', async () => {
             const mailjetEvent: MailjetEventBase = {
                 ...exampleEvent,
-                CustomID: generateMailjetCustomId({ functionId: hogFlow.id, id: invocationId }),
+                CustomID: generateEmailTrackingCode({ functionId: hogFlow.id, id: invocationId }),
             }
             const res = await sendValidEvent(mailjetEvent)
 
