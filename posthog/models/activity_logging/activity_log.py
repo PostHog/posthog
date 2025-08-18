@@ -67,6 +67,8 @@ ActivityScope = Literal[
     "AlertConfiguration",
     "Threshold",
     "AlertSubscription",
+    "ExternalDataSource",
+    "ExternalDataSchema",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -389,7 +391,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "last_paused_at",
         "batchexportrun_set",
         "batchexportbackfill_set",
-        "deleted",
     ],
     "BatchImport": [
         "lease_id",
@@ -433,6 +434,19 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "bytecode",
         "bytecode_error",
         "steps_json",
+    ],
+    "ExternalDataSource": [
+        "job_inputs",
+        "connection_id",
+        "destination_id",
+        "are_tables_created",
+    ],
+    "ExternalDataSchema": [
+        "sync_type_config",
+        "latest_error",
+        "last_synced_at",
+        "table",
+        "sync_frequency_interval",
     ],
 }
 

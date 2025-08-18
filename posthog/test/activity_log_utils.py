@@ -845,3 +845,56 @@ class ActivityLogTestHelper(APILicensedTest):
     def update_project(self, project_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a project via API."""
         return self.update_team(project_id, updates)
+
+    def create_external_data_source(self, source_type: str = "Stripe", **kwargs) -> dict[str, Any]:
+        """Create an external data source via API."""
+        data = {
+            "source_type": source_type,
+            "payload": {
+                "stripe_account_id": "acct_test123",
+                **kwargs.get("payload", {}),
+            },
+            "schemas": [
+                {
+                    "name": "customers",
+                    "should_sync": kwargs.get("should_sync", True),
+                    "sync_type": kwargs.get("sync_type", "full_refresh"),
+                }
+            ],
+            **{k: v for k, v in kwargs.items() if k not in ["payload", "should_sync", "sync_type"]},
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse/external_data_sources/", data, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.json()
+
+    def update_external_data_source(self, source_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        """Update an external data source via API."""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse/external_data_sources/{source_id}/", updates, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
+
+    def delete_external_data_source(self, source_id: str) -> None:
+        """Delete an external data source via API."""
+        response = self.client.delete(f"/api/projects/{self.team.id}/warehouse/external_data_sources/{source_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def create_external_data_schema(self, source_id: str, name: str = "test_schema", **kwargs) -> dict[str, Any]:
+        """Create an external data schema by updating the source."""
+        return self.update_external_data_source(source_id, {"schemas": [{"name": name, **kwargs}]})
+
+    def update_external_data_schema(self, schema_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        """Update an external data schema via API."""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse/external_data_schemas/{schema_id}/", updates, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
+
+    def delete_external_data_schema(self, schema_id: str) -> None:
+        """Delete an external data schema via API."""
+        response = self.client.delete(f"/api/projects/{self.team.id}/warehouse/external_data_schemas/{schema_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
