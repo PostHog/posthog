@@ -329,7 +329,7 @@ services:
             - discovery.type=single-node
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
-        image: elasticsearch:7.17.27
+        image: elasticsearch:7.17.28
         expose:
             - 9200
         volumes:
