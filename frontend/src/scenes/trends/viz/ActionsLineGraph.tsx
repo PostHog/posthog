@@ -1,11 +1,14 @@
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
-import { Chart, ChartType, defaults, LegendOptions } from 'lib/Chart'
+
+import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, isMultiSeriesFormula, hexToRGBA } from 'lib/utils'
+import { ciRanges, movingAverage } from 'lib/statistics'
+import { capitalizeFirstLetter, hexToRGBA, isMultiSeriesFormula } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
@@ -14,8 +17,6 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { ciRanges, movingAverage } from 'lib/statistics'
 
 export function ActionsLineGraph({
     inSharedMode = false,

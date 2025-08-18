@@ -7,7 +7,7 @@ import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 import { logger } from '../../../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
 import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
-import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
+import { SegmentationEvent, activeMillisecondsFromSegmentationEvents, toSegmentationEvent } from '../segmentation'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB

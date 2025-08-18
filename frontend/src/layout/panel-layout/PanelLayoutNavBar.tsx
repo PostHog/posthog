@@ -1,3 +1,8 @@
+import { cva } from 'cva'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useRef } from 'react'
+
 import {
     IconApps,
     IconChevronRight,
@@ -13,35 +18,31 @@ import {
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
+import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
-import { navigationLogic } from '../navigation/navigationLogic'
-import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
+import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
+import { navigationLogic } from '../navigation/navigationLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const navBarStyles = cva({

@@ -1,5 +1,3 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { randomBytes } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
@@ -10,13 +8,16 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
+
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { TeamManager } from '../../utils/team-manager'
-import { bufferToUint32ArrayLE, uint32ArrayLEToBuffer, UUID7 } from '../../utils/utils'
+import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
 

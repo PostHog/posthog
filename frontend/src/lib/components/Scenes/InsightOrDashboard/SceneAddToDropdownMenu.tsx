@@ -1,4 +1,5 @@
 import { IconPlus } from '@posthog/icons'
+
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -10,10 +11,12 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { SceneDataAttrKeyProps } from '../utils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+
+import { SceneDataAttrKeyProps } from '../utils'
+import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'
 
 type SceneAddToDropdownMenuProps = {
     onClick?: () => void

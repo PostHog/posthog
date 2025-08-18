@@ -447,7 +447,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
     def _format_breakdown(self, breakdown: str, kind: str) -> str:
         return f"{kind} | {breakdown}"
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("to_query"):
             query = self.to_query()
 

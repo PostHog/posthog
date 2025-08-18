@@ -11,7 +11,7 @@ import {
 } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ActionsNode, BreakdownFilter, EventsNode, NodeKind, InsightQueryNode } from '~/queries/schema/schema-general'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
 

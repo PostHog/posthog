@@ -1,6 +1,8 @@
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import posthog from 'posthog-js'
+
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
+
 import { NotebookNodeType } from '../types'
 
 export const fromNodeTypeToLabel: Omit<

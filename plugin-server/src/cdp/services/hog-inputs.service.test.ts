@@ -7,7 +7,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { formatHogInput, HogInputsService } from './hog-inputs.service'
+import { HogInputsService, formatHogInput } from './hog-inputs.service'
 
 describe('Hog Inputs', () => {
     let hub: Hub

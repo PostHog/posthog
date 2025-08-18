@@ -5,8 +5,8 @@
   # Do not edit manually - run `pnpm generate:source-configs` to regenerate.
   
   from posthog.temporal.data_imports.sources.common import config
-  from posthog.warehouse.models import ExternalDataSource
   from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig
+  from posthog.warehouse.types import ExternalDataSourceType
   from typing import Literal
   
   
@@ -41,30 +41,30 @@
       ssh_tunnel: SSHTunnelConfig | None = None
   
   
-  def get_config_for_source(source: ExternalDataSource.Type):
+  def get_config_for_source(source: ExternalDataSourceType):
       return {
-          ExternalDataSource.Type.BIGQUERY: BigQuerySourceConfig,
-          ExternalDataSource.Type.BRAZE: BrazeSourceConfig,
-          ExternalDataSource.Type.CHARGEBEE: ChargebeeSourceConfig,
-          ExternalDataSource.Type.DOIT: DoItSourceConfig,
-          ExternalDataSource.Type.GOOGLEADS: GoogleAdsSourceConfig,
-          ExternalDataSource.Type.GOOGLESHEETS: GoogleSheetsSourceConfig,
-          ExternalDataSource.Type.HUBSPOT: HubspotSourceConfig,
-          ExternalDataSource.Type.KLAVIYO: KlaviyoSourceConfig,
-          ExternalDataSource.Type.MSSQL: MSSQLSourceConfig,
-          ExternalDataSource.Type.MAILCHIMP: MailchimpSourceConfig,
-          ExternalDataSource.Type.MAILJET: MailjetSourceConfig,
-          ExternalDataSource.Type.METAADS: MetaAdsSourceConfig,
-          ExternalDataSource.Type.MONGODB: MongoDBSourceConfig,
-          ExternalDataSource.Type.MYSQL: MySQLSourceConfig,
-          ExternalDataSource.Type.POSTGRES: PostgresSourceConfig,
-          ExternalDataSource.Type.REDSHIFT: RedshiftSourceConfig,
-          ExternalDataSource.Type.SALESFORCE: SalesforceSourceConfig,
-          ExternalDataSource.Type.SNOWFLAKE: SnowflakeSourceConfig,
-          ExternalDataSource.Type.STRIPE: StripeSourceConfig,
-          ExternalDataSource.Type.TEMPORALIO: TemporalIOSourceConfig,
-          ExternalDataSource.Type.VITALLY: VitallySourceConfig,
-          ExternalDataSource.Type.ZENDESK: ZendeskSourceConfig,
+          ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
+          ExternalDataSourceType.BRAZE: BrazeSourceConfig,
+          ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+          ExternalDataSourceType.DOIT: DoItSourceConfig,
+          ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
+          ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
+          ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
+          ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+          ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
+          ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
+          ExternalDataSourceType.MAILJET: MailjetSourceConfig,
+          ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
+          ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
+          ExternalDataSourceType.MYSQL: MySQLSourceConfig,
+          ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
+          ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+          ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+          ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
+          ExternalDataSourceType.STRIPE: StripeSourceConfig,
+          ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
+          ExternalDataSourceType.VITALLY: VitallySourceConfig,
+          ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
       }[source]
   
   '''

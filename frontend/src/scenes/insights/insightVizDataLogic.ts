@@ -1,5 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import {
     DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
     DISPLAY_TYPES_WITHOUT_LEGEND,
@@ -9,7 +12,6 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
-import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
@@ -25,8 +27,8 @@ import { extractValidationError, getAllEventNames, queryFromKind } from '~/queri
 import {
     BreakdownFilter,
     CompareFilter,
-    DatabaseSchemaField,
     DataWarehouseNode,
+    DatabaseSchemaField,
     DateRange,
     FunnelExclusionSteps,
     FunnelsFilter,
@@ -567,7 +569,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateInsightFilter({ display })
         },
 
-        // data loading side effects i.e. diplaying loading screens for queries with longer duration
+        // data loading side effects i.e. displaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
@@ -577,7 +579,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 actions.setTimedOutQueryId(queryId)
                 const tags = {
                     kind: values.querySource?.kind,
-                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.activeSceneId : null,
                 }
                 posthog.capture('insight timeout message shown', tags)
             }

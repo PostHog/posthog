@@ -1,21 +1,23 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { compare as compareFn } from 'natural-orderby'
 import { useMemo } from 'react'
+
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -27,7 +29,6 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
