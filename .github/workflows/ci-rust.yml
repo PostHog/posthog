@@ -156,7 +156,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgres-client
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
 
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true'
