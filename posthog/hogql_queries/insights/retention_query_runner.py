@@ -93,7 +93,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
                     if cohort_id == "all":
                         normalized_breakdown_values.append(ALL_USERS_COHORT_ID)
                     else:
-                        normalized_breakdown_values.append(cohort_id)
+                        normalized_breakdown_values.append(int(cohort_id))
 
                 self.query.breakdownFilter.breakdowns = [
                     Breakdown(
@@ -504,7 +504,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
                 # supporting only single breakdowns for now
                 breakdown = self.query.breakdownFilter.breakdowns[0]
                 breakdown_expr = self.breakdown_extract_expr(
-                    breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
+                    str(breakdown.property), cast(str, breakdown.type), breakdown.group_type_index
                 )
             elif self.query.breakdownFilter.breakdown is not None:
                 breakdown_expr = self.breakdown_extract_expr(
@@ -521,9 +521,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
+            actor_query: ast.SelectQuery | ast.SelectSetQuery
             is_cohort_breakdown = (
-                self.query.breakdownFilter
-                and self.query.breakdownFilter.breakdowns
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdowns is not None
                 and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
             )
 
@@ -539,6 +540,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
                     temp_query = self.query.model_copy(deep=True)
                     if temp_query.breakdownFilter:
                         temp_query.breakdownFilter.breakdowns = [breakdown]
+                        temp_query.breakdownFilter.breakdown = str(breakdown.property)
+                        temp_query.breakdownFilter.breakdown_type = breakdown.type
 
                     temp_runner = RetentionQueryRunner(
                         query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
@@ -606,7 +609,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
                 )
         return retention_query
 
-    def _build_cumulative_actors_query(self, actor_query_base: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    def _build_cumulative_actors_query(
+        self, actor_query_base: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         # We need to calculate the max interval from the base query
         # Note: we can't use actor_query(cumulative=True) anymore because it doesn't work with UNION ALL
         if self.breakdowns_in_query:
@@ -637,7 +642,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
 
     def _explode_cumulative_actors(
         self, cumulative_actors_query: ast.SelectQuery | ast.SelectSetQuery
-    ) -> ast.SelectQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.breakdowns_in_query:
             return parse_select(
                 """
