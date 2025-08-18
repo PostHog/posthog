@@ -424,13 +424,9 @@ describe('S3SessionBatchFileStorage', () => {
         })
 
         it('getWriter should throw an error when called before startBatch', () => {
-            try {
-                storage.getWriter('30d')
-            } catch (error) {
-                expect(error.message).toBe(
-                    'Cannot create S3 session batch writer outside the context of an active batch'
-                )
-            }
+            expect(() => storage.getWriter('30d')).toThrow(
+                'Cannot create S3 session batch writer outside the context of an active batch'
+            )
         })
     })
 })

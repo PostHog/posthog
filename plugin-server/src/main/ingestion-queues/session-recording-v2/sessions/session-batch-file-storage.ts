@@ -26,7 +26,7 @@ export interface SessionBatchFileWriter {
      * Should be called after all session recordings in the batch have been written
      * For example, this might finalize an S3 multipart upload or close a file
      */
-    finish: () => Promise<void>
+    finish(): Promise<void>
 }
 
 /**
@@ -62,7 +62,7 @@ export interface SessionBatchFileStorage {
     /**
      * End the current batch of write operations
      */
-    endBatch: () => Promise<void>
+    endBatch(): Promise<void>
 
     /**
      * Checks the health of the storage backend

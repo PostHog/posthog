@@ -286,8 +286,6 @@ export class SessionBatchRecorder {
                 totalBytes,
             })
             throw error
-        } finally {
-            //await this.storage.endBatch()
         }
     }
 
