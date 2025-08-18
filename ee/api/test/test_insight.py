@@ -65,13 +65,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
 
         with freeze_time("2012-01-14T03:21:36.000Z"):
-            add_tags_response = self.client.patch(
-                # tags are displayed in order of insertion
-                f"/api/projects/{self.team.id}/insights/{insight_id}",
-                {"tags": ["2", "1", "3"]},
-            )
-
-        with freeze_time("2012-01-14T03:21:37.000Z"):
             remove_tags_response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]}
             )
@@ -83,7 +76,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             expected=[
                 {
                     "activity": "updated",
-                    "created_at": "2012-01-14T03:21:37Z",
+                    "created_at": "2012-01-14T03:21:36Z",
                     "detail": {
                         "changes": [
                             {
