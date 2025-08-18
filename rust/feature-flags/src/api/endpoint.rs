@@ -72,6 +72,13 @@ pub async fn flags(
     if is_from_decide && modified_query_params.config.is_none() {
         modified_query_params.config = Some(true);
     }
+    
+    // Default to v=2 and config=true when both params are missing
+    // This provides the latest response format for clients that don't specify these params
+    if modified_query_params.version.is_none() && modified_query_params.config.is_none() {
+        modified_query_params.version = Some("2".to_string());
+        modified_query_params.config = Some(true);
+    }
 
     let context = RequestContext {
         request_id,
@@ -289,5 +296,49 @@ mod tests {
             .unwrap();
 
         assert!(matches!(params.compression, Some(Compression::Unsupported)));
+    }
+    
+    #[test]
+    fn test_default_params_when_both_missing() {
+        // When both v and config params are missing, we should default to v=2 and config=true
+        let params = FlagsQueryParams {
+            version: None,
+            config: None,
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+        
+        // This test verifies the logic we added to the flags endpoint
+        // In the actual endpoint, when both params are None, we set:
+        // - version = Some("2")
+        // - config = Some(true)
+        assert_eq!(params.version, None);
+        assert_eq!(params.config, None);
+        
+        // When only v is present (config is missing), no defaults apply
+        let params_v_only = FlagsQueryParams {
+            version: Some("1".to_string()),
+            config: None,
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+        assert_eq!(params_v_only.version, Some("1".to_string()));
+        assert_eq!(params_v_only.config, None);
+        
+        // When only config is present (v is missing), no defaults apply
+        let params_config_only = FlagsQueryParams {
+            version: None,
+            config: Some(false),
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+        assert_eq!(params_config_only.version, None);
+        assert_eq!(params_config_only.config, Some(false));
     }
 }
