@@ -18,11 +18,9 @@ import { urls } from 'scenes/urls'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
 
-import { EventName } from 'products/actions/frontend/components/EventName'
-import { SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { SceneContent } from '~/layout/scenes/SceneContent'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
+import { EventName } from 'products/actions/frontend/components/EventName'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 
 const RESOURCE_TYPE = 'live'
 
@@ -82,20 +80,9 @@ export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
     return (
-        <SceneContent data-attr="manage-events-table" className={cn(!newSceneLayout && 'gap-y-0')}>
-            <SceneTitleSection
-                name="Live events"
-                description="Real-time events from your app or website."
-                resourceType={{
-                    type: RESOURCE_TYPE,
-                    typePlural: 'live events',
-                    // Without the below, the same icon would show up but it used Logs's product color, so we force it to use the non-currentColor
-                    forceIcon: <IconLive />,
-                    forceIconColorOverride: ['currentColor'],
-                }}
-            />
-            <SceneDivider />
+        <SceneContent data-attr="manage-events-table">
             <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.LiveEvents}
@@ -111,7 +98,20 @@ export function LiveEventsTable(): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
+                sceneInset={newSceneLayout}
             />
+            <SceneTitleSection
+                name="Live events"
+                description="Real-time events from your app or website."
+                resourceType={{
+                    type: RESOURCE_TYPE,
+                    typePlural: 'live events',
+                    // Without the below, the same icon would show up but it used Logs's product color, so we force it to use the non-currentColor
+                    forceIcon: <IconLive />,
+                    forceIconColorOverride: ['currentColor'],
+                }}
+            />
+            <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">

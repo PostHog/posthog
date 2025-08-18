@@ -124,7 +124,7 @@ export function EventDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <SceneContent data-attr="manage-events-table" className={cn(!newSceneLayout && 'gap-y-0')}>
+        <SceneContent data-attr="manage-events-table">
             <SceneTitleSection
                 name="Event definitions"
                 description="Event definitions are a way to define events that can be used in your app or website."
@@ -163,42 +163,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 </Link>
             </LemonBanner>
 
-            <div className="flex justify-between items-center gap-2 mb-4">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for events"
-                    onChange={(v) => setFilters({ event: v || '' })}
-                    value={filters.event}
-                />
-                <SceneDivider />
-                <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
-                    Looking for{' '}
-                    {filters.event_type === 'event_custom'
-                        ? 'custom '
-                        : filters.event_type === 'event_posthog'
-                          ? 'PostHog '
-                          : ''}
-                    event usage statistics?{' '}
-                    <Link
-                        to={urls.insightNewHogQL({
-                            query:
-                                'SELECT event, count()\n' +
-                                'FROM events\n' +
-                                'WHERE {filters}\n' +
-                                (filters.event_type === 'event_custom'
-                                    ? "AND event NOT LIKE '$%'\n"
-                                    : filters.event_type === 'event_posthog'
-                                      ? "AND event LIKE '$%'\n"
-                                      : '') +
-                                'GROUP BY event\n' +
-                                'ORDER BY count() DESC',
-                            filters: { dateRange: { date_from: '-24h' } },
-                        })}
-                    >
-                        Query with SQL
-                    </Link>
-                </LemonBanner>
-            </div>
             <div className={cn('flex justify-between items-center gap-2', !newSceneLayout && 'mb-4')}>
                 <LemonInput
                     type="search"

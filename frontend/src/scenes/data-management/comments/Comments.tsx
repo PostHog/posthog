@@ -18,12 +18,9 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
 
 export function Comments(): JSX.Element {
     const { user } = useValues(userLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const { comments, shouldShowEmptyState, commentsLoading, scope, filterCreatedBy, searchText } =
         useValues(commentsLogic)
@@ -125,7 +122,7 @@ export function Comments(): JSX.Element {
     ]
 
     return (
-        <SceneContent data-attr="comments-management-scene" className={cn(!newSceneLayout && 'gap-y-0')}>
+        <SceneContent data-attr="comments-management-scene">
             <SceneTitleSection
                 name="Comments"
                 description="Comments allow you to provide context and discussions on various elements in PostHog."

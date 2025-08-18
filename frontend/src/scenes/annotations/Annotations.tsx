@@ -144,7 +144,7 @@ export function Annotations(): JSX.Element {
     ]
 
     return (
-        <SceneContent className={cn(!newSceneLayout && 'gap-y-0')}>
+        <SceneContent>
             <SceneTitleSection
                 name="Annotations"
                 description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."

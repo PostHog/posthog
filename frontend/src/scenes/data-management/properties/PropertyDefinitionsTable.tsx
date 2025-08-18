@@ -73,7 +73,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <SceneContent data-attr="manage-events-table" className={cn(!newSceneLayout && 'gap-y-0')}>
+        <SceneContent data-attr="manage-events-table">
             <SceneTitleSection
                 name="Properties"
                 description="Properties are additional fields you can configure to be sent along with an event capture."

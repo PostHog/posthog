@@ -32,7 +32,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
             <PayGateMini
                 feature={AvailableFeature.RECORDINGS_FILE_EXPORT}
                 className="py-8"
-                docsURL="https://posthog.com/docs/user-guides/session-recordings"
+                docsLink="https://posthog.com/docs/user-guides/session-recordings"
             />
         )
     }

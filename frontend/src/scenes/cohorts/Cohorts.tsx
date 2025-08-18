@@ -18,11 +18,11 @@ import { urls } from 'scenes/urls'
 
 import { CohortType, ProductKey } from '~/types'
 
-import { SceneExport } from 'scenes/sceneTypes'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { cn } from 'lib/utils/css-classes'
+import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { SceneExport } from 'scenes/sceneTypes'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 const RESOURCE_TYPE = 'cohort'
 
 export const scene: SceneExport = {

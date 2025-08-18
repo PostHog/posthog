@@ -11,25 +11,17 @@ import { ActivityTab } from '~/types'
 import { urls } from 'scenes/urls'
 import { IconApps } from '@posthog/icons'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 const RESOURCE_TYPE = 'event'
 
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(eventsSceneLogic)
     const { setQuery } = useActions(eventsSceneLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <SceneContent>
             <PageHeader tabbedPage />
-            <SceneTitleSection
-                name="Explore events"
-                description="A catalog of all user interactions with your app or website."
-                resourceType={{
-                    type: RESOURCE_TYPE,
-                    typePlural: 'events',
-                    forceIcon: <IconApps />,
-                }}
-            />
-            <SceneDivider />
             <LemonTabs
                 activeKey={ActivityTab.ExploreEvents}
                 tabs={[
@@ -44,7 +36,18 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
+                sceneInset={newSceneLayout}
             />
+            <SceneTitleSection
+                name="Explore events"
+                description="A catalog of all user interactions with your app or website."
+                resourceType={{
+                    type: RESOURCE_TYPE,
+                    typePlural: 'events',
+                    forceIcon: <IconApps />,
+                }}
+            />
+            <SceneDivider />
             <Query
                 attachTo={eventsSceneLogic({ tabId })}
                 uniqueKey={`events-scene-${tabId}`}
