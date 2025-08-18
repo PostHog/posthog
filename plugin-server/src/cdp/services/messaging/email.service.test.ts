@@ -5,6 +5,7 @@ import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { parseJSON } from '~/utils/json-parse'
 
 import { Hub, Team } from '../../../types'
 import { EmailService } from './email.service'
@@ -95,7 +96,7 @@ describe('EmailService', () => {
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                expect(JSON.parse(mockFetch.mock.calls[0][1].body).Messages[0].From).toMatchInlineSnapshot(`
+                expect(parseJSON(mockFetch.mock.calls[0][1].body).Messages[0].From).toMatchInlineSnapshot(`
                     {
                       "Email": "test@posthog.com",
                       "Name": "Test User",
@@ -137,6 +138,29 @@ describe('EmailService', () => {
                 `
                 )
             })
+        })
+    })
+
+    describe('native email sending', () => {
+        let invocation: CyclotronJobInvocationHogFunction
+
+        beforeEach(async () => {
+            hub.MAILJET_PUBLIC_KEY = ''
+            hub.MAILJET_SECRET_KEY = ''
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: { email: 'test@posthog.com', name: 'Test User', domain: 'posthog.com', mailjet_verified: true },
+            })
+            invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
+            invocation.id = 'invocation-1'
+            invocation.state.vmState = { stack: [] } as any
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+        })
+
+        it('should send an email', async () => {
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
         })
     })
 })

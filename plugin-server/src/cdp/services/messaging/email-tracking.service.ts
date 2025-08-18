@@ -77,7 +77,7 @@ export const generateTrackingRedirectUrl = (
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
     const trackingUrl = generateEmailTrackingPixelUrl(invocation)
 
-    html = html.replace(LINK_REGEX, (m, d, s, u, inner) => {
+    html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = d || s || u || ''
         const tracked = generateTrackingRedirectUrl(invocation, href)
 
@@ -89,8 +89,6 @@ export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocat
 
     return html
 }
-
-export const replaceLinkWithTrackingPixel = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {}
 
 export class EmailTrackingService {
     constructor(

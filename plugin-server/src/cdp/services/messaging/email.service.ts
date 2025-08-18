@@ -2,7 +2,6 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Integr
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
-import { isDevEnv } from '~/utils/env-utils'
 import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
@@ -100,7 +99,7 @@ export class EmailService {
             return 'mailjet'
         }
 
-        if (isDevEnv() && mailDevTransport) {
+        if (mailDevTransport) {
             return 'maildev'
         }
         return 'unsupported'
