@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { lazy, Suspense } from 'react'
+import { Suspense, lazy } from 'react'
 
-import { hedgehogModeLogic } from './hedgehogModeLogic'
+import { inStorybook } from 'lib/utils'
+
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { inStorybook } from 'lib/utils'
+
+import { hedgehogModeLogic } from './hedgehogModeLogic'
 import { HedgehogModeConfig } from './types'
 
 export const HedgeHogModeRenderer =

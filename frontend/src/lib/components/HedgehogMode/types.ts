@@ -1,8 +1,8 @@
 import type {
-    HedgehogModeInterface as _HedgehogModeInterface,
     HedgehogActor as _HedgehogActor,
-    HedgehogModeConfig as _HedgehogModeConfig,
     HedgehogActorOptions as _HedgehogActorOptions,
+    HedgehogModeConfig as _HedgehogModeConfig,
+    HedgehogModeInterface as _HedgehogModeInterface,
 } from '@posthog/hedgehog-mode'
 
 // NOTE: For whatever reason, kea-typegen can't navigate the exported class, so we need to do this

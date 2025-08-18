@@ -1,13 +1,16 @@
+import { Meta, StoryFn } from '@storybook/react'
+
 import {
     HedgehogActorAccessoryOptions,
     HedgehogActorColorOptions,
     HedgehogActorSkinOptions,
 } from '@posthog/hedgehog-mode'
-import { Meta, StoryFn } from '@storybook/react'
+
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+
+import { MinimalHedgehogConfig } from '~/types'
 
 import { HedgehogModeStatic } from './HedgehogModeStatic'
-import { MinimalHedgehogConfig } from '~/types'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 const meta: Meta<typeof HedgehogModeStatic> = {
     title: 'Components/HedgehogMode',

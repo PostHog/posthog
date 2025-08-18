@@ -1,9 +1,11 @@
-import { StaticHedgehogRenderer } from '@posthog/hedgehog-mode'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 
+import { StaticHedgehogRenderer } from '@posthog/hedgehog-mode'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
+
 import { Semaphore } from './utils/sempahore'
 
 export type HedgehogModeStaticProps = {

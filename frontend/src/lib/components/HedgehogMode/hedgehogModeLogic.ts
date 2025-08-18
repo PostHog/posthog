@@ -1,19 +1,18 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-
-import { membersLogic } from 'scenes/organization/membersLogic'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HedgehogConfig } from '~/types'
 
+import { sanitizeHedgehogConfig } from './hedgehog-mode-utils'
 import type { hedgehogModeLogicType } from './hedgehogModeLogicType'
 import { HedgehogModeInterface } from './types'
-import { sanitizeHedgehogConfig } from './hedgehog-mode-utils'
 
 export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     path(['hedgehog', 'hedgehogModeLogic']),
