@@ -17,5 +17,5 @@ export const mailDevTransport = isDevEnv()
 export const mailDevWebUrl = `http://${process.env.MAILDEV_HOST || 'localhost'}:${process.env.MAILDEV_WEB_PORT || 1080}`
 
 registerShutdownHandler(async () => {
-    await mailDevTransport?.close()
+    mailDevTransport?.close()
 })
