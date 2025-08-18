@@ -16,6 +16,7 @@ import { PersonRepositoryTransaction } from './person-repository-transaction'
 import type { PostgresPersonRepositoryOptions } from './postgres-person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import type { PostgresPersonRepositoryOptions } from './postgres-person-repository'
+import { PostgresPersonRepository } from './postgres-person-repository'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export interface PostgresDualWritePersonRepositoryOptions extends PostgresPersonRepositoryOptions {
@@ -123,7 +124,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         }
         return result
     }
-
 
     async updatePerson(
         person: InternalPerson,
@@ -309,7 +309,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
         let isMerged!: boolean
         await this.coordinator.run('addPersonlessDistinctIdForMerge', async (lTx, rTx) => {
-            const [p, _s] = await Promise.all([
+            const [p, s] = await Promise.all([
                 this.primaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, lTx),
                 this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, rTx),
             ])
