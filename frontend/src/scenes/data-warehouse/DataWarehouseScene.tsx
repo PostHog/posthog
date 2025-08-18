@@ -1,27 +1,24 @@
-import { useEffect } from 'react'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PipelineTab } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useValues, useActions } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
-import { urls } from 'scenes/urls'
+import { useValues } from 'kea'
+
+import { IconCheckCircle, IconInfo, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { IconPlusSmall, IconCheckCircle, IconInfo } from '@posthog/icons'
-import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
-import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
-import { TZLabel } from 'lib/components/TZLabel'
-import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
-import { externalDataSourcesLogic, DashboardDataSource, type UnifiedRecentActivity } from './externalDataSourcesLogic'
-import { useValues } from 'kea'
-
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { IconCancel, IconExclamation, IconRadioButtonUnchecked, IconSync } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { PipelineTab } from '~/types'
+
+import { DashboardDataSource, type UnifiedRecentActivity, externalDataSourcesLogic } from './externalDataSourcesLogic'
+import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
@@ -30,16 +27,8 @@ const LIST_SIZE = 5
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { totalRowsProcessed, recentActivity, dataWarehouseSources } = useValues(externalDataSourcesLogic)
+    const { totalRowsProcessed, recentActivity } = useValues(externalDataSourcesLogic)
     const { computedAllSources } = useValues(dataWarehouseSettingsLogic)
-    const { loadTotalRowsProcessed, loadRecentActivity } = useActions(externalDataSourcesLogic)
-
-    useEffect(() => {
-        if ((dataWarehouseSources?.results?.length || 0) > 0 || materializedViews.length > 0) {
-            loadTotalRowsProcessed(materializedViews)
-            loadRecentActivity(materializedViews)
-        }
-    }, [dataWarehouseSources?.results, materializedViews, loadTotalRowsProcessed, loadRecentActivity])
 
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
     const sourcesPagination = usePagination(computedAllSources, { pageSize: LIST_SIZE }, 'sources')
@@ -55,11 +44,6 @@ export function DataWarehouseScene(): JSX.Element {
                     {source.url ? <LemonTableLink to={source.url} title={source.name} /> : <span>{source.name}</span>}
                 </div>
             ),
-        },
-        {
-            title: 'Type',
-            key: 'type',
-            render: (_, source) => source.type,
         },
         {
             title: 'Last sync',
@@ -122,7 +106,6 @@ export function DataWarehouseScene(): JSX.Element {
             render: (_, activity) => (
                 <div className="flex items-center gap-1">
                     <StatusIcon status={activity.status} />
-                    {activity.sourceName && <span>{activity.sourceName}</span>}
                     <span>{activity.name}</span>
                     <LemonTag size="medium" type="muted" className="px-1 rounded-lg ml-1">
                         {activity.type}
@@ -138,10 +121,10 @@ export function DataWarehouseScene(): JSX.Element {
         },
         {
             title: 'Rows',
-            key: 'rowCount',
+            key: 'rows',
             align: 'right',
             tooltip: 'Number of rows processed in this job',
-            render: (_, activity) => (activity.rowCount !== null ? activity.rowCount.toLocaleString() : '0'),
+            render: (_, activity) => (activity.rows !== null ? activity.rows.toLocaleString() : '0'),
         },
         {
             title: 'Status',
@@ -223,7 +206,7 @@ export function DataWarehouseScene(): JSX.Element {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-start gap-1">
-                        <div className="text-sm text-muted">Rows Processed (MTD)</div>
+                        <div className="text-sm text-muted">Rows Processed (in current billing period)</div>
                         <Tooltip
                             title="Total rows processed this month by all data sources and materialized views"
                             placement="bottom"

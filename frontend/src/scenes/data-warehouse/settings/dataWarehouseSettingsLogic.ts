@@ -4,18 +4,21 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import {
-    externalDataSourcesLogic,
-    UnifiedRecentActivity,
     DashboardDataSource,
+    UnifiedRecentActivity,
+    externalDataSourcesLogic,
 } from 'scenes/data-warehouse/externalDataSourcesLogic'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import type { PaginatedResponse } from 'lib/api'
-import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { BillingPeriod, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -31,6 +34,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading', 'recentActivity'],
             availableSourcesDataLogic,
             ['availableSources'],
+            billingLogic,
+            ['billingPeriodUTC'],
         ],
         actions: [
             databaseTableListLogic,
@@ -116,61 +121,42 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
         computedAllSources: [
-            (s) => [s.dataWarehouseSources, s.recentActivity, s.selfManagedTables],
+            (s) => [s.dataWarehouseSources, s.recentActivity, s.selfManagedTables, s.billingPeriodUTC],
             (
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
                 recentActivity: UnifiedRecentActivity[],
                 selfManagedTables: DatabaseSchemaDataWarehouseTable[],
-                availableSources: Record<string, any> | null
+                billingPeriodUTC: BillingPeriod
             ): DashboardDataSource[] => {
-                const getSourceType = (
-                    sourceType: string,
-                    availableSources?: Record<string, any> | null
-                ): 'Database' | 'API' => {
-                    const fields = availableSources?.[sourceType]?.fields || []
-                    const lowerCaseFields = fields.map((f: any) => ({
-                        ...f,
-                        name: f.name.toLowerCase().replace(/ /g, '_'),
-                    }))
-                    if (
-                        lowerCaseFields.some(
-                            (f: any) =>
-                                f.name === 'connection_string' ||
-                                f.name === 'host' ||
-                                f.name === 'port' ||
-                                f.name === 'database'
-                        )
-                    ) {
-                        return 'Database'
-                    }
-                    if (
-                        lowerCaseFields.some(
-                            (f: any) => f.type === 'oauth' || f.name === 'api_key' || f.name === 'access_token'
-                        )
-                    ) {
-                        return 'API'
-                    }
-                    return 'API'
-                }
+                const billingPeriodStart = billingPeriodUTC?.start
+                const billingPeriodEnd = billingPeriodUTC?.end
 
                 const managed: DashboardDataSource[] = (dataWarehouseSources?.results || []).map(
                     (source: ExternalDataSource): DashboardDataSource => {
                         const sourceActivities = (recentActivity || []).filter(
-                            (a) => a.type === 'Data Sync' && a.sourceId === source.id
+                            (a) =>
+                                String(a.source_id) === String(source.id) &&
+                                a.type !== 'materialized_view' &&
+                                (!billingPeriodStart ||
+                                    !billingPeriodEnd ||
+                                    (dayjs(a.created_at).isAfter(billingPeriodStart.subtract(1, 'millisecond')) &&
+                                        dayjs(a.created_at).isBefore(billingPeriodEnd)))
                         )
                         const totalRows = sourceActivities.reduce(
-                            (sum: number, a: UnifiedRecentActivity) => sum + Number(a.rowCount || 0),
+                            (sum: number, a: UnifiedRecentActivity) => sum + Number(a.rows || 0),
                             0
                         )
-                        const lastSync = sourceActivities.length > 0 ? sourceActivities[0].created_at : null
+                        const sortedActivities = sourceActivities.sort(
+                            (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
+                        )
+                        const lastSync = sortedActivities.length > 0 ? sortedActivities[0].created_at : null
                         return {
                             id: source.id,
                             name: source.source_type,
-                            type: getSourceType(source.source_type, availableSources),
                             status: source.status,
                             lastSync,
                             rowCount: totalRows,
-                            url: `/data-warehouse/sources/managed-${source.id}`,
+                            url: urls.dataWarehouseSource(`managed-${source.id}`),
                         }
                     }
                 )
@@ -178,11 +164,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 const selfManaged: DashboardDataSource[] = (selfManagedTables || []).map((table) => ({
                     id: table.id,
                     name: table.name,
-                    type: 'Database' as const,
                     status: null,
                     lastSync: null,
                     rowCount: table.row_count ?? null,
-                    url: `/data-warehouse/sources/self-managed-${table.id}`,
+                    url: urls.dataWarehouseSource(`self-managed-${table.id}`),
                 }))
 
                 return [...managed, ...selfManaged]
@@ -253,9 +238,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 actions.loadSources(null)
 
                 posthog.capture('source reloaded', { sourceType: source.source_type })
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
+            } catch (e: unknown) {
+                const error = e as Error
+                if (error.message) {
+                    lemonToast.error(error.message)
                 } else {
                     lemonToast.error('Cant refresh source at this time')
                 }
