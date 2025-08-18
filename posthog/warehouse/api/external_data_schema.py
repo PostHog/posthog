@@ -32,6 +32,10 @@ from posthog.warehouse.models.external_data_schema import (
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
+from django.dispatch import receiver
+from posthog.models.signals import model_activity_signal
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
+import dataclasses
 
 logger = structlog.get_logger(__name__)
 
@@ -349,3 +353,63 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         }
 
         return Response(status=status.HTTP_200_OK, data=data)
+
+
+@dataclasses.dataclass(frozen=True)
+class ExternalDataSchemaContext(ActivityContextBase):
+    name: str
+    sync_type: str | None
+    sync_frequency: str | None
+    source_id: str
+    source_type: str
+
+
+@receiver(model_activity_signal, sender=ExternalDataSchema)
+def handle_external_data_schema_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    from posthog.models.activity_logging.external_data_utils import (
+        get_external_data_schema_detail_name,
+    )
+
+    # Use after_update for create/update, before_update for delete
+    external_data_schema = after_update or before_update
+
+    if not external_data_schema:
+        return
+
+    detail_name = get_external_data_schema_detail_name(external_data_schema)
+
+    # Get source information for context
+    source = external_data_schema.source
+    source_type = source.source_type if source else ""
+
+    # Get sync frequency from sync_frequency_interval if available
+    sync_frequency = None
+    if external_data_schema.sync_frequency_interval:
+        from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+
+        sync_frequency = sync_frequency_interval_to_sync_frequency(external_data_schema.sync_frequency_interval)
+
+    context = ExternalDataSchemaContext(
+        name=external_data_schema.name or "",
+        sync_type=external_data_schema.sync_type,
+        sync_frequency=sync_frequency,
+        source_id=str(source.id) if source else "",
+        source_type=source_type,
+    )
+
+    log_activity(
+        organization_id=external_data_schema.team.organization_id,
+        team_id=external_data_schema.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=external_data_schema.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )
