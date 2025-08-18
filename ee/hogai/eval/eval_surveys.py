@@ -245,7 +245,7 @@ User Instructions: {{input}}
 
 Generated Survey Questions:
 {{#output.survey_creation_output.questions}}
-{{@index}}. {{type}}: {{question}}
+- {{type}}: {{question}}
 {{#description}}   Description: {{.}}{{/description}}
 {{#choices}}   Choices: {{.}}{{/choices}}
 {{#scale}}   Scale: {{.}}{{/scale}}
