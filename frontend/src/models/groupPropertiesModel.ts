@@ -1,5 +1,6 @@
 import { connect, events, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { projectLogic } from 'scenes/projectLogic'

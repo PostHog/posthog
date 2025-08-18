@@ -1,11 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { EarlyAccessFeature, posthog } from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { EarlyAccessFeature, posthog } from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

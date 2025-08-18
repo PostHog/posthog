@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
+
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 export type LemonPureFieldProps = {
     /** The label name to be displayed */

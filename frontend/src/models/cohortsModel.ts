@@ -1,9 +1,10 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { v4 as uuidv4 } from 'uuid'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { v4 as uuidv4 } from 'uuid'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -149,6 +150,39 @@ export const cohortsModel = kea<cohortsModelType>([
             },
         ],
         cohorts: {
+            updateCohort: (state, { cohort }) => {
+                if (!cohort) {
+                    return state
+                }
+                return {
+                    ...state,
+                    results: state.results.map((existingCohort) =>
+                        existingCohort.id === cohort.id ? cohort : existingCohort
+                    ),
+                }
+            },
+            cohortCreated: (state, { cohort }) => {
+                if (!cohort) {
+                    return state
+                }
+                return {
+                    ...state,
+                    results: [cohort, ...state.results],
+                }
+            },
+            deleteCohort: (state, { cohort }) => {
+                if (!cohort.id) {
+                    return state
+                }
+                return {
+                    ...state,
+                    results: state.results.filter((c) => c.id !== cohort.id),
+                }
+            },
+        },
+        // Update allCohorts state to keep breadcrumbs in sync when cohorts are modified
+        // The cohortsById selector depends on allCohorts, not cohorts
+        allCohorts: {
             updateCohort: (state, { cohort }) => {
                 if (!cohort) {
                     return state

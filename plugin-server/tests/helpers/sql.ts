@@ -330,6 +330,7 @@ export async function createUserTeamAndOrganization(
         access_control: false,
         base_currency: 'USD',
         cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
+        session_recording_retention_period: 'legacy',
         ...otherTeamOverrides,
     }
 
@@ -484,6 +485,7 @@ export const createTeam = async (
         person_display_name_properties: [],
         access_control: false,
         base_currency: 'USD',
+        session_recording_retention_period: 'legacy',
         ...teamSettings,
     })
     return id
@@ -573,7 +575,7 @@ export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string
 export async function resetCountersDatabase(db: PostgresRouter): Promise<void> {
     await db.query(
         PostgresUse.COUNTERS_RW,
-        'TRUNCATE TABLE person_performed_events_partitioned, behavioural_filter_matched_events_partitioned',
+        'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
         undefined,
         'reset-counters-db'
     )

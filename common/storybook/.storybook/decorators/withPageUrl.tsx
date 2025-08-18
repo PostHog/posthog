@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
-import { router } from 'kea-router'
 import type { Decorator } from '@storybook/react'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 declare module '@storybook/types' {
     interface Parameters {

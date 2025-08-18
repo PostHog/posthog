@@ -1,20 +1,15 @@
-import { actions, afterMount, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { arrayMove } from '@dnd-kit/sortable'
+import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
-import { identifierToHuman, getRelativeNextPath } from 'lib/utils'
+import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
-import posthog from 'posthog-js'
-import {
-    emptySceneParams,
-    forwardedRedirectQueryParams,
-    preloadedScenes,
-    redirects,
-    routes,
-    sceneConfigurations,
-} from 'scenes/scenes'
 import {
     LoadedScene,
     Params,
@@ -25,20 +20,26 @@ import {
     SceneTab,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
+import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '~/types'
+import { AccessControlLevel, OnboardingStepKey, PipelineTab, ProductKey } from '~/types'
 
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { organizationLogic } from './organizationLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
-import { arrayMove } from '@dnd-kit/sortable'
-import { subscriptions } from 'kea-subscriptions'
 
 const TAB_STATE_KEY = 'scene-tabs-state'
 const persistTabs = (tabs: SceneTab[]): void => {
@@ -205,6 +206,16 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (!newState.find((t) => t.active)) {
                         const newActiveIndex = Math.max(index - 1, 0)
                         newState = newState.map((tab, i) => (i === newActiveIndex ? { ...tab, active: true } : tab))
+                    }
+                    if (newState.length === 0) {
+                        newState.push({
+                            id: generateTabId(),
+                            active: true,
+                            pathname: '/new',
+                            search: '',
+                            hash: '',
+                            title: 'New tab',
+                        })
                     }
                     return newState
                 },

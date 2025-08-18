@@ -1,9 +1,11 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

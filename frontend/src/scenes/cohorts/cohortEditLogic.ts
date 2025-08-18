@@ -2,11 +2,13 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
+import { v4 as uuidv4 } from 'uuid'
+
 import api from 'lib/api'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
@@ -19,10 +21,10 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
-import { v4 as uuidv4 } from 'uuid'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
@@ -36,7 +38,6 @@ import {
 } from '~/types'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']

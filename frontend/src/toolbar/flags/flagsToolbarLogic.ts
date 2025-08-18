@@ -2,8 +2,9 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import type { PostHog } from 'posthog-js'
+
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'

@@ -1,4 +1,5 @@
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
+
 import { SceneDataAttrKeyProps } from './utils'
 
 type SceneShareButtonProps = SceneDataAttrKeyProps & {

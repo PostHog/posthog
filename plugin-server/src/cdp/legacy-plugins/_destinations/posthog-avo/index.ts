@@ -1,5 +1,6 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { randomUUID } from 'crypto'
+
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 

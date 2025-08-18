@@ -1,11 +1,15 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect, useState } from 'react'
+import { cn } from 'lib/utils/css-classes'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -15,9 +19,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OnboardingStepKey, ProductKey } from '~/types'
 
-import { cn } from 'lib/utils/css-classes'
-import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { ProjectNoticeVariant, navigationLogic } from './navigationLogic'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string

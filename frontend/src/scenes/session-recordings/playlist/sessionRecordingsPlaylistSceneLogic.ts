@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -32,7 +34,7 @@ import {
 
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
 import { filtersFromUniversalFilterGroups, isUniversalFilters } from '../utils'
-import { convertLegacyFiltersToUniversalFilters, PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
+import { PINNED_RECORDINGS_LIMIT, convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
 
 export interface SessionRecordingsPlaylistLogicProps {

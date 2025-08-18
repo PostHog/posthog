@@ -1,4 +1,4 @@
-import { getStickyColumnInfo, DEFAULT_COLUMN_WIDTH } from './columnUtils'
+import { DEFAULT_COLUMN_WIDTH, getStickyColumnInfo } from './columnUtils'
 import { LemonTableColumn } from './types'
 
 describe('getStickyColumnInfo', () => {

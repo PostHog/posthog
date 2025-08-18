@@ -1,5 +1,6 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router } from 'kea-router'
+
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
@@ -81,12 +82,10 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ErrorTrackingConfigurationSceneLogicProps> = {
     component: ErrorTrackingConfigurationScene,
     logic: errorTrackingConfigurationSceneLogic,
-    paramsToProps: ({ searchParams: { tab } }): (typeof errorTrackingConfigurationSceneLogic)['props'] => ({
-        initialTab: tab,
-    }),
+    paramsToProps: ({ searchParams: { tab } }) => ({ initialTab: tab }),
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {

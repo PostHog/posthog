@@ -1,4 +1,5 @@
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
