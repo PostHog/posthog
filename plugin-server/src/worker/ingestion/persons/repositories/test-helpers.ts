@@ -1,10 +1,11 @@
 import fs from 'fs'
 import { DateTime } from 'luxon'
 import path from 'path'
+
 import { Hub, Team } from '~/types'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
+
 import { CreatePersonResult } from '../../../../utils/db/db'
-import { UUIDT } from '~/utils/utils'
 
 export const TEST_UUIDS = {
     single: '11111111-1111-1111-1111-111111111111',
@@ -74,7 +75,7 @@ export async function assertConsistencyAcrossDatabases(
 ) {
     const [primary, secondary] = await Promise.all([
         primaryRouter.query(PostgresUse.PERSONS_READ, query, params, primaryTag),
-        secondaryRouter.query(PostgresUse.PERSONS_READ, query, params, secondaryTag)
+        secondaryRouter.query(PostgresUse.PERSONS_READ, query, params, secondaryTag),
     ])
     expect(primary.rows).toEqual(secondary.rows)
 }
@@ -86,17 +87,20 @@ export function mockDatabaseError(
 ) {
     const originalQuery = router.query.bind(router)
     return jest.spyOn(router, 'query').mockImplementation((use: any, text: any, params: any, tag: string) => {
-        const shouldThrow = typeof tagPattern === 'string' 
-            ? tag && tag.startsWith(tagPattern)
-            : tag && tagPattern.test(tag)
-        
+        const shouldThrow =
+            typeof tagPattern === 'string' ? tag && tag.startsWith(tagPattern) : tag && tagPattern.test(tag)
+
         if (shouldThrow) {
             if (error instanceof Error) {
                 throw error
             } else {
                 const e: any = new Error(error.message)
-                if (error.code) e.code = error.code
-                if ((error as any).constraint) e.constraint = (error as any).constraint
+                if (error.code) {
+                    e.code = error.code
+                }
+                if ((error as any).constraint) {
+                    e.constraint = (error as any).constraint
+                }
                 throw e
             }
         }
@@ -133,7 +137,7 @@ export async function assertConsistentDatabaseErrorHandling<T>(
     if (expectedError) {
         expect(singleError).toBeDefined()
         expect(dualError).toBeDefined()
-        
+
         if (typeof expectedError === 'string') {
             expect(singleError.message).toContain(expectedError)
             expect(dualError.message).toContain(expectedError)
@@ -165,7 +169,10 @@ export function assertCreatePersonContractParity(singleResult: CreatePersonResul
     expect(singleResult.person.properties).toEqual(dualResult.person.properties)
 }
 
-export function assertCreatePersonConflictContractParity(singleResult: CreatePersonResult, dualResult: CreatePersonResult) {
+export function assertCreatePersonConflictContractParity(
+    singleResult: CreatePersonResult,
+    dualResult: CreatePersonResult
+) {
     expect(singleResult.success).toBe(false)
     expect(dualResult.success).toBe(false)
     expect(singleResult.error).toBe(dualResult.error)
