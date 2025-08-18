@@ -1,11 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
-import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -18,21 +15,26 @@ import {
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
+import posthog from 'posthog-js'
+import { RefObject } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+
 import api from 'lib/api'
-import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
-import posthog from 'posthog-js'
-import { RefObject } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
-    sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -95,6 +97,7 @@ export enum SessionRecordingPlayerMode {
     Sharing = 'sharing',
     Notebook = 'notebook',
     Preview = 'preview',
+    Screenshot = 'screenshot',
 }
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
@@ -249,8 +252,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
-            takeScreenshotLogic({ screenshotKey: 'replay' }),
-            ['setHtml'],
+            exportsLogic,
+            ['startReplayExport'],
         ],
     })),
     actions({
@@ -550,7 +553,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
     selectors({
         // Prop references for use by other logics
-        sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
+        sessionRecordingId: [(_, p) => [p.sessionRecordingId], (sessionRecordingId) => sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
@@ -993,6 +996,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
                     const searchParams = router.values.searchParams
+                    if (searchParams.fullscreen) {
+                        actions.setIsFullScreen(true)
+                    }
                     if (searchParams.timestamp) {
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
@@ -1376,7 +1382,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            actions.setHtml(iframe)
+            // We need to subtract 1 second as the player starts immediately
+            const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
+
+            actions.startReplayExport(values.sessionRecordingId, timestamp, {
+                width: iframe?.width ? Number(iframe.width) : 1400,
+                height: iframe?.height ? Number(iframe.height) : 600,
+                css_selector: '.replayer-wrapper',
+                filename: `replay-${values.sessionRecordingId}`,
+            })
         },
         openHeatmap: () => {
             actions.setPause()

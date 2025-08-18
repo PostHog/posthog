@@ -1,11 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import {
     ActorsQuery,
     DataTableNode,

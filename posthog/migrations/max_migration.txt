@@ -1,1 +1,1 @@
-0820_organization_allow_publicly_shared_resources
+0824_team_session_recording_retention_period

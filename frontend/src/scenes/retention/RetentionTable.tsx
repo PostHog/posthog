@@ -1,12 +1,14 @@
 import './RetentionTable.scss'
 
-import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { gradateColor, range } from 'lib/utils'
 import React from 'react'
+
+import { IconChevronDown } from '@posthog/icons'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { gradateColor, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { useCallback } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
@@ -9,19 +13,17 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
+
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { alphabet, formatDate } from 'lib/utils'
-import { useCallback } from 'react'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import {
@@ -32,9 +34,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { SnoozeButton } from '../SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
-import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
 

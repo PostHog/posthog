@@ -1,11 +1,13 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useCallback, useEffect } from 'react'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
-import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
 import { cn } from 'lib/utils/css-classes'
-import { useCallback, useEffect } from 'react'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
 import { StacktraceBaseDisplayProps, StacktraceBaseExceptionHeaderProps } from './StacktraceBase'

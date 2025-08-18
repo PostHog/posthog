@@ -40,6 +40,7 @@ pub fn match_property(
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
     if partial_props && !matching_property_values.contains_key(&property.key) {
+        tracing::warn!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
             property.key

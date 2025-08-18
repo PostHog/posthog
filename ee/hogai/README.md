@@ -58,11 +58,25 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
+4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
+
+    ```tsx
+    export const TOOL_DEFINITIONS: ... = {
+        // ... existing tools ...
+        your_tool_name: {
+            name: 'Do something',
+            description: 'Do something to blah blah',
+            product: Scene.YourProduct, // or null for the rare global tool
+            flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+        },
+    }
+    ```
+
 For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
 
 ### Mounting
 
-1. Use the `MaxTool` component to wrap UI elements that can benefit from AI assistance:
+Use the `MaxTool` component to wrap UI elements that can benefit from AI assistance:
 
 ```tsx
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -91,6 +105,8 @@ function YourComponent() {
     )
 }
 ```
+
+When a tool is mounted, it automatically gets shown as available in the scene UI and Max itself, using `TOOL_DEFINITIONS` metadata to help the user understand the capability.
 
 For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx`, which mounts the `search_session_recordings` tool.
 
@@ -200,7 +216,7 @@ class MaxToolTaxonomyOutput(BaseModel):
     # See an example: from posthog.schema import MaxRecordingUniversalFilters
 ```
 
-2. Create a toolkit and add a typed `final_answer` tool (optional: change output formatting to YAML):
+2. Create a toolkit and add a typed `final_answer` tool (optional: change output formatting to YAML) and any custom tool you might have, in this example `hello_world`:
 
 ```python
 from pydantic import BaseModel, Field
@@ -213,19 +229,27 @@ class final_answer(base_final_answer[MaxToolTaxonomyOutput]):
     # Usually the final answer tool will be different for each max_tool based on the expected output.
     __doc__ = base_final_answer.__doc__ # Inherit from the base final answer or create your own.
 
-class your_custom_tool(BaseModel):
-    """
-    Add a meaningful description here about what this tool is used for.
-    """
+class hello_world(BaseModel):
+    """Tool for saying hello to the user, should be used in the very beginning of the conversation. Use it before you use any other tool."""
+    name: str = Field(description="The name of the person to say hello to.")
 
-    your_field: str = Field(..., description="The field description here.")
+def hello_world_tool(name: str) -> str:
+    return f"Hello, {name}!"
 
 class YourToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
+    # You must override this method if you are adding a custom tool that is only applicable to your usecase
+    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+        """Override the handle_tools method to add custom tools."""
+        if tool_name == "hello_world":
+            result = hello_world_tool(tool_input.arguments.name)
+            return tool_name, result
+        return super().handle_tools(tool_name, tool_input)
+
     def _get_custom_tools(self) -> list:
-        return [final_answer, your_custom_tool]
+        return [final_answer, hello_world]
 
     # Optional: prefer YAML over XML for property lists, but not a must to override
     # If not overriden XML will be used

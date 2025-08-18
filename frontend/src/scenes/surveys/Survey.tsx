@@ -1,34 +1,34 @@
-import { LemonButton, LemonDivider, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { LemonButton, LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect } from 'react'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
-import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
+import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
     logic: surveyLogic,
-    paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
-        id: id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
     settingSectionId: 'environment-surveys',
 }
 
-export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
+export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 

@@ -17,7 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.action.action import Action
@@ -112,7 +112,7 @@ FROM (
 """
 
 
-class CalendarHeatmapQueryRunner(QueryRunner):
+class CalendarHeatmapQueryRunner(AnalyticsQueryRunner):
     query: CalendarHeatmapQuery
     response: CalendarHeatmapResponse
     cached_response: CachedCalendarHeatmapQueryResponse
@@ -166,7 +166,7 @@ class CalendarHeatmapQueryRunner(QueryRunner):
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         response = execute_hogql_query(
             query_type="calendar_heatmap_query",

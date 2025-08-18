@@ -1,5 +1,7 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'

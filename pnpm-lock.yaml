@@ -7,7 +7,7 @@ settings:
 overrides:
   playwright: 1.45.0
   typescript: 5.2.2
-  '@posthog/icons': 0.26.0
+  '@posthog/icons': 0.27.0
 
 patchedDependencies:
   dayjs@1.11.11:
@@ -47,6 +47,9 @@ importers:
       '@parcel/transformer-typescript-types':
         specifier: 2.13.3
         version: 2.13.3(@parcel/core@2.13.3)(typescript@5.2.2)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)
       '@types/uuid':
         specifier: ^10.0.0
         version: 10.0.0
@@ -384,8 +387,8 @@ importers:
         specifier: '*'
         version: 4.3.0(postcss@8.5.6)(webpack@5.88.2)
       posthog-js:
-        specifier: 1.259.0
-        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.260.0
+        version: 1.260.0(@rrweb/types@2.0.0-alpha.17)
       sass-loader:
         specifier: '*'
         version: 10.3.1(sass@1.56.0)(webpack@5.88.2)
@@ -457,8 +460,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.259.0
-        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.260.0
+        version: 1.260.0(@rrweb/types@2.0.0-alpha.17)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -530,8 +533,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -815,32 +818,32 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.6(react@18.2.0))
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-localstorage:
         specifier: ^3.1.0
-        version: 3.1.0(kea@3.1.6(react@18.2.0))
+        version: 3.1.0(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.6(react@18.2.0))
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
       kea-test-utils:
         specifier: ^0.2.4
-        version: 0.2.4(kea@3.1.6(react@18.2.0))
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
       kea-waitfor:
         specifier: ^0.2.1
-        version: 0.2.1(kea@3.1.6(react@18.2.0))
+        version: 0.2.1(kea@3.1.7(react@18.2.0))
       kea-window-values:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.6(react@18.2.0))
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
       liquidjs:
         specifier: ^10.21.1
         version: 10.21.1
@@ -890,8 +893,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.259.0
-        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.260.0
+        version: 1.260.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1374,6 +1377,9 @@ importers:
       node-schedule:
         specifier: ^2.1.0
         version: 2.1.1
+      nodemailer:
+        specifier: ^7.0.5
+        version: 7.0.5
       p-limit:
         specifier: 3.1.0
         version: 3.1.0
@@ -1495,6 +1501,9 @@ importers:
       '@types/node-schedule':
         specifier: ^2.1.0
         version: 2.1.0
+      '@types/nodemailer':
+        specifier: ^6.4.17
+        version: 6.4.17
       '@types/pg':
         specifier: ^8.6.0
         version: 8.6.6
@@ -1552,9 +1561,6 @@ importers:
       eslint-plugin-promise:
         specifier: ^6.1.1
         version: 6.6.0(eslint@8.57.0)
-      eslint-plugin-simple-import-sort:
-        specifier: ^7.0.0
-        version: 7.0.0(eslint@8.57.0)
       jest:
         specifier: ^30.0.0
         version: 30.0.5(@types/node@22.15.17)(esbuild-register@3.5.0(esbuild@0.25.0))(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
@@ -1586,8 +1592,11 @@ importers:
   products/actions:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1598,14 +1607,20 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
+      kea-forms:
+        specifier: ^3.2.0
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      kea-subscriptions:
+        specifier: ^3.0.1
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1613,8 +1628,8 @@ importers:
   products/cohorts:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1625,14 +1640,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1640,8 +1655,8 @@ importers:
   products/dashboards:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1652,14 +1667,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1667,8 +1682,8 @@ importers:
   products/early_access_features:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1679,17 +1694,17 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.6(react@18.2.0))
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1709,8 +1724,8 @@ importers:
         specifier: '*'
         version: 3.2.1(react@18.2.0)
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/addon-actions':
         specifier: '*'
         version: 7.6.4
@@ -1729,6 +1744,9 @@ importers:
       clsx:
         specifier: '*'
         version: 1.2.1
+      cva:
+        specifier: 1.0.0-beta.3
+        version: 1.0.0-beta.3(typescript@5.2.2)
       d3:
         specifier: '*'
         version: 7.9.0
@@ -1739,23 +1757,26 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.6(react@18.2.0))
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.6(react@18.2.0))
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
+      lodash.throttle:
+        specifier: ^4.1.1
+        version: 4.1.1
       posthog-js:
-        specifier: 1.259.0
-        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.260.0
+        version: 1.260.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -1771,12 +1792,16 @@ importers:
       use-resize-observer:
         specifier: '*'
         version: 8.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+    devDependencies:
+      '@types/lodash.throttle':
+        specifier: ^4.1.9
+        version: 4.1.9
 
   products/experiments:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1787,14 +1812,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1802,8 +1827,8 @@ importers:
   products/feature_flags:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1814,14 +1839,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1829,8 +1854,8 @@ importers:
   products/games:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1841,14 +1866,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1856,8 +1881,8 @@ importers:
   products/groups:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1868,14 +1893,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1883,8 +1908,8 @@ importers:
   products/links:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1895,17 +1920,17 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.6(react@18.2.0))
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.2.0)
@@ -1916,8 +1941,8 @@ importers:
   products/llm_observability:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1937,14 +1962,14 @@ importers:
         specifier: '*'
         version: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -1957,16 +1982,19 @@ importers:
       typescript:
         specifier: 5.2.2
         version: 5.2.2
+      use-debounce:
+        specifier: '*'
+        version: 9.0.3(react@18.2.0)
     devDependencies:
       kea-test-utils:
         specifier: '*'
-        version: 0.2.4(kea@3.1.6(react@18.2.0))
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
 
   products/logs:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../error_tracking
@@ -1995,14 +2023,14 @@ importers:
         specifier: '*'
         version: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2022,26 +2050,26 @@ importers:
   products/managed_migrations:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.6(react@18.2.0))
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2049,8 +2077,8 @@ importers:
   products/messaging:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2070,23 +2098,23 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.6(react@18.2.0))
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.6(react@18.2.0))
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.259.0
-        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.260.0
+        version: 1.260.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2097,8 +2125,8 @@ importers:
   products/notebooks:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2109,14 +2137,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2124,8 +2152,8 @@ importers:
   products/persons:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2136,14 +2164,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2151,8 +2179,8 @@ importers:
   products/product_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2163,14 +2191,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2178,8 +2206,8 @@ importers:
   products/replay:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2190,14 +2218,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2205,8 +2233,8 @@ importers:
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2217,17 +2245,17 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.6(react@18.2.0))
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2235,8 +2263,8 @@ importers:
   products/surveys:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2247,14 +2275,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2262,8 +2290,8 @@ importers:
   products/user_interviews:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2271,17 +2299,17 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.259.0
-        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.260.0
+        version: 1.260.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2289,8 +2317,8 @@ importers:
   products/web_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.27.0
+        version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2301,14 +2329,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.6
-        version: 3.1.6(react@18.2.0)
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.6(react@18.2.0))
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.6(react@18.2.0))
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -5222,8 +5250,8 @@ packages:
       webpack-plugin-serve:
         optional: true
 
-  '@posthog/icons@0.26.0':
-    resolution: {integrity: sha512-Ig0B7AM3HzJpUbcmXxXVPlCvq8a+C8xlhs117ieBfwb9Q9Kp12p3ptz0CoolIRTvcJZeCGriTLx1PQYcmo2Saw==}
+  '@posthog/icons@0.27.0':
+    resolution: {integrity: sha512-SR7QqPjHI9/Iyt2QfwLT3i95GasnGZE+qe9wTfBQEXOD3TUrt7xwHv5Fvyp6YJexMTLP2VByMpysaqNEGsLn6w==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -7692,6 +7720,22 @@ packages:
     resolution: {integrity: sha512-XCuKFP5PS55gnMVu3dty8KPatLqUoy/ZYzDzAGCQ8JNFCkLXzmI7vNHCR+XpbZaMWQK/vQubr7PkYq8g470J/A==}
     engines: {node: '>= 10'}
 
+  '@trivago/prettier-plugin-sort-imports@5.2.2':
+    resolution: {integrity: sha512-fYDQA9e6yTNmA13TLVSA+WMQRc5Bn/c0EUBditUHNfMMxN7M82c38b1kEggVE3pLpZ0FwkwJkUEKMiOi52JXFA==}
+    engines: {node: '>18.12'}
+    peerDependencies:
+      '@vue/compiler-sfc': 3.x
+      prettier: 2.x - 3.x
+      prettier-plugin-svelte: 3.x
+      svelte: 4.x || 5.x
+    peerDependenciesMeta:
+      '@vue/compiler-sfc':
+        optional: true
+      prettier-plugin-svelte:
+        optional: true
+      svelte:
+        optional: true
+
   '@trysound/sax@0.2.0':
     resolution: {integrity: sha512-L7z9BgrNEcYyUYtF+HaEfiS5ebkh9jXqbszz7pC0hRBPaatV0XjSD3+eHrpqFemQfgwiFF0QPIarnIihIDn7OA==}
     engines: {node: '>=10.13.0'}
@@ -8057,6 +8101,9 @@ packages:
   '@types/lodash.sortby@4.7.9':
     resolution: {integrity: sha512-PDmjHnOlndLS59GofH0pnxIs+n9i4CWeXGErSB5JyNFHu2cmvW6mQOaUKjG8EDPkni14IgF8NsRW8bKvFzTm9A==}
 
+  '@types/lodash.throttle@4.1.9':
+    resolution: {integrity: sha512-PCPVfpfueguWZQB7pJQK890F2scYKoDUL3iM522AptHWn7d5NQmeS/LTEHIcLr5PaTzl3dK2Z0xSUHHTHwaL5g==}
+
   '@types/lodash.uniqby@4.7.9':
     resolution: {integrity: sha512-rjrXji/seS6BZJRgXrU2h6FqxRVufsbq/HE0Tx0SdgbtlWr2YmD/M64BlYEYYlaMcpZwy32IYVkMfUMYlPuv0w==}
 
@@ -8125,6 +8172,9 @@ packages:
 
   '@types/node@22.15.17':
     resolution: {integrity: sha512-wIX2aSZL5FE+MR0JlvF87BNVrtFWf6AE6rxSE9X7OwnVvoyCQjpzSRJ+M87se/4QCkCiebQAqrJ0y6fwIyi7nw==}
+
+  '@types/nodemailer@6.4.17':
+    resolution: {integrity: sha512-I9CCaIp6DTldEg7vyUTZi8+9Vo0hi1/T8gv3C89yk1rSAAzoKQ8H8ki/jBYJSFoH/BisgLP8tkZMlQ91CIquww==}
 
   '@types/normalize-package-data@2.4.1':
     resolution: {integrity: sha512-Gj7cI7z+98M282Tqmp2K5EIsoouUEzbBJhQQzDE3jSIRk6r9gsz0oUokqIUR4u1R3dMHo0pDHM7sNOHyhulypw==}
@@ -10686,11 +10736,6 @@ packages:
     peerDependencies:
       eslint: ^7.0.0 || ^8.0.0 || ^9.0.0
 
-  eslint-plugin-simple-import-sort@7.0.0:
-    resolution: {integrity: sha512-U3vEDB5zhYPNfxT5TYR7u01dboFZp+HNpnGhkDB2g/2E4wZ/g1Q9Ton8UwCLfRV9yAKyYqDh62oHOamvkFxsvw==}
-    peerDependencies:
-      eslint: '>=5.0.0'
-
   eslint-scope@5.1.1:
     resolution: {integrity: sha512-2NxwbF/hZ0KpepYN0cNbo+FN6XoK7GaHlQhgx/hIZl6Va0bF45RQOOwhLIy8lQDbuCiadSLCBnH2CFYquit5bw==}
     engines: {node: '>=8.0.0'}
@@ -12237,6 +12282,9 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
+  javascript-natural-sort@0.7.1:
+    resolution: {integrity: sha512-nO6jcEfZWQXDhOiBtG2KvKyEptz7RVbpGP4vTD2hLBdmNQSsCiicO2Ioinv6UI4y9ukqnBpy+XZ9H6uLNgJTlw==}
+
   jest-canvas-mock@2.4.0:
     resolution: {integrity: sha512-mmMpZzpmLzn5vepIaHk5HoH3Ka4WykbSoLuG/EKoJd0x0ID/t+INo1l8ByfcUJuDM+RIsL4QDg/gDnBbrj2/IQ==}
 
@@ -12715,8 +12763,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea@3.1.6:
-    resolution: {integrity: sha512-EftYkqGyI8hdC8Eo9r6jGtUSxdykNe1L+Cpu+7t/SEWc9f3OPFtNFPF+hdxdYBeZp2Je3EY6BAEQfWhP4mbUPA==}
+  kea@3.1.7:
+    resolution: {integrity: sha512-BN9bS4NMI57TwJRANL55H5Cl2Px0ciyv58wtnzzfwH7d2R9fEmcuRREpLfp3blglSrgfGUWM4b+Pz6CwxJxjzQ==}
     peerDependencies:
       react: '>= 16.8'
 
@@ -13009,6 +13057,9 @@ packages:
 
   lodash.sortby@4.7.0:
     resolution: {integrity: sha512-HDWXG8isMntAyRF5vZ7xKuEvOhT4AhlRt/3czTSjvGUxjYCBVRQY48ViDHyfYz9VIoBkW4TMGQNapx+l3RUwdA==}
+
+  lodash.throttle@4.1.1:
+    resolution: {integrity: sha512-wIkUCfVKpVsWo3JSZlc+8MB5it+2AN5W8J7YVMST30UrvcQNZ1Okbj+rbVniijTWE6FGYy4XJq/rHkas8qJMLQ==}
 
   lodash.truncate@4.4.2:
     resolution: {integrity: sha512-jttmRe7bRse52OsWIMDLaXxWqRAmtIUccAQ3garviCqJjafXOfNMO0yMfNpdD6zbGaTU0P5Nz7e7gAT6cKmJRw==}
@@ -13592,6 +13643,10 @@ packages:
   node-schedule@2.1.1:
     resolution: {integrity: sha512-OXdegQq03OmXEjt2hZP33W2YPs/E5BcFQks46+G2gAxs4gHOIVD1u7EqlYLYSKsaIpyKCK9Gbk0ta1/gjRSMRQ==}
     engines: {node: '>=6'}
+
+  nodemailer@7.0.5:
+    resolution: {integrity: sha512-nsrh2lO3j4GkLLXoeEksAMgAOqxOv6QumNRVQTJwKH4nuiww6iC2y7GyANs9kRAxCexg3+lTWM3PZ91iLlVjfg==}
+    engines: {node: '>=6.0.0'}
 
   nodemon@3.1.10:
     resolution: {integrity: sha512-WDjw3pJ0/0jMFmyNDp3gvY2YizjLmmOUQo6DEBY+JgdvW/yQ9mEeSw6H5ythl5Ny2ytb7f9C2nIbjSxMNzbJXw==}
@@ -14544,8 +14599,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.259.0:
-    resolution: {integrity: sha512-6usLnJshky8fQ82ask7PIJh4BSFOU0VkRbFg8Zanm/HIlYMG1VOdRWlToA63JXeO7Bzm9TuREq1wFm5U2VEVCg==}
+  posthog-js@1.260.0:
+    resolution: {integrity: sha512-de/vMg/Wv76HUASC1UFlARfQ5woOYvDitD8F0qiNXHcMYVdt30HirPCXEW333AJ0NwdsCYjAeL/BdQGt7NRrOQ==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -16903,8 +16958,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.289.0:
-    resolution: {integrity: sha512-3nqnOUbAPV84ektF3f1cKNvfl5uK8uwR7WzVR1nMqCCWLZTUo9j9Y9W5dcIVWVUcmJyWiPXADiPOcHxLbSo+Lw==}
+  unlayer-types@1.291.0:
+    resolution: {integrity: sha512-zbKfCa8OgKUWNVOiC/VoQ+P0tDsYxTRYCDIs+ktww6eXW5tSpD/dFhgLIA7RWVKnh4AusEClOxxLCkxlV9jWHQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -18546,7 +18601,7 @@ snapshots:
       '@babel/traverse': 7.28.0
       '@babel/types': 7.28.1
       convert-source-map: 2.0.0
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -18656,7 +18711,7 @@ snapshots:
       '@babel/core': 7.26.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -18667,7 +18722,7 @@ snapshots:
       '@babel/core': 7.28.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -18678,7 +18733,7 @@ snapshots:
       '@babel/core': 7.26.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -18689,7 +18744,7 @@ snapshots:
       '@babel/core': 7.28.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -18700,7 +18755,7 @@ snapshots:
       '@babel/core': 7.26.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -18711,7 +18766,7 @@ snapshots:
       '@babel/core': 7.28.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -20165,7 +20220,7 @@ snapshots:
       '@babel/parser': 7.28.0
       '@babel/template': 7.27.2
       '@babel/types': 7.28.1
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -20738,7 +20793,7 @@ snapshots:
   '@eslint/eslintrc@2.1.4':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       espree: 9.6.1
       globals: 13.23.0
       ignore: 5.2.4
@@ -20870,7 +20925,7 @@ snapshots:
   '@humanwhocodes/config-array@0.11.14':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -21429,7 +21484,7 @@ snapshots:
       '@open-draft/until': 1.0.3
       '@types/debug': 4.1.7
       '@xmldom/xmldom': 0.8.6
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       headers-polyfill: 3.2.5
       outvariant: 1.4.0
       strict-event-emitter: 0.2.8
@@ -22359,16 +22414,16 @@ snapshots:
       type-fest: 3.5.3
       webpack-hot-middleware: 2.25.4
 
-  '@posthog/icons@0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       antd: 5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      kea: 3.1.6(react@18.2.0)
-      kea-router: 3.4.1(kea@3.1.6(react@18.2.0))
+      kea: 3.1.7(react@18.2.0)
+      kea-router: 3.4.1(kea@3.1.7(react@18.2.0))
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
@@ -24847,7 +24902,7 @@ snapshots:
 
   '@storybook/react-docgen-typescript-plugin@1.0.6--canary.9.0c3f3b7.0(typescript@5.2.2)(webpack@5.88.2)':
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       endent: 2.1.0
       find-cache-dir: 3.3.2
       flat-cache: 3.2.0
@@ -25586,6 +25641,18 @@ snapshots:
 
   '@tootallnate/once@2.0.0': {}
 
+  '@trivago/prettier-plugin-sort-imports@5.2.2(prettier@3.6.2)':
+    dependencies:
+      '@babel/generator': 7.28.0
+      '@babel/parser': 7.28.0
+      '@babel/traverse': 7.28.0
+      '@babel/types': 7.28.1
+      javascript-natural-sort: 0.7.1
+      lodash: 4.17.21
+      prettier: 3.6.2
+    transitivePeerDependencies:
+      - supports-color
+
   '@trysound/sax@0.2.0': {}
 
   '@tsconfig/node10@1.0.9': {}
@@ -26011,6 +26078,10 @@ snapshots:
     dependencies:
       '@types/lodash': 4.17.16
 
+  '@types/lodash.throttle@4.1.9':
+    dependencies:
+      '@types/lodash': 4.17.16
+
   '@types/lodash.uniqby@4.7.9':
     dependencies:
       '@types/lodash': 4.17.13
@@ -26076,6 +26147,10 @@ snapshots:
   '@types/node@22.15.17':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/nodemailer@6.4.17':
+    dependencies:
+      '@types/node': 22.15.17
 
   '@types/normalize-package-data@2.4.1': {}
 
@@ -26321,7 +26396,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/typescript-estree': 7.1.1(typescript@5.2.2)
       '@typescript-eslint/utils': 7.1.1(eslint@8.57.0)(typescript@5.2.2)
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       eslint: 8.57.0
       ts-api-utils: 1.0.2(typescript@5.2.2)
     optionalDependencies:
@@ -26335,7 +26410,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 7.1.1
       '@typescript-eslint/visitor-keys': 7.1.1
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       globby: 11.1.0
       is-glob: 4.0.3
       minimatch: 9.0.3
@@ -26632,7 +26707,7 @@ snapshots:
 
   agent-base@6.0.2:
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -26640,7 +26715,7 @@ snapshots:
 
   agentkeepalive@4.3.0:
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       depd: 2.0.0
       humanize-ms: 1.2.1
     transitivePeerDependencies:
@@ -28632,7 +28707,7 @@ snapshots:
   detect-port@1.5.1:
     dependencies:
       address: 1.2.2
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -29010,14 +29085,14 @@ snapshots:
 
   esbuild-register@3.5.0(esbuild@0.18.20):
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       esbuild: 0.18.20
     transitivePeerDependencies:
       - supports-color
 
   esbuild-register@3.5.0(esbuild@0.25.0):
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       esbuild: 0.25.0
     transitivePeerDependencies:
       - supports-color
@@ -29184,10 +29259,6 @@ snapshots:
       semver: 6.3.1
 
   eslint-plugin-promise@6.6.0(eslint@8.57.0):
-    dependencies:
-      eslint: 8.57.0
-
-  eslint-plugin-simple-import-sort@7.0.0(eslint@8.57.0):
     dependencies:
       eslint: 8.57.0
 
@@ -29603,7 +29674,7 @@ snapshots:
     dependencies:
       chalk: 4.1.2
       commander: 5.1.0
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -30378,14 +30449,14 @@ snapshots:
     dependencies:
       '@tootallnate/once': 2.0.0
       agent-base: 6.0.2
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
   http-proxy-agent@7.0.2:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -30398,21 +30469,21 @@ snapshots:
   https-proxy-agent@4.0.0:
     dependencies:
       agent-base: 5.1.1
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
   https-proxy-agent@5.0.1:
     dependencies:
       agent-base: 6.0.2
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
   https-proxy-agent@7.0.6:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -30904,7 +30975,7 @@ snapshots:
 
   istanbul-lib-source-maps@4.0.1:
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       istanbul-lib-coverage: 3.2.0
       source-map: 0.6.1
     transitivePeerDependencies:
@@ -30913,7 +30984,7 @@ snapshots:
   istanbul-lib-source-maps@5.0.6:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.29
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       istanbul-lib-coverage: 3.2.0
     transitivePeerDependencies:
       - supports-color
@@ -30939,6 +31010,8 @@ snapshots:
       chalk: 4.1.2
       filelist: 1.0.4
       minimatch: 3.1.2
+
+  javascript-natural-sort@0.7.1: {}
 
   jest-canvas-mock@2.4.0:
     dependencies:
@@ -31818,31 +31891,31 @@ snapshots:
 
   kdbush@4.0.2: {}
 
-  kea-forms@3.2.0(kea@3.1.6(react@18.2.0)):
+  kea-forms@3.2.0(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
+      kea: 3.1.7(react@18.2.0)
 
-  kea-loaders@3.1.1(kea@3.1.6(react@18.2.0)):
+  kea-loaders@3.1.1(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
+      kea: 3.1.7(react@18.2.0)
 
-  kea-localstorage@3.1.0(kea@3.1.6(react@18.2.0)):
+  kea-localstorage@3.1.0(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
+      kea: 3.1.7(react@18.2.0)
 
-  kea-router@3.4.1(kea@3.1.6(react@18.2.0)):
+  kea-router@3.4.1(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
+      kea: 3.1.7(react@18.2.0)
       url-pattern: 1.0.3
 
-  kea-subscriptions@3.0.1(kea@3.1.6(react@18.2.0)):
+  kea-subscriptions@3.0.1(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
+      kea: 3.1.7(react@18.2.0)
 
-  kea-test-utils@0.2.4(kea@3.1.6(react@18.2.0)):
+  kea-test-utils@0.2.4(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
-      kea-waitfor: 0.2.1(kea@3.1.6(react@18.2.0))
+      kea: 3.1.7(react@18.2.0)
+      kea-waitfor: 0.2.1(kea@3.1.7(react@18.2.0))
 
   kea-typegen@3.5.0(typescript@5.2.2):
     dependencies:
@@ -31857,15 +31930,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  kea-waitfor@0.2.1(kea@3.1.6(react@18.2.0)):
+  kea-waitfor@0.2.1(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
+      kea: 3.1.7(react@18.2.0)
 
-  kea-window-values@3.0.1(kea@3.1.6(react@18.2.0)):
+  kea-window-values@3.0.1(kea@3.1.7(react@18.2.0)):
     dependencies:
-      kea: 3.1.6(react@18.2.0)
+      kea: 3.1.7(react@18.2.0)
 
-  kea@3.1.6(react@18.2.0):
+  kea@3.1.7(react@18.2.0):
     dependencies:
       react: 18.2.0
       redux: 4.2.0
@@ -32038,7 +32111,7 @@ snapshots:
     dependencies:
       chalk: 5.4.1
       commander: 13.1.0
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       execa: 8.0.1
       lilconfig: 3.1.3
       listr2: 8.3.3
@@ -32148,6 +32221,8 @@ snapshots:
   lodash.snakecase@4.1.1: {}
 
   lodash.sortby@4.7.0: {}
+
+  lodash.throttle@4.1.1: {}
 
   lodash.truncate@4.4.2: {}
 
@@ -32426,7 +32501,7 @@ snapshots:
 
   micromark@2.11.4:
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       parse-entities: 2.0.0
     transitivePeerDependencies:
       - supports-color
@@ -32776,6 +32851,8 @@ snapshots:
       cron-parser: 4.8.1
       long-timeout: 0.1.1
       sorted-array-functions: 1.3.0
+
+  nodemailer@7.0.5: {}
 
   nodemon@3.1.10:
     dependencies:
@@ -34055,7 +34132,7 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.259.0(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.260.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.45.0
       fflate: 0.4.8
@@ -34354,7 +34431,7 @@ snapshots:
   puppeteer-core@2.1.1:
     dependencies:
       '@types/mime-types': 2.1.1
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       extract-zip: 1.7.0
       https-proxy-agent: 4.0.0
       mime: 2.6.0
@@ -34873,7 +34950,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.289.0
+      unlayer-types: 1.291.0
 
   react-error-overlay@6.0.9: {}
 
@@ -35330,7 +35407,7 @@ snapshots:
 
   retry-request@4.2.2:
     dependencies:
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       extend: 3.0.2
     transitivePeerDependencies:
       - supports-color
@@ -35767,7 +35844,7 @@ snapshots:
   socks-proxy-agent@8.0.5:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       socks: 2.8.3
     transitivePeerDependencies:
       - supports-color
@@ -36216,7 +36293,7 @@ snapshots:
     dependencies:
       component-emitter: 1.3.1
       cookiejar: 2.1.4
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       fast-safe-stringify: 2.1.1
       form-data: 4.0.1
       formidable: 3.5.1
@@ -36875,7 +36952,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.289.0: {}
+  unlayer-types@1.291.0: {}
 
   unpipe@1.0.0: {}
 
@@ -37127,7 +37204,7 @@ snapshots:
     dependencies:
       chalk: 2.4.2
       commander: 3.0.2
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 

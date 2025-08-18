@@ -866,7 +866,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(assert_num_queries=4)
+        response = self._post_decide(assert_num_queries=5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
@@ -909,7 +909,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, assert_num_queries=4)
+        response = self._post_decide(api_version=3, assert_num_queries=5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(
@@ -1303,7 +1303,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
         self.assertTrue("beta-feature" not in response.json()["featureFlags"])
         self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
@@ -1366,7 +1366,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1425,7 +1425,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )  # Should be enabled for everyone
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
@@ -1518,7 +1518,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=4)
+        response = self._post_decide(api_version=2, assert_num_queries=5)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1598,7 +1598,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1720,7 +1720,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1836,7 +1836,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=5)
         self.assertIsNone(
             (response.json()["featureFlags"]).get("multivariate-flag", None)
         )  # User is does not have realm == "cloud". Value is None.
@@ -2421,7 +2421,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
         self.assertEqual(response.json()["featureFlags"], {})
 
         response = self._post_decide(
@@ -2500,7 +2500,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2576,7 +2576,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2646,7 +2646,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2676,7 +2676,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=7)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2827,7 +2827,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # 2. Select 99999 cohort
         # 3. Select deleted cohort
         # 4. Select cohort from other team
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=8)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
         self.assertEqual(
             response.json()["featureFlags"],
             {
@@ -2877,7 +2877,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=1)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=2)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
@@ -5016,7 +5016,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(9, using="default"):
+        with self.assertNumQueries(1, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -5269,7 +5269,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
         cache.clear()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(9, using="default"):
+        with self.assertNumQueries(1, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -5539,7 +5539,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(9, using="default"):
+        with self.assertNumQueries(1, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"

@@ -40,7 +40,8 @@ Properties are always associated with an event or entity. When looking for prope
     Properties of specific events. For example, if someone says "users who completed signup", you need to find the "signup" event and then get its properties.
     Use `retrieve_event_properties` with event_name="signup" to get properties of the signup event.
     Example: For filtering on the user's browser during signup, you might use the key $browser from the signup event.
-Here is a non-exhaustive list of known event names:
+
+Here is a non-exhaustive list of known **EVENT NAMES**:
 {{{events}}}
 
 If you find the event name the user is asking for in the list, use it to retrieve the event properties.

@@ -1,19 +1,21 @@
 import '~/styles'
+
 import './Exporter.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
-import { ExportedData, ExportType } from '~/exporter/types'
+import { ExportType, ExportedData } from '~/exporter/types'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { Logo } from '~/toolbar/assets/Logo'
 import { DashboardPlacement } from '~/types'
@@ -23,7 +25,7 @@ import { exporterViewLogic } from './exporterViewLogic'
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
-    const { type, dashboard, insight, recording, themes, accessToken, ...exportOptions } = exportedData
+    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = exportedData
     const { whitelabel, showInspector = false } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
@@ -87,9 +89,11 @@ export function Exporter(props: ExportedData): JSX.Element {
                 <SessionRecordingPlayer
                     playerKey="exporter"
                     sessionRecordingId={recording.id}
-                    mode={SessionRecordingPlayerMode.Sharing}
-                    autoPlay={false}
+                    mode={exportedData.mode ?? SessionRecordingPlayerMode.Sharing}
+                    autoPlay={exportedData.autoplay ?? false}
                     noInspector={!showInspector}
+                    noBorder={exportedData.noBorder ?? false}
+                    accessToken={exportToken}
                 />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
