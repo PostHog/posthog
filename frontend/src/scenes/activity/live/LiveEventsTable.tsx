@@ -8,6 +8,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
@@ -15,14 +16,11 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { EventName } from 'products/actions/frontend/components/EventName'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-
-const RESOURCE_TYPE = 'live'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -104,11 +102,9 @@ export function LiveEventsTable(): JSX.Element {
                 name="Live events"
                 description="Real-time events from your app or website."
                 resourceType={{
-                    type: RESOURCE_TYPE,
+                    type: 'live events',
                     typePlural: 'live events',
-                    // Without the below, the same icon would show up but it used Logs's product color, so we force it to use the non-currentColor
                     forceIcon: <IconLive />,
-                    forceIconColorOverride: ['currentColor'],
                 }}
             />
             <SceneDivider />

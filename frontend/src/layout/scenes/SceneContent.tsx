@@ -98,9 +98,12 @@ type ResourceType = {
     type: keyof typeof fileSystemTypes | string
     // example: 'actions'
     typePlural: string
+    // If your resource type matches a product in fileSystemTypes, you can use this to override the icon
     forceIcon?: JSX.Element
+    // If your resource type matches a product in fileSystemTypes, you can use this to override the product's icon color
     forceIconColorOverride?: FileSystemIconColor
 }
+
 type SceneMainTitleProps = {
     name?: string | null
     description?: string | null
