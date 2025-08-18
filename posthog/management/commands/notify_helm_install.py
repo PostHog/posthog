@@ -1,3 +1,6 @@
+# ruff: noqa: T201 allow print statements
+# ruff: noqa: T203 allow pprint statements
+
 import os
 from pprint import pprint
 

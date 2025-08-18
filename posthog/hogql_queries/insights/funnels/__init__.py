@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from .base import FunnelBase
 from .funnel import Funnel
 from .funnel_persons import FunnelActors

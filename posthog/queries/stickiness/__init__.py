@@ -6,5 +6,5 @@ if EE_AVAILABLE:
         ClickhouseStickinessActors as StickinessActors,
     )
 else:
-    from posthog.queries.stickiness.stickiness import Stickiness  # type: ignore
-    from posthog.queries.stickiness.stickiness_actors import StickinessActors  # type: ignore
+    from posthog.queries.stickiness.stickiness import Stickiness  # type: ignore # noqa: F401
+    from posthog.queries.stickiness.stickiness_actors import StickinessActors  # type: ignore  # noqa: F401

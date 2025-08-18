@@ -17,7 +17,6 @@ from posthog.tasks.utils import CeleryQueue
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
     get_slack_integration_for_team,
-    send_slack_message_with_integration,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )

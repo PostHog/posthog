@@ -1,3 +1,5 @@
+# ruff: noqa: F401 intentionally not using these
+
 from posthog.temporal.proxy_service.common import activity_capture_event, activity_update_proxy_record
 from posthog.temporal.proxy_service.create import (
     CreateManagedProxyInputs,

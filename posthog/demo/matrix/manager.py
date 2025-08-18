@@ -1,3 +1,5 @@
+# ruff: noqa: T201 allow print statements
+
 import json
 import datetime as dt
 from time import sleep

@@ -1,4 +1,5 @@
 #!/usr/local/bin/python
+# ruff: noqa: T201 allow print statements
 
 import os
 import sys

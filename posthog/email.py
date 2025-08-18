@@ -1,3 +1,5 @@
+# ruff: noqa: T201 allow print statements
+
 import sys
 import html
 import uuid

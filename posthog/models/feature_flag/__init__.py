@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from .feature_flag import (
     FeatureFlag,
     FeatureFlagDashboards,

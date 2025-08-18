@@ -26,3 +26,33 @@ from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
 from .text_admin import TextAdmin
 from .user_admin import UserAdmin
+
+__all__ = [
+    "AsyncDeletionAdmin",
+    "BatchImportAdmin",
+    "CohortAdmin",
+    "DashboardAdmin",
+    "DashboardTemplateAdmin",
+    "DataColorThemeAdmin",
+    "DataWarehouseTableAdmin",
+    "EventIngestionRestrictionConfigAdmin",
+    "ExperimentAdmin",
+    "ExperimentSavedMetricAdmin",
+    "FeatureFlagAdmin",
+    "GroupTypeMappingAdmin",
+    "HogFunctionAdmin",
+    "InsightAdmin",
+    "InstanceSettingAdmin",
+    "LinkAdmin",
+    "OrganizationAdmin",
+    "OrganizationDomainAdmin",
+    "PersonalAPIKeyAdmin",
+    "PersonDistinctIdAdmin",
+    "PluginAdmin",
+    "PluginConfigAdmin",
+    "ProjectAdmin",
+    "SurveyAdmin",
+    "TeamAdmin",
+    "TextAdmin",
+    "UserAdmin",
+]

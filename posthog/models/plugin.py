@@ -539,7 +539,7 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     is_preinstalled=True,
                 )
             except Exception as e:
-                print(
+                print(  # noqa: T201 allow print statement
                     f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
                     e,
                 )
