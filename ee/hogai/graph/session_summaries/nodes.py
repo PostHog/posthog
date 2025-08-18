@@ -12,6 +12,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import fin
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     update_notebook_with_summary,
+    NotebookIntermediateState,
 )
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
@@ -31,6 +32,7 @@ class SessionSummarizationNode(AssistantNode):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._intermediate_state = None
 
     def _get_stream_writer(self) -> StreamWriter | None:
         """Get the stream writer for custom events"""
@@ -171,10 +173,12 @@ class SessionSummarizationNode(AssistantNode):
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
 
-        # # Stream initial status to notebook
-        # notebook_content = f"# Session Group Analysis\n\n**Analyzing {len(session_ids)} sessions in detail...**\n\n"
-        # notebook_content += f"**Time range:** {min_timestamp} to {max_timestamp}\n\n"
-        # self._stream_notebook_messages(notebook_content, state, writer)
+        # Initialize intermediate state with plan
+        self._intermediate_state = NotebookIntermediateState(team_name=self._team.name)
+
+        # Stream initial plan
+        initial_state = self._intermediate_state.format_intermediate_state()
+        self._stream_notebook_content(initial_state, state, writer)
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
@@ -201,15 +205,52 @@ class SessionSummarizationNode(AssistantNode):
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
                         f"(expected: dict)"
                     )
-                # Update notebook with intermediate data
-                self._stream_notebook_content(data, state, writer)
+                # Update intermediate state based on current step
+                if self._intermediate_state:
+                    # TODO: Use something better than string check
+                    # Determine which step we're in based on the data structure
+                    if "Session Processing Status" in str(data):
+                        # Step 1: Watching sessions
+                        self._intermediate_state.update_step_progress(data)
+                    elif "Extracted Patterns" in str(data):
+                        # Transition from step 1 to step 2
+                        if self._intermediate_state.current_step_index == 0:
+                            self._intermediate_state.complete_current_step()
+                        # Step 2: Finding patterns
+                        self._intermediate_state.update_step_progress(data)
+                    # Stream the updated intermediate state
+                    formatted_state = self._intermediate_state.format_intermediate_state()
+                    self._stream_notebook_content(formatted_state, state, writer)
+                else:
+                    # Fallback to direct streaming if no intermediate state
+                    self._stream_notebook_content(data, state, writer)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 summary = data
-                # Store the summary in the notebook
+
+                # Transition to final step and immediately complete it
+                if self._intermediate_state and self._intermediate_state.current_step_index == 1:
+                    # Complete patterns step
+                    self._intermediate_state.complete_current_step()
+                    # Show "Generating final report" briefly
+                    self._intermediate_state.update_step_progress(
+                        {
+                            "type": "doc",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "Generating final report..."}],
+                                }
+                            ],
+                        }
+                    )
+                    # Stream this state briefly
+                    formatted_state = self._intermediate_state.format_intermediate_state()
+                    self._stream_notebook_content(formatted_state, state, writer)
+
+                # Store the final summary in the notebook (replaces intermediate state)
                 await update_notebook_with_summary(
                     notebook_short_id=state.notebook_id,
-                    # TODO: Decide if we want two separate notebooks (remove the one with status updates) or a single one
                     session_ids=session_ids,
                     user=self._user,
                     team=self._team,
@@ -286,14 +327,15 @@ class SessionSummarizationNode(AssistantNode):
                 # TODO: Add final notebook update message here, before the tool call message, ensure to include the id
                 messages=[
                     # TODO: Put actual content there
-                    NotebookUpdateMessage(
-                        id=str(uuid4()),
-                        notebook_id=state.notebook_id,
-                        content={
-                            "type": "doc",
-                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Test"}]}],
-                        },
-                    ),
+                    # TODO: Enable back after testing
+                    # NotebookUpdateMessage(
+                    #     id=str(uuid4()),
+                    #     notebook_id=state.notebook_id,
+                    #     content={
+                    #         "type": "doc",
+                    #         "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Test"}]}],
+                    #     },
+                    # ),
                     AssistantToolCallMessage(
                         content=summaries_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
