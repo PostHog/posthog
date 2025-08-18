@@ -124,7 +124,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
             const primaryUpdated = p[0]
             const secondaryUpdate: Partial<InternalPerson> = {
-                // Mirror authoritative fields from the result of the primary update to guarantee parity
                 properties: primaryUpdated.properties,
                 properties_last_updated_at: primaryUpdated.properties_last_updated_at,
                 properties_last_operation: primaryUpdated.properties_last_operation,
