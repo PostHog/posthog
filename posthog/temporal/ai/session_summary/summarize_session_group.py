@@ -632,7 +632,11 @@ async def _start_session_group_summary_workflow(
                         f"Unexpected sessions status type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(sessions_status)} "
                         f"(expected: {expected_notebook_update_type})"
                     )
-                yield (SessionSummaryStreamUpdate.NOTEBOOK_UPDATE, step, formatted_sessions_status)
+                yield (
+                    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE,
+                    SessionSummaryStep.WATCHING_SESSIONS,
+                    formatted_sessions_status,
+                )
                 previous_sessions_status = sessions_status.copy()
 
             # Patterns extraction status
@@ -650,7 +654,11 @@ async def _start_session_group_summary_workflow(
                         f"(expected: {expected_notebook_update_type})"
                     )
                 # As I query progress (where `step` comes from) more often that intermediate updates happen - it's safe to reuse it
-                yield (SessionSummaryStreamUpdate.NOTEBOOK_UPDATE, step, formatted_patterns)
+                yield (
+                    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE,
+                    SessionSummaryStep.FINDING_PATTERNS,
+                    formatted_patterns,
+                )
                 previous_pattern_keys = patterns_keys.copy()
 
             # Wait till the next polling

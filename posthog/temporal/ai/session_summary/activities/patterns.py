@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 from typing import cast
 from redis import Redis, asyncio as aioredis
 import structlog
@@ -228,7 +229,10 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
     )
     if success:
         # Cached successfully
-        return None
+        # TODO: Remove after testing
+        # Add random sleep to test UI progress updates
+        await asyncio.sleep(random.randint(5, 10))
+        return redis_output_key
     # Get session summaries from Redis
     session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
@@ -354,6 +358,9 @@ async def assign_events_to_patterns_activity(
     )
     # Return if it's processed already
     if patterns_with_events_context:
+        # TODO: Remove after testing
+        # Add random sleep to test UI progress updates
+        await asyncio.sleep(random.randint(5, 10))
         return patterns_with_events_context
     # Get session summaries from Redis
     session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)

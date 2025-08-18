@@ -11,8 +11,8 @@ from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MOD
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
-    update_notebook_with_summary,
     NotebookIntermediateState,
+    generate_notebook_content_from_summary,
 )
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
@@ -63,7 +63,9 @@ class SessionSummarizationNode(AssistantNode):
         writer(("session_summarization_node", "messages", message))
         return
 
-    def _stream_notebook_content(self, content: dict, state: AssistantState, writer: StreamWriter | None) -> None:
+    def _stream_notebook_content(
+        self, content: dict, state: AssistantState, writer: StreamWriter | None, partial: bool = True
+    ) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
         if not writer:
             self.logger.warning("Stream writer not available for notebook update")
@@ -72,8 +74,12 @@ class SessionSummarizationNode(AssistantNode):
         if not state.notebook_id:
             self.logger.warning("No notebook_id in state, skipping notebook update")
             return
-        # Create a notebook update message; not providing id to count it as a partial message on FE
-        notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content)
+        if partial:
+            # Create a notebook update message; not providing id to count it as a partial message on FE
+            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content)
+        else:
+            # If not partial - means the final state of the notebook to show "Open the notebook" button in the UI
+            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content, id=str(uuid4()))
         # Stream the notebook update
         message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
@@ -206,50 +212,18 @@ class SessionSummarizationNode(AssistantNode):
                         f"(expected: dict)"
                     )
                 # Update intermediate state based on step enum
-                if self._intermediate_state:
-                    # Pass the step enum directly to the intermediate state
-                    self._intermediate_state.update_step_progress(data, step)
-
-                    # Stream the updated intermediate state
-                    formatted_state = self._intermediate_state.format_intermediate_state()
-                    self._stream_notebook_content(formatted_state, state, writer)
-                else:
-                    # Fallback to direct streaming if no intermediate state
-                    self._stream_notebook_content(data, state, writer)
+                self._intermediate_state.update_step_progress(data, step)
+                # Stream the updated intermediate state
+                formatted_state = self._intermediate_state.format_intermediate_state()
+                self._stream_notebook_content(formatted_state, state, writer)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
+                # Replace the intermediate state with final report
                 summary = data
-
-                # Transition to final step and immediately complete it
-                if self._intermediate_state:
-                    # TODO: Move enum to file with types to avoid circular/inline imports
-                    from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
-                    # Mark the final step as being processed
-                    self._intermediate_state.update_step_progress(
-                        {
-                            "type": "doc",
-                            "content": [
-                                {
-                                    "type": "paragraph",
-                                    "content": [{"type": "text", "text": "Generating final report..."}],
-                                }
-                            ],
-                        },
-                        SessionSummaryStep.GENERATING_REPORT,
-                    )
-                    # Stream this state briefly
-                    formatted_state = self._intermediate_state.format_intermediate_state()
-                    self._stream_notebook_content(formatted_state, state, writer)
-
-                # Store the final summary in the notebook (replaces intermediate state)
-                await update_notebook_with_summary(
-                    notebook_short_id=state.notebook_id,
-                    session_ids=session_ids,
-                    user=self._user,
-                    team=self._team,
-                    summary=summary,
+                summary_content = generate_notebook_content_from_summary(
+                    summary=summary, session_ids=session_ids, project_name=self._team.name, team_id=self._team.id
                 )
+                self._stream_notebook_content(summary_content, state, writer, partial=False)
                 return summary.model_dump_json(exclude_none=True)
             else:
                 raise ValueError(
@@ -285,7 +259,16 @@ class SessionSummarizationNode(AssistantNode):
                 )
                 return self._create_error_response(self._base_error_instructions, state)
             # Query the filters to get session ids
-            session_ids = await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
+            # TODO: Uncomment after testing
+            await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
+            session_ids = [
+                "01985f9e-05f6-788d-a6c4-8271afcfc4c3",
+                "01985f9e-a603-7c4a-a403-4a978d5164eb",
+                "01985f9e-d284-75cd-b5f2-3390a58aa086",
+                "01985f9f-5c73-7c45-8d01-afebbbfd172e",
+                "01985f9f-b8f6-7ba5-bc44-45152e5d623a",
+                "01985fa1-3e63-748c-9f3b-654528108c56",
+            ]
             if not session_ids:
                 return PartialAssistantState(
                     messages=[
@@ -320,16 +303,6 @@ class SessionSummarizationNode(AssistantNode):
             return PartialAssistantState(
                 # TODO: Add final notebook update message here, before the tool call message, ensure to include the id
                 messages=[
-                    # TODO: Put actual content there
-                    # TODO: Enable back after testing
-                    # NotebookUpdateMessage(
-                    #     id=str(uuid4()),
-                    #     notebook_id=state.notebook_id,
-                    #     content={
-                    #         "type": "doc",
-                    #         "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Test"}]}],
-                    #     },
-                    # ),
                     AssistantToolCallMessage(
                         content=summaries_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
