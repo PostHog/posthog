@@ -89,3 +89,33 @@ def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
         table_name=RAW_SESSIONS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
+
+
+# max_inserted_at
+ADD_MAX_INSERTED_AT_COLUMN_SQL = """
+ALTER TABLE {table_name} {on_cluster_clause}
+ADD COLUMN IF NOT EXISTS
+max_inserted_at DateTime64(6, 'UTC')
+AFTER max_timestamp
+"""
+
+
+def BASE_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL(on_cluster=True):
+    return ADD_MAX_INSERTED_AT_COLUMN_SQL.format(
+        table_name=TABLE_BASE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+def WRITABLE_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL(on_cluster=True):
+    return ADD_MAX_INSERTED_AT_COLUMN_SQL.format(
+        table_name="writable_raw_sessions",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+def DISTRIBUTED_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL(on_cluster=True):
+    return ADD_MAX_INSERTED_AT_COLUMN_SQL.format(
+        table_name=RAW_SESSIONS_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )

@@ -43,6 +43,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
     "max_timestamp": DateTimeDatabaseField(name="max_timestamp", nullable=False),
+    "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at", nullable=False),
     "urls": StringArrayDatabaseField(name="urls", nullable=False),
     # many of the fields in the raw tables are AggregateFunction state, rather than simple types
     "entry_url": DatabaseField(name="entry_url", nullable=False),
@@ -88,6 +89,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
+    "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at"),
     "$urls": StringArrayDatabaseField(name="$urls"),
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
@@ -240,6 +242,7 @@ def select_from_sessions_table_v2(
         "distinct_id": arg_max_merge_field("distinct_id"),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
+        "max_inserted_at": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_inserted_at"])]),
         "$urls": ast.Call(
             name="arrayDistinct",
             args=[

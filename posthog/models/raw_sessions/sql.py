@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 
     min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+    max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
     -- urls
     urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -187,6 +188,7 @@ SELECT
 
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
+    inserted_at AS max_inserted_at,
 
     -- urls
     if({current_url} IS NOT NULL, [{current_url}], []) AS urls,
@@ -310,6 +312,7 @@ SELECT
 
     min(timestamp) AS min_timestamp,
     max(timestamp) AS max_timestamp,
+    max(inserted_at) AS max_inserted_at,
 
     -- urls
     groupUniqArray({current_url}) AS urls,
@@ -498,6 +501,7 @@ SELECT
     argMaxMerge(distinct_id) as distinct_id,
     min(min_timestamp) as min_timestamp,
     max(max_timestamp) as max_timestamp,
+    max(max_inserted_at) as max_inserted_at,
 
     -- urls
     arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
