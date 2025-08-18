@@ -31,8 +31,6 @@ pub enum FlagError {
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
     RequestParsingError(#[from] serde_json::Error),
-    #[error("Empty distinct_id in request")]
-    EmptyDistinctId,
     #[error("No distinct_id in request")]
     MissingDistinctId,
     #[error("No api_key in request")]
@@ -95,9 +93,6 @@ impl IntoResponse for FlagError {
             }
             FlagError::RequestParsingError(err) => {
                 (StatusCode::BAD_REQUEST, format!("Failed to parse request: {err}. Please ensure your request is properly formatted and all required fields are present."))
-            }
-            FlagError::EmptyDistinctId => {
-                (StatusCode::BAD_REQUEST, "The distinct_id field cannot be empty. Please provide a valid identifier.".to_string())
             }
             FlagError::MissingDistinctId => {
                 (StatusCode::BAD_REQUEST, "The distinct_id field is missing from the request. Please include a valid identifier.".to_string())
