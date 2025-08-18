@@ -43,7 +43,7 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic seri
 
 
 class InsightSearchNode(AssistantNode):
-    PAGE_SIZE = 50
+    PAGE_SIZE = 500
     MAX_SEARCH_ITERATIONS = 6
     MAX_INSIGHTS_TO_RETURN = 3
     MAX_EVALUATION_ITERATIONS = 3
