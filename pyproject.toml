@@ -274,6 +274,7 @@ select = [
     "DJ012",
     "E",
     "F",
+    "I",
     "RUF005",
     "RUF013",
     "RUF015",
@@ -291,6 +292,36 @@ max-complexity = 10
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
+force-wrap-aliases = true
+length-sort-straight = true
+split-on-trailing-comma = false
+section-order = [
+    "future",
+    "standard-library",
+    "testing",
+    "django",
+    "third-party",
+    "posthog.schema",
+    "posthog.hogql",
+    "posthog",
+    "products",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+"django" = ["django"] # Group all Django imports into a separate section.
+"testing" = [ # Group all testing imports into a separate section.
+    "freezegun",
+    "pytest",
+    "unittest",
+    "posthog.test.base",
+]
+# Separate groups for our own stuff
+"posthog.schema" = ["posthog.schema"]
+"posthog.hogql" = ["posthog.hogql"]
+"posthog" = ["posthog"]
+"products" = ["products"]
 
 [tool.ruff.lint.per-file-ignores]
 "./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]
