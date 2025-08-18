@@ -15,6 +15,8 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { MailjetEventType, MailjetWebhookEvent } from './types'
 
 const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
+const LINK_REGEX =
+    /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
 const EVENT_TYPE_TO_CATEGORY: Record<MailjetEventType, MinimalAppMetric['metric_name'] | undefined> = {
     sent: 'email_sent',
@@ -65,10 +67,30 @@ export const generateEmailTrackingPixelUrl = (
     return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?${generateEmailTrackingCode(invocation)}`
 }
 
+export const generateTrackingRedirectUrl = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
+    targetUrl: string
+): string => {
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
+}
+
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
     const trackingUrl = generateEmailTrackingPixelUrl(invocation)
-    return html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
+
+    html = html.replace(LINK_REGEX, (m, d, s, u, inner) => {
+        const href = d || s || u || ''
+        const tracked = generateTrackingRedirectUrl(invocation, href)
+
+        // replace just the href in the original tag to preserve other attributes
+        return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
+    })
+
+    html = html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
+
+    return html
 }
+
+export const replaceLinkWithTrackingPixel = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {}
 
 export class EmailTrackingService {
     constructor(
@@ -214,5 +236,29 @@ export class EmailTrackingService {
         }
 
         res.status(200).set('Content-Type', 'image/gif').send(PIXEL_GIF)
+    }
+
+    public async handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): Promise<void> {
+        const { ph_fn_id, ph_inv_id, target } = req.query
+
+        if (!target) {
+            res.status(404).send('Not found')
+            return
+        }
+
+        // Track the value
+        try {
+            await this.trackMetric({
+                functionId: ph_fn_id as string,
+                invocationId: ph_inv_id as string,
+                metricName: 'email_clicked',
+                source: 'direct',
+            })
+        } catch (error) {
+            logger.error('[EmailTrackingService] handleEmailTrackingPixel: Error tracking metric', { error })
+            captureException(error)
+        }
+
+        res.redirect(target as string)
     }
 }

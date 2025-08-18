@@ -99,6 +99,7 @@ export class CdpApi {
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
+        router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
     }
@@ -543,5 +544,11 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             await this.emailTrackingService.handleEmailTrackingPixel(req, res)
+        }
+
+    private getEmailTrackingRedirect =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            await this.emailTrackingService.handleEmailTrackingRedirect(req, res)
         }
 }
