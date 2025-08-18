@@ -134,5 +134,4 @@ For complex surveys, follow these patterns but keep total questions to 2-3:
 - Use team appearance settings when available
 - Consider survey fatigue - don't oversaturate users
 - Prioritize user experience over data collection
-- Use the lookup_feature_flag tool to get the actual flag ID and available variants if the user mentions a feature flag by name.
 """.strip()

@@ -95,8 +95,15 @@ async def create_test_feature_flags(team, user):
     return created_flags
 
 
+@pytest.fixture(scope="module")
+async def create_feature_flags(demo_org_team_user):
+    """Create test feature flags once per test module."""
+    _, team, user = demo_org_team_user
+    return await create_test_feature_flags(team, user)
+
+
 @pytest.fixture
-def call_surveys_max_tool(demo_org_team_user, django_db_blocker):
+def call_surveys_max_tool(demo_org_team_user, create_feature_flags):
     """
     This fixture creates a properly configured SurveyCreatorTool for evaluation.
     """
@@ -107,8 +114,6 @@ def call_surveys_max_tool(demo_org_team_user, django_db_blocker):
         """
         Call the survey creation tool and return structured output.
         """
-        # Create test feature flags for evaluation
-        await create_test_feature_flags(team, user)
 
         try:
             max_tool = CreateSurveyTool(team=team, user=user)
