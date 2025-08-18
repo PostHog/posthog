@@ -334,7 +334,7 @@ class QueryDateRange:
                 ],
             )
 
-        return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
+        return self.date_from_to_start_of_interval_hogql()
 
     def date_to_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_to_as_hogql())
