@@ -23440,6 +23440,9 @@
                 "iteration_frequency_days": {
                     "type": "number"
                 },
+                "linked_flag_id": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
