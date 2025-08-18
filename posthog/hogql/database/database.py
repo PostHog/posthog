@@ -526,7 +526,10 @@ def create_hogql_database(
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
-            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True))
+            saved_queries = list(
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True).prefetch_related("table")
+            )
+
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)

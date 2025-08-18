@@ -968,7 +968,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "event_metadata", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2371,7 +2371,14 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
                 },
                 "type": {
                     "anyOf": [
@@ -15926,7 +15933,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {

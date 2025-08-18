@@ -1,8 +1,10 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, cast
 
 import pydantic_core
 import structlog
+from django.conf import settings
 from django.db.models import Prefetch
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets, status
@@ -39,11 +41,43 @@ from posthog.utils import filters_override_requested_by_client, variables_overri
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from contextlib import nullcontext
 import posthoganalytics
+from posthog.hogql_queries.legacy_compatibility.feature_flag import dashboard_threads_enabled
 from opentelemetry import trace
 
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
+    """
+    Serialize a single tile with error handling. Returns (order, tile_data) tuple.
+    This function is designed to be thread-safe and used with ThreadPoolExecutor.
+    """
+    # Create a copy of context to avoid thread conflicts
+    tile_context = context.copy()
+    tile_context.update(
+        {
+            "dashboard_tile": tile,
+            "order": order,
+        }
+    )
+
+    if isinstance(tile.layouts, str):
+        tile.layouts = json.loads(tile.layouts)
+
+    try:
+        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
+        return order, tile_data
+    except pydantic_core.ValidationError as e:
+        if not tile.insight:
+            raise
+        query = tile.insight.query
+        tile.insight.query = None
+        tile_data = DashboardTileSerializer(tile, context=tile_context).data
+        tile_data["insight"]["query"] = query
+        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+        return order, tile_data
 
 
 class CanEditDashboard(BasePermission):
@@ -437,7 +471,7 @@ class DashboardSerializer(DashboardBasicSerializer):
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        serialized_tiles = []
+        serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
             Prefetch(
@@ -467,34 +501,33 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
-            for order, tile in enumerate(sorted_tiles):
-                self.context.update(
-                    {
-                        "dashboard_tile": tile,
-                        "order": order,
-                    }
-                )
+            # Handle case where there are no tiles
+            if not sorted_tiles:
+                return []
 
-                if isinstance(tile.layouts, str):
-                    tile.layouts = json.loads(tile.layouts)
+            request = self.context.get("request")
+            user = request.user if request and hasattr(request, "user") else None
+            use_threads = dashboard_threads_enabled(team, user=user)
 
-                try:
-                    tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-                    serialized_tiles.append(tile_data)
-                # A single broken query object has the potential to crash the entire dashboard
-                # Here we catch it and handle it gracefully
-                except pydantic_core.ValidationError as e:
-                    if not tile.insight:
-                        raise
-                    query = tile.insight.query
-                    tile.insight.query = None
-                    # If this throws with no query, it will still crash the dashboard. We could attempt to handle this
-                    # general case gracefully, but it gets increasingly complicated to handle the tile in a graceful
-                    # way if we don't have insight information attached.
-                    tile_data = DashboardTileSerializer(tile, context=self.context).data
-                    tile_data["insight"]["query"] = query
-                    tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
-                    serialized_tiles.append(tile_data)
+            if settings.IN_UNIT_TESTING and not use_threads:
+                for order, tile in enumerate(sorted_tiles):
+                    order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                    serialized_tiles.append(cast(ReturnDict, tile_data))
+            else:
+                max_workers = min(len(sorted_tiles), 10)
+
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = []
+                    for order, tile in enumerate(sorted_tiles):
+                        future = executor.submit(serialize_tile_with_context, tile, order, self.context)
+                        futures.append(future)
+
+                    tile_results: list[ReturnDict | None] = [None] * len(sorted_tiles)
+                    for future in as_completed(futures):
+                        order, tile_data = future.result()
+                        tile_results[order] = cast(ReturnDict, tile_data)
+
+                    serialized_tiles.extend([result for result in tile_results if result is not None])
 
         return serialized_tiles
 
