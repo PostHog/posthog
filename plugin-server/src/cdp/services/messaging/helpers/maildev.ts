@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer'
 
 import { registerShutdownHandler } from '~/lifecycle'
 import { isDevEnv, isTestEnv } from '~/utils/env-utils'
+import { fetch } from '~/utils/request'
 
 export const mailDevTransport =
     isDevEnv() || isTestEnv()
@@ -20,3 +21,18 @@ export const mailDevWebUrl = `http://${process.env.MAILDEV_HOST || 'localhost'}:
 registerShutdownHandler(() => {
     return Promise.resolve(mailDevTransport?.close())
 })
+
+export class MailDevAPI {
+    constructor() {}
+
+    async getEmails(): Promise<any[]> {
+        const response = await fetch(`${mailDevWebUrl}/email`)
+        return response.json()
+    }
+
+    async clearEmails(): Promise<void> {
+        await fetch(`${mailDevWebUrl}/email/all`, {
+            method: 'DELETE',
+        })
+    }
+}

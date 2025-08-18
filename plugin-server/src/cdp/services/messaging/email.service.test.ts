@@ -9,6 +9,7 @@ import { parseJSON } from '~/utils/json-parse'
 
 import { Hub, Team } from '../../../types'
 import { EmailService } from './email.service'
+import { MailDevAPI } from './helpers/maildev'
 
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
@@ -96,12 +97,14 @@ describe('EmailService', () => {
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                expect(parseJSON(mockFetch.mock.calls[0][1].body).Messages[0].From).toMatchInlineSnapshot(`
+                expect(parseJSON(mockFetch.mock.calls[0][1].body).Messages[0].From).toMatchInlineSnapshot(
+                    `
                     {
                       "Email": "test@posthog.com",
                       "Name": "Test User",
                     }
-                `)
+                `
+                )
             })
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -140,11 +143,15 @@ describe('EmailService', () => {
             })
         })
     })
-
     describe('native email sending', () => {
         let invocation: CyclotronJobInvocationHogFunction
+        const mailDevAPI = new MailDevAPI()
 
         beforeEach(async () => {
+            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            mockFetch.mockImplementation((...args: any[]): Promise<any> => {
+                return actualFetch(...args) as any
+            })
             hub.MAILJET_PUBLIC_KEY = ''
             hub.MAILJET_SECRET_KEY = ''
             await insertIntegration(hub.postgres, team.id, {
@@ -156,11 +163,42 @@ describe('EmailService', () => {
             invocation.id = 'invocation-1'
             invocation.state.vmState = { stack: [] } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+            await mailDevAPI.clearEmails()
         })
 
         it('should send an email', async () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
+            const emails = await mailDevAPI.getEmails()
+            expect(emails).toHaveLength(1)
+            expect(emails[0]).toMatchObject({
+                from: [
+                    {
+                        address: 'test@posthog.com',
+                        name: 'Test User',
+                    },
+                ],
+                html: 'Test HTML',
+                subject: 'Test Subject',
+                text: 'Test Text',
+                to: [
+                    {
+                        address: 'test@example.com',
+                        name: 'Test User',
+                    },
+                ],
+            })
+        })
+
+        it('should include tracking code in the email', async () => {
+            invocation.queueParameters = createEmailParams({
+                html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
+            })
+            await service.executeSendEmail(invocation)
+            const emails = await mailDevAPI.getEmails()
+            expect(emails[0].html).toEqual(
+                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_fn_id=function-1&ph_inv_id=invocation-1&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_fn_id=function-1&ph_inv_id=invocation-1" style="display: none;" /></body>`
+            )
         })
     })
 })
