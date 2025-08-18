@@ -10,7 +10,7 @@ import jakarta.persistence.Entity;
  * events
  */
 @Entity
-public record events(
+public record Events(
         UUID uuid,
         String event,
         String properties,
@@ -32,7 +32,7 @@ public record events(
         LocalDateTime group2_created_at,
         LocalDateTime group3_created_at,
         LocalDateTime group4_created_at,
-        personModeEnum person_mode,
+        PersonModeEnum person_mode,
         String $group_0,
         String $group_1,
         String $group_2,
@@ -44,7 +44,7 @@ public record events(
         String elements_chain_href,
         String[] elements_chain_texts,
         String[] elements_chain_ids,
-        elementsChainEnum elements_chain_elements,
+        ElementsChainEnum elements_chain_elements,
         Map<String, String> properties_group_custom,
         Map<String, String> properties_group_ai,
         Map<String, String> properties_group_feature_flags,

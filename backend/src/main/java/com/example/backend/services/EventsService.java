@@ -2,7 +2,6 @@ package com.example.backend.services;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 
 import org.springframework.stereotype.Service;
 
@@ -14,14 +13,14 @@ import java.sql.*;
  * eventsService
  */
 @Service
-public class eventsService {
+public class EventsService {
 
     private final String url = "jdbc:ch://localhost:8123?jdbc_ignore_unsupported_values=true&socket_timeout=10";
     private final String username = "default";
     private final String password = "";
     private Statement st;
 
-    eventsService() {
+    EventsService() {
         try {
             Connection con = DriverManager.getConnection(url, username, password);
             System.out.println("Connection is successfully");
@@ -32,8 +31,8 @@ public class eventsService {
         }
     }
 
-    public List<apiHeatmapGetDTO> getAllHeatmap(String query) {
-        List<apiHeatmapGetDTO> results = new ArrayList<>();
+    public List<ApiHeatmapGetDTO> getAllHeatmap(String query) {
+        List<ApiHeatmapGetDTO> results = new ArrayList<>();
         try {
             HeatmapQueryParams qry = new HeatmapQueryParams(query);
             StringBuilder sql = new StringBuilder(
@@ -43,7 +42,7 @@ public class eventsService {
 
             ResultSet rs = st.executeQuery(sql.toString());
             while (rs.next()) {
-                List<apiHeatmapGetDTO> heatmap = new ArrayList<>();
+                List<ApiHeatmapGetDTO> heatmap = new ArrayList<>();
                 float viewPortWidth = 1;
                 String properties = rs.getString("properties");
                 for (String property : properties.split(",")) {
@@ -63,7 +62,7 @@ public class eventsService {
                                 mouseValue = mouseValue.substring(1, mouseValue.length() - 1);
                             }
                             String[] eachMouseValues = mouseValue.split(",");
-                            apiHeatmapGetDTO heatmapDTO = new apiHeatmapGetDTO();
+                            ApiHeatmapGetDTO heatmapDTO = new ApiHeatmapGetDTO();
                             heatmapDTO.setPointer_y(Integer.parseInt(eachMouseValues[3].split(":")[1]));
                             heatmapDTO.setPointer_relative_x(Integer.parseInt(eachMouseValues[2].split(":")[1]));
                             heatmapDTO.setPointer_target_fixed(false);
@@ -74,7 +73,7 @@ public class eventsService {
                         viewPortWidth = Integer.parseInt(values[1]);
                     }
                 }
-                for(apiHeatmapGetDTO heatmapData : heatmap) {
+                for(ApiHeatmapGetDTO heatmapData : heatmap) {
                     heatmapData.setPointer_relative_x(heatmapData.getPointer_relative_x() / viewPortWidth);
                     results.add(heatmapData);
                 }

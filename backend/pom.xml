@@ -61,6 +61,10 @@
             <artifactId>lombok</artifactId>
             <version>1.18.38</version>
         </dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
 	</dependencies>
 
 	<build>

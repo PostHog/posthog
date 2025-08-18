@@ -1,6 +1,6 @@
 package com.example.backend.model;
 
-public enum personModeEnum {
+public enum PersonModeEnum {
     full,
     propertyless,
     force_upgrade

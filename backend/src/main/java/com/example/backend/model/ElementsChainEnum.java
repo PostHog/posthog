@@ -1,6 +1,6 @@
 package com.example.backend.model;
 
-public enum elementsChainEnum {
+public enum ElementsChainEnum {
     dummy,
     a,
     button,

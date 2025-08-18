@@ -1,6 +1,6 @@
 package com.example.backend.model;
 
-public enum typeEventEnum {
+public enum TypeEventEnum {
     click,
     rageclick,
     deadclick,

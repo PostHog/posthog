@@ -12,7 +12,7 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class apiHeatmapGetDTO {
+public class ApiHeatmapGetDTO {
     private int count;
     private int pointer_y;
     private float pointer_relative_x;
