@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { wordPluralize } from 'lib/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
@@ -25,11 +26,7 @@ export const groupsModel = kea<groupsModelType>([
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
-                    try {
-                        return await api.get(`api/projects/${values.currentProjectId}/groups_types`)
-                    } catch {
-                        return []
-                    }
+                    return await api.get(`api/projects/${values.currentProjectId}/groups_types`)
                 },
                 updateGroupTypesMetadata: async (payload: Array<GroupType>) => {
                     if (values.groupsEnabled) {
@@ -147,15 +144,22 @@ export const groupsModel = kea<groupsModelType>([
             }
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         deleteGroupTypeSuccess: () => {
             actions.loadAllGroupTypes()
+        },
+        // Listen for organization changes to load group types when it becomes available
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
+            if (currentOrganization && !values.groupTypesRaw?.length) {
+                actions.loadAllGroupTypes()
+            }
         },
     })),
     afterMount(({ actions }) => {
         if (window.POSTHOG_APP_CONTEXT?.current_team?.group_types) {
             actions.loadAllGroupTypesSuccess(window.POSTHOG_APP_CONTEXT.current_team.group_types)
-        } else {
+        } else if (organizationLogic.values.currentOrganization) {
+            // don't load group types if organization is unavailable
             actions.loadAllGroupTypes()
         }
     }),

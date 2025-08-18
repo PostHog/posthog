@@ -39,12 +39,11 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                try {
+                // Don't make a request if organization is unavailable
+                if (organizationLogic.values.currentOrganization) {
                     return await api.organizationMembers.listAll({
                         limit: PAGINATION_LIMIT,
                     })
-                } catch {
-                    return []
                 }
             },
             loadMemberUpdates: async () => {
@@ -187,6 +186,13 @@ export const membersLogic = kea<membersLogicType>([
         loadAllMembersSuccess: ({ members }) => {
             if (members && members.length > 1) {
                 activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+            }
+        },
+
+        // Listen for organization changes to load members when it becomes available
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
+            if (currentOrganization && !values.members) {
+                actions.loadAllMembers()
             }
         },
     })),

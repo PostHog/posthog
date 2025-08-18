@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -98,13 +99,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         url ||
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
 
-                    let dashboards: PaginatedResponse<DashboardType>
-                    try {
-                        dashboards = await api.get(apiUrl)
-                    } catch {
-                        // No environment available, return empty list
-                        return { count: 0, next: null, previous: null, results: [] }
-                    }
+                    const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
                     return {
                         ...dashboards,
@@ -296,6 +291,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 actions.dashboardsFullyLoaded()
             }
         },
+
         addDashboardSuccess: ({ dashboard }) => {
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
 
@@ -347,9 +343,19 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 </>
             )
         },
+
+        // Listen for organization changes to load dashboards when it becomes available
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
+            if (currentOrganization && !values.pagedDashboards) {
+                actions.loadDashboards()
+            }
+        },
     })),
     afterMount(({ actions }) => {
-        actions.loadDashboards()
+        if (organizationLogic.values.currentOrganization) {
+            // don't load dashboards if organization is unavailable
+            actions.loadDashboards()
+        }
     }),
     permanentlyMount(),
 ])
