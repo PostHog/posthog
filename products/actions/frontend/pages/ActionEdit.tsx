@@ -98,7 +98,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     )
 
     return (
-        <SceneContent>
+        <SceneContent forceNewSpacing>
             <Form
                 logic={actionEditLogic}
                 props={logicProps}
