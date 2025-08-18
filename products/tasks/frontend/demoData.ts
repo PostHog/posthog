@@ -1,4 +1,4 @@
-import { Task, TaskStatus, OriginProduct } from './types'
+import { OriginProduct, Task, TaskStatus } from './types'
 
 export const demoTasks: Task[] = [
     {

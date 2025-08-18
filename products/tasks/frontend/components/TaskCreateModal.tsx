@@ -1,10 +1,12 @@
-import { useState } from 'react'
-import { LemonModal, LemonButton, LemonInput, LemonTextArea, LemonSelect } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { taskTrackerLogic } from '../TaskTrackerLogic'
-import { TaskStatus, OriginProduct } from '../types'
+import { useState } from 'react'
+
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+
 import { ORIGIN_PRODUCT_LABELS } from '../constants'
-import { RepositorySelector, RepositoryConfig } from './RepositorySelector'
+import { taskTrackerLogic } from '../taskTrackerLogic'
+import { OriginProduct, TaskStatus, TaskUpsertProps } from '../types'
+import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 
 interface TaskCreateModalProps {
     isOpen: boolean
@@ -75,16 +77,19 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
 
         try {
             // Convert repository config to API format
-            const taskData = {
+            const taskData: TaskUpsertProps = {
                 title: formData.title,
                 description: formData.description,
                 status: formData.status,
                 origin_product: formData.origin_product,
-                github_integration: formData.repositoryConfig.integrationId || null,
                 repository_config: {
                     organization: formData.repositoryConfig.organization || '',
                     repository: formData.repositoryConfig.repository || '',
                 },
+            }
+
+            if (formData.repositoryConfig.integrationId) {
+                taskData.github_integration = formData.repositoryConfig.integrationId
             }
 
             await createTask(taskData)

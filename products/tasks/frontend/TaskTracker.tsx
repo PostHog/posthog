@@ -1,13 +1,14 @@
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
-import { taskTrackerLogic } from './TaskTrackerLogic'
+
 import { BacklogView } from './components/BacklogView'
-import { KanbanView } from './components/KanbanView'
 import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
-import { NotFound } from 'lib/components/NotFound'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { KanbanView } from './components/KanbanView'
+import { taskTrackerLogic } from './taskTrackerLogic'
 
 export const scene: SceneExport = {
     component: TaskTracker,
@@ -17,9 +18,7 @@ export const scene: SceneExport = {
 export function TaskTracker(): JSX.Element {
     const { activeTab } = useValues(taskTrackerLogic)
     const { setActiveTab } = useActions(taskTrackerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const isEnabled = featureFlags[FEATURE_FLAGS.TASKS]
+    const isEnabled = useFeatureFlag('TASKS')
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />

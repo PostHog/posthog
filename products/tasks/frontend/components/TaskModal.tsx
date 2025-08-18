@@ -1,11 +1,13 @@
-import { LemonModal, LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useState } from 'react'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
+import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS, STATUS_COLORS, STATUS_LABELS } from '../constants'
+import { taskTrackerLogic } from '../taskTrackerLogic'
 import { Task, TaskStatus } from '../types'
-import { taskTrackerLogic } from '../TaskTrackerLogic'
-import { STATUS_LABELS, STATUS_COLORS, ORIGIN_PRODUCT_LABELS, ORIGIN_PRODUCT_COLORS } from '../constants'
+import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 import { TaskProgressDisplay } from './TaskProgressDisplay'
-import { RepositorySelector, RepositoryConfig } from './RepositorySelector'
 
 interface TaskModalProps {
     task: Task | null

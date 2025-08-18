@@ -161,7 +161,7 @@ import {
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
-import { Task } from 'products/tasks/frontend/types'
+import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
 
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
@@ -909,7 +909,7 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('tasks')
     }
 
-    public task(id: string, teamId?: TeamType['id']): ApiRequest {
+    public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
         return this.tasks(teamId).addPathComponent(id)
     }
 
@@ -3191,45 +3191,19 @@ const api = {
     },
 
     tasks: {
-        async list(): Promise<
-            PaginatedResponse<{
-                id: string
-                title: string
-                description: string
-                status: string
-                origin_product: string
-                position: number
-                created_at: string
-                updated_at: string
-            }>
-        > {
+        async list(): Promise<PaginatedResponse<Task>> {
             return await new ApiRequest().tasks().get()
         },
-        async get(id: string): Promise<Task> {
+        async get(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).get()
         },
-        async create(data: {
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-        }): Promise<Task> {
+        async create(data: TaskUpsertProps): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
         },
-        async update(
-            id: string,
-            data: Partial<{
-                title: string
-                description: string
-                status: string
-                origin_product: string
-                position: number
-            }>
-        ): Promise<Partial<Task>> {
+        async update(id: string, data: Partial<TaskUpsertProps>): Promise<Partial<Task>> {
             return await new ApiRequest().task(id).update({ data })
         },
-        async delete(id: string): Promise<void> {
+        async delete(id: Task['id']): Promise<void> {
             return await new ApiRequest().task(id).delete()
         },
     },

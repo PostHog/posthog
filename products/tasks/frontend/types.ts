@@ -1,3 +1,5 @@
+import { Optional } from '~/types'
+
 export enum TaskStatus {
     BACKLOG = 'backlog',
     TODO = 'todo',
@@ -30,6 +32,15 @@ export interface Task {
     repository_list?: Array<{ organization: string; repository: string }>
     primary_repository?: { organization: string; repository: string }
 }
+
+// TODO: figure out if position can be set on the backend
+export type TaskUpsertProps = Optional<
+    Pick<
+        Task,
+        'title' | 'description' | 'status' | 'origin_product' | 'position' | 'github_integration' | 'repository_config'
+    >,
+    'position'
+>
 
 export interface KanbanColumn {
     id: TaskStatus

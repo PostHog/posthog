@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { useCallback, useEffect, useState } from 'react'
+
 import { IconExternal } from '@posthog/icons'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { IconRefresh } from 'lib/lemon-ui/icons'
+
 import { ProgressResponse, ProgressStatus, Task } from '../types'
 
 interface TaskProgressDisplayProps {

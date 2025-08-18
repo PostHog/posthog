@@ -14,6 +14,8 @@ import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
+import { OriginProduct, TaskStatus, TaskUpsertProps } from 'products/tasks/frontend/types'
+
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export const IssueTasks = (): JSX.Element => {
@@ -144,9 +146,9 @@ const createTaskForm = (
     LemonDialog.openForm({
         title: 'Create PostHog task',
         initialValues: {
-            title: issue.name,
-            description: description,
-            status: 'todo',
+            title: issue.name ?? '',
+            description: description ?? '',
+            status: TaskStatus.TODO,
             repositories: [],
         },
         content: (
@@ -178,11 +180,11 @@ const createTaskForm = (
         },
         onSubmit: async ({ title, description, status, repositories }) => {
             try {
-                const taskData: any = {
+                const taskData: TaskUpsertProps = {
                     title,
                     description,
                     status,
-                    origin_product: 'error_tracking',
+                    origin_product: OriginProduct.ERROR_TRACKING,
                 }
 
                 // Add repository config if GitHub integration is available and repository is selected
@@ -212,7 +214,6 @@ const createTaskForm = (
                         }
                     } else {
                     }
-                } else {
                 }
 
                 await api.tasks.create(taskData)

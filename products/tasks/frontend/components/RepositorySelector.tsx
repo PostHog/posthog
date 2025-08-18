@@ -1,8 +1,11 @@
-import { useEffect } from 'react'
-import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
+
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { repositorySelectorLogic } from './repositorySelectorLogic'
 
 export interface RepositoryConfig {

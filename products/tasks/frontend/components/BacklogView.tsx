@@ -1,10 +1,13 @@
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
-import { taskTrackerLogic } from '../TaskTrackerLogic'
-import { TaskCard } from './TaskCard'
-import { TaskModal } from './TaskModal'
-import { TaskCreateModal } from './TaskCreateModal'
+
 import { userLogic } from 'scenes/userLogic'
+
+import { taskTrackerLogic } from '../taskTrackerLogic'
+import { TaskCard } from './TaskCard'
+import { TaskCreateModal } from './TaskCreateModal'
+import { TaskModal } from './TaskModal'
 
 export function BacklogView(): JSX.Element {
     const { backlogTasks, selectedTask, isCreateModalOpen } = useValues(taskTrackerLogic)

@@ -1,11 +1,12 @@
+import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { useValues, useActions } from 'kea'
-import { taskTrackerLogic } from '../TaskTrackerLogic'
+import { PropsWithChildren } from 'react'
+
+import { taskTrackerLogic } from '../taskTrackerLogic'
+import { Task, TaskStatus } from '../types'
 import { TaskCard } from './TaskCard'
 import { TaskModal } from './TaskModal'
-import { Task, TaskStatus } from '../types'
-import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
-import { PropsWithChildren } from 'react'
 
 export function KanbanView(): JSX.Element {
     const { kanbanColumns, selectedTask } = useValues(taskTrackerLogic)

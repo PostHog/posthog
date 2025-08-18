@@ -1,7 +1,9 @@
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
-import { IconGithub, IconBranch } from 'lib/lemon-ui/icons'
+
+import { IconBranch, IconGithub } from 'lib/lemon-ui/icons'
+
+import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS } from '../constants'
 import { Task, TaskStatus } from '../types'
-import { ORIGIN_PRODUCT_LABELS, ORIGIN_PRODUCT_COLORS } from '../constants'
 
 interface TaskCardProps {
     task: Task

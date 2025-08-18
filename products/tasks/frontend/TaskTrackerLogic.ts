@@ -3,12 +3,12 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import type { taskTrackerLogicType } from './TaskTrackerLogicType'
 import { demoTasks } from './demoData'
-import { KanbanColumn, Task, TaskStatus } from './types'
+import type { taskTrackerLogicType } from './taskTrackerLogicType'
+import { KanbanColumn, Task, TaskStatus, TaskUpsertProps } from './types'
 
 export const taskTrackerLogic = kea<taskTrackerLogicType>([
-    path(['products', 'tasks', 'frontend', 'TaskTrackerLogic']),
+    path(['products', 'tasks', 'frontend', 'taskTrackerLogic']),
     actions({
         setActiveTab: (tab: 'backlog' | 'kanban' | 'settings') => ({ tab }),
         moveTask: (taskId: string, newStatus: TaskStatus, newPosition?: number) => ({
@@ -16,15 +16,15 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
             newStatus,
             newPosition,
         }),
-        createTask: (task: Task) => ({ task }),
-        updateTask: (id: Task['id'], data: Partial<Task>) => ({ id, data }),
+        createTask: (task: TaskUpsertProps) => ({ task }),
+        updateTask: (id: Task['id'], data: Partial<TaskUpsertProps>) => ({ id, data }),
         scopeTask: (taskId: string) => ({ taskId }),
         reorderTasks: (sourceIndex: number, destinationIndex: number, status: TaskStatus) => ({
             sourceIndex,
             destinationIndex,
             status,
         }),
-        openTaskModal: (taskId: string) => ({ taskId }),
+        openTaskModal: (taskId: Task['id']) => ({ taskId }),
         closeTaskModal: true,
         openCreateModal: true,
         closeCreateModal: true,
@@ -33,139 +33,140 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
         pollForUpdates: true,
     }),
     loaders(({ values, actions }) => ({
-        tasks: {
-            __default: [] as Task[],
-            loadTasks: async () => {
-                try {
-                    const response = await api.tasks.list()
-
-                    return response.results
-                } catch (error) {
-                    console.error('Failed to load tasks, using demo data:', error)
-                    return demoTasks
-                }
-            },
-            createTask: async ({ task }) => {
-                try {
-                    const response = await api.tasks.create(task)
-                    return [...values.tasks, response]
-                } catch (error) {
-                    console.error('Failed to create task:', error)
-                    throw error
-                }
-            },
-            updateTask: async ({ id, data }) => {
-                try {
-                    const response = await api.tasks.update(id, data)
-                    return [...values.tasks, response]
-                } catch (error) {
-                    console.error('Failed to create task:', error)
-                    throw error
-                }
-            },
-            moveTask: async ({ taskId, newStatus, newPosition }) => {
-                // Optimistic update
-                const currentTasks = [...values.tasks]
-                const taskIndex = currentTasks.findIndex((task) => task.id === taskId)
-                if (taskIndex !== -1) {
-                    currentTasks[taskIndex] = {
-                        ...currentTasks[taskIndex],
-                        status: newStatus,
-                        position: newPosition ?? currentTasks[taskIndex].position,
-                        updated_at: new Date().toISOString(),
+        tasks: [
+            [] as Task[],
+            {
+                loadTasks: async () => {
+                    try {
+                        const response = await api.tasks.list()
+                        return response.results
+                    } catch (error) {
+                        console.error('Failed to load tasks, using demo data:', error)
+                        return demoTasks
                     }
-                }
+                },
+                createTask: async ({ task }) => {
+                    try {
+                        const response = await api.tasks.create(task)
+                        return [...values.tasks, response]
+                    } catch (error) {
+                        console.error('Failed to create task:', error)
+                        throw error
+                    }
+                },
+                updateTask: async ({ id, data }) => {
+                    try {
+                        const response = await api.tasks.update(id, data)
+                        return [...values.tasks].map((task) => (task.id === id ? { ...task, ...response } : task))
+                    } catch (error) {
+                        console.error('Failed to create task:', error)
+                        throw error
+                    }
+                },
+                moveTask: async ({ taskId, newStatus, newPosition }) => {
+                    // Optimistic update
+                    const currentTasks = [...values.tasks]
+                    const taskIndex = currentTasks.findIndex((task) => task.id === taskId)
+                    if (taskIndex !== -1) {
+                        currentTasks[taskIndex] = {
+                            ...currentTasks[taskIndex],
+                            status: newStatus,
+                            position: newPosition ?? currentTasks[taskIndex].position,
+                            updated_at: new Date().toISOString(),
+                        }
+                    }
 
-                // Update in background
-                api.tasks
-                    .update(taskId, {
-                        status: newStatus,
-                        position: newPosition,
+                    // Update in background
+                    api.tasks
+                        .update(taskId, {
+                            status: newStatus,
+                            position: newPosition,
+                        })
+                        .catch(() => {
+                            // If fails, reload from server
+                            actions.loadTasks()
+                        })
+
+                    return currentTasks
+                },
+                scopeTask: async ({ taskId }) => {
+                    const todoTasks = values.tasks.filter((task: Task) => task.status === TaskStatus.TODO)
+                    const nextPosition = todoTasks.length
+
+                    // Optimistic update
+                    const currentTasks = values.tasks.map((task) =>
+                        task.id === taskId && task.status === TaskStatus.BACKLOG
+                            ? {
+                                  ...task,
+                                  status: TaskStatus.TODO,
+                                  position: nextPosition,
+                                  updated_at: new Date().toISOString(),
+                              }
+                            : task
+                    )
+
+                    // Update in background
+                    api.tasks
+                        .update(taskId, {
+                            status: TaskStatus.TODO,
+                            position: nextPosition,
+                        })
+                        .catch(() => {
+                            actions.loadTasks()
+                        })
+
+                    return currentTasks
+                },
+                reorderTasks: async ({ sourceIndex, destinationIndex, status }) => {
+                    const statusTasks = values.tasks
+                        .filter((task: Task) => task.status === status)
+                        .sort((a, b) => a.position - b.position)
+
+                    const movedTask = statusTasks[sourceIndex]
+                    if (!movedTask) {
+                        return values.tasks
+                    }
+
+                    // Optimistic update - reorder locally first
+                    const reorderedStatusTasks = [...statusTasks]
+                    reorderedStatusTasks.splice(sourceIndex, 1)
+                    reorderedStatusTasks.splice(destinationIndex, 0, movedTask)
+
+                    // Update positions for all affected items
+                    const currentTasks = values.tasks.map((task) => {
+                        if (task.status === status) {
+                            const newIndex = reorderedStatusTasks.findIndex((st) => st.id === task.id)
+                            return { ...task, position: newIndex }
+                        }
+                        return task
                     })
-                    .catch(() => {
-                        // If fails, reload from server
+
+                    // Update positions in background
+                    const positionUpdates = reorderedStatusTasks.map((task, index) => {
+                        if (task.position !== index) {
+                            return api.tasks.update(task.id, { position: index })
+                        }
+                        return Promise.resolve()
+                    })
+
+                    Promise.all(positionUpdates).catch(() => {
                         actions.loadTasks()
                     })
 
-                return currentTasks
-            },
-            scopeTask: async ({ taskId }) => {
-                const todoTasks = values.tasks.filter((task: Task) => task.status === TaskStatus.TODO)
-                const nextPosition = todoTasks.length
-
-                // Optimistic update
-                const currentTasks = values.tasks.map((task) =>
-                    task.id === taskId && task.status === TaskStatus.BACKLOG
-                        ? {
-                              ...task,
-                              status: TaskStatus.TODO,
-                              position: nextPosition,
-                              updated_at: new Date().toISOString(),
-                          }
-                        : task
-                )
-
-                // Update in background
-                api.tasks
-                    .update(taskId, {
-                        status: TaskStatus.TODO,
-                        position: nextPosition,
-                    })
-                    .catch(() => {
-                        actions.loadTasks()
-                    })
-
-                return currentTasks
-            },
-            reorderTasks: async ({ sourceIndex, destinationIndex, status }) => {
-                const statusTasks = values.tasks
-                    .filter((task: Task) => task.status === status)
-                    .sort((a, b) => a.position - b.position)
-
-                const movedTask = statusTasks[sourceIndex]
-                if (!movedTask) {
-                    return values.tasks
-                }
-
-                // Optimistic update - reorder locally first
-                const reorderedStatusTasks = [...statusTasks]
-                reorderedStatusTasks.splice(sourceIndex, 1)
-                reorderedStatusTasks.splice(destinationIndex, 0, movedTask)
-
-                // Update positions for all affected items
-                const currentTasks = values.tasks.map((task) => {
-                    if (task.status === status) {
-                        const newIndex = reorderedStatusTasks.findIndex((st) => st.id === task.id)
-                        return { ...task, position: newIndex }
+                    return currentTasks
+                },
+                pollForUpdates: async () => {
+                    // Silent polling - just refresh tasks without loading state
+                    try {
+                        const response = await api.tasks.list()
+                        return response.results
+                    } catch (error) {
+                        console.error('Polling failed:', error)
+                        return values.tasks // Return current state on error
                     }
-                    return task
-                })
-
-                // Update positions in background
-                const positionUpdates = reorderedStatusTasks.map((task, index) => {
-                    if (task.position !== index) {
-                        return api.tasks.update(task.id, { position: index })
-                    }
-                    return Promise.resolve()
-                })
-
-                Promise.all(positionUpdates).catch(() => {
-                    actions.loadTasks()
-                })
-
-                return currentTasks
+                },
             },
-            pollForUpdates: async () => {
-                // Silent polling - just refresh tasks without loading state
-                try {
-                    const response = await api.tasks.list()
-                    return response.results
-                } catch (error) {
-                    console.error('Polling failed:', error)
-                    return values.tasks // Return current state on error
-                }
-            },
-        },
+        ],
     })),
     reducers({
         activeTab: [

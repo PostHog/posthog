@@ -1,4 +1,4 @@
-import { TaskStatus, OriginProduct } from './types'
+import { OriginProduct, TaskStatus } from './types'
 
 // Status display constants
 export const STATUS_LABELS: Record<TaskStatus, string> = {
