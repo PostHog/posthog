@@ -74,13 +74,13 @@ describe('PostgresGroupRepository Integration', () => {
             person_display_name_properties: [],
             access_control: false,
             base_currency: 'USD',
-            session_recording_retention_period: 'legacy',
             app_urls: [],
             event_names: [],
             event_names_with_usage: [],
             event_properties: [],
             event_properties_with_usage: [],
             event_properties_numerical: [],
+            session_recording_retention_period: '30d',
         })
     }
 
@@ -231,13 +231,13 @@ describe('PostgresGroupRepository Integration', () => {
                 person_display_name_properties: [],
                 access_control: false,
                 base_currency: 'USD',
-                session_recording_retention_period: 'legacy',
                 app_urls: [],
                 event_names: [],
                 event_names_with_usage: [],
                 event_properties: [],
                 event_properties_with_usage: [],
                 event_properties_numerical: [],
+                session_recording_retention_period: '30d',
             })
             await insertRow(postgres, 'posthog_group', {
                 team_id: group1TeamId,
@@ -279,13 +279,13 @@ describe('PostgresGroupRepository Integration', () => {
                 person_display_name_properties: [],
                 access_control: false,
                 base_currency: 'USD',
-                session_recording_retention_period: 'legacy',
                 app_urls: [],
                 event_names: [],
                 event_names_with_usage: [],
                 event_properties: [],
                 event_properties_with_usage: [],
                 event_properties_numerical: [],
+                session_recording_retention_period: '30d',
             })
             await insertRow(postgres, 'posthog_group', {
                 team_id: group2TeamId,

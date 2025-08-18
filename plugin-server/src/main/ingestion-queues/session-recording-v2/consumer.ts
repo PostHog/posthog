@@ -13,8 +13,8 @@ import {
     ValueMatcher,
 } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { logger } from '../../../utils/logger'
 import { createRedisPool } from '../../../utils/db/redis'
+import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'

@@ -330,7 +330,7 @@ export async function createUserTeamAndOrganization(
         access_control: false,
         base_currency: 'USD',
         cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
-        session_recording_retention_period: 'legacy',
+        session_recording_retention_period: '30d',
         ...otherTeamOverrides,
     }
 
@@ -485,7 +485,7 @@ export const createTeam = async (
         person_display_name_properties: [],
         access_control: false,
         base_currency: 'USD',
-        session_recording_retention_period: 'legacy',
+        session_recording_retention_period: '30d',
         ...teamSettings,
     })
     return id
