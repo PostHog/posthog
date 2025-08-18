@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBook, IconCompass, IconEye } from '@posthog/icons'
+import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -57,10 +57,16 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         icon: <IconBook />,
     },
     {
+        identifier: 'session_summarization' as const,
+        name: TOOL_DEFINITIONS['session_summarization'].name,
+        description: TOOL_DEFINITIONS['session_summarization'].description,
+        icon: <IconRewindPlay />,
+    },
+    {
         identifier: 'create_and_query_insight' as const,
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
-        icon: <IconEye />,
+        icon: <IconGraph />,
     },
 ]
 
@@ -177,10 +183,19 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
                     : null,
         ],
+        availableStaticTools: [
+            (s) => [s.featureFlags],
+            (featureFlags): ToolRegistration[] =>
+                STATIC_TOOLS.filter((tool) => {
+                    // Only register the static tools that either aren't flagged or have their flag enabled
+                    const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
+                    return !toolDefinition.flag || featureFlags[toolDefinition.flag]
+                }),
+        ],
         toolMap: [
-            (s) => [s.registeredToolMap],
-            (registeredToolMap) => ({
-                ...Object.fromEntries(STATIC_TOOLS.map((tool) => [tool.identifier, tool])),
+            (s) => [s.registeredToolMap, s.availableStaticTools],
+            (registeredToolMap, availableStaticTools) => ({
+                ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
                 ...registeredToolMap,
             }),
         ],

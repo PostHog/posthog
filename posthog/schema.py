@@ -93,6 +93,8 @@ class AssistantContextualTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     SEARCH_DOCS = "search_docs"
+    SEARCH_INSIGHTS = "search_insights"
+    SESSION_SUMMARIZATION = "session_summarization"
 
 
 class AssistantDateRange(BaseModel):
