@@ -29,12 +29,10 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }): (typeof definitionLogic)['props'] => ({
-        id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
 type StatusProps = {
@@ -71,7 +69,7 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
     },
 })
 
-export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
+export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
     const {
         definition,

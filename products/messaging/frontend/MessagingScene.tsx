@@ -43,8 +43,8 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            () => [(_, props) => props],
-            ({ tab }): Breadcrumb[] => {
+            (_, p) => [p.tab],
+            (tab): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Messaging,
@@ -78,12 +78,10 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<MessagingSceneProps> = {
     component: MessagingScene,
     logic: messagingSceneLogic,
-    paramsToProps: ({ params: { tab } }): (typeof messagingSceneLogic)['props'] => ({
-        tab,
-    }),
+    paramsToProps: ({ params: { tab } }) => ({ tab }),
 }
 
 export function MessagingScene(): JSX.Element {

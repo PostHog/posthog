@@ -375,7 +375,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
-        shortId: [() => [(_, props) => props], (props): string => props.shortId],
+        shortId: [(_, p) => [p.shortId], (shortId) => shortId],
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
         isLocalOnly: [
