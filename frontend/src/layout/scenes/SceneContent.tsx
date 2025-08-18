@@ -137,22 +137,24 @@ export function SceneTitleSection({
                     </span>
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
-                <div className="flex gap-3 [&_svg]:size-6 items-center">
-                    <span
-                        className={buttonPrimitiveVariants({
-                            size: 'base',
-                            iconOnly: true,
-                            inert: true,
-                        })}
-                        aria-hidden
-                    />
-                    <SceneDescription
-                        description={description}
-                        markdown={markdown}
-                        isLoading={isLoading}
-                        onBlur={onDescriptionBlur}
-                    />
-                </div>
+                {description && (
+                    <div className="flex gap-3 [&_svg]:size-6 items-center">
+                        <span
+                            className={buttonPrimitiveVariants({
+                                size: 'base',
+                                iconOnly: true,
+                                inert: true,
+                            })}
+                            aria-hidden
+                        />
+                        <SceneDescription
+                            description={description}
+                            markdown={markdown}
+                            isLoading={isLoading}
+                            onBlur={onDescriptionBlur}
+                        />
+                    </div>
+                )}
             </div>
             {docsURL && (
                 <Link
@@ -229,7 +231,7 @@ export function SceneDescription({
     markdown = false,
     isLoading = false,
     onBlur,
-}: SceneDescriptionProps): JSX.Element {
+}: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
 
     const textClasses = 'text-sm my-0 select-auto'
