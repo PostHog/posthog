@@ -24,6 +24,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertFalse(log.was_impersonated or False)
         self.assertFalse(log.is_system or False)
         self.assertEqual(log.organization_id, self.organization.id)
+        self.assertIsNone(log.team_id)  # Global keys should have no team_id
 
         self.assertIsNotNone(log.detail)
         detail = log.detail
@@ -34,7 +35,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertEqual(context["user_id"], self.user.id)
         self.assertEqual(context["user_email"], self.user.email)
         self.assertEqual(context["organization_name"], self.organization.name)
-        self.assertEqual(context["team_name"], self.team.name)
+        self.assertEqual(context["team_name"], "Unknown Project")  # Global keys have no team context
 
     def test_personal_api_key_update_activity_logging(self):
         api_key = self.create_personal_api_key(label="Original API Key")
@@ -164,6 +165,10 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         expected_org_ids = {str(self.organization.id), str(second_org.id)}
         self.assertEqual(org_ids, expected_org_ids)
 
+        for log in logs:
+            self.assertIsNone(log.team_id)
+            self.assertEqual(log.detail["context"]["team_name"], "Unknown Project")
+
     def test_personal_api_key_scoped_teams_logging(self):
         second_org = Organization.objects.create(name="Second Organization")
         self.user.join(organization=second_org)
@@ -180,6 +185,17 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         org_ids = {str(log.organization_id) for log in logs}
         expected_org_ids = {str(self.organization.id), str(second_org.id)}
         self.assertEqual(org_ids, expected_org_ids)
+
+        team_ids = {log.team_id for log in logs}
+        expected_team_ids = {self.team.id, second_team.id}
+        self.assertEqual(team_ids, expected_team_ids)
+
+        for log in logs:
+            self.assertIsNotNone(log.team_id)
+            if log.team_id == self.team.id:
+                self.assertEqual(log.detail["context"]["team_name"], self.team.name)
+            elif log.team_id == second_team.id:
+                self.assertEqual(log.detail["context"]["team_name"], second_team.name)
 
     def test_activity_log_api_returns_personal_api_key_logs(self):
         api_key = self.create_personal_api_key(label="API Test Key")
@@ -204,6 +220,35 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         assert found_log is not None
         self.assertEqual(found_log["activity"], "created")
         self.assertEqual(found_log["detail"]["name"], "API Test Key")
+
+    def test_team_scoped_api_key_creation_activity_logging(self):
+        """Test that team-scoped API keys create logs with correct team_id."""
+        api_key = self.create_personal_api_key(label="Team Scoped Key", scoped_teams=[self.team.id])
+        api_key_id = api_key["id"]
+
+        logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
+        self.assertEqual(len(logs), 1)
+
+        log = logs.first()
+        self.assertIsNotNone(log)
+        assert log is not None
+        self.assertEqual(log.scope, "PersonalAPIKey")
+        self.assertEqual(log.activity, "created")
+        self.assertEqual(log.item_id, str(api_key_id))
+        self.assertEqual(log.user, self.user)
+        self.assertEqual(log.organization_id, self.organization.id)
+        self.assertEqual(log.team_id, self.team.id)
+
+        self.assertIsNotNone(log.detail)
+        detail = log.detail
+        self.assertEqual(detail["name"], "Team Scoped Key")
+        self.assertIsNotNone(detail.get("context"))
+
+        context = detail["context"]
+        self.assertEqual(context["user_id"], self.user.id)
+        self.assertEqual(context["user_email"], self.user.email)
+        self.assertEqual(context["organization_name"], self.organization.name)
+        self.assertEqual(context["team_name"], self.team.name)
 
 
 class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):

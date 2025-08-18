@@ -21,8 +21,8 @@ class PersonalAPIKeyContext(ActivityContextBase):
     team_name: Optional[str] = None
 
 
-def calculate_access_set(api_key: PersonalAPIKey) -> set[LogScope]:
-    """Calculate all access locations for a PersonalAPIKey."""
+def get_personal_api_key_access_locations(api_key: PersonalAPIKey) -> set[LogScope]:
+    """Calculate where activity logs should be created for a PersonalAPIKey based on its scope."""
     if api_key.scoped_teams:
         teams = Team.objects.filter(pk__in=api_key.scoped_teams).select_related("organization")
         return {LogScope(str(team.organization_id), team.id) for team in teams}
@@ -31,6 +31,11 @@ def calculate_access_set(api_key: PersonalAPIKey) -> set[LogScope]:
     else:
         user_permissions = UserPermissions(api_key.user)
         return {LogScope(str(org_id), None) for org_id in user_permissions.organization_memberships.keys()}
+
+
+def calculate_access_set(api_key: PersonalAPIKey) -> set[LogScope]:
+    """Legacy wrapper for get_personal_api_key_access_locations."""
+    return get_personal_api_key_access_locations(api_key)
 
 
 def expand_org_access_to_teams(api_key: PersonalAPIKey, org_ids: list[str]) -> set[LogScope]:
@@ -216,20 +221,13 @@ def get_team_name(team_id: Optional[int]) -> str:
 
 
 def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, was_impersonated: bool, changes=None):
-    """Log activity for a PersonalAPIKey across all relevant organizations."""
-    from posthog.api.personal_api_key import PersonalAPIKeySerializer
+    """Create activity logs for PersonalAPIKey operations at appropriate organization/team levels."""
+    access_locations = get_personal_api_key_access_locations(api_key)
 
-    serializer = PersonalAPIKeySerializer()
-    organization_ids = serializer.get_scoped_organization_ids(api_key)
-
-    for org_id in organization_ids:
-        team_id = None
-        if api_key.user.current_team and str(api_key.user.current_team.organization_id) == org_id:
-            team_id = api_key.user.current_team.id
-
+    for location in access_locations:
         log_activity(
-            organization_id=uuid.UUID(org_id),
-            team_id=team_id,
+            organization_id=uuid.UUID(location.org_id),
+            team_id=location.team_id,
             user=user,
             was_impersonated=was_impersonated,
             item_id=api_key.id,
@@ -242,8 +240,8 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
                     user_id=api_key.user_id,
                     user_email=api_key.user.email,
                     user_name=api_key.user.get_full_name(),
-                    organization_name=get_organization_name(org_id),
-                    team_name=get_team_name(team_id),
+                    organization_name=get_organization_name(location.org_id),
+                    team_name=get_team_name(location.team_id),
                 ),
             ),
         )
