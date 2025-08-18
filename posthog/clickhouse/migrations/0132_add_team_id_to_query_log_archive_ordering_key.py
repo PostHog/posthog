@@ -100,9 +100,10 @@ operations = [
             lc_dagster__owner
         FROM query_log_archive
         WHERE event_time < (
-            SELECT min(event_time) - INTERVAL 10 MINUTE
+            SELECT event_time - INTERVAL 10 MINUTE
             FROM query_log_archive_new
-            WHERE event_time > toDateTime('2000-01-01 00:00:00')
+            ORDER BY event_time ASC
+            LIMIT 1
         )
         """,
         node_role=NodeRole.ALL,
@@ -197,14 +198,16 @@ operations = [
             lc_dagster__owner
         FROM query_log_archive AS old
         WHERE event_time >= (
-            SELECT min(event_time) - INTERVAL 10 MINUTE
+            SELECT event_time - INTERVAL 10 MINUTE
             FROM query_log_archive_new
-            WHERE event_time > toDateTime('2000-01-01 00:00:00')
+            ORDER BY event_time ASC
+            LIMIT 1
         )
         AND event_time <= (
-            SELECT min(event_time) + INTERVAL 10 MINUTE
+            SELECT event_time + INTERVAL 10 MINUTE
             FROM query_log_archive_new
-            WHERE event_time > toDateTime('2000-01-01 00:00:00')
+            ORDER BY event_time ASC
+            LIMIT 1
         )
         AND NOT EXISTS (
             SELECT 1
