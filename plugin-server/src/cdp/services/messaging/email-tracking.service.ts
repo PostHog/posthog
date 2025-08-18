@@ -65,6 +65,11 @@ export const generateEmailTrackingPixelUrl = (
     return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?${generateEmailTrackingCode(invocation)}`
 }
 
+export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
+    const trackingUrl = generateEmailTrackingPixelUrl(invocation)
+    return html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
+}
+
 export class EmailTrackingService {
     constructor(
         private hub: Hub,

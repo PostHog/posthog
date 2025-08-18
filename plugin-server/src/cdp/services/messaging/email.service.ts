@@ -6,7 +6,7 @@ import { isDevEnv } from '~/utils/env-utils'
 import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
-import { generateEmailTrackingCode, generateEmailTrackingPixelUrl } from './email-tracking.service'
+import { addTrackingToEmail, generateEmailTrackingCode } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 
 export class EmailService {
@@ -158,7 +158,7 @@ export class EmailService {
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: params.subject,
             text: params.text,
-            html: this.addTrackingToEmail(params.html, result.invocation),
+            html: addTrackingToEmail(params.html, result.invocation),
         })
 
         if (!response.accepted) {
@@ -166,10 +166,5 @@ export class EmailService {
         }
 
         result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
-    }
-
-    private addTrackingToEmail(html: string, invocation: CyclotronJobInvocationHogFunction): string {
-        const trackingUrl = generateEmailTrackingPixelUrl(invocation)
-        return html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
     }
 }
