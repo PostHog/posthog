@@ -987,7 +987,7 @@ export const NEW_CRITERIA = {
 }
 
 export const PERSON_PROPERTY_CRITERIA = {
-    type: BehavioralFilterKey.Behavioral,
+    type: BehavioralFilterKey.Person,
     value: BehavioralEventType.HaveProperty,
 }
 
