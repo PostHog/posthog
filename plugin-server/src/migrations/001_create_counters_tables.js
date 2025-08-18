@@ -45,9 +45,10 @@ exports.up = (pgm) => {
         },
     })
 
-    // Add composite primary key
+    // Add composite primary key with date first for better cache locality
+    // Since we only update today's data, this keeps the working set small
     pgm.addConstraint('behavioural_filter_matched_events', 'behavioural_filter_matched_events_pkey', {
-        primaryKey: ['team_id', 'person_id', 'filter_hash', 'date'],
+        primaryKey: ['date', 'team_id', 'person_id', 'filter_hash'],
     })
 }
 
