@@ -33,6 +33,7 @@ import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/Side
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
 import { WithinSidePanelContext, sidePanelStateLogic } from './sidePanelStateLogic'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -41,10 +42,10 @@ export const SIDE_PANEL_TABS: Record<
     [SidePanelTab.Max]: {
         label: 'Max AI',
         Icon: function IconMaxFromHedgehogConfig() {
-            const { user } = useValues(userLogic)
+            const { minimalHedgehogConfig } = useValues(hedgehogModeLogic)
             return (
                 <ProfilePicture
-                    user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
+                    user={{ hedgehog_config: minimalHedgehogConfig }}
                     size="md"
                     className="border bg-bg-light -scale-x-100" // Flip the hedegehog to face the scene
                 />

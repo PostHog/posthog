@@ -8,7 +8,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { HedgehogConfig } from '~/types'
+import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import { sanitizeHedgehogConfig } from './hedgehog-mode-utils'
 import type { hedgehogModeLogicType } from './hedgehogModeLogicType'
@@ -96,6 +96,20 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             (s) => [s.hedgehogConfig],
             (hedgehogConfig): boolean => {
                 return !!hedgehogConfig.enabled
+            },
+        ],
+
+        minimalHedgehogConfig: [
+            (s) => [s.hedgehogConfig],
+            (hedgehogConfig): MinimalHedgehogConfig => {
+                const forcedHedeghogProfile: MinimalHedgehogConfig = {
+                    use_as_profile: true,
+                    color: hedgehogConfig?.actor_options?.color,
+                    skin: hedgehogConfig?.actor_options?.skin,
+                    accessories: hedgehogConfig?.actor_options?.accessories,
+                }
+
+                return forcedHedeghogProfile
             },
         ],
     }),
