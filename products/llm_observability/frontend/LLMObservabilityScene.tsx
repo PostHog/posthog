@@ -167,7 +167,7 @@ function LLMObservabilityGenerations(): JSX.Element {
                             let inputNormalized: CompatMessage[] | undefined
                             if (typeof value === 'string') {
                                 try {
-                                    inputNormalized = normalizeMessages(JSON.parse(value as string), 'user')
+                                    inputNormalized = normalizeMessages(JSON.parse(value), 'user')
                                 } catch (e) {
                                     console.warn('Error parsing properties.$ai_input[-1] as JSON', e)
                                 }
@@ -184,7 +184,7 @@ function LLMObservabilityGenerations(): JSX.Element {
                             let outputNormalized: CompatMessage[] | undefined
                             if (typeof value === 'string') {
                                 try {
-                                    outputNormalized = normalizeMessages(JSON.parse(value as string), 'assistant')
+                                    outputNormalized = normalizeMessages(JSON.parse(value), 'assistant')
                                 } catch (e) {
                                     console.warn('Error parsing properties.$ai_output_choices as JSON', e)
                                 }
