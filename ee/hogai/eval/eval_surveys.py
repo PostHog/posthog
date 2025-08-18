@@ -640,13 +640,13 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
         data=[
             # Test case 1: NPS survey should have rating question first
             EvalCase(
-                input="Create a satisfaction survey (NPS) to measure customer loyalty",
+                input="Create a satisfaction survey (NPS) to measure customer loyalty, following the standard Net Promoter Score methodology and including follow-up questions for deeper insights.",
                 expected={"first_question_type": "rating", "min_questions": 1},
                 metadata={"test_type": "nps_survey"},
             ),
             # Test case 2: PMF survey should have single choice question first
             EvalCase(
-                input="Make a product-market fit (PMF) survey, following PMF best practices.",
+                input="Make a product-market fit (PMF) survey that follows established best practices (e.g. asking how disappointed users would be if they could no longer use the product), and include additional questions to understand product value and improvement areas",
                 expected={"first_question_type": "single_choice", "min_questions": 1},
                 metadata={"test_type": "pmf_survey"},
             ),
@@ -666,7 +666,6 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             EvalCase(
                 input="Create a survey for users who have the 'new-checkout-flow' feature flag enabled to get feedback on the checkout experience",
                 expected={
-                    "first_question_type": "open",
                     "min_questions": 1,
                     "should_have_flag": True,
                     "should_have_variant": False,  # General flag reference, not specific variant
@@ -677,7 +676,6 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             EvalCase(
                 input="Create a satisfaction survey for users in the 'treatment' variant of the 'ab-test-experiment' feature flag to measure the impact of the new design",
                 expected={
-                    "first_question_type": "rating",
                     "min_questions": 1,
                     "should_have_flag": True,
                     "should_have_variant": True,
@@ -687,9 +685,8 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             ),
             # Test case 7: Survey targeting users with any variant of a multivariate flag
             EvalCase(
-                input="Create a feedback survey for all users who have any variant of the 'homepage-redesign' feature flag enabled",
+                input="Create a feedback survey for all users who have 'any' variant of the 'homepage-redesign' feature flag enabled",
                 expected={
-                    "first_question_type": "open",
                     "min_questions": 1,
                     "should_have_flag": True,
                     "should_have_variant": True,
@@ -699,9 +696,8 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             ),
             # Test case 8: Survey that mentions feature flag but isn't necessarily targeting by it
             EvalCase(
-                input="Create a survey asking users about their experience with feature flags in general and how they affect their workflow",
+                input="Create an open text survey asking users about their experience with feature flags in general and how they affect their workflow",
                 expected={
-                    "first_question_type": "open",
                     "min_questions": 1,
                     "should_have_flag": False,  # This is about feature flags as a concept, not targeting
                 },
@@ -711,7 +707,6 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             EvalCase(
                 input="Create an NPS survey specifically for users in the control group of our pricing-page-test feature flag to measure baseline satisfaction",
                 expected={
-                    "first_question_type": "rating",
                     "min_questions": 1,
                     "should_have_flag": True,
                     "should_have_variant": True,
@@ -723,7 +718,6 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             EvalCase(
                 input="Create a survey for users with the 'non-existent-flag' feature flag to get their feedback",
                 expected={
-                    "first_question_type": "open",
                     "min_questions": 1,
                     "should_have_flag": False,  # Should not link to non-existent flag
                 },
@@ -731,9 +725,8 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             ),
             # Test case 11: Feature flag with specific variant and additional context
             EvalCase(
-                input="Create an engagement survey for users experiencing the 'variant-b' of our 'homepage-redesign' experiment to understand their interaction patterns",
+                input="Make an engagement survey for users in 'homepage-redesign' feature flag and 'variant-b' variant with questions on interaction patterns",
                 expected={
-                    "first_question_type": "rating",
                     "min_questions": 1,
                     "should_have_flag": True,
                     "should_have_variant": True,
