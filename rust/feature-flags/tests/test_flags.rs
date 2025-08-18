@@ -151,7 +151,7 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), Some("1"), None)
+        .send_flags_request(payload.to_string(), None, None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1000,7 +1000,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -1029,7 +1029,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -1058,7 +1058,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3653,7 +3653,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3680,7 +3680,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3707,7 +3707,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3734,7 +3734,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
