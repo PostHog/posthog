@@ -22,15 +22,13 @@ import { tagsModel } from '~/models/tagsModel'
 import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import { AvailableFeature } from '~/types'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }): DefinitionLogicProps => ({
-        id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
+export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
     const { definitionLoading, definitionMissing, hasTaxonomyFeatures, isProperty } = useValues(definitionLogic(props))
     const { editDefinition } = useValues(logic)

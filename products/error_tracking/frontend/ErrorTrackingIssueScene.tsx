@@ -11,17 +11,14 @@ import { ErrorFilters } from './components/ErrorFilters'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { EventsTable } from './components/EventsTable/EventsTable'
 import { ExceptionCard } from './components/ExceptionCard'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({
-        params: { id },
-        searchParams: { fingerprint, timestamp },
-    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint, timestamp }),
+    paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
 }
 
 export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {

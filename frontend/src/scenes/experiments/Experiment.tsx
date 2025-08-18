@@ -7,10 +7,10 @@ import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
 import { ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ExperimentLogicProps> = {
     component: Experiment,
     logic: experimentLogic,
-    paramsToProps: ({ params: { id, formMode } }): ExperimentLogicProps => ({
+    paramsToProps: ({ params: { id, formMode } }) => ({
         experimentId: id === 'new' ? 'new' : parseInt(id, 10),
         formMode: formMode || (id === 'new' ? FORM_MODES.create : FORM_MODES.update),
     }),

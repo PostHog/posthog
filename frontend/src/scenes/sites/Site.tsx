@@ -11,13 +11,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SiteLogicProps, siteLogic } from './siteLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SiteLogicProps> = {
     component: Site,
-    paramsToProps: ({ params: { url } }): SiteLogicProps => ({ url: decodeURIComponent(url) }),
+    paramsToProps: ({ params: { url } }) => ({ url: decodeURIComponent(url) }),
     logic: siteLogic,
 }
 
-export function Site({ url }: { url?: string } = {}): JSX.Element {
+export function Site({ url }: SiteLogicProps): JSX.Element {
     const { launchUrl } = useValues(
         authorizedUrlListLogic({ ...defaultAuthorizedUrlProperties, type: AuthorizedUrlListType.TOOLBAR_URLS })
     )

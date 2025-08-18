@@ -16,16 +16,16 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SessionRecordingDetailLogicProps> = {
     logic: sessionRecordingDetailLogic,
     component: SessionRecordingDetail,
-    paramsToProps: ({ params: { id } }): (typeof sessionRecordingDetailLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id,
     }),
     settingSectionId: 'environment-replay',
 }
 
-export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
+export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 

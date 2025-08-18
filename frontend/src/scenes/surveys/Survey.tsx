@@ -19,18 +19,16 @@ import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 import SurveyEdit from './SurveyEdit'
 import { SurveyView } from './SurveyView'
 import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
-import { surveyLogic } from './surveyLogic'
+import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
     logic: surveyLogic,
-    paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
-        id: id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
     settingSectionId: 'environment-surveys',
 }
 
-export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
+export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 

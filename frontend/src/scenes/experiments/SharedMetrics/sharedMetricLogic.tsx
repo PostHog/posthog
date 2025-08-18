@@ -133,7 +133,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             () => [(_, props) => props.sharedMetricId ?? 'new'],
             (sharedMetricId): string | number => sharedMetricId,
         ],
-        action: [() => [(_, props) => props.action], (action: 'create' | 'update' | 'duplicate') => action],
+        action: [(_, p) => [p.action], (action) => action],
         newSharedMetric: [
             () => [],
             () => ({

@@ -82,12 +82,10 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ErrorTrackingConfigurationSceneLogicProps> = {
     component: ErrorTrackingConfigurationScene,
     logic: errorTrackingConfigurationSceneLogic,
-    paramsToProps: ({ searchParams: { tab } }): (typeof errorTrackingConfigurationSceneLogic)['props'] => ({
-        initialTab: tab,
-    }),
+    paramsToProps: ({ searchParams: { tab } }) => ({ initialTab: tab }),
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {

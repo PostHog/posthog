@@ -671,7 +671,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
-        logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
+        logicProps: [() => [(_, props) => props], (props: HogFunctionConfigurationLogicProps) => props],
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
