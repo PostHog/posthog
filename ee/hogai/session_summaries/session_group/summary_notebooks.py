@@ -4,11 +4,12 @@ from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
     TipTapContent,
     TipTapNode,
-    create_heading_with_text,
     create_text_content,
     create_bullet_list,
     create_paragraph_with_content,
     create_paragraph_with_text,
+    create_heading_with_text,
+    create_task_list,
     create_empty_paragraph,
 )
 from posthog.models.user import User
@@ -84,6 +85,77 @@ def format_extracted_patterns_status(patterns: list[RawSessionGroupSummaryPatter
         content.append({"type": "bulletList", "content": pattern_items})
 
     return {"type": "doc", "content": content}
+
+
+class NotebookIntermediateState:
+    """Manages the intermediate state of a notebook during session group summarization."""
+
+    def __init__(self, team_name: str):
+        """Initialize the intermediate state with a plan."""
+        self.team_name = team_name
+        self.plan_items: list[tuple[str, bool]] = [
+            ("Watch sessions", False),
+            ("Find patterns", False),
+            ("Generate final report", False),
+        ]
+        self.current_step_index: int = 0
+        self.current_step_content: TipTapNode | None = None
+        self.completed_steps: list[tuple[str, TipTapNode]] = []
+
+    def update_step_progress(self, content: TipTapNode) -> None:
+        """Update the current step's intermediate content."""
+        self.current_step_content = content
+
+    def complete_current_step(self) -> None:
+        """Mark the current step as completed and preserve its content."""
+        if self.current_step_index < len(self.plan_items):
+            # Mark current step as completed
+            step_name, _ = self.plan_items[self.current_step_index]
+            self.plan_items[self.current_step_index] = (step_name, True)
+
+            # Preserve the current step content if it exists
+            if self.current_step_content:
+                self.completed_steps.append((step_name, self.current_step_content))
+
+            # Move to next step
+            self.current_step_index += 1
+            self.current_step_content = None
+
+    def format_intermediate_state(self) -> TipTapNode:
+        """Convert the intermediate state to TipTap format for display."""
+        content = []
+
+        # Add main title
+        content.append(create_heading_with_text(f"Session Group Analysis - {self.team_name}", 1))
+        content.append(create_empty_paragraph())
+
+        # Add plan section
+        content.append(create_heading_with_text("Plan", 2))
+        content.append(create_task_list(self.plan_items))
+
+        # Add current step content if exists
+        if self.current_step_content:
+            content.append(create_empty_paragraph())
+            # Extract content from the doc node if it's wrapped
+            # TODO: Do I need the check of I can guarantee `doc` every time?
+            if isinstance(self.current_step_content, dict) and self.current_step_content.get("type") == "doc":
+                content.extend(self.current_step_content.get("content", []))
+            else:
+                content.append(self.current_step_content)
+
+        # Add completed steps in reverse order (most recent first)
+        for step_name, step_content in reversed(self.completed_steps):
+            content.append(create_empty_paragraph())
+            content.append(_create_line_separator())
+            content.append(create_heading_with_text(f"Step: {step_name} (Completed)", 2))
+            # Extract content from the doc node if it's wrapped
+            # TODO: Do I need the check of I can guarantee `doc` every time?
+            if isinstance(step_content, dict) and step_content.get("type") == "doc":
+                content.extend(step_content.get("content", []))
+            else:
+                content.append(step_content)
+
+        return {"type": "doc", "content": content}
 
 
 async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
