@@ -16,18 +16,24 @@ import type { PostgresPersonRepositoryOptions } from './postgres-person-reposito
 import { PostgresPersonRepository } from './postgres-person-repository'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
+export interface PostgresDualWritePersonRepositoryOptions extends PostgresPersonRepositoryOptions {
+    comparisonEnabled?: boolean
+}
+
 export class PostgresDualWritePersonRepository implements PersonRepository {
     private coordinator: TwoPhaseCommitCoordinator
     private primaryRepo: RawPostgresPersonRepository
     private secondaryRepo: RawPostgresPersonRepository
+    private comparisonEnabled: boolean
 
     constructor(
         primaryRouter: PostgresRouter,
         secondaryRouter: PostgresRouter,
-        options?: Partial<PostgresPersonRepositoryOptions>
+        options?: Partial<PostgresDualWritePersonRepositoryOptions>
     ) {
         this.primaryRepo = new PostgresPersonRepository(primaryRouter, options)
         this.secondaryRepo = new PostgresPersonRepository(secondaryRouter, options)
+        this.comparisonEnabled = options?.comparisonEnabled ?? false
         this.coordinator = new TwoPhaseCommitCoordinator({
             left: { router: primaryRouter, use: PostgresUse.PERSONS_WRITE, name: 'primary' },
             right: { router: secondaryRouter, use: PostgresUse.PERSONS_WRITE, name: 'secondary' },
@@ -99,7 +105,9 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 }
 
                 // Compare results between primary and secondary
-                this.compareCreatePersonResults(p, s)
+                if (this.comparisonEnabled) {
+                    this.compareCreatePersonResults(p, s)
+                }
 
                 result = p
                 return true
@@ -142,7 +150,9 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             )
 
             // Compare results between primary and secondary
-            this.compareUpdatePersonResults(primaryOut, secondaryOut, tag)
+            if (this.comparisonEnabled) {
+                this.compareUpdatePersonResults(primaryOut, secondaryOut, tag)
+            }
 
             return true
         })
@@ -161,22 +171,24 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 const s = await this.secondaryRepo.updatePersonAssertVersion({ ...personUpdate })
 
                 // Compare results
-                if (p[0] !== s[0]) {
-                    dualWriteComparisonCounter.inc({
-                        operation: 'updatePersonAssertVersion',
-                        comparison_type: 'version_mismatch',
-                        result: 'mismatch',
-                    })
-                } else {
-                    dualWriteComparisonCounter.inc({
-                        operation: 'updatePersonAssertVersion',
-                        comparison_type: 'version_match',
-                        result: 'match',
-                    })
-                }
+                if (this.comparisonEnabled) {
+                    if (p[0] !== s[0]) {
+                        dualWriteComparisonCounter.inc({
+                            operation: 'updatePersonAssertVersion',
+                            comparison_type: 'version_mismatch',
+                            result: 'mismatch',
+                        })
+                    } else {
+                        dualWriteComparisonCounter.inc({
+                            operation: 'updatePersonAssertVersion',
+                            comparison_type: 'version_match',
+                            result: 'match',
+                        })
+                    }
 
-                // Compare message counts
-                this.compareTopicMessages('updatePersonAssertVersion', p[1], s[1])
+                    // Compare message counts
+                    this.compareTopicMessages('updatePersonAssertVersion', p[1], s[1])
+                }
             }
             return true
         })
@@ -191,7 +203,9 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.deletePerson(person, rTx),
             ])
 
-            this.compareTopicMessages('deletePerson', p, s)
+            if (this.comparisonEnabled) {
+                this.compareTopicMessages('deletePerson', p, s)
+            }
 
             messages = p
             return true
@@ -207,7 +221,9 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.addDistinctId(person, distinctId, version, rTx),
             ])
 
-            this.compareTopicMessages('addDistinctId', p, s)
+            if (this.comparisonEnabled) {
+                this.compareTopicMessages('addDistinctId', p, s)
+            }
 
             messages = p
             return true
@@ -232,11 +248,13 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             // If there's a mismatch in success or error type, that's unexpected
             if (p.success !== s.success || p.error !== s.error) {
                 // Emit metric for mismatch
-                dualWriteComparisonCounter.inc({
-                    operation: 'moveDistinctIds',
-                    comparison_type: p.success !== s.success ? 'success_mismatch' : 'error_mismatch',
-                    result: 'mismatch',
-                })
+                if (this.comparisonEnabled) {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'moveDistinctIds',
+                        comparison_type: p.success !== s.success ? 'success_mismatch' : 'error_mismatch',
+                        result: 'mismatch',
+                    })
+                }
                 pResult = p
                 // need to make sure we rollback this transaction
                 return false
@@ -255,18 +273,20 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.addPersonlessDistinctId(teamId, distinctId, rTx),
             ])
 
-            if (p !== s) {
-                dualWriteComparisonCounter.inc({
-                    operation: 'addPersonlessDistinctId',
-                    comparison_type: 'boolean_mismatch',
-                    result: 'mismatch',
-                })
-            } else {
-                dualWriteComparisonCounter.inc({
-                    operation: 'addPersonlessDistinctId',
-                    comparison_type: 'boolean_match',
-                    result: 'match',
-                })
+            if (this.comparisonEnabled) {
+                if (p !== s) {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'addPersonlessDistinctId',
+                        comparison_type: 'boolean_mismatch',
+                        result: 'mismatch',
+                    })
+                } else {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'addPersonlessDistinctId',
+                        comparison_type: 'boolean_match',
+                        result: 'match',
+                    })
+                }
             }
 
             isMerged = p
@@ -282,18 +302,20 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, rTx),
             ])
 
-            if (p !== s) {
-                dualWriteComparisonCounter.inc({
-                    operation: 'addPersonlessDistinctIdForMerge',
-                    comparison_type: 'boolean_mismatch',
-                    result: 'mismatch',
-                })
-            } else {
-                dualWriteComparisonCounter.inc({
-                    operation: 'addPersonlessDistinctIdForMerge',
-                    comparison_type: 'boolean_match',
-                    result: 'match',
-                })
+            if (this.comparisonEnabled) {
+                if (p !== s) {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'addPersonlessDistinctIdForMerge',
+                        comparison_type: 'boolean_mismatch',
+                        result: 'mismatch',
+                    })
+                } else {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'addPersonlessDistinctIdForMerge',
+                        comparison_type: 'boolean_match',
+                        result: 'match',
+                    })
+                }
             }
 
             isMerged = p
