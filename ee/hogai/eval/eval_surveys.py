@@ -9,6 +9,8 @@ from posthog.schema import SurveyCreationSchema
 
 from .conftest import MaxEval
 
+from posthog.models import FeatureFlag
+
 
 def validate_survey_output(output, scorer_name):
     """Common validation logic for survey scorers."""
@@ -28,7 +30,6 @@ def validate_survey_output(output, scorer_name):
 
 async def create_test_feature_flags(team, user):
     """Create test feature flags for evaluation scenarios."""
-    from posthog.models import FeatureFlag
 
     test_flags = [
         {
