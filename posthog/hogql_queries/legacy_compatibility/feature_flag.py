@@ -172,7 +172,7 @@ def dashboard_threads_enabled(team: Team, user: Optional["User"] = None) -> bool
                 "id": str(team.id),
             },
         },
-        only_evaluate_locally=False,
+        only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
 
