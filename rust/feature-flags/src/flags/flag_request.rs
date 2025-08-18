@@ -204,10 +204,7 @@ mod tests {
 
         match flag_payload.extract_distinct_id() {
             Ok(distinct_id) => assert_eq!(distinct_id, ""),
-            Err(e) => panic!(
-                "expected empty distinct_id to be accepted, got error: {}",
-                e
-            ),
+            Err(e) => panic!("expected empty distinct_id to be accepted, got error: {e}"),
         };
     }
 
