@@ -4,11 +4,12 @@ import { useEffect } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { type PositionWithSide } from '../utils/floatingMaxPositioning'
 import { useDragAndSnap } from '../utils/useDragAndSnap'
-import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
-import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 interface HedgehogAvatarProps {
     onExpand: () => void

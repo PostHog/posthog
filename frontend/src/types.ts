@@ -9,6 +9,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -64,7 +65,6 @@ import type {
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 

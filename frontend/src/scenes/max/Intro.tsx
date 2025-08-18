@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
-import { maxLogic } from './maxLogic'
-import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { HedgehogModeStatic } from 'lib/components/HedgehogMode/HedgehogModeStatic'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+
+import { maxLogic } from './maxLogic'
 
 export function Intro(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogModeLogic)

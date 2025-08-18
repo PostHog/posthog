@@ -1,5 +1,8 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+import { HedgehogActor } from 'lib/components/HedgehogMode/types'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -10,8 +13,6 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
-import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
-import { HedgehogActor } from 'lib/components/HedgehogMode/types'
 
 const MARGIN = 2
 const HEDGEHOG_OFFSET = 80
