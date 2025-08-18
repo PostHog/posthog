@@ -14,7 +14,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { MailjetEventType, MailjetWebhookEvent } from './types'
 
-const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
+export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 

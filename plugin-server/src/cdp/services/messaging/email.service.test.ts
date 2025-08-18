@@ -1,11 +1,14 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
+
 import { Hub, Team } from '../../../types'
 import { EmailService } from './email.service'
+
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
 ): CyclotronInvocationQueueParametersEmailType => {
