@@ -186,19 +186,30 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     }
 
     async moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult> {
-        let primary!: MoveDistinctIdsResult
+        let pResult!: MoveDistinctIdsResult
         await this.coordinator.run('moveDistinctIds', async (lTx, rTx) => {
             const [p, s] = await Promise.all([
                 this.primaryRepo.moveDistinctIds(source, target, lTx),
                 this.secondaryRepo.moveDistinctIds(source, target, rTx),
             ])
-            if (!p.success || !s.success) {
-                throw new Error(`DualWrite moveDistinctIds mismatch: primary=${p.success}, secondary=${s.success}`)
+            // If both repositories return the same failure result, that's expected behavior
+            // (e.g., both detected that the target person was deleted)
+            if (!p.success && !s.success && p.error === s.error) {
+              pResult = p
+              // return false to rollback the transaction; the database failed anyhow so probably don't need to rollback
+              return false
             }
-            primary = p
-            return true
+            // If there's a mismatch in success or error type, that's unexpected
+            if (p.success !== s.success || p.error !== s.error) {
+              pResult = p
+              // NICKS TODO: emit a metric here
+              // need to make sure we rollback this transaction
+              return false
+            }
+            pResult = p
+            return p.success
         })
-        return primary
+        return pResult
     }
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
