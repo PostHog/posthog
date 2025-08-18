@@ -105,11 +105,9 @@ describe('EmailTrackingService', () => {
                     const res = await supertest(app).post(`/public/m/mailjet_webhook`).send({})
 
                     expect(res.status).toBe(403)
-                    expect(res.body).toMatchInlineSnapshot(`
-                    {
-                    "message": "Missing required headers or body",
-                    }
-                `)
+                    expect(res.body).toEqual({
+                        message: 'Missing required headers or body',
+                    })
                 })
 
                 it('should return 403 if signature is invalid', async () => {
@@ -123,11 +121,9 @@ describe('EmailTrackingService', () => {
                         .send(exampleEvent)
 
                     expect(res.status).toBe(403)
-                    expect(res.body).toMatchInlineSnapshot(`
-                    {
-                    "message": "Invalid signature",
-                    }
-                `)
+                    expect(res.body).toEqual({
+                        message: 'Invalid signature',
+                    })
                 })
             })
 
@@ -249,6 +245,12 @@ describe('EmailTrackingService', () => {
                 expect(messages).toHaveLength(1)
                 expect(messages[0].value).toMatchObject({
                     app_source: 'hog_function',
+                    app_source_id: hogFunction.id,
+                    instance_id: invocationId,
+                    metric_kind: 'email',
+                    metric_name: 'email_opened',
+                    team_id: team.id,
+                    count: 1,
                 })
             })
 

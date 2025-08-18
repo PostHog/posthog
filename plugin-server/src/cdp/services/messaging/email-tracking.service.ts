@@ -229,7 +229,7 @@ export class EmailTrackingService {
                 source: 'direct',
             })
         } catch (error) {
-            logger.error('[EmailTrackingService] handleEmailTrackingPixel: Error tracking metric', { error })
+            logger.error('[EmailTrackingService] handleEmailTrackingPixel: Error tracking open metric', { error })
             captureException(error)
         }
 
@@ -253,7 +253,7 @@ export class EmailTrackingService {
                 source: 'direct',
             })
         } catch (error) {
-            logger.error('[EmailTrackingService] handleEmailTrackingPixel: Error tracking metric', { error })
+            logger.error('[EmailTrackingService] handleEmailTrackingRedirect: Error tracking metric', { error })
             captureException(error)
         }
 

@@ -90,7 +90,7 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
             })
-            it('should ignore a given email and use the intgeration config', async () => {
+            it('should ignore a given email and use the integration config', async () => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1, email: 'test@other-domain.com', name: '' },
                 })
