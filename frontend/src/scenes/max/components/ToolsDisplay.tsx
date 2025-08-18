@@ -37,7 +37,7 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
         <div className="flex items-center w-full justify-center cursor-default">
             <Tooltip
                 placement="bottom-end"
-                arrowOffset={8 /* 8px from right edge to align with the info icon */}
+                arrowOffset={10 /* 10px from right edge to align with the info icon */}
                 delayMs={50}
                 title={<ToolsExplanation toolsInReverse={toolsInReverse} />}
             >

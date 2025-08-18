@@ -1,13 +1,11 @@
-import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconDocument } from '@posthog/icons'
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
+import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -18,8 +16,22 @@ import { FileSystemIconColor } from '~/types'
 
 import { ProductIconWrapper, iconForType } from '../panel-layout/ProjectTree/defaultTree'
 
-export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="scene-content flex flex-col gap-y-4">{children}</div>
+export function SceneContent({
+    children,
+    className,
+    forceNewSpacing,
+}: {
+    children: React.ReactNode
+    className?: string
+    forceNewSpacing?: boolean
+}): JSX.Element {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
+    return (
+        <div className={cn('scene-content flex flex-col', (newSceneLayout || forceNewSpacing) && 'gap-y-4', className)}>
+            {children}
+        </div>
+    )
 }
 
 interface SceneSectionProps {
@@ -39,15 +51,14 @@ export function SceneSection({
     className,
     hideTitleAndDescription,
 }: SceneSectionProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
         return (
-            <div className={cn('scene-section--fallback flex flex-col gap-4', className)}>
+            <div className={cn('scene-section--fallback flex flex-col gap-y-4', className)}>
                 {!hideTitleAndDescription && (
-                    <div className="flex flex-col">
+                    <div className="flex flex-col gap-y-0">
                         <h2 className="flex-1 subtitle mt-0">{title}</h2>
                         <p className="m-0">{description}</p>
                     </div>
@@ -59,9 +70,9 @@ export function SceneSection({
 
     if (isLoading) {
         return (
-            <div className={cn('flex flex-col gap-4', className)}>
-                <div className="flex flex-col gap-0">
-                    <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+            <div className={cn('flex flex-col gap-y-4', className)}>
+                <div className="flex flex-col gap-y-0">
+                    <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
                     {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                 </div>
                 <WrappingLoadingSkeleton>{children}</WrappingLoadingSkeleton>
@@ -70,9 +81,9 @@ export function SceneSection({
     }
 
     return (
-        <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>
-            <div className="flex flex-col gap-0">
-                <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+        <div className={cn('scene-section--new-layout flex flex-col gap-y-4', className)}>
+            <div className="flex flex-col gap-y-0">
+                <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
                 {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
             </div>
             {children}
@@ -87,9 +98,12 @@ type ResourceType = {
     type: keyof typeof fileSystemTypes | string
     // example: 'actions'
     typePlural: string
+    // If your resource type matches a product in fileSystemTypes, you can use this to override the icon
     forceIcon?: JSX.Element
+    // If your resource type matches a product in fileSystemTypes, you can use this to override the product's icon color
     forceIconColorOverride?: FileSystemIconColor
 }
+
 type SceneMainTitleProps = {
     name?: string | null
     description?: string | null
@@ -111,8 +125,7 @@ export function SceneTitleSection({
     onDescriptionBlur,
     docsURL,
 }: SceneMainTitleProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!newSceneLayout) {
         return null
@@ -128,41 +141,38 @@ export function SceneTitleSection({
 
     return (
         <div className="scene-title-section w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
-            <div className="flex flex-col gap-1.5 flex-1">
-                <div className="flex gap-3 [&_svg]:size-6 items-center">
-                    {resourceType.to ? (
-                        <Link
-                            to={resourceType.to}
-                            tooltip={resourceType.tooltip || `View all ${resourceType.typePlural}`}
-                            buttonProps={{
-                                size: 'base',
-                                iconOnly: true,
-                                variant: 'panel',
-                                className: 'rounded-sm h-[var(--button-height-lg)]',
-                            }}
-                        >
-                            {icon}
-                        </Link>
-                    ) : (
+            <div className="flex flex-col gap-1 flex-1">
+                <div className="flex gap-3 [&_svg]:size-6 items-center w-full">
+                    <span
+                        className={buttonPrimitiveVariants({
+                            size: 'base',
+                            iconOnly: true,
+                            className: 'rounded-sm h-[var(--button-height-lg)]',
+                            inert: true,
+                        })}
+                    >
+                        {icon}
+                    </span>
+                    <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
+                </div>
+                {description && (
+                    <div className="flex gap-3 [&_svg]:size-6 items-center">
                         <span
                             className={buttonPrimitiveVariants({
                                 size: 'base',
                                 iconOnly: true,
-                                className: 'rounded-sm h-[var(--button-height-lg)]',
                                 inert: true,
                             })}
-                        >
-                            {icon}
-                        </span>
-                    )}
-                    <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
-                </div>
-                <SceneDescription
-                    description={description}
-                    markdown={markdown}
-                    isLoading={isLoading}
-                    onBlur={onDescriptionBlur}
-                />
+                            aria-hidden
+                        />
+                        <SceneDescription
+                            description={description}
+                            markdown={markdown}
+                            isLoading={isLoading}
+                            onBlur={onDescriptionBlur}
+                        />
+                    </div>
+                )}
             </div>
             {docsURL && (
                 <Link
@@ -184,11 +194,10 @@ type SceneNameProps = {
 }
 
 export function SceneName({ name: initialName, isLoading = false, onBlur }: SceneNameProps): JSX.Element {
-    const [isEditing, setIsEditing] = useState(false)
     const [name, setName] = useState(initialName)
 
     const textClasses =
-        'text-3xl font-bold my-0 pl-[var(--button-padding-x-sm)] h-[var(--button-height-lg)] leading-[1.4] select-auto'
+        'text-2xl font-semibold my-0 pl-[var(--button-padding-x-sm)] h-[var(--button-height-lg)] leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading) {
@@ -199,16 +208,18 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element = onBlur ? (
-        <ButtonPrimitive
+        <TextInputPrimitive
+            variant="default"
+            value={name || ''}
+            onChange={(e) => setName(e.target.value)}
+            className={`${textClasses} field-sizing-content w-full`}
+            onBlur={() => {
+                if (initialName !== name) {
+                    onBlur?.(name || '')
+                }
+            }}
             size="lg"
-            onClick={() => setIsEditing(true)}
-            className={textClasses}
-            menuItem
-            variant="panel"
-            tooltip={isEditing ? null : 'Edit name'}
-        >
-            {name || <span className="text-tertiary">Unnamed</span>}
-        </ButtonPrimitive>
+        />
     ) : (
         <h1 className={cn(buttonPrimitiveVariants({ size: 'lg', inert: true, className: textClasses }))}>
             {name || <span className="text-tertiary">Unnamed</span>}
@@ -217,36 +228,13 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
 
     if (isLoading) {
         return (
-            <div className="max-w-prose">
+            <div className="max-w-prose w-full flex-1">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    return (
-        <div className="scene-name max-w-prose flex flex-col gap-0 -ml-[calc(var(--button-padding-x-sm)+2px)]">
-            {isEditing ? (
-                <>
-                    <TextInputPrimitive
-                        variant="default"
-                        value={name || ''}
-                        onChange={(e) => setName(e.target.value)}
-                        className={`${textClasses} bg-transparent field-sizing-content w-full`}
-                        autoFocus
-                        onBlur={() => {
-                            setIsEditing(false)
-                            if (initialName !== name) {
-                                onBlur?.(name || '')
-                            }
-                        }}
-                        size="lg"
-                    />
-                </>
-            ) : (
-                Element
-            )}
-        </div>
-    )
+    return <div className="scene-name max-w-prose flex flex-col gap-0 flex-1">{Element}</div>
 }
 
 type SceneDescriptionProps = {
@@ -261,8 +249,7 @@ export function SceneDescription({
     markdown = false,
     isLoading = false,
     onBlur,
-}: SceneDescriptionProps): JSX.Element {
-    const [isEditing, setIsEditing] = useState(false)
+}: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
 
     const textClasses = 'text-sm my-0 select-auto'
@@ -274,22 +261,18 @@ export function SceneDescription({
     }, [initialDescription, isLoading])
 
     const Element = onBlur ? (
-        <ButtonPrimitive
-            onClick={() => setIsEditing(true)}
-            className={`${textClasses}`}
-            autoHeight
-            menuItem
-            variant="panel"
-            tooltip={isEditing ? null : 'Edit description'}
-        >
-            {markdown && description ? (
-                <LemonMarkdown lowKeyHeadings className="[&_p]:my-0 [&_p]:leading-[20px]">
-                    {description}
-                </LemonMarkdown>
-            ) : (
-                description || <span className="text-tertiary">No description (optional)</span>
-            )}
-        </ButtonPrimitive>
+        <TextareaPrimitive
+            variant="default"
+            value={description || ''}
+            onChange={(e) => setDescription(e.target.value)}
+            className={`${textClasses} field-sizing-content w-full`}
+            onBlur={() => {
+                if (initialDescription !== description) {
+                    onBlur?.(description || '')
+                }
+            }}
+            markdown
+        />
     ) : (
         <>
             {markdown && description ? (
@@ -297,7 +280,7 @@ export function SceneDescription({
                     lowKeyHeadings
                     className={buttonPrimitiveVariants({
                         inert: true,
-                        className: `${textClasses} -ml-[var(--button-padding-x-base)]`,
+                        className: `${textClasses}`,
                         autoHeight: true,
                     })}
                 >
@@ -307,7 +290,7 @@ export function SceneDescription({
                 <p
                     className={buttonPrimitiveVariants({
                         inert: true,
-                        className: `${textClasses} -ml-[var(--button-padding-x-base)]`,
+                        className: `${textClasses}`,
                         autoHeight: true,
                     })}
                 >
@@ -319,41 +302,17 @@ export function SceneDescription({
 
     if (isLoading) {
         return (
-            <div className="max-w-prose">
+            <div className="max-w-prose w-full">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    return (
-        <div className="scene-description max-w-prose flex flex-col gap-0">
-            {isEditing ? (
-                <>
-                    <TextareaPrimitive
-                        variant="default"
-                        value={description || ''}
-                        onChange={(e) => setDescription(e.target.value)}
-                        className={`${textClasses} bg-transparent field-sizing-content w-full`}
-                        autoFocus
-                        onBlur={() => {
-                            setIsEditing(false)
-                            if (initialDescription !== description) {
-                                onBlur?.(description || '')
-                            }
-                        }}
-                        markdown
-                    />
-                </>
-            ) : (
-                Element
-            )}
-        </div>
-    )
+    return <div className="scene-description max-w-prose flex flex-col gap-0 flex-1">{Element}</div>
 }
 
 export function SceneDivider(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
