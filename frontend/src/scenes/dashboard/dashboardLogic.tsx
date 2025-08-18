@@ -69,6 +69,7 @@ import {
     MAX_TILES_FOR_AUTOPREVIEW,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
+    encodeURLFilters,
     encodeURLVariables,
     getInsightWithRetry,
     layoutsByTile,
@@ -1585,17 +1586,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.loadDashboard({ action: DashboardLoadAction.Preview })
         },
         setProperties: () => {
-            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+            if (values.canAutoPreview) {
                 actions.loadDashboard({ action: DashboardLoadAction.Preview })
             }
         },
         setDates: () => {
-            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+            if (values.canAutoPreview) {
                 actions.loadDashboard({ action: DashboardLoadAction.Preview })
             }
         },
         setBreakdownFilter: () => {
-            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+            if (values.canAutoPreview) {
                 actions.loadDashboard({ action: DashboardLoadAction.Preview })
             }
         },
