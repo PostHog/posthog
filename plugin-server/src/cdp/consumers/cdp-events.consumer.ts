@@ -328,14 +328,11 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                             try {
                                 const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                const [teamHogFunctions, team] = await Promise.all([
-                                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, [
-                                        'destination',
-                                    ]),
+                                const [team] = await Promise.all([
                                     this.hub.teamManager.getTeam(clickHouseEvent.team_id),
                                 ])
 
-                                if (!teamHogFunctions.length || !team) {
+                                if (!team) {
                                     return
                                 }
                                 events.push(

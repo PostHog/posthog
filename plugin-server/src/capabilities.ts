@@ -34,7 +34,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
-                // cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
                 cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
                 cdpApi: true,
