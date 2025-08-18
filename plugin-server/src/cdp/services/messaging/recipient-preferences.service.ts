@@ -2,6 +2,10 @@ import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 
+type MessageFunctionActionType = 'function_email' | 'function_sms'
+
+type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
+
 export class RecipientPreferencesService {
     constructor(private recipientsManager: RecipientsManagerService) {}
 
@@ -11,15 +15,13 @@ export class RecipientPreferencesService {
         )
     }
 
-    private isSubjectToRecipientPreferences(
-        action: HogFlowAction
-    ): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> {
+    private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {
         return ['function_email', 'function_sms'].includes(action.type)
     }
 
     private async isRecipientOptedOutOfAction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>
+        action: MessageAction
     ): Promise<boolean> {
         // Get the identifier to be used from the action config for sms, this is an input called to_number,
         // for email it is inside an input called email, specifically email.to.
@@ -41,6 +43,15 @@ export class RecipientPreferencesService {
                 identifier: identifier,
             })
 
+            if (!recipient) {
+                /**
+                 * If the recipient lookup succeeded and the recipient doesn't exist, default to `false`
+                 * as it is the Messaging customer's responsibility to ensure new users opt-in to messaging
+                 * during onboarding.
+                 */
+                return false
+            }
+
             if (recipient) {
                 // Grab the recipient preferences for the action category
                 const categoryId = action.config.message_category_id || '$all'
@@ -58,8 +69,6 @@ export class RecipientPreferencesService {
                     return true
                 }
             }
-
-            return false
         } catch (error) {
             // Log error but don't fail the execution
             console.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
