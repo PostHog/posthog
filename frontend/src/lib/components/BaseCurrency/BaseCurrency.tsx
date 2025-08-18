@@ -9,13 +9,7 @@ import { SceneSection } from '~/layout/scenes/SceneContent'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
-export function BaseCurrency({
-    hideTitle = false,
-    hideDescription = false,
-}: {
-    hideTitle?: boolean
-    hideDescription?: boolean
-}): JSX.Element {
+export function BaseCurrency({ hideTitle = false }: { hideTitle?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
@@ -27,16 +21,14 @@ export function BaseCurrency({
             description="PostHog will convert all currency values for the entire team to this currency before displaying them to you. If we can't properly detect your currency, we'll assume it's in this currency as well."
             className={cn(!newSceneLayout && 'gap-y-0')}
         >
-            {!newSceneLayout && (!hideTitle || !hideDescription) && (
+            {!newSceneLayout && !hideTitle && (
                 <>
                     {!hideTitle && <h3>Base currency</h3>}
-                    {!hideDescription && (
-                        <p>
-                            PostHog will convert all currency values for the entire team to this currency before
-                            displaying them to you. If we can't properly detect your currency, we'll assume it's in this
-                            currency as well.
-                        </p>
-                    )}
+                    <p>
+                        PostHog will convert all currency values for the entire team to this currency before displaying
+                        them to you. If we can't properly detect your currency, we'll assume it's in this currency as
+                        well.
+                    </p>
                 </>
             )}
             <div>
