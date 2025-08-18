@@ -8200,7 +8200,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response_monday[0]["days"], ["2020-01-06", "2020-01-13", "2020-01-20"])
-        self.assertEqual(response_monday[0]["data"], [2.0, 0.0, 1.0])
+        self.assertEqual(response_monday[0]["data"], [1.0, 0.0, 1.0])  # only includes events after 2020-01-12
 
     def test_same_day(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
