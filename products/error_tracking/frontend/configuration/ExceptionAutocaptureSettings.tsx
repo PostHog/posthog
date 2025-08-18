@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -31,16 +31,12 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                     Captures frontend exceptions thrown on a customers using `onError` and `onUnhandledRejection`
                     listeners in our web JavaScript SDK.
                 </p>
-                <p>
-                    Autocapture is also available for our{' '}
-                    <Link
-                        to="https://posthog.com/docs/error-tracking/installation?tab=Python#setting-up-python-exception-autocapture"
-                        target="_blank"
-                    >
-                        Python SDK
-                    </Link>
-                    , where it can be configured directly in code.
-                </p>
+                <LemonBanner type="warning" className="mb-4">
+                    Remotely configured exception autocapture and suppression rules only apply to the JS Web SDK. For
+                    all other SDKs autocapture can be configured directly in code. See the{' '}
+                    <Link to="https://posthog.com/docs/error-tracking/installation">installation instructions</Link> for
+                    more details.
+                </LemonBanner>
                 <LemonSwitch
                     id="posthog-autocapture-exceptions-switch"
                     onChange={(checked) => {
@@ -64,7 +60,10 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
 
             <div>
                 <h3>Suppression rules</h3>
-                <p>You can filter by type or message content to skip capturing certain exceptions on the client</p>
+                <p>
+                    Autocaptured exceptions can be filtered by type or message to skip capturing certain exceptions in
+                    the JS Web SDK
+                </p>
                 <ErrorTrackingClientSuppression disabled={!checked} />
             </div>
         </div>
