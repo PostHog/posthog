@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
@@ -20,6 +21,10 @@ from ee.hogai.session_summaries.session_group.patterns import (
     PatternAssignedEventSegmentContext,
     RawSessionGroupSummaryPattern,
 )
+
+if TYPE_CHECKING:
+    # TODO: Move enum to "types" and cleanup a bit to avoid circular imports
+    from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
 
 
 def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNode:
@@ -92,34 +97,61 @@ class NotebookIntermediateState:
 
     def __init__(self, team_name: str):
         """Initialize the intermediate state with a plan."""
+        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
+
         self.team_name = team_name
-        self.plan_items: list[tuple[str, bool]] = [
-            ("Watch sessions", False),
-            ("Find patterns", False),
-            ("Generate final report", False),
-        ]
-        self.current_step_index: int = 0
+        # Using dict to maintain order (Python 3.7+ guarantees order)
+        self.plan_items: dict[SessionSummaryStep, tuple[str, bool]] = {
+            SessionSummaryStep.WATCHING_SESSIONS: ("Watch sessions", False),
+            SessionSummaryStep.FINDING_PATTERNS: ("Find patterns", False),
+            SessionSummaryStep.GENERATING_REPORT: ("Generate final report", False),
+        }
         self.current_step_content: TipTapNode | None = None
         self.completed_steps: list[tuple[str, TipTapNode]] = []
+        self.previous_step: SessionSummaryStep | None = None
+        self.current_step: SessionSummaryStep | None = SessionSummaryStep.WATCHING_SESSIONS
 
-    def update_step_progress(self, content: TipTapNode) -> None:
-        """Update the current step's intermediate content."""
+    def update_step_progress(self, content: TipTapNode, step: "SessionSummaryStep | None" = None) -> None:
+        """Update the current step's intermediate content and handle step transitions."""
+        # If step changed, complete the previous step first
+        if step and step != self.current_step:
+            self._complete_and_transition(step)
+
+        # Update the current step content
         self.current_step_content = content
 
-    def complete_current_step(self) -> None:
-        """Mark the current step as completed and preserve its content."""
-        if self.current_step_index < len(self.plan_items):
-            # Mark current step as completed
-            step_name, _ = self.plan_items[self.current_step_index]
-            self.plan_items[self.current_step_index] = (step_name, True)
+    def _complete_and_transition(self, new_step: "SessionSummaryStep | None" = None) -> None:
+        """Complete current step and transition to a new step (or next in sequence if not specified)."""
+        # Mark current step as completed if we have a valid current step
+        if self.current_step and self.current_step in self.plan_items:
+            step_name, _ = self.plan_items[self.current_step]
+            self.plan_items[self.current_step] = (step_name, True)
 
             # Preserve the current step content if it exists
             if self.current_step_content:
                 self.completed_steps.append((step_name, self.current_step_content))
 
-            # Move to next step
-            self.current_step_index += 1
-            self.current_step_content = None
+        # Determine the next step
+        if new_step is not None:
+            # Transition to specified step
+            next_step = new_step
+        else:
+            # Find the next step in sequence
+            steps_list = list(self.plan_items.keys())
+            try:
+                current_index = steps_list.index(self.current_step)
+                if current_index < len(steps_list) - 1:
+                    next_step = steps_list[current_index + 1]
+                else:
+                    next_step = None
+            except (ValueError, AttributeError):
+                # Current step not found or is None
+                next_step = None
+
+        # Update step tracking
+        self.previous_step = self.current_step
+        self.current_step = next_step
+        self.current_step_content = None
 
     def format_intermediate_state(self) -> TipTapNode:
         """Convert the intermediate state to TipTap format for display."""
@@ -131,7 +163,9 @@ class NotebookIntermediateState:
 
         # Add plan section
         content.append(create_heading_with_text("Plan", 2))
-        content.append(create_task_list(self.plan_items))
+        # Extract just the name and completion status for the task list
+        task_list_items = [(name, completed) for name, completed in self.plan_items.values()]
+        content.append(create_task_list(task_list_items))
 
         # Add current step content if exists
         if self.current_step_content:
