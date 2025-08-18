@@ -87,7 +87,7 @@ describe('EmailTrackingService', () => {
                 .digest('hex')
 
             const res = await supertest(app)
-                .post(`/public/messaging/mailjet_webhook`)
+                .post(`/public/m/mailjet_webhook`)
                 .set({
                     'x-mailjet-signature': signature,
                     'x-mailjet-timestamp': timestamp,
@@ -100,7 +100,7 @@ describe('EmailTrackingService', () => {
 
         describe('validation', () => {
             it('should return 403 if required headers are missing', async () => {
-                const res = await supertest(app).post(`/public/messaging/mailjet_webhook`).send({})
+                const res = await supertest(app).post(`/public/m/mailjet_webhook`).send({})
 
                 expect(res.status).toBe(403)
                 expect(res.body).toMatchInlineSnapshot(`
@@ -113,7 +113,7 @@ describe('EmailTrackingService', () => {
             it('should return 403 if signature is invalid', async () => {
                 const timestamp = Date.now().toString()
                 const res = await supertest(app)
-                    .post(`/public/messaging/mailjet_webhook`)
+                    .post(`/public/m/mailjet_webhook`)
                     .set({
                         'x-mailjet-signature': 'invalid-signature',
                         'x-mailjet-timestamp': timestamp,
