@@ -67,11 +67,12 @@ import {
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     MAX_TILES_FOR_AUTOPREVIEW,
-    QUERY_VARIABLES_KEY,
+    SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
     encodeURLVariables,
     getInsightWithRetry,
     layoutsByTile,
+    parseURLFilters,
     parseURLVariables,
     runWithLimit,
 } from './dashboardUtils'
@@ -203,6 +204,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataColorThemeId,
         }),
         resetDashboardFilters: () => true,
+        resetIntermittentFilters: () => true,
         previewTemporaryFilters: true,
         resetVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
@@ -805,7 +807,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        temporaryFilters: [
+        intermittentFilters: [
             {
                 date_from: null,
                 date_to: null,
@@ -1016,7 +1018,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     dashboardLoading ||
                     Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
-                    (QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded)
+                    (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded)
                 )
             },
         ],
@@ -1205,7 +1207,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // the loadDashboardSuccess listener will initiate a refresh
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
-                    if (!(QUERY_VARIABLES_KEY in router.values.searchParams)) {
+                    if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
                         actions.loadDashboard({
                             action: DashboardLoadAction.InitialLoad,
                         })
@@ -1612,7 +1614,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
-            if (QUERY_VARIABLES_KEY in router.values.searchParams) {
+            if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboard({
                     action: DashboardLoadAction.InitialLoadWithVariables,
                 })
@@ -1753,7 +1755,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         resetVariables: () => {
             const { currentLocation } = router.values
             const newSearchParams = { ...currentLocation.searchParams }
-            delete newSearchParams[QUERY_VARIABLES_KEY]
+            delete newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
     })),

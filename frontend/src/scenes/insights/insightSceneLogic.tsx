@@ -37,10 +37,6 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
-import api from 'lib/api'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
-
-import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null

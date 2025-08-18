@@ -25,7 +25,8 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
-export const QUERY_VARIABLES_KEY = 'query_variables'
+export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
+export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 /**
  * Once a dashboard has more tiles than this,
@@ -218,9 +219,9 @@ export async function getInsightWithRetry(
 export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    if (searchParams[QUERY_VARIABLES_KEY]) {
+    if (searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]) {
         try {
-            const parsedVariables = JSON.parse(searchParams[QUERY_VARIABLES_KEY])
+            const parsedVariables = JSON.parse(searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY])
             Object.assign(variables, parsedVariables)
         } catch (e) {
             console.error('Failed to parse query_variables from URL:', e)
@@ -234,7 +235,7 @@ export const encodeURLVariables = (variables: Record<string, string>): Record<st
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
-        encodedVariables[QUERY_VARIABLES_KEY] = JSON.stringify(variables)
+        encodedVariables[SEARCH_PARAM_QUERY_VARIABLES_KEY] = JSON.stringify(variables)
     }
 
     return encodedVariables
