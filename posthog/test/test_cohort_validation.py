@@ -288,3 +288,100 @@ class TestCohortTypeValidationSerializer(BaseTest):
         data["cohort_type"] = "person_property"
         serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
         self.assertFalse(serializer.is_valid())
+
+    def test_behavioral_cohort_with_explicit_datetime(self):
+        """Should validate behavioral cohort with explicit_datetime field"""
+        data = {
+            "cohort_type": "behavioral",
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "key": "$exception",
+                                    "event_type": "events",
+                                    "explicit_datetime": "-30d",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+
+        serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
+        self.assertTrue(serializer.is_valid(), f"Validation failed with errors: {serializer.errors}")
+
+        # Should also work without explicit cohort_type (auto-detection)
+        data_without_type = data.copy()
+        del data_without_type["cohort_type"]
+        serializer = CohortTypeValidationSerializer(data=data_without_type, team_id=self.team.id)
+        self.assertTrue(serializer.is_valid())
+
+        # Should reject if claiming it's person_property when it's actually behavioral
+        data["cohort_type"] = "person_property"
+        serializer = CohortTypeValidationSerializer(data=data, team_id=self.team.id)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("Expected type: 'behavioral'", str(serializer.errors["cohort_type"]))
+
+    def test_hierarchical_cohort_type_upgrades(self):
+        """Should allow upgrading cohort type to higher complexity levels"""
+        # Person property cohort data
+        person_data = {
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        }
+
+        # Should allow upgrading person_property -> behavioral
+        person_data["cohort_type"] = "behavioral"
+        serializer = CohortTypeValidationSerializer(data=person_data, team_id=self.team.id)
+        self.assertTrue(serializer.is_valid())
+
+        # Should allow upgrading person_property -> analytical
+        person_data["cohort_type"] = "analytical"
+        serializer = CohortTypeValidationSerializer(data=person_data, team_id=self.team.id)
+        self.assertTrue(serializer.is_valid())
+
+        # Behavioral cohort data
+        behavioral_data = {
+            "cohort_type": "analytical",  # Upgrading behavioral -> analytical
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+
+        serializer = CohortTypeValidationSerializer(data=behavioral_data, team_id=self.team.id)
+        self.assertTrue(serializer.is_valid())
+
+        # Should reject downgrading behavioral -> person_property
+        behavioral_data["cohort_type"] = "person_property"
+        serializer = CohortTypeValidationSerializer(data=behavioral_data, team_id=self.team.id)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("not sufficient for the provided filters", str(serializer.errors))

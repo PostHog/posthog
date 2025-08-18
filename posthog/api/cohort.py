@@ -272,9 +272,21 @@ class CohortSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_cohort_type(self, value):
-        """Validate that the cohort type matches the filters"""
+        """Validate that the cohort type is compatible with the filters"""
         if not value:
             return value
+
+        # Parse filters if it's a JSON string
+        filters_data = self.initial_data.get(
+            "filters", getattr(self.instance, "filters", None) if self.instance else None
+        )
+        if isinstance(filters_data, str):
+            try:
+                import json
+
+                filters_data = json.loads(filters_data)
+            except (json.JSONDecodeError, TypeError):
+                pass  # Will be handled by determine_type logic
 
         cohort_data = {
             "cohort_type": value,
@@ -282,17 +294,35 @@ class CohortSerializer(serializers.ModelSerializer):
                 "is_static", getattr(self.instance, "is_static", False) if self.instance else False
             ),
             "query": self.initial_data.get("query", getattr(self.instance, "query", None) if self.instance else None),
-            "filters": self.initial_data.get(
-                "filters", getattr(self.instance, "filters", None) if self.instance else None
-            ),
+            "filters": filters_data,
         }
 
+        # Allow hierarchical upgrades: users can choose a higher-complexity type than required
         type_serializer = CohortTypeValidationSerializer(data=cohort_data, team_id=self.context["team_id"])
-        if not type_serializer.is_valid():
-            # NB: Get the first error message, since it's the only one we're interested in
-            if "cohort_type" in type_serializer.errors:
-                raise ValidationError(type_serializer.errors["cohort_type"][0])
-            raise ValidationError("Invalid cohort type for the given filters")
+
+        try:
+            required_type = type_serializer._determine_type_from_data(cohort_data)
+        except ValidationError:
+            # Re-raise validation errors (missing cohorts, circular refs, etc.)
+            raise
+        except Exception:
+            # If we can't determine the type, allow the provided type
+            return value
+
+        # Check if provided type is hierarchically valid (same or higher complexity)
+        from posthog.models.cohort.validation import TYPE_PRIORITY
+        from posthog.models.cohort.cohort import CohortType
+
+        provided_type_enum = CohortType(value)
+        required_priority = TYPE_PRIORITY.get(required_type, 0)
+        provided_priority = TYPE_PRIORITY.get(provided_type_enum, 0)
+
+        if provided_priority < required_priority:
+            raise ValidationError(
+                f"Cohort type '{value}' is not sufficient for the provided filters. "
+                f"Minimum required type: '{required_type.value}'. "
+                f"You can use the same type or upgrade to a higher-complexity type."
+            )
 
         return value
 

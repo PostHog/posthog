@@ -1088,3 +1088,99 @@ export const getFieldOptionsForCohortType = (
         FieldOptionsType.LifecycleBehavioral,
     ]
 }
+
+// Type hierarchy for determining upgrade paths (higher number = higher complexity)
+const TYPE_PRIORITY = {
+    [CohortTypeEnum.Static]: 0,
+    [CohortTypeEnum.PersonProperty]: 1,
+    [CohortTypeEnum.Behavioral]: 2,
+    [CohortTypeEnum.Analytical]: 3,
+}
+
+// Get available cohort type options based on current filters
+export const getAvailableCohortTypeOptions = (currentFilters?: {
+    properties?: any
+}): LemonSelectOptions<CohortTypeEnum> => {
+    // If no filters yet, allow all types
+    if (!currentFilters?.properties?.values?.length) {
+        return COHORT_TYPE_OPTIONS
+    }
+
+    // Determine minimum required type based on filters
+    let requiredType = CohortTypeEnum.PersonProperty // default minimum
+
+    const hasEventBehavioral = checkForEventBehavioral(currentFilters.properties)
+    const hasLifecycleBehavioral = checkForLifecycleBehavioral(currentFilters.properties)
+
+    if (hasLifecycleBehavioral) {
+        requiredType = CohortTypeEnum.Analytical
+    } else if (hasEventBehavioral) {
+        requiredType = CohortTypeEnum.Behavioral
+    }
+
+    const requiredPriority = TYPE_PRIORITY[requiredType]
+
+    // Return options that are same level or higher than required
+    return COHORT_TYPE_OPTIONS.filter((option) => {
+        const optionPriority = TYPE_PRIORITY[option.value]
+        return optionPriority >= requiredPriority
+    })
+}
+
+// Helper function to check for event behavioral filters
+const checkForEventBehavioral = (properties: any): boolean => {
+    if (!properties?.values) {
+        return false
+    }
+
+    const checkGroup = (group: any): boolean => {
+        if (!group?.values) {
+            return false
+        }
+
+        return group.values.some((item: any) => {
+            if (item.type === 'behavioral' && item.value === 'performed_event') {
+                return true
+            }
+            if (item.values) {
+                return checkGroup(item)
+            }
+            return false
+        })
+    }
+
+    return properties.values.some(checkGroup)
+}
+
+// Helper function to check for lifecycle behavioral filters
+const checkForLifecycleBehavioral = (properties: any): boolean => {
+    if (!properties?.values) {
+        return false
+    }
+
+    const analyticalBehavioralTypes = [
+        'performed_event_first_time',
+        'performed_event_regularly',
+        'performed_event_sequence',
+        'stopped_performing_event',
+        'restarted_performing_event',
+    ]
+
+    const checkGroup = (group: any): boolean => {
+        if (!group?.values) {
+            return false
+        }
+
+        return group.values.some((item: any) => {
+            if (item.type === 'behavioral' && analyticalBehavioralTypes.includes(item.value)) {
+                return true
+            }
+            if (item.values) {
+                return checkGroup(item)
+            }
+            return false
+        })
+    }
+
+    return properties.values.some(checkGroup)
+}
