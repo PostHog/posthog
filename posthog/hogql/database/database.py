@@ -419,6 +419,9 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 TableStore = dict[str, Table | TableGroup]
 
 
+CACHE_KEY_PREFIX = "hogql_database"
+
+
 @tracer.start_as_current_span("create_hogql_database")
 def create_hogql_database(
     team_id: Optional[int] = None,
@@ -515,7 +518,11 @@ def create_hogql_database(
         _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
-        for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+        group_type_mapping_queryset = GroupTypeMapping.objects.filter(project_id=team.project_id).fetch_cached(
+            team=team, key_prefix=CACHE_KEY_PREFIX
+        )
+
+        for mapping in group_type_mapping_queryset:
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
@@ -527,7 +534,10 @@ def create_hogql_database(
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
             saved_queries = list(
-                DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True).prefetch_related("table")
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .prefetch_related("table")
+                .fetch_cached(team=team, key_prefix=CACHE_KEY_PREFIX)
             )
 
         for saved_query in saved_queries:
@@ -562,6 +572,7 @@ def create_hogql_database(
                 DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
                 .select_related("credential", "external_data_source")
+                .fetch_cached(team=team, key_prefix=CACHE_KEY_PREFIX)
             )
 
         for table in tables:
@@ -731,7 +742,13 @@ def create_hogql_database(
     database.add_views(**views)
 
     with timings.measure("data_warehouse_joins"):
-        for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        joins = (
+            DataWarehouseJoin.objects.filter(team_id=team.pk)
+            .exclude(deleted=True)
+            .fetch_cached(team=team, key_prefix=CACHE_KEY_PREFIX)
+        )
+
+        for join in joins:
             # Skip if either table is not present. This can happen if the table was deleted after the join was created.
             # User will be prompted on UI to resolve missing tables underlying the JOIN
             if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
