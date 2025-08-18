@@ -1,22 +1,37 @@
+import { useEffect, useState } from 'react'
+
+import { IconDocument } from '@posthog/icons'
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
+import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useState } from 'react'
-import { fileSystemTypes } from '~/products'
-import { iconForType, ProductIconWrapper } from '../panel-layout/ProjectTree/defaultTree'
-import { IconDocument } from '@posthog/icons'
-import { FileSystemIconColor } from '~/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-export function SceneContent({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
+import { fileSystemTypes } from '~/products'
+import { FileSystemIconColor } from '~/types'
+
+import { ProductIconWrapper, iconForType } from '../panel-layout/ProjectTree/defaultTree'
+
+export function SceneContent({
+    children,
+    className,
+    forceNewSpacing,
+}: {
+    children: React.ReactNode
+    className?: string
+    forceNewSpacing?: boolean
+}): JSX.Element {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
-    return <div className={cn('scene-content flex flex-col', newSceneLayout && 'gap-y-4', className)}>{children}</div>
+    return (
+        <div className={cn('scene-content flex flex-col', (newSceneLayout || forceNewSpacing) && 'gap-y-4', className)}>
+            {children}
+        </div>
+    )
 }
 
 interface SceneSectionProps {
@@ -41,9 +56,9 @@ export function SceneSection({
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
         return (
-            <div className={cn('scene-section--fallback flex flex-col gap-4', className)}>
+            <div className={cn('scene-section--fallback flex flex-col gap-y-4', className)}>
                 {!hideTitleAndDescription && (
-                    <div className="flex flex-col">
+                    <div className="flex flex-col gap-y-0">
                         <h2 className="flex-1 subtitle mt-0">{title}</h2>
                         <p className="m-0">{description}</p>
                     </div>
@@ -55,8 +70,8 @@ export function SceneSection({
 
     if (isLoading) {
         return (
-            <div className={cn('flex flex-col gap-4', className)}>
-                <div className="flex flex-col gap-0">
+            <div className={cn('flex flex-col gap-y-4', className)}>
+                <div className="flex flex-col gap-y-0">
                     <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
                     {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                 </div>
@@ -66,8 +81,8 @@ export function SceneSection({
     }
 
     return (
-        <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>
-            <div className="flex flex-col gap-0">
+        <div className={cn('scene-section--new-layout flex flex-col gap-y-4', className)}>
+            <div className="flex flex-col gap-y-0">
                 <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
                 {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
             </div>

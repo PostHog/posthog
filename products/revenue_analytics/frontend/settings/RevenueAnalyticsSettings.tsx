@@ -1,22 +1,25 @@
+import { useValues } from 'kea'
+import { useRef, useState } from 'react'
+
 import { IconApps, IconPlus } from '@posthog/icons'
 import { LemonTabs, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useRef, useState } from 'react'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from './GoalsConfiguration'
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 type Tab = 'events' | 'data-warehouse'
 
@@ -44,10 +47,10 @@ export function RevenueAnalyticsSettings(): JSX.Element {
         !dataWarehouseSources?.results.filter((source) => source.source_type === 'Stripe').length
 
     return (
-        <SceneContent>
+        <SceneContent forceNewSpacing>
             <SceneTitleSection
                 name="Revenue"
-                description="Revenue events are used to track revenue in PostHog. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event."
+                description={introductionDescription}
                 resourceType={{
                     type: 'revenue',
                     typePlural: 'revenue events',

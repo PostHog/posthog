@@ -1,19 +1,21 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
-import { useState } from 'react'
+import { cn } from 'lib/utils/css-classes'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
+import { SceneSection } from '~/layout/scenes/SceneContent'
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { defaultConversionGoalFilter } from './constants'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
-import { cn } from 'lib/utils/css-classes'
-import { SceneSection } from '~/layout/scenes/SceneContent'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { defaultConversionGoalFilter } from './constants'
 
 interface ConversionGoalFormState {
     filter: ConversionGoalFilter
@@ -83,13 +85,13 @@ export function ConversionGoalsConfiguration({
             hideTitleAndDescription={!newSceneLayout}
             title={!hideTitle ? 'Conversion goals' : undefined}
             description="Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics."
-            className={cn(!newSceneLayout && 'gap-y-6')}
+            className={cn(!newSceneLayout && 'gap-y-4')}
         >
             {!newSceneLayout && (!hideTitle || !hideDescription) && (
                 <div>
                     {!hideTitle && <h3 className="mb-2">Conversion goals</h3>}
                     {!hideDescription && (
-                        <p className="mb-4">
+                        <p className="mb-0">
                             Define conversion goals by selecting events or data warehouse tables. These goals can be
                             used to track and analyze user conversions in your marketing analytics.
                         </p>
