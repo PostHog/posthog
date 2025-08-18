@@ -111,7 +111,7 @@ export function InsightMeta({
             topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, filtersOverride, variablesOverride)}
+                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}
