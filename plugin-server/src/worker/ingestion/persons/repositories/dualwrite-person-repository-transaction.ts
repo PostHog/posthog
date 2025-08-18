@@ -115,11 +115,13 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
         }
         // If there's a mismatch in success or error type, still return primary result
         // but the transaction coordinator will handle the rollback
-        if (p.success !== s.success || p.error !== s.error) {
+        if (p.success !== s.success || (!p.success && !s.success && p.error !== s.error)) {
             // In the direct repository, this causes a rollback via returning false from coordinator
             // In transaction context, we should throw to trigger rollback
+            const pError = !p.success ? p.error : 'none'
+            const sError = !s.success ? s.error : 'none'
             throw new Error(
-                `DualWrite moveDistinctIds mismatch: primary=${p.success}/${p.error}, secondary=${s.success}/${s.error}`
+                `DualWrite moveDistinctIds mismatch: primary=${p.success}/${pError}, secondary=${s.success}/${sError}`
             )
         }
         return p

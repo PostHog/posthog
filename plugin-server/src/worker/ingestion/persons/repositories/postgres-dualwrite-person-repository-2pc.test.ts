@@ -24,7 +24,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
     async function verifyDistinctIdsForPerson(
         teamId: number,
-        personId: number,
+        personId: string,
         personUuid: string,
         expectedDids: string[]
     ) {
@@ -1694,13 +1694,17 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
                 // The transaction should handle the conflict gracefully
                 expect(createResult.success).toBe(false)
-                expect(createResult.error).toBe('CreationConflict')
+                if (!createResult.success) {
+                    expect(createResult.error).toBe('CreationConflict')
+                }
 
                 return createResult
             })
 
             expect(result.success).toBe(false)
-            expect(result.error).toBe('CreationConflict')
+            if (!result.success) {
+                expect(result.error).toBe('CreationConflict')
+            }
 
             // Verify second person was not created
             const secondCheck = await postgres.query(
@@ -1920,12 +1924,16 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 const moveResult = await tx.moveDistinctIds(sourcePerson, targetPerson)
                 // Should return the failure result, not throw
                 expect(moveResult.success).toBe(false)
-                expect(moveResult.error).toBe('TargetPersonDeleted')
+                if (!moveResult.success) {
+                    expect(moveResult.error).toBe('TargetPersonDeleted')
+                }
                 return moveResult
             })
 
             expect(result.success).toBe(false)
-            expect(result.error).toBe('TargetPersonDeleted')
+            if (!result.success) {
+                expect(result.error).toBe('TargetPersonDeleted')
+            }
 
             primarySpy.mockRestore()
             secondarySpy.mockRestore()
@@ -2067,7 +2075,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             // CreationConflict should be returned, not thrown
             expect(result.success).toBe(false)
-            expect(result.error).toBe('CreationConflict')
+            if (!result.success) {
+                expect(result.error).toBe('CreationConflict')
+            }
 
             // Test 3: Error in the middle of multiple operations
             await expect(
@@ -2122,7 +2132,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             )
 
             expect(outsideResult.success).toBe(true)
-            const outsidePerson = outsideResult.person!
+            if (!outsideResult.success) {
+                throw new Error('Expected person creation to succeed')
+            }
+            const outsidePerson = outsideResult.person
 
             // Now use it within a transaction
             const txResult = await repository.inTransaction('test-mixed-calls', async (tx) => {
