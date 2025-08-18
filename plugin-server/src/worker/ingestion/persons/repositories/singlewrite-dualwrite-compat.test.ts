@@ -299,7 +299,9 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         ) {
             expect(singleResult[0].properties).toEqual(dualResult[0].properties)
             // messages won't be exactly equal due to the uuids being different, just check properties
-            expect(singleResult[1].properties).toEqual(dualResult[1].properties)
+            expect(singleResult[1][0].messages[0].value.properties).toEqual(
+                dualResult[1][0].messages[0].value.properties
+            )
             expect(singleResult[2]).toEqual(dualResult[2])
         }
         it('happy path updatePerson()', async () => {
