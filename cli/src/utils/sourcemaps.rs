@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Ok, Result};
 use core::str;
+use globset::{Glob, GlobSetBuilder};
 use magic_string::{GenerateDecodedMapOptions, MagicString};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use serde::{Deserialize, Serialize};
@@ -152,16 +153,28 @@ impl SourcePair {
     }
 }
 
-pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
+pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<SourcePair>> {
     // Make sure the directory exists
     if !directory.exists() {
         bail!("Directory does not exist");
     }
 
+    let mut builder = GlobSetBuilder::new();
+    for glob in ignore_globs {
+        builder.add(Glob::new(&glob)?);
+    }
+    let set: globset::GlobSet = builder.build()?;
+
     let mut pairs = Vec::new();
     for entry in WalkDir::new(directory).into_iter().filter_map(|e| e.ok()) {
         let entry_path = entry.path().canonicalize()?;
-        if is_javascript_file(&entry_path) {
+
+        if set.is_match(&entry_path) {
+            info!(
+                "Skipping because it matches an ignored glob: {}",
+                entry_path.display()
+            );
+        } else if is_javascript_file(&entry_path) {
             info!("Processing file: {}", entry_path.display());
             let source = SourceFile::load(&entry_path)?;
             let sourcemap_path = get_sourcemap_path(&source)?;
@@ -195,7 +208,8 @@ pub fn get_sourcemap_reference(lines: Lines) -> Result<Option<String>> {
     for line in lines.rev() {
         if line.starts_with("//# sourceMappingURL=") || line.starts_with("//@ sourceMappingURL=") {
             let url = str::from_utf8(&line.as_bytes()[21..])?.trim().to_owned();
-            return Ok(Some(url));
+            let decoded_url = urlencoding::decode(&url)?;
+            return Ok(Some(decoded_url.into_owned()));
         }
     }
     Ok(None)
@@ -236,5 +250,5 @@ pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
 
 fn is_javascript_file(path: &Path) -> bool {
     path.extension()
-        .map_or(false, |ext| ext == "js" || ext == "mjs" || ext == "cjs")
+        .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }

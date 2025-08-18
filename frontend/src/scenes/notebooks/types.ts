@@ -1,14 +1,17 @@
-import { LemonButtonProps } from '@posthog/lemon-ui'
 import { Attribute, ExtendedRegExpMatchArray } from '@tiptap/core'
 
-import type { NotebookNodeLogicProps } from './Nodes/notebookNodeLogic'
+import { LemonButtonProps } from '@posthog/lemon-ui'
+
 import {
     JSONContent,
     RichContentEditorType,
     RichContentNode,
     RichContentNodeType,
 } from 'lib/components/RichContentEditor/types'
+
 import { UserBasicType, WithAccessControl } from '~/types'
+
+import type { NotebookNodeLogicProps } from './Nodes/notebookNodeLogic'
 
 export type { TableOfContentData } from '@tiptap/extension-table-of-contents'
 

@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,25 +16,22 @@ import {
     LemonSelect,
     LemonSnack,
     LemonTag,
-    lemonToast,
     Link,
     Popover,
     Spinner,
+    lemonToast,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useState } from 'react'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
+import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'

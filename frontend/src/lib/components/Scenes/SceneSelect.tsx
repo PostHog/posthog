@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 import { ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import {
     SelectPrimitive,
@@ -5,8 +7,9 @@ import {
     SelectPrimitiveItem,
     SelectPrimitiveTrigger,
 } from 'lib/ui/SelectPrimitive/SelectPrimitive'
-import { useEffect, useState } from 'react'
+
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+
 import { SceneSaveCancelButtons, SceneSelectProps as SceneSelectPropsBase } from './utils'
 
 type SceneSelectProps = SceneSelectPropsBase & {

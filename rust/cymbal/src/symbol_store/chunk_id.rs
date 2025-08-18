@@ -96,7 +96,7 @@ where
         let Some(storage_ptr) = record.storage_ptr else {
             // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
             error!("No storage pointer found for chunk id {}", id);
-            panic!("No storage pointer found for chunk id {}", id);
+            panic!("No storage pointer found for chunk id {id}");
         };
 
         self.client
@@ -129,9 +129,9 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OrChunkId::Inner(inner) => write!(f, "Inner({:?})", inner),
-            OrChunkId::ChunkId(id) => write!(f, "ChunkId({})", id),
-            OrChunkId::Both { inner, id } => write!(f, "Both {{ inner: {:?}, id: {} }}", inner, id),
+            OrChunkId::Inner(inner) => write!(f, "Inner({inner:?})"),
+            OrChunkId::ChunkId(id) => write!(f, "ChunkId({id})"),
+            OrChunkId::Both { inner, id } => write!(f, "Both {{ inner: {inner:?}, id: {id} }}"),
         }
     }
 }
@@ -162,8 +162,8 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OrChunkId::Inner(inner) => inner.fmt(f),
-            OrChunkId::ChunkId(id) => write!(f, "{}", id),
-            OrChunkId::Both { inner: _, id } => write!(f, "{}", id),
+            OrChunkId::ChunkId(id) => write!(f, "{id}"),
+            OrChunkId::Both { inner: _, id } => write!(f, "{id}"),
         }
     }
 }

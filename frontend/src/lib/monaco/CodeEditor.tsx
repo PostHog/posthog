@@ -1,7 +1,11 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
+import * as monaco from 'monaco-editor'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -13,9 +17,6 @@ import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { inStorybookTestRunner } from 'lib/utils'
-import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
-import * as monaco from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'

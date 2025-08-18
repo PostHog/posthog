@@ -81,7 +81,7 @@ impl HogValue {
         literal.type_name()
     }
 
-    pub fn deref<'a, 'b: 'a>(&'a self, heap: &'b VmHeap) -> Result<&HogLiteral, VmError> {
+    pub fn deref<'a, 'b: 'a>(&'a self, heap: &'b VmHeap) -> Result<&'a HogLiteral, VmError> {
         match self {
             HogValue::Lit(lit) => Ok(lit),
             HogValue::Ref(ptr) => heap.get(*ptr),
@@ -506,7 +506,7 @@ impl TryFrom<Num> for serde_json::Number {
         match value {
             // All my homies hate floating point numbers
             Num::Float(value) => serde_json::Number::from_f64(value)
-                .ok_or(VmError::InvalidNumber(format!("{:?}", value))),
+                .ok_or(VmError::InvalidNumber(format!("{value:?}"))),
             Num::Integer(value) => Ok(value.into()),
         }
     }

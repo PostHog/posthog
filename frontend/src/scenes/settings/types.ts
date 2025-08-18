@@ -70,6 +70,7 @@ export type SettingId =
     | 'internal-user-filtering'
     | 'data-theme'
     | 'correlation-analysis'
+    | 'crm-usage-metrics'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'

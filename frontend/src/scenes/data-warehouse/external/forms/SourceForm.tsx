@@ -1,3 +1,7 @@
+import { useValues } from 'kea'
+import { FieldName, Form, Group } from 'kea-forms'
+import React, { useEffect } from 'react'
+
 import {
     LemonDivider,
     LemonFileInput,
@@ -7,16 +11,15 @@ import {
     LemonSwitch,
     LemonTextArea,
 } from '@posthog/lemon-ui'
-import { FieldName, Form, Group } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import React, { useEffect } from 'react'
 
-import { sourceWizardLogic, SSH_FIELD } from '../../new/sourceWizardLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+
+import { SSH_FIELD, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
 import { parseConnectionString } from './parseConnectionString'
-import { useValues } from 'kea'
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig

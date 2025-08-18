@@ -1,7 +1,8 @@
 import { useActions } from 'kea'
+import { useMemo } from 'react'
+
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Group, PropertyDefinitionType } from '~/types'

@@ -1,4 +1,9 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
+import { IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -10,7 +15,7 @@ import {
     LemonTable,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
@@ -18,7 +23,6 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, fullName } from 'lib/utils'
-import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -33,9 +37,7 @@ import {
     RoleType,
 } from '~/types'
 
-import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
-import { IconWarning } from '@posthog/icons'
-import clsx from 'clsx'
+import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource } = useValues(accessControlLogic(props))

@@ -3,20 +3,29 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import React, { useState } from 'react'
+import { Layout } from 'react-grid-layout'
+import { useInView } from 'react-intersection-observer'
+
+import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useState } from 'react'
-import { Layout } from 'react-grid-layout'
-import { useInView } from 'react-intersection-observer'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import {
+    InsightErrorState,
+    InsightLoadingState,
+    InsightTimeoutState,
+    InsightValidationError,
+} from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { HogQLVariable } from '~/queries/schema/schema-general'
 import {
     DashboardBasicType,
@@ -30,14 +39,6 @@ import {
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
-import {
-    InsightErrorState,
-    InsightLoadingState,
-    InsightTimeoutState,
-    InsightValidationError,
-} from 'scenes/insights/EmptyStates'
-import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
-import { ApiError } from 'lib/api'
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */

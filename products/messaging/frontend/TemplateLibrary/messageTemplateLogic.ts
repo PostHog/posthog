@@ -2,6 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
@@ -14,8 +15,7 @@ import type { messageTemplateLogicType } from './messageTemplateLogicType'
 import { MessageTemplate } from './messageTemplatesLogic'
 
 export interface MessageTemplateLogicProps {
-    logicKey?: string
-    id?: string | null
+    id: string
     messageId?: string | null
 }
 
@@ -29,14 +29,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            () => [(_, props) => props],
-            (props: MessageTemplateLogicProps): Breadcrumb[] => {
-                const { id } = props
-
-                if (!id) {
-                    return []
-                }
-
+            (_, p) => [p.id],
+            (id): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Messaging,

@@ -207,9 +207,9 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
                 if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -221,9 +221,9 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
                 if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -1724,9 +1724,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response_data = response.json()
         self.assertEqual(
             response_data.get("detail"),
-            "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+            "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
             if self.client_class is not EnvironmentToProjectRewriteClient
-            else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
         self.assertEqual(response_data.get("type"), "authentication_error")
         self.assertEqual(response_data.get("code"), "permission_denied")

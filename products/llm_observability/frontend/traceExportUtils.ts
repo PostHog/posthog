@@ -1,8 +1,10 @@
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { EnrichedTraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { normalizeMessages, formatLLMEventTitle } from './utils'
+
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import { EnrichedTraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { CompatMessage } from './types'
+import { formatLLMEventTitle, normalizeMessages } from './utils'
 
 interface EventMetrics {
     latency?: number
