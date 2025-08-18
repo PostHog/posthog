@@ -74,7 +74,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                     leftTx
                 )
                 if (!p.success) {
-                    // NICKS TODO: do we want any metrics/logs/observability here?
                     result = p
                     throw new Error('DualWrite abort: primary creation conflict')
                 }
@@ -192,7 +191,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.deletePerson(person, rTx),
             ])
 
-            // Compare results
             this.compareTopicMessages('deletePerson', p, s)
 
             messages = p
@@ -209,7 +207,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.addDistinctId(person, distinctId, version, rTx),
             ])
 
-            // Compare results
             this.compareTopicMessages('addDistinctId', p, s)
 
             messages = p
@@ -258,7 +255,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.addPersonlessDistinctId(teamId, distinctId, rTx),
             ])
 
-            // Compare boolean results
             if (p !== s) {
                 dualWriteComparisonCounter.inc({
                     operation: 'addPersonlessDistinctId',
@@ -286,7 +282,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                 this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, rTx),
             ])
 
-            // Compare boolean results
             if (p !== s) {
                 dualWriteComparisonCounter.inc({
                     operation: 'addPersonlessDistinctIdForMerge',
@@ -329,11 +324,25 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     ): Promise<T> {
         // Open a 2PC boundary spanning the entire callback.
         let result!: T
-        await this.coordinator.run(`dual-tx:${description}`, async (lTx, rTx) => {
-            const txWrapper = new DualWritePersonRepositoryTransaction(this.primaryRepo, this.secondaryRepo, lTx, rTx)
-            result = await transaction(txWrapper)
-            return true
-        })
+        try {
+            await this.coordinator.run(`dual-tx:${description}`, async (lTx, rTx) => {
+                const txWrapper = new DualWritePersonRepositoryTransaction(
+                    this.primaryRepo,
+                    this.secondaryRepo,
+                    lTx,
+                    rTx
+                )
+                result = await transaction(txWrapper)
+                return true
+            })
+        } catch (err: any) {
+            // Handle special cases where the transaction wrapper throws but we want to return a result
+            // This matches the behavior of the direct createPerson method
+            if (err.result && !err.result.success && err.result.error === 'CreationConflict') {
+                return err.result as T
+            }
+            throw err
+        }
         return result
     }
 
@@ -403,7 +412,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         const [sPerson, sMessages, sChanged] = secondary
         let hasMismatch = false
 
-        // Compare person data
         if (JSON.stringify(pPerson.properties) !== JSON.stringify(sPerson.properties)) {
             dualWriteDataMismatchCounter.inc({ operation: `updatePerson:${tag ?? 'update'}`, field: 'properties' })
             hasMismatch = true
@@ -421,7 +429,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             hasMismatch = true
         }
 
-        // Compare message counts (not content, as they might have different timestamps)
         if (pMessages.length !== sMessages.length) {
             dualWriteDataMismatchCounter.inc({ operation: `updatePerson:${tag ?? 'update'}`, field: 'message_count' })
             hasMismatch = true
@@ -435,7 +442,6 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     }
 
     private compareTopicMessages(operation: string, primary: TopicMessage[], secondary: TopicMessage[]): void {
-        // Compare message counts (not content, as they might have different timestamps)
         if (primary.length !== secondary.length) {
             dualWriteComparisonCounter.inc({
                 operation,

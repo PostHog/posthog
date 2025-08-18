@@ -41,7 +41,11 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
             this.lTx
         )
         if (!p.success) {
-            throw new Error(`DualWrite primary create failed`)
+            // We need to throw to trigger rollback, but preserve the error type
+            // so the outer repository can handle it appropriately
+            const error = new Error(`DualWrite primary create failed`)
+            ;(error as any).result = p
+            throw error
         }
         // force same ID on secondary
         const forcedId = Number(p.person.id)
@@ -59,7 +63,9 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
             forcedId
         )
         if (!s.success) {
-            throw new Error(`DualWrite secondary create failed`)
+            const error = new Error(`DualWrite secondary create failed`)
+            ;(error as any).result = s
+            throw error
         }
         return p
     }
@@ -102,8 +108,19 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
             this.primaryRepo.moveDistinctIds(source, target, this.lTx),
             this.secondaryRepo.moveDistinctIds(source, target, this.rTx),
         ])
-        if (!p.success || !s.success) {
-            throw new Error(`DualWrite moveDistinctIds mismatch: primary=${p.success}, secondary=${s.success}`)
+        // Match the behavior of the direct repository call:
+        // If both repositories return the same failure result, that's expected behavior
+        if (!p.success && !s.success && p.error === s.error) {
+            return p
+        }
+        // If there's a mismatch in success or error type, still return primary result
+        // but the transaction coordinator will handle the rollback
+        if (p.success !== s.success || p.error !== s.error) {
+            // In the direct repository, this causes a rollback via returning false from coordinator
+            // In transaction context, we should throw to trigger rollback
+            throw new Error(
+                `DualWrite moveDistinctIds mismatch: primary=${p.success}/${p.error}, secondary=${s.success}/${s.error}`
+            )
         }
         return p
     }

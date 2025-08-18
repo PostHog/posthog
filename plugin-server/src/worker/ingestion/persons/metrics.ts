@@ -127,14 +127,12 @@ export const personShadowModeReturnIntermediateOutcomeCounter = new Counter({
     labelNames: ['method', 'outcome'],
 })
 
-// Dual-write / two-phase-commit failure metrics
 export const twoPhaseCommitFailuresCounter = new Counter({
     name: 'person_dualwrite_2pc_failures_total',
     help: 'Two-phase commit failures for dual-write person repository',
     labelNames: ['tag', 'phase'], // phase: fn_failed, prepare_left_failed, prepare_right_failed, commit_left_failed, commit_right_failed, rollback_left_failed, rollback_right_failed, run_failed
 })
 
-// Dual-write comparison metrics for data consistency monitoring
 export const dualWriteComparisonCounter = new Counter({
     name: 'person_dualwrite_comparison_total',
     help: 'Comparison results between primary and secondary databases in dual-write mode',

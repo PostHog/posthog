@@ -6,11 +6,6 @@ import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 
-// NICKS TODO: this will need at least two changes:
-// 1. add a metric for the number of 2PCs that fail
-// 2. add a env var that disables rollback of the primary if we don't make the second commit
-// This'll allow us to test the code path without data being thrown away if something's wrong wit it
-
 export type TwoPhaseSides = {
     left: { router: PostgresRouter; use: PostgresUse; name?: string }
     right: { router: PostgresRouter; use: PostgresUse; name?: string }
@@ -23,15 +18,16 @@ export class TwoPhaseCommitCoordinator {
         const ts = Date.now()
         const rand = Math.random().toString(36).slice(2, 10)
 
-        // GID must <= 200 chars; terse and unique
+        // GID must <= 200 chars
         return `dualwrite:${tag}:${ts}:${rand}`
     }
 
     async run<T>(tag: string, fn: (leftTx: TransactionClient, rightTx: TransactionClient) => Promise<T>): Promise<T> {
-        // GID is unique across DBs but has as shared root
-        // this is so that the global id supports running 2PCs across two databases
-        // on the same cluster/machine
-        // the transaction id would clash if we used the exact same id
+        // GID is unique across the DBs but has a shared root that can be used to identify the tx
+        // across the two databases
+        // we don't re-use the exact same id so that we can support running 2PCs across two databases on the same cluster/machine
+        // this is helpful in test harness, where we don't want to spin up another PG instance but just stick another DB on the same instance
+        // the transaction id would clash in this cases if we used the exact same id
         const gidRoot = this.makeGid(tag)
         const gidLeft = `${gidRoot}:left`
         const gidRight = `${gidRoot}:right`
