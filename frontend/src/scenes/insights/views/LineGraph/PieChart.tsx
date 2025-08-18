@@ -262,27 +262,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [
-        datasets,
-        labels,
-        isPercentStackView,
-        labelGroupType,
-        showValuesOnSeries,
-        tooltipConfig,
-        trendsFilter,
-        showLabelOnSeries,
-        highlightSeries,
-        formula,
-        breakdownFilter,
-        onClick,
-        _datasets.length,
-        aggregationLabel,
-        trendsFilter.showLegend,
-        showPersonsModal,
-        disableHoverOffset,
-        tooltipConfig.hideColorCol,
-        tooltipConfig.renderCount,
-    ])
+    }, [datasets]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>
