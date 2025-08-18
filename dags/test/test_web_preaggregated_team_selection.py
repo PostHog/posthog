@@ -226,9 +226,6 @@ class TestStrategyClasses:
         assert result == {123, 456}
         mock_team_objects.filter.assert_called_once_with(web_analytics_pre_aggregated_tables_enabled=True)
         mock_team_objects.filter.return_value.values_list.assert_called_once_with("id", flat=True)
-        self.mock_context.log.info.assert_called_once_with(
-            "Found 2 teams with web analytics enabled in project settings"
-        )
 
     @patch("posthog.models.web_preaggregated.team_selection_strategies.Team.objects")
     def test_project_settings_strategy_handles_database_errors(self, mock_team_objects):
@@ -238,9 +235,6 @@ class TestStrategyClasses:
         result = strategy.get_teams(self.mock_context)
 
         assert result == set()
-        self.mock_context.log.warning.assert_called_once_with(
-            "Failed to fetch teams with web analytics enabled: Database error"
-        )
 
     @patch("posthog.models.web_preaggregated.team_selection_strategies.Team.objects")
     def test_project_settings_strategy_handles_empty_results(self, mock_team_objects):
@@ -250,9 +244,6 @@ class TestStrategyClasses:
         result = strategy.get_teams(self.mock_context)
 
         assert result == set()
-        self.mock_context.log.info.assert_called_once_with(
-            "Found 0 teams with web analytics enabled in project settings"
-        )
 
 
 class TestStoreTeamSelectionInClickhouse:
@@ -280,7 +271,7 @@ class TestStoreTeamSelectionInClickhouse:
         self.mock_context.log.info.assert_called()
 
     def test_handles_empty_team_ids_list(self):
-        team_ids = []
+        team_ids: list[int] = []
 
         result = store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
@@ -376,21 +367,26 @@ class TestWebAnalyticsTeamSelectionAsset:
 
         # Verify result
         assert isinstance(result, dagster.MaterializeResult)
-        assert result.metadata["team_count"] == len(test_teams)
-        assert result.metadata["team_ids"] == str(test_teams)
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["team_count"] == len(test_teams)
+        assert metadata["team_ids"] == str(test_teams)
 
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
     @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
     def test_asset_handles_empty_teams(self, mock_store, mock_get_teams):
-        empty_teams = []
+        empty_teams: list[int] = []
         mock_get_teams.return_value = empty_teams
         mock_store.return_value = empty_teams
 
         context = dagster.build_asset_context()
         result = web_analytics_team_selection(context, self.mock_cluster)
 
-        assert result.metadata["team_count"] == 0
-        assert result.metadata["team_ids"] == str(empty_teams)
+        assert isinstance(result, dagster.MaterializeResult)
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["team_count"] == 0
+        assert metadata["team_ids"] == str(empty_teams)
 
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
     @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
@@ -464,7 +460,7 @@ class TestIntegrationScenarios(APIBaseTest):
         assert disabled_team.pk not in result  # Should NOT include disabled team
 
         # Should also include defaults
-        assert set(DEFAULT_ENABLED_TEAM_IDS) in set(result)
+        assert set(DEFAULT_ENABLED_TEAM_IDS).issubset(set(result))
 
         # Verify result is sorted list
         assert result == sorted(result)

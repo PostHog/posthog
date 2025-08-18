@@ -86,7 +86,7 @@ class ProjectSettingsStrategy(TeamSelectionStrategy):
             context.log.info(f"Found {len(team_ids)} teams with web analytics enabled in project settings")
             return team_ids
         except Exception as e:
-            context.log.warning(f"Failed to fetch teams with web analytics enabled: {e}")
+            context.log.warning(f"Failed to fetch teams with project setting enabled: {e}")
             return set()
 
 

@@ -730,6 +730,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     is_demo: () => null,
     access_control: () => null,
     has_group_types: () => null,
+    web_analytics_pre_aggregated_tables_enabled: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
