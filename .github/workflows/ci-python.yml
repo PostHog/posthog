@@ -113,7 +113,7 @@ jobs:
                   path: .mypy_cache
                   key: mypy-cache-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
                   restore-keys: |
-                      mypy-cache-${{ runner.os }}-
+                      mypy-cache-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
 
             - name: Check static typing
               if: needs.changes.outputs.python == 'true'
