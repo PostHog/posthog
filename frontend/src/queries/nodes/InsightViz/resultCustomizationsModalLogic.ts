@@ -4,10 +4,9 @@ import { DataColorToken } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { RESULT_CUSTOMIZATION_DEFAULT } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getFunnelDatasetKey, getTrendResultCustomizationKey } from 'scenes/insights/utils'
+import { getFunnelDatasetKey, getTrendResultCustomization, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -26,11 +25,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             insightVizDataLogic,
             ['isTrends', 'isFunnels', 'insightFilter'],
             trendsDataLogic(props),
-            [
-                'resultCustomizationBy as resultCustomizationByRaw',
-                'resultCustomizations as trendsResultCustomizations',
-                'getTrendsColorToken',
-            ],
+            ['resultCustomizationBy', 'resultCustomizations as trendsResultCustomizations', 'getTrendsColorToken'],
             funnelDataLogic(props),
             ['resultCustomizations as funnelsResultCustomizations', 'getFunnelsColorToken'],
             featureFlagLogic,
@@ -91,10 +86,6 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                 return null
             },
         ],
-        resultCustomizationBy: [
-            (s) => [s.resultCustomizationByRaw],
-            (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,
-        ],
         resultCustomizations: [
             (s) => [s.isTrends, s.isFunnels, s.trendsResultCustomizations, s.funnelsResultCustomizations],
             (isTrends, isFunnels, trendsResultCustomizations, funnelsResultCustomizations) => {
@@ -121,10 +112,16 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                     values.resultCustomizationBy,
                     values.dataset as IndexedTrendResult
                 )
+                const resultCustomization = getTrendResultCustomization(
+                    values.resultCustomizationBy,
+                    values.dataset as IndexedTrendResult,
+                    values.resultCustomizations
+                )
                 actions.updateInsightFilter({
                     resultCustomizations: {
                         ...values.trendsResultCustomizations,
                         [resultCustomizationKey]: {
+                            ...resultCustomization,
                             assignmentBy: values.resultCustomizationBy,
                             color: values.localColorToken,
                         },
