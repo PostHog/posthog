@@ -3,7 +3,6 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
-
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 

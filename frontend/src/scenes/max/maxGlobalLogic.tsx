@@ -1,20 +1,22 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { IconBook, IconCompass, IconEye } from '@posthog/icons'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
-
-import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
-import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
-import { routes } from 'scenes/scenes'
-import { IconBook, IconCompass, IconEye } from '@posthog/icons'
-import { Scene } from 'scenes/sceneTypes'
-import { SidePanelTab } from '~/types'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { routes } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { SidePanelTab } from '~/types'
+
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import type { maxGlobalLogicType } from './maxGlobalLogicType'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [

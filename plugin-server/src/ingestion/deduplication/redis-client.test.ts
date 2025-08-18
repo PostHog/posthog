@@ -1,5 +1,5 @@
 import { PluginsServerConfig } from '../../types'
-import { createDeduplicationRedis, DeduplicationOptions, DeduplicationRedis } from './redis-client'
+import { DeduplicationOptions, DeduplicationRedis, createDeduplicationRedis } from './redis-client'
 
 const getConfig = (): PluginsServerConfig =>
     ({

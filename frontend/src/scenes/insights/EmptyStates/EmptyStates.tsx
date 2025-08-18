@@ -1,5 +1,10 @@
 import './EmptyStates.scss'
 
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
+
 import {
     IconArchive,
     IconHourglass,
@@ -11,28 +16,26 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -52,7 +55,6 @@ import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -714,16 +716,16 @@ const SAVED_INSIGHTS_COPY = {
     },
 }
 
-export function SavedInsightsEmptyState(): JSX.Element {
-    const {
-        filters: { tab },
-        insights,
-        usingFilters,
-    } = useValues(savedInsightsLogic)
-
+export function SavedInsightsEmptyState({
+    filters,
+    usingFilters,
+}: {
+    filters: SavedInsightFilters
+    usingFilters?: boolean
+}): JSX.Element {
     // show the search string that was used to make the results, not what it currently is
-    const searchString = insights.filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
+    const searchString = filters?.search || null
+    const { title, description } = SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
 
     return (
         <div
@@ -747,7 +749,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            {tab !== SavedInsightsTabs.Favorites && (
+            {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
                         <AccessControlledLemonButton

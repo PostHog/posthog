@@ -1,12 +1,13 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { ExperimentStatsMethod } from '~/types'
 
+import { SelectableCard } from '../components/SelectableCard'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { SelectableCard } from '../components/SelectableCard'
 
 export function StatsMethodModal(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)

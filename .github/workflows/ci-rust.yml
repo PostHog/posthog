@@ -22,7 +22,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
@@ -53,7 +53,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -93,7 +93,7 @@ jobs:
                 working-directory: rust
 
         steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
 
             - name: Setup main repo dependencies for flags
@@ -134,7 +134,7 @@ jobs:
 
             - name: Set up Python
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -191,7 +191,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -238,7 +238,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'

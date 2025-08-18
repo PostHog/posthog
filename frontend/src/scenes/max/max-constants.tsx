@@ -1,11 +1,11 @@
-import {} from 'kea'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-
-import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import 'kea'
 
 import { IconAtSign, IconMemory } from '@posthog/icons'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
+
+import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {

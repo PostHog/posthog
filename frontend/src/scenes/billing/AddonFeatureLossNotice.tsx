@@ -1,8 +1,10 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import posthog from 'posthog-js'
 import { useState } from 'react'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 
 import { BillingProductV2AddonType, BillingProductV2Type, ProductKey } from '~/types'
 

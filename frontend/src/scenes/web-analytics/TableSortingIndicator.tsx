@@ -1,12 +1,15 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { IconSort } from 'lib/lemon-ui/icons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-import { ProductTab } from './common'
 
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
+
+import { ProductTab } from './common'
 
 const SORT_BY_TO_LABEL: Record<WebAnalyticsOrderByFields, string> = {
     [WebAnalyticsOrderByFields.Visitors]: 'Visitors',

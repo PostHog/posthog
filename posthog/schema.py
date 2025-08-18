@@ -2463,6 +2463,11 @@ class StickinessOperator(StrEnum):
     EXACT = "exact"
 
 
+class SubscriptionDropoffMode(StrEnum):
+    LAST_EVENT = "last_event"
+    AFTER_DROPOFF_PERIOD = "after_dropoff_period"
+
+
 class SuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3818,6 +3823,7 @@ class HogQLQueryModifiers(BaseModel):
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
+    timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
@@ -4130,6 +4136,22 @@ class RevenueAnalyticsEventItem(BaseModel):
         ),
     )
     revenueProperty: str
+    subscriptionDropoffDays: Optional[float] = Field(
+        default=45,
+        description=(
+            "The number of days we still consider a subscription to be active after the last event. This is useful to"
+            " avoid the current month's data to look as if most of the subscriptions have churned since we might not"
+            " have an event for the current month."
+        ),
+    )
+    subscriptionDropoffMode: Optional[SubscriptionDropoffMode] = Field(
+        default=SubscriptionDropoffMode.LAST_EVENT,
+        description=(
+            "After a subscription has dropped off, when should we consider it to have ended? It should either be at the"
+            " date of the last event (will alter past periods, the default), or at the date of the last event plus the"
+            " dropoff period."
+        ),
+    )
     subscriptionProperty: Optional[str] = Field(
         default=None,
         description=(
@@ -5083,6 +5105,30 @@ class ActorsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list[str]] = None
+
+
+class AnalyticsQueryResponseBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class AnyResponseType1(BaseModel):
@@ -11083,6 +11129,8 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_seen: datetime
     id: str
+    last_seen: str
+    library: Optional[str] = None
     name: Optional[str] = None
     odds_ratio: float
     population: Population

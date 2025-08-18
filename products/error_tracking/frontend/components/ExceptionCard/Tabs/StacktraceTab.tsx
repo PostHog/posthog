@@ -1,7 +1,10 @@
-import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { useState } from 'react'
+
+import { IconChevronDown, IconMagicWand } from '@posthog/icons'
+
 import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -12,16 +15,15 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useState } from 'react'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
-import { exceptionCardLogic } from '../exceptionCardLogic'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
+import { exceptionCardLogic } from '../exceptionCardLogic'
 import { SubHeader } from './SubHeader'
 
 export interface StacktraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
