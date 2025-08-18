@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
-    defaultDescriber,
     Describer,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
