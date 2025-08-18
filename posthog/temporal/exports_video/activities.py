@@ -52,6 +52,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
             screenshot_width=build["width"],
             wait_for_css_selector=build["css_selector"],
             screenshot_height=build["height"],
+            recording_duration=5,
         )
         return {"tmp_path": tmp_path}
     except Exception:

@@ -35,13 +35,14 @@ export const exportsLogic = kea<exportsLogicType>([
             sessionRecordingId: string,
             format?: ExporterFormat,
             timestamp?: number,
+            length?: number,
             options?: {
                 width?: number
                 height?: number
                 css_selector?: string
                 filename?: string
             }
-        ) => ({ sessionRecordingId, format, timestamp, options }),
+        ) => ({ sessionRecordingId, format, timestamp, length, options }),
     }),
 
     connect(() => ({
@@ -120,7 +121,13 @@ export const exportsLogic = kea<exportsLogicType>([
                 lemonToast.error('Cohort save failed')
             }
         },
-        startReplayExport: async ({ sessionRecordingId, format = ExporterFormat.PNG, timestamp, options }) => {
+        startReplayExport: async ({
+            sessionRecordingId,
+            format = ExporterFormat.PNG,
+            timestamp,
+            length = 5,
+            options,
+        }) => {
             const exportData: TriggerExportProps = {
                 export_format: format,
                 export_context: {
@@ -130,6 +137,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     width: options?.width || 1400,
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
+                    length: length,
                 },
             }
 

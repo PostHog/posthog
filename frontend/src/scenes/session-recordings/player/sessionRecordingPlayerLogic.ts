@@ -314,6 +314,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
         updatePlayerTimeTracking: true,
+        exportRecordingToVideoFile: true,
     }),
     reducers(({ props }) => ({
         isCommenting: [
@@ -1384,7 +1385,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // We need to subtract 1 second as the player starts immediately
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
 
-            actions.startReplayExport(values.sessionRecordingId, format, timestamp, {
+            actions.startReplayExport(values.sessionRecordingId, format, timestamp, 5, {
+                width: iframe?.width ? Number(iframe.width) : 1400,
+                height: iframe?.height ? Number(iframe.height) : 600,
+                css_selector: '.replayer-wrapper',
+                filename: `replay-${values.sessionRecordingId}`,
+            })
+        },
+        exportRecordingToVideoFile: async () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            if (!iframe) {
+                lemonToast.error('Cannot export recording to video. Please try again.')
+                return
+            }
+
+            actions.startReplayExport(values.sessionRecordingId, ExporterFormat.MP4, 0, 0, {
                 width: iframe?.width ? Number(iframe.width) : 1400,
                 height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',

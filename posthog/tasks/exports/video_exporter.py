@@ -19,6 +19,7 @@ def record_replay_to_file(
     screenshot_width: ScreenWidth,
     wait_for_css_selector: str,
     screenshot_height: int = 600,
+    recording_duration: int = 5,  # Duration in seconds
 ) -> None:
     temp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
     try:
@@ -75,7 +76,7 @@ def record_replay_to_file(
                 pass
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(int(recording_duration * 1000))
             video = page.video
             page.close()
             if video is None:
@@ -105,7 +106,7 @@ def record_replay_to_file(
                             "-i",
                             tmp_webm,
                             "-t",
-                            "5.00",
+                            f"{float(recording_duration):.2f}",
                             "-c:v",
                             "libx264",
                             "-preset",
@@ -137,7 +138,7 @@ def record_replay_to_file(
                             "-ss",
                             f"{pre_roll:.2f}",
                             "-t",
-                            "5.00",
+                            f"{float(recording_duration):.2f}",
                             "-i",
                             tmp_webm,
                             "-vf",
