@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from dagster_aws.s3 import S3Resource
@@ -145,7 +145,7 @@ def test_dump_model_creates_avro_file(s3_resource):
     uploaded_file = s3_resource.get_client().get_object(Bucket=EVALS_S3_BUCKET, Key=file_key)["Body"]
 
     # Verify the uploaded file contains valid Avro data
-    records: list[dict[str, Any]] = list(reader(uploaded_file))
+    records = list(cast(list[dict[str, Any]], reader(uploaded_file)))
     assert len(records) == 2
     assert records[0]["name"] == "test1"
     assert records[0]["value"] == 1
