@@ -251,12 +251,6 @@ export class PostgresPersonRepository
         }
     }
 
-    /*
-     *
-     * to support dual-write, we need to be able to create a person with a specified id
-     * this is to keep the id drift between the primary and secondary as we create persons
-     *
-     */
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
