@@ -24,7 +24,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
         }
     }
 
-    if (logItem.activity == 'deleted') {
+    if (logItem.detail?.changes?.some((change) => change.field === 'deleted')) {
         const displayName = logItem.detail.name || '(unnamed export)'
         return {
             description: (

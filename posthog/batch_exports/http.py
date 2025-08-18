@@ -60,7 +60,6 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
 from posthog.models.signals import model_activity_signal
-from django.db.models.signals import pre_delete
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
@@ -869,40 +868,4 @@ def handle_batch_export_change(
             name=detail_name,
             context=context,
         ),
-    )
-
-
-@receiver(pre_delete, sender=BatchExport)
-def handle_batch_export_delete(sender, instance, **kwargs):
-    """Handle BatchExport deletion activity logging"""
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-    from posthog.models.activity_logging.batch_export_utils import (
-        get_batch_export_destination_type,
-        get_batch_export_created_by_info,
-    )
-
-    user = get_current_user()
-    was_impersonated = get_was_impersonated()
-    destination_type = get_batch_export_destination_type(instance)
-    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_export_created_by_info(instance)
-    detail_name = f"Batch export '{instance.name or 'Unnamed'}' to {destination_type} was deleted"
-
-    context = BatchExportContext(
-        name=instance.name or "",
-        destination_type=destination_type,
-        interval=instance.interval or "",
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
-    )
-
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope="BatchExport",
-        activity="deleted",
-        detail=Detail(name=detail_name, context=context),
     )
