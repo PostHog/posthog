@@ -1,5 +1,5 @@
 import { mean, sum } from 'd3'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
@@ -42,11 +42,18 @@ export const retentionLogic = kea<retentionLogicType>([
             cohortsModel,
             ['cohortsById'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange', 'updateBreakdownFilter']],
     })),
     actions({
         setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
     }),
+    listeners(({ actions }) => ({
+        updateBreakdownFilter: () => {
+            // Reset selected breakdown value when breakdown filter changes
+            // This prevents the dropdown from showing invalid cohort IDs
+            actions.setSelectedBreakdownValue(null)
+        },
+    })),
     reducers({
         selectedBreakdownValue: [
             null as string | number | boolean | null,
