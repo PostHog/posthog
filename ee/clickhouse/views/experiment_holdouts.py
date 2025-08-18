@@ -115,16 +115,29 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 @receiver(model_activity_signal, sender=ExperimentHoldout)
 def handle_experiment_holdout_change(
-    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
 ):
-    # Log activity for each experiment that uses this holdout
+    # Log activity for the holdout itself
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user or after_update.created_by,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+        ),
+    )
+
+    # Also log activity for each experiment that uses this holdout
     for experiment in after_update.experiment_set.all():
         log_activity(
             organization_id=after_update.team.organization_id,
             team_id=after_update.team_id,
-            user=after_update.created_by
-            if activity == "created"
-            else getattr(after_update, "last_modified_by", after_update.created_by),
+            user=user or after_update.created_by,
             was_impersonated=was_impersonated,
             item_id=experiment.id,
             scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
@@ -139,13 +152,27 @@ def handle_experiment_holdout_change(
 
 @receiver(pre_delete, sender=ExperimentHoldout)
 def handle_experiment_holdout_delete(sender, instance, **kwargs):
-    # Log activity for each experiment that uses this holdout
+    from posthog.models.activity_logging.utils import activity_storage
+
+    # Log activity for the holdout itself
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+        was_impersonated=activity_storage.get_was_impersonated(),
+        item_id=instance.id,
+        scope="ExperimentHoldout",
+        activity="deleted",
+        detail=Detail(name=instance.name),
+    )
+
+    # Also log activity for each experiment that uses this holdout
     for experiment in instance.experiment_set.all():
         log_activity(
             organization_id=instance.team.organization_id,
             team_id=instance.team_id,
-            user=getattr(instance, "last_modified_by", instance.created_by),
-            was_impersonated=False,
+            user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+            was_impersonated=activity_storage.get_was_impersonated(),
             item_id=experiment.id,
             scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
             activity="deleted",
