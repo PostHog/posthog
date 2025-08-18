@@ -522,26 +522,22 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
             actor_query: ast.SelectQuery | ast.SelectSetQuery
-            is_cohort_breakdown = (
+
+            # is cohort breakdown
+            if (
                 self.query.breakdownFilter is not None
                 and self.query.breakdownFilter.breakdowns is not None
                 and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
-            )
-
-            if is_cohort_breakdown:
+            ):
                 actor_queries = []
-                cohort_breakdowns = [
-                    b
-                    for b in self.query.breakdownFilter.breakdowns
-                    if b.type == "cohort"  # type: ignore
-                ]
+                cohort_breakdowns = [b for b in self.query.breakdownFilter.breakdowns if b.type == "cohort"]
 
                 for breakdown in cohort_breakdowns:
                     temp_query = self.query.model_copy(deep=True)
                     if temp_query.breakdownFilter:
                         temp_query.breakdownFilter.breakdowns = [breakdown]
                         temp_query.breakdownFilter.breakdown = str(breakdown.property)
-                        temp_query.breakdownFilter.breakdown_type = breakdown.type
+                        temp_query.breakdownFilter.breakdown_type = breakdown.type  # type: ignore
 
                     temp_runner = RetentionQueryRunner(
                         query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
