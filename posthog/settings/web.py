@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "oauth2_provider",
     "mcp_server",
+    "django_admin_inline_paginator",
 ]
 
 MIDDLEWARE = [
@@ -88,6 +89,7 @@ MIDDLEWARE = [
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

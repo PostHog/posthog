@@ -1,4 +1,11 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import React, { useEffect, useMemo, useState } from 'react'
+import { twMerge } from 'tailwind-merge'
+
 import {
+    IconCheck,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -19,26 +26,26 @@ import {
     ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import posthog from 'posthog-js'
-import React, { useEffect, useMemo, useState } from 'react'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { twMerge } from 'tailwind-merge'
 
+import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
+    NotebookUpdateMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -48,19 +55,19 @@ import { ProductKey } from '~/types'
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MAX_SLASH_COMMANDS } from './slash-commands'
 import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
+    isNotebookUpdateMessage,
     isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { MAX_SLASH_COMMANDS } from './slash-commands'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -251,6 +258,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 ))}
                             </MessageTemplate>
                         )
+                    } else if (isNotebookUpdateMessage(message)) {
+                        return <NotebookUpdateAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })}
@@ -394,6 +403,30 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
                 </LemonButton>
             ))}
         </div>
+    )
+}
+
+interface NotebookUpdateAnswerProps {
+    message: NotebookUpdateMessage
+}
+
+function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
+    const handleOpenNotebook = (): void => {
+        openNotebook(message.notebook_id, NotebookTarget.Scene)
+    }
+
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <IconCheck className="text-success size-4" />
+                    <span>A notebook has been updated</span>
+                </div>
+                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                    Open notebook
+                </LemonButton>
+            </div>
+        </MessageTemplate>
     )
 }
 

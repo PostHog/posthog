@@ -1,6 +1,8 @@
-import { newHogCallable, newHogClosure, VMState } from '@posthog/hogvm'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+
+import { VMState, newHogCallable, newHogClosure } from '@posthog/hogvm'
+
 import api from 'lib/api'
 import { execHogAsync } from 'lib/hog'
 import { urls } from 'scenes/urls'

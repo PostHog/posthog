@@ -7,7 +7,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
+import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'

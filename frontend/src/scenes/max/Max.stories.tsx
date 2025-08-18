@@ -1,35 +1,36 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { useActions, useValues } from 'kea'
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
-import { useEffect } from 'react'
-import { twMerge } from 'tailwind-merge'
-
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightShortId } from '~/types'
-
 import {
+    CONVERSATION_ID,
     chatResponseChunk,
     chatResponseWithEventContext,
-    CONVERSATION_ID,
     failureChunk,
     formChunk,
     generationFailureChunk,
     humanMessage,
     longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
-import conversationList from './__mocks__/conversationList.json'
-import { MaxInstance, MaxInstanceProps } from './Max'
-import { maxContextLogic } from './maxContextLogic'
-import { MaxFloatingInput } from './MaxFloatingInput'
-import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
-import { maxThreadLogic } from './maxThreadLogic'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import { Meta, StoryFn } from '@storybook/react'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { twMerge } from 'tailwind-merge'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightShortId } from '~/types'
+
+import { MaxInstance, MaxInstanceProps } from './Max'
+import { MaxFloatingInput } from './MaxFloatingInput'
+import conversationList from './__mocks__/conversationList.json'
+import { maxContextLogic } from './maxContextLogic'
+import { maxGlobalLogic } from './maxGlobalLogic'
+import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',

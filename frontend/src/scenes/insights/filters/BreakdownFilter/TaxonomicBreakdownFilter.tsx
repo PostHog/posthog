@@ -1,5 +1,6 @@
-import { IconGear } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { IconGear } from '@posthog/icons'
 
 import { LemonButton } from '~/lib/lemon-ui/LemonButton'
 import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
@@ -10,7 +11,7 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { EditableBreakdownTag } from './BreakdownTag'
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
 import { TaxonomicBreakdownButton } from './TaxonomicBreakdownButton'
-import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
+import { TaxonomicBreakdownFilterLogicProps, taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
     insightProps: InsightLogicProps

@@ -1,5 +1,7 @@
-import { IconRewindPlay } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+
+import { IconRewindPlay } from '@posthog/icons'
+
 import { urls } from 'scenes/urls'
 
 import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'

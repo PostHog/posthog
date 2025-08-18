@@ -1,12 +1,16 @@
-import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
-import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
+import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
+import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -23,10 +27,8 @@ import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseVie
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
-import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 import { draftsLogic } from '../draftsLogic'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 

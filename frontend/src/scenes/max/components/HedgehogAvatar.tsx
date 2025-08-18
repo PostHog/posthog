@@ -1,7 +1,8 @@
-import { IconSparkles } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+
+import { IconSparkles } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { type PositionWithSide } from '../utils/floatingMaxPositioning'

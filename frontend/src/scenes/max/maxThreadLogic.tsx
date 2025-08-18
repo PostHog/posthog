@@ -1,9 +1,9 @@
 import { createParser } from 'eventsource-parser'
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -14,13 +14,23 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api, { ApiError } from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { openNotebook } from '~/models/notebooksModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -33,16 +43,19 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 
+import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { maxBillingContextLogic } from './maxBillingContextLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { getRandomThinkingMessage } from './utils/thinkingMessages'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isNotebookUpdateMessage,
+    isReasoningMessage,
+} from './utils'
+import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -139,6 +152,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
+        processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
     }),
 
     reducers(({ props }) => ({
@@ -317,19 +331,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
-                            } else if (
-                                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                                values.threadRaw.length === 0
-                            ) {
-                                actions.addMessage({
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
-                            } else if (parsedResponse) {
-                                actions.replaceMessage(values.threadRaw.length - 1, {
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
+                            } else {
+                                if (isNotebookUpdateMessage(parsedResponse)) {
+                                    actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
+                                    if (!parsedResponse.id) {
+                                        // we do not want to show partial notebook update messages
+                                        return
+                                    }
+                                }
+                                if (
+                                    values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
+                                    values.threadRaw.length === 0
+                                ) {
+                                    actions.addMessage({
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                } else if (parsedResponse) {
+                                    actions.replaceMessage(values.threadRaw.length - 1, {
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                }
                             }
                         } else if (event === AssistantEventType.Status) {
                             const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
@@ -482,6 +505,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQuestion(command.name + ' ') // Rest must be filled in by the user
             } else {
                 actions.askMax(command.name)
+            }
+        },
+        processNotebookUpdate: async ({ notebookId, notebookContent }) => {
+            try {
+                const currentPath = router.values.location.pathname
+                const notebookPath = urls.notebook(notebookId)
+
+                if (currentPath.includes(notebookPath)) {
+                    // We're already on the notebook page, refresh it
+                    let logic = notebookLogic.findMounted({ shortId: notebookId })
+                    if (logic) {
+                        logic.actions.setLocalContent(notebookContent, true, true)
+                    }
+                } else {
+                    // Navigate to the notebook
+                    await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
+                        logic.actions.setLocalContent(notebookContent, true, true)
+                    })
+                }
+            } catch (error) {
+                console.error('Failed to navigate to notebook:', error)
             }
         },
     })),

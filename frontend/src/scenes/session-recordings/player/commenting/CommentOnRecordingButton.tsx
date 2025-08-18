@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { IconEmoji, IconComment } from '@posthog/icons'
-import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
-import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useCallback, useState } from 'react'
+
+import { IconComment, IconEmoji } from '@posthog/icons'
+
+import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {

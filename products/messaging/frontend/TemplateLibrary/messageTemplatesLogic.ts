@@ -1,5 +1,6 @@
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'

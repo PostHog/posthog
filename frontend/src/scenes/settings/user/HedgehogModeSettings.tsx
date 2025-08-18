@@ -1,4 +1,3 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'

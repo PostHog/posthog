@@ -1,24 +1,24 @@
-import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
+import { DndContext } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropsWithChildren, useEffect } from 'react'
 
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+
+import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
-
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { DndContext } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-
-import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { cn } from 'lib/utils/css-classes'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 function isRuleDisabled(rule: ErrorTrackingRule): boolean {
     return 'disabled_data' in rule && !!rule.disabled_data
