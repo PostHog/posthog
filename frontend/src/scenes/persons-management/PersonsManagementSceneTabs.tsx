@@ -30,7 +30,7 @@ export function PersonsManagementSceneTabs({ tabKey, buttons }: PersonsManagemen
                 buttons={buttons}
             />
 
-            <LemonTabs activeKey={tabKey} tabs={lemonTabs} sceneInset={newSceneLayout} />
+            <LemonTabs activeKey={tabKey} tabs={lemonTabs} sceneInset={newSceneLayout} className="[&>ul]:mb-0" />
         </>
     )
 }
