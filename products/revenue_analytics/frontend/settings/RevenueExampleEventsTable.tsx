@@ -1,14 +1,15 @@
 import { useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
+
+import { SceneSection } from '~/layout/scenes/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { SceneSection } from '~/layout/scenes/SceneContent'
-import { cn } from 'lib/utils/css-classes'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const queryContext: QueryContext = {
     showOpenEditorButton: true,

@@ -6,13 +6,15 @@ import { LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { teamLogic } from 'scenes/teamLogic'
-import { SceneSection } from '~/layout/scenes/SceneContent'
 import { cn } from 'lib/utils/css-classes'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { SceneSection } from '~/layout/scenes/SceneContent'
 import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
+
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {

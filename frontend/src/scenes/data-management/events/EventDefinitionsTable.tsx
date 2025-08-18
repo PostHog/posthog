@@ -1,25 +1,26 @@
 import { useActions, useValues } from 'kea'
 
+import { IconApps } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
-import { cn } from 'lib/utils/css-classes'
-import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
-import { IconApps } from '@posthog/icons'
+
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },

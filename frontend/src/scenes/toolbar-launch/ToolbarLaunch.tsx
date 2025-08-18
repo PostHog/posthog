@@ -1,16 +1,18 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import './ToolbarLaunch.scss'
 
 import { IconFlag, IconPieChart, IconSearch, IconTestTube, IconToolbar } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
 import { SceneContent, SceneDivider, SceneSection, SceneTitleSection } from '~/layout/scenes/SceneContent'
 
 export const scene: SceneExport = {

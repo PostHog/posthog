@@ -10,13 +10,13 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { cn } from 'lib/utils/css-classes'
 
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { PropertyDefinition } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {

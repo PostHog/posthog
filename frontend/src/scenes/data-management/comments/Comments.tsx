@@ -1,23 +1,25 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconApps, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
+
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { userLogic } from 'scenes/userLogic'
-import { useEffect } from 'react'
-
-import { CommentType, ProductKey } from '~/types'
-import { dayjs } from 'lib/dayjs'
-
-import { commentsLogic, openURLFor, SCOPE_OPTIONS } from './commentsLogic'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { TZLabel } from 'lib/components/TZLabel'
+import { userLogic } from 'scenes/userLogic'
+
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { CommentType, ProductKey } from '~/types'
+
+import { SCOPE_OPTIONS, commentsLogic, openURLFor } from './commentsLogic'
 
 export function Comments(): JSX.Element {
     const { user } = useValues(userLogic)

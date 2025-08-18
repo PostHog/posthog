@@ -4,9 +4,12 @@ import { useState } from 'react'
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
+import { SceneSection } from '~/layout/scenes/SceneContent'
 import { MARKETING_ANALYTICS_SCHEMA, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
@@ -17,9 +20,6 @@ import { AddSourceDropdown } from './AddSourceDropdown'
 import { ColumnMappingModal } from './ColumnMappingModal'
 import { ItemName, PaginationControls } from './PaginationControls'
 import { StatusIcon } from './StatusIcon'
-import { SceneSection } from '~/layout/scenes/SceneContent'
-import { cn } from 'lib/utils/css-classes'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export type SimpleDataWarehouseTable = {
     name: string

@@ -1,17 +1,21 @@
-import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
-import { urls } from 'scenes/urls'
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
+
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { SceneSection } from '~/layout/scenes/SceneContent'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { urls } from 'scenes/urls'
+
+import { SceneSection } from '~/layout/scenes/SceneContent'
+import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 
