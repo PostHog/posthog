@@ -17,7 +17,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    < strong > {userNameForLogItem(logItem)}</strong > created destination{' '}
+                    <strong> {userNameForLogItem(logItem)}</strong> created destination{' '}
                     <strong>{nameOrLinkToBatchExport(logItem?.item_id, logItem?.detail.name)}</strong>
                 </>
             ),
@@ -39,14 +39,12 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    < strong > {userNameForLogItem(logItem)}</strong > updated destination{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> updated destination{' '}
                     <strong>{nameOrLinkToBatchExport(logItem?.item_id, logItem?.detail.name)}</strong>
-
                 </>
             ),
         }
     }
 
     return defaultDescriber(logItem, asNotification, nameOrLinkToBatchExport(logItem?.item_id, logItem?.detail.name))
-
 }
