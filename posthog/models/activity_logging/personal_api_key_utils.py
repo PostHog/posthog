@@ -27,7 +27,7 @@ def get_personal_api_key_access_locations(api_key: PersonalAPIKey) -> set[LogSco
         teams = Team.objects.filter(pk__in=api_key.scoped_teams).select_related("organization")
         return {LogScope(str(team.organization_id), team.id) for team in teams}
     elif api_key.scoped_organizations:
-        return {LogScope(org_id, None) for org_id in api_key.scoped_organizations}
+        return {LogScope(str(org_id), None) for org_id in api_key.scoped_organizations}
     else:
         user_permissions = UserPermissions(api_key.user)
         return {LogScope(str(org_id), None) for org_id in user_permissions.organization_memberships.keys()}
