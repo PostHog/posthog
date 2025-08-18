@@ -310,7 +310,6 @@ mod tests {
             only_evaluate_survey_feature_flags: None,
         };
 
-        // Simulate the logic from lines 78-81 in the flags endpoint
         if params_both_none.version.is_none() && params_both_none.config.is_none() {
             params_both_none.version = Some("2".to_string());
             params_both_none.config = Some(true);
