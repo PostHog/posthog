@@ -262,7 +262,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [datasets])
+    }, [datasets]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>
