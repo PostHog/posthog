@@ -72,7 +72,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
             ['savedFilters', 'savedFiltersLoading'],
             organizationLogic,
-            ['isCurrentOrganizationUnavailable'],
+            ['currentOrganization'],
         ],
         actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
@@ -335,10 +335,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     })),
     selectors({
         mode: [
-            (s) => [s.sceneConfig, organizationLogic.selectors.isCurrentOrganizationUnavailable],
-            (sceneConfig: SceneConfig, isCurrentOrganizationUnavailable: boolean): Navigation3000Mode => {
+            (s) => [s.sceneConfig, organizationLogic.selectors.currentOrganization],
+            (sceneConfig: SceneConfig, currentOrganization: any): Navigation3000Mode => {
                 // Show minimal navigation when org is unavailable
-                if (isCurrentOrganizationUnavailable) {
+                if (!currentOrganization) {
                     return 'minimal'
                 }
 
@@ -766,8 +766,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 props.inputElement?.focus()
             }
         },
-        isCurrentOrganizationUnavailable: (isCurrentOrganizationUnavailable: boolean) => {
-            if (isCurrentOrganizationUnavailable) {
+        currentOrganization: (currentOrganization: any) => {
+            if (!currentOrganization) {
                 lemonToast.error("You don't have access to any organization")
             }
         },
