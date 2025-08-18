@@ -58,7 +58,7 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
 
         instance = super().create(validated_data)
         instance.filters = self._get_filters_with_holdout_id(instance.id, instance.filters)
-        instance.save()
+        instance.save(skip_activity_log=True)  # Skip activity logging for filters update
         return instance
 
     def update(self, instance: ExperimentHoldout, validated_data):

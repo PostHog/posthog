@@ -125,6 +125,13 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, skip_activity_log=False, *args, **kwargs):
+        if skip_activity_log:
+            # Bypass ModelActivityMixin.save() and call Model.save() directly
+            super(ModelActivityMixin, self).save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
 
 class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
