@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from django.db import models
 from django.utils import timezone
 
@@ -125,7 +125,7 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def save(self, skip_activity_log=False, *args, **kwargs):
+    def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         if skip_activity_log:
             # Bypass ModelActivityMixin.save() and call Model.save() directly
             super(ModelActivityMixin, self).save(*args, **kwargs)
