@@ -661,7 +661,7 @@ export function LineGraph_({
                     },
                     formatter: (value: number, context) => {
                         // Handle survey view - show count + percentage
-                        if (inSurveyView && showValuesOnSeries) {
+                        if (value !== 0 && inSurveyView && showValuesOnSeries) {
                             const dataset = context.dataset as any
                             const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
                             const percentage = ((value / total) * 100).toFixed(1)
