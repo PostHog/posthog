@@ -237,6 +237,7 @@ class TestExchangeRateClickhouse:
         # Verify result is a MaterializeResult with correct metadata
         assert isinstance(result, dagster.MaterializeResult)
         metadata: dict[str, Any] = result.metadata
+        print(metadata)  # noqa: T201
         assert metadata["date"] == "2023-01-15"
         assert metadata["base_currency"] == "USD"
         assert metadata["currencies_count"] == len(SAMPLE_EXCHANGE_RATES)
