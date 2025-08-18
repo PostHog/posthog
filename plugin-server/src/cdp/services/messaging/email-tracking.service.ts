@@ -36,7 +36,7 @@ const trackingEventsCounter = new Counter({
 const emailTrackingErrorsCounter = new Counter({
     name: 'email_tracking_errors_total',
     help: 'Total number of email tracking processing errors',
-    labelNames: ['error_type'],
+    labelNames: ['error_type', 'source'],
 })
 
 export const parseEmailTrackingCode = (customId: string): { functionId: string; invocationId: string } | null => {
@@ -76,18 +76,24 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService
     ) {}
 
-    private async trackMetric(
-        metricName: MinimalAppMetric['metric_name'],
-        functionId?: string,
+    private async trackMetric({
+        functionId,
+        invocationId,
+        metricName,
+        source,
+    }: {
+        functionId?: string
         invocationId?: string
-    ): Promise<void> {
+        metricName: MinimalAppMetric['metric_name']
+        source: 'mailjet' | 'direct'
+    }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
                 functionId,
                 invocationId,
                 metricName,
             })
-            emailTrackingErrorsCounter.inc({ error_type: 'invalid_custom_id' })
+            emailTrackingErrorsCounter.inc({ error_type: 'invalid_custom_id', source })
             return
         }
 
@@ -104,8 +110,9 @@ export class EmailTrackingService {
             logger.error('[EmailTrackingService] trackMetric: Hog function or flow not found', {
                 functionId,
                 invocationId,
+                source,
             })
-            emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found' })
+            emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found', source })
             return
         }
 
@@ -123,7 +130,7 @@ export class EmailTrackingService {
 
         await this.hogFunctionMonitoringService.produceQueuedMessages()
 
-        trackingEventsCounter.inc({ event_type: metricName, source: hogFlow ? 'hog_flow' : 'hog_function' })
+        trackingEventsCounter.inc({ event_type: metricName, source })
         logger.debug('[EmailTrackingService] trackMetric: Email tracking event', {
             functionId,
             invocationId,
@@ -172,7 +179,12 @@ export class EmailTrackingService {
                 return { status: 400, message: 'Unmapped event type' }
             }
 
-            this.trackMetric(category, functionId, invocationId)
+            this.trackMetric({
+                functionId,
+                invocationId,
+                metricName: category,
+                source: 'mailjet',
+            })
 
             return okResponse
         } catch (error) {
@@ -188,7 +200,12 @@ export class EmailTrackingService {
 
         // Track the value
         try {
-            await this.trackMetric('email_opened', ph_fn_id as string, ph_inv_id as string)
+            await this.trackMetric({
+                functionId: ph_fn_id as string,
+                invocationId: ph_inv_id as string,
+                metricName: 'email_opened',
+                source: 'direct',
+            })
         } catch (error) {
             logger.error('[EmailTrackingService] handleEmailTrackingPixel: Error tracking metric', { error })
             captureException(error)
