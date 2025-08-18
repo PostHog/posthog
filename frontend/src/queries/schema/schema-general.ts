@@ -2936,12 +2936,12 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort'
 >
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    property: string
+    property: string | integer
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin
