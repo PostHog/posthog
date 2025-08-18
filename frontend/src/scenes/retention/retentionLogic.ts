@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
 import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
-import { CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
+import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
 
@@ -259,14 +259,14 @@ export const retentionLogic = kea<retentionLogicType>([
                             acc[key] = '(empty)'
                         } else {
                             // Convert cohortsById to array for formatBreakdownLabel
-                            const cohorts = Object.values(cohortsById).filter(Boolean) as any[]
+                            const cohorts = Object.values(cohortsById).filter(Boolean) as CohortType[]
                             // Convert string breakdown value back to original type for formatBreakdownLabel
                             const originalBreakdownValue =
                                 typeof breakdownValue === 'string' && /^\d+$/.test(breakdownValue)
                                     ? Number(breakdownValue)
                                     : breakdownValue
                             const formattedLabel = formatBreakdownLabel(
-                                originalBreakdownValue as any,
+                                originalBreakdownValue as BreakdownKeyType,
                                 breakdownFilter,
                                 cohorts,
                                 undefined
