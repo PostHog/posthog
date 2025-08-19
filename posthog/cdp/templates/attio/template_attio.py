@@ -110,6 +110,7 @@ if (userRes.status >= 400) {
             "description": "This object's keys should be the slugs or IDs of the User attributes you wish to update. For information on potential custom attributes, refer to the attribute type docs: https://developers.attio.com/docs/attribute-types",
             "secret": False,
             "required": False,
+            "default": {},
         },
         {
             "key": "personAttributes",
@@ -118,6 +119,7 @@ if (userRes.status >= 400) {
             "description": "This object's keys should be the slugs or IDs of the Person attributes you wish to update. For information on potential custom attributes, refer to the attribute type docs: https://developers.attio.com/docs/attribute-types",
             "secret": False,
             "required": False,
+            "default": {},
         },
     ],
 )
