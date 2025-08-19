@@ -3845,6 +3845,7 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
+    last_refresh: string | null
 }
 
 export interface FunnelExperimentVariant {
