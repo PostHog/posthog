@@ -30,6 +30,7 @@ from posthog.cdp.validation import (
     MappingsSerializer,
     compile_hog,
     generate_template_bytecode,
+    has_data_pipelines_addon,
 )
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
@@ -157,7 +158,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def to_internal_value(self, data):
         self.initial_data = data
         team = self.context["get_team"]()
-        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        request = self.context["request"]
+        has_addon = has_data_pipelines_addon(request.user, team)
         bypass_addon_check = self.context.get("bypass_addon_check", False)
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"

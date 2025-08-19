@@ -45,6 +45,7 @@ from posthog.batch_exports.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
+from posthog.cdp.validation import has_data_pipelines_addon
 from posthog.constants import AvailableFeature
 from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
@@ -288,7 +289,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         attrs["team"] = team
 
-        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        has_addon = has_data_pipelines_addon(self.context["request"].user, team)
 
         if not has_addon:
             # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things
