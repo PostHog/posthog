@@ -58,7 +58,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             team.project_id
         );
 
-        // Early exit if flags are disabled 
+        // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {
             FlagsResponse::new(false, HashMap::new(), None, context.request_id)
         } else if let Some(quota_limited_response) =
