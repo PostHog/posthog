@@ -137,14 +137,20 @@ class TestTemplateAttioUser(BaseHogFunctionTemplateTest):
 class TestTemplateAttioWorkspace(BaseHogFunctionTemplateTest):
     template = template_attio_workspace
 
-    def test_workspace_user_linking_logic(self):
+    def test_workspace_user_linking_logic_with_user_id(self):
         self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
 
-        # Test WITH userId
         inputs_with_user = create_workspace_inputs(userId="user123")
         self.run_function(inputs=inputs_with_user)
         workspace_call = self.get_mock_fetch_calls()[1]
         assert workspace_call[1]["body"]["data"]["values"]["users"] == ["user123"]
+
+    def test_workspace_user_linking_logic_without_user_id(self):
+        inputs_no_user = create_workspace_inputs(userId="")
+        self.run_function(inputs=inputs_no_user)
+        workspace_call = self.get_mock_fetch_calls()[1]
+        assert "users" not in workspace_call[1]["body"]["data"]["values"]
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
 
         # Test WITHOUT userId (or empty)
         inputs_no_user = create_workspace_inputs(userId="")
