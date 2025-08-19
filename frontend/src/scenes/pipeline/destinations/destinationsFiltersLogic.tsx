@@ -1,10 +1,12 @@
-import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionTypeType } from '~/types'
@@ -97,7 +99,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => [
             router.values.location.pathname,
             {
@@ -116,7 +118,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        ['*']: (_, searchParams) => {
+        ['/pipeline/*']: (_, searchParams) => {
             if (!objectsEqual(values.filters, searchParams)) {
                 actions.setFilters(searchParams)
             }

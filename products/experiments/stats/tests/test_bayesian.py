@@ -5,34 +5,34 @@ This module tests all Bayesian classes for correctness of calculations,
 validation, and edge case handling.
 """
 
-import pytest
-import numpy as np
 from unittest import TestCase
 
+import numpy as np
+import pytest
 
 from products.experiments.stats.bayesian.method import (
-    BayesianMethod,
     BayesianConfig,
+    BayesianMethod,
     PriorType,
 )
-from products.experiments.stats.bayesian.tests import (
-    BayesianResult,
-    BayesianGaussianTest,
-)
 from products.experiments.stats.bayesian.priors import GaussianPrior
-from products.experiments.stats.shared.statistics import (
-    SampleMeanStatistic,
-    ProportionStatistic,
-    StatisticError,
+from products.experiments.stats.bayesian.tests import (
+    BayesianGaussianTest,
+    BayesianResult,
 )
-from products.experiments.stats.shared.enums import DifferenceType
-
 from products.experiments.stats.bayesian.utils import (
     calculate_effect_size_and_variance,
     calculate_posterior,
     calculate_risk,
     chance_to_win,
     credible_interval,
+)
+from products.experiments.stats.shared.enums import DifferenceType
+from products.experiments.stats.shared.statistics import (
+    ProportionStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+    StatisticError,
 )
 
 
@@ -323,6 +323,42 @@ class TestBayesianMethod(TestCase):
         self.assertAlmostEqual(result_dict["credible_interval"][0], expected_dict["credible_interval"][0], places=4)
         self.assertAlmostEqual(result_dict["credible_interval"][1], expected_dict["credible_interval"][1], places=4)
         self.assertAlmostEqual(result_dict["chance_to_win"], expected_dict["chance_to_win"], places=4)
+
+    def test_two_sided_ttest_with_ratio_statistic(self):
+        """Test basic two-sided t-test with ratio statistics."""
+
+        treatment_n = 2034
+        treatment = RatioStatistic(
+            n=treatment_n,
+            m_statistic=SampleMeanStatistic(n=treatment_n, sum=99673.9364269569, sum_squares=11298745.182728939),
+            d_statistic=SampleMeanStatistic(n=treatment_n, sum=947, sum_squares=947),
+            m_d_sum_of_products=99673.9364269569,
+        )
+        control_n = 1966
+        control = RatioStatistic(
+            n=control_n,
+            m_statistic=SampleMeanStatistic(n=control_n, sum=94605.79858780127, sum_squares=10463129.505392816),
+            d_statistic=SampleMeanStatistic(n=control_n, sum=936, sum_squares=936),
+            m_d_sum_of_products=94605.79858780127,
+        )
+
+        config = BayesianConfig(ci_level=0.95, difference_type=DifferenceType.RELATIVE)
+        method = BayesianMethod(config)
+        result = method.run_test(treatment, control)
+
+        result_dict = method.get_summary(result)
+        expected_dict = {
+            "effect_size": 0.041333,
+            "credible_interval": [0.01378609, 0.0689],
+            "chance_to_win": 0.99836,
+            "error_message": None,
+        }
+
+        # Compare the key values
+        self.assertAlmostEqual(result_dict["effect_size"], expected_dict["effect_size"], places=4)
+        self.assertAlmostEqual(result_dict["chance_to_win"], expected_dict["chance_to_win"], places=4)
+        self.assertAlmostEqual(result_dict["credible_interval"][0], expected_dict["credible_interval"][0], places=4)
+        self.assertAlmostEqual(result_dict["credible_interval"][1], expected_dict["credible_interval"][1], places=4)
 
 
 class TestConvenienceFunctions:

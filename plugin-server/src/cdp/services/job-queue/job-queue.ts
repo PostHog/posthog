@@ -3,7 +3,6 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
-
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
@@ -161,7 +160,8 @@ export class CyclotronJobQueue {
         if (
             this.producerForceScheduledToPostgres &&
             invocation.queueScheduledAt &&
-            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS })
+            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
+            invocation.queue !== 'hog_overflow' // overflow is always sent to kafka
         ) {
             // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
             return 'postgres'

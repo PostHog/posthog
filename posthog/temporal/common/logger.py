@@ -102,7 +102,7 @@ def configure_stdlib_logger(logger: logging.Logger) -> None:
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
-        configure_logger_async()
+        configure_logger_async(loop=asyncio.get_running_loop())
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
@@ -126,7 +126,7 @@ async def configure_temporal_worker_logger(
 ) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
-        configure_logger_async()
+        configure_logger_async(loop=asyncio.get_running_loop())
 
     temporal_context = get_temporal_context()
 
@@ -138,7 +138,7 @@ async def bind_temporal_org_worker_logger(
 ) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers scoped by organization instead of team."""
     if not structlog.is_configured():
-        configure_logger_async()
+        configure_logger_async(loop=asyncio.get_running_loop())
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
@@ -271,17 +271,18 @@ def configure_logger_async(
     log_producer = None
     log_producer_error = None
 
-    try:
-        log_producer = KafkaLogProducerFromQueueAsync(
-            queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
-        )
-    except Exception as e:
-        # Skip putting logs in queue if we don't have a producer that can consume the queue.
-        # We save the error to log it later as the logger hasn't yet been configured at this time.
-        log_producer_error = e
-    else:
-        put_in_queue = PutInLogQueueProcessor(log_queue)
-        base_processors.append(put_in_queue)
+    if loop:
+        try:
+            log_producer = KafkaLogProducerFromQueueAsync(
+                queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
+            )
+        except Exception as e:
+            # Skip putting logs in queue if we don't have a producer that can consume the queue.
+            # We save the error to log it later as the logger hasn't yet been configured at this time.
+            log_producer_error = e
+        else:
+            put_in_queue = PutInLogQueueProcessor(log_queue)
+            base_processors.append(put_in_queue)
 
     if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
         base_processors += [
@@ -305,8 +306,9 @@ def configure_logger_async(
     )
 
     if log_producer is None:
-        logger = structlog.get_logger()
-        logger.error("Failed to initialize log producer", exc_info=log_producer_error)
+        if loop is not None:
+            logger = structlog.get_logger()
+            logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
     listen_task = create_logger_background_task(log_producer.listen(), loop=loop)
@@ -320,6 +322,7 @@ def configure_logger_async(
         """
         await temporalio.activity.wait_for_worker_shutdown()
 
+        await log_queue.join()
         listen_task.cancel()
 
         await asyncio.wait([listen_task])

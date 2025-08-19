@@ -1,31 +1,33 @@
-import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
+import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
-import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
-import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
-import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { paymentEntryLogic } from './paymentEntryLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+import { summarizeUsage } from './billing-utils'
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
+import { paymentEntryLogic } from './paymentEntryLogic'
 
 export const getTierDescription = (
     tiers: BillingTierType[],
@@ -38,8 +40,8 @@ export const getTierDescription = (
             ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
             : `All ${product.unit}s`
         : tiers[i].up_to
-        ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
-        : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
+          ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
+          : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
@@ -337,7 +339,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                     {product.price_description ? (
                         <LemonBanner type="info">
-                            <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
+                            <span>{product.price_description}</span>
                         </LemonBanner>
                     ) : null}
 

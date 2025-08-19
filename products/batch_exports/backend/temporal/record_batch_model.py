@@ -1,11 +1,14 @@
 import abc
 import datetime as dt
 import typing
+import uuid
 
 from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
 )
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import Product
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
@@ -20,10 +23,16 @@ BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
 
 
 class RecordBatchModel(abc.ABC):
-    """Base class for models that can be produced as record batches."""
+    """Base class for models that can be produced as record batches.
 
-    def __init__(self, team_id: int):
+    Attributes:
+       team_id: The ID of the team we are producing records for.
+       batch_export_id: The ID of the batch export we are producing records for.
+    """
+
+    def __init__(self, team_id: int, batch_export_id: str | None = None):
         self.team_id = team_id
+        self.batch_export_id = batch_export_id
 
     async def get_hogql_context(self) -> HogQLContext:
         """Return a HogQLContext to generate a ClickHouse query."""
@@ -33,10 +42,22 @@ class RecordBatchModel(abc.ABC):
             team_id=team.id,
             enable_select_queries=True,
             limit_top_select=False,
+            values={
+                "log_comment": self.get_log_comment(),
+            },
         )
         context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
         return context
+
+    def get_log_comment(self) -> str:
+        tags = query_tagging.get_query_tags()
+        tags.team_id = self.team_id
+        if self.batch_export_id:
+            tags.batch_export_id = uuid.UUID(self.batch_export_id)
+        tags.product = Product.BATCH_EXPORT
+        tags.query_type = "batch_export"
+        return tags.to_json()
 
     @abc.abstractmethod
     async def as_query_with_parameters(
@@ -60,14 +81,7 @@ class RecordBatchModel(abc.ABC):
 
 
 class SessionsRecordBatchModel(RecordBatchModel):
-    """A model to produce record batches from the sessions table.
-
-    Attributes:
-       team_id: The ID of the team we are producing records for.
-    """
-
-    def __init__(self, team_id: int):
-        super().__init__(team_id)
+    """A model to produce record batches from the sessions table."""
 
     def get_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
@@ -159,6 +173,13 @@ class SessionsRecordBatchModel(RecordBatchModel):
             dialect="clickhouse",
             stack=[],
         )
+
+        log_comment = "log_comment={log_comment}"
+        if "settings" not in printed.lower():
+            log_comment = " SETTINGS log_comment={log_comment}"
+        else:
+            log_comment = ", " + log_comment
+
         insert_query = f"""
 INSERT INTO FUNCTION
    s3(
@@ -168,7 +189,7 @@ INSERT INTO FUNCTION
        'ArrowStream'
     )
     PARTITION BY rand() %% {num_partitions}
-{printed}
+{printed}{log_comment}
 """
 
         return insert_query, context.values
@@ -178,6 +199,7 @@ def resolve_batch_exports_model(
     team_id: int,
     batch_export_model: BatchExportModel | None = None,
     batch_export_schema: BatchExportSchema | None = None,
+    batch_export_id: str | None = None,
 ):
     """Resolve which model and model parameters to use for a batch export.
 
@@ -196,7 +218,7 @@ def resolve_batch_exports_model(
             filters = model.filters
 
             if model_name == "sessions":
-                record_batch_model = SessionsRecordBatchModel(team_id)
+                record_batch_model = SessionsRecordBatchModel(team_id=team_id, batch_export_id=batch_export_id)
         else:
             model_name = "events"
             extra_query_parameters = None

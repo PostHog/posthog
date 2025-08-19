@@ -1,8 +1,8 @@
 from django.db import close_old_connections
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin
+from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def database_operations(team_id: int, table_prefix: str) -> None:
@@ -67,10 +67,10 @@ def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
         .first()
     )
 
-    source: ExternalDataSource.Type = job.pipeline.source_type
+    source: ExternalDataSourceType = job.pipeline.source_type
 
     # Quick exit if this isn't the first sync, or a stripe source
-    if source != ExternalDataSource.Type.STRIPE or last_successful_job is not None:
+    if source != ExternalDataSourceType.STRIPE or last_successful_job is not None:
         logger.info(
             f"Create warehouse templates skipped for job {run_id}",
         )

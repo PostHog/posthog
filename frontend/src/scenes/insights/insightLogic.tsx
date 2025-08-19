@@ -1,14 +1,16 @@
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
+import { LogicWrapper, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -17,10 +19,11 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -75,7 +78,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             featureFlagLogic,
             ['featureFlags'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -121,8 +124,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ) => ({
             metadataUpdate,
         }),
-        highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
+        handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
+        onRejectSuggestedInsight: true,
+        onReapplySuggestedInsight: true,
+        setPreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
+        setSuggestedQuery: (suggestedQuery: Node | null) => ({ suggestedQuery }),
+        reloadSavedInsights: true,
+        duplicateInsight: (insight: QueryBasedInsightModel, redirectToInsight = false) => ({
+            insight,
+            redirectToInsight,
+        }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -184,7 +197,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
                     await breakpoint(300)
 
-                    savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    actions.reloadSavedInsights()
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
@@ -195,7 +208,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
                                 const response = await insightsApi.update(values.insight.id as number, beforeUpdates)
-                                savedInsightsLogic.findMounted()?.actions.loadInsights()
+                                actions.reloadSavedInsights()
                                 dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                                 actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
                                 lemonToast.success('Insight change reverted')
@@ -210,9 +223,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     })),
     reducers(({ props }) => ({
         highlightedSeries: [
-            null as number | null,
+            null as IndexedTrendResult | null,
             {
-                highlightSeries: (_, { seriesIndex }) => seriesIndex,
+                highlightSeries: (_, { series }) => series,
             },
         ],
         insight: {
@@ -304,6 +317,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saveInsightFailure: () => false,
             },
         ],
+        previousQuery: [
+            null as Node | null,
+            {
+                setPreviousQuery: (_, { previousQuery }) => previousQuery,
+                saveInsight: () => null,
+            },
+        ],
+        suggestedQuery: [
+            null as Node | null,
+            {
+                setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
+                saveInsight: () => null,
+            },
+        ],
     })),
     selectors({
         query: [
@@ -359,8 +386,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         supportsCreatingExperiment: [
-            (s) => [s.insight, s.activeScene],
-            (insight: QueryBasedInsightModel, activeScene: Scene) =>
+            (s) => [s.insight, s.activeSceneId],
+            (insight: QueryBasedInsightModel, activeSceneId: Scene) =>
                 insight?.query &&
                 isValidQueryForExperiment(insight.query) &&
                 ![
@@ -368,7 +395,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.Experiments,
                     Scene.ExperimentsSharedMetric,
                     Scene.ExperimentsSharedMetrics,
-                ].includes(activeScene),
+                ].includes(activeSceneId),
         ],
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
@@ -401,7 +428,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           ...insightRequest,
                           _create_in_folder: folder ?? getLastNewFolder(),
                       })
-                savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
+                actions.reloadSavedInsights() // Load insights afresh
                 // remove draft query from local storage
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()
@@ -490,13 +517,57 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
-            savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
+            actions.reloadSavedInsights() // Load insights afresh
 
             if (redirectToViewMode) {
                 router.actions.push(urls.insightView(insight.short_id))
             } else {
                 router.actions.push(urls.insightEdit(insight.short_id))
             }
+        },
+        onRejectSuggestedInsight: () => {
+            if (values.previousQuery) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    insightDataLogicInstance.actions.setQuery(values.previousQuery)
+                }
+                actions.setPreviousQuery(null)
+            } else {
+            }
+        },
+        handleInsightSuggested: ({ suggestedInsight }) => {
+            if (suggestedInsight) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    const currentQuery = insightDataLogicInstance.values.query
+                    actions.setPreviousQuery(currentQuery)
+                    actions.setSuggestedQuery(suggestedInsight)
+                }
+            }
+        },
+        onReapplySuggestedInsight: () => {
+            // Reapply the Max AI suggestion
+            if (values.suggestedQuery) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    const currentQuery = insightDataLogicInstance.values.query
+                    actions.setPreviousQuery(currentQuery)
+                    insightDataLogicInstance.actions.setQuery(values.suggestedQuery)
+                }
+            } else {
+            }
+        },
+        reloadSavedInsights: () => {
+            for (const logic of savedInsightsLogic.findAllMounted()) {
+                logic.actions.loadInsights()
+            }
+        },
+        duplicateInsight: async ({ insight, redirectToInsight }) => {
+            const newInsight = await insightsApi.duplicate(insight)
+            for (const logic of savedInsightsLogic.findAllMounted()) {
+                logic.actions.addInsight(newInsight)
+            }
+            redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
     })),
     events(({ props, actions }) => ({

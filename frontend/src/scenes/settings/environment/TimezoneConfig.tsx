@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -28,6 +29,7 @@ export function TimezoneConfig(): JSX.Element {
                 disabled={currentTeamLoading}
                 value={[currentTeam.timezone]}
                 popoverClassName="z-[1000]"
+                virtualized
                 onChange={([newTimezone]): void => {
                     // This is a string for a single-mode select, but typing is poor
                     if (!preflight?.available_timezones) {

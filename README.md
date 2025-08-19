@@ -53,7 +53,7 @@ Best of all, all of this is free to use with a [generous monthly free tier](http
 
 ### PostHog Cloud (Recommended)
 
-The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events, 5k recordings, 1M flag requests, 100k exceptions, and 250 survey responses are free every month, after which you pay based on usage.
+The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events, 5k recordings, 1M flag requests, 100k exceptions, and 1500 survey responses are free every month, after which you pay based on usage.
 
 ### Self-hosting the open-source hobby deploy (Advanced)
 

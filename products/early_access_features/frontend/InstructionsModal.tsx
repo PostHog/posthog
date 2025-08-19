@@ -1,11 +1,14 @@
-import { LemonCollapse, LemonModal, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonCollapse, LemonModal, Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import EarlyAccessFeatureImage from 'public/early-access-feature-demo.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagType, PipelineStage, Region } from '~/types'
+import { FeatureFlagType, PipelineStage } from '~/types'
+
+import EarlyAccessFeatureImage from 'public/early-access-feature-demo.png'
 
 interface InstructionsModalProps {
     flag: FeatureFlagType['key']
@@ -29,7 +32,7 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
                             Give your users a{' '}
                             <Link
                                 to={urls.pipelineNodeNew(PipelineStage.SiteApp, {
-                                    id: preflight?.region === Region.EU ? 332 : 574,
+                                    id: `hog-template-early-access-features`,
                                 })}
                             >
                                 prebuilt widget

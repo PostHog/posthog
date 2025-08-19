@@ -16,13 +16,27 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
-                cdpCyclotronWorkerPlugins: true,
-                cdpCyclotronWorkerSegment: true,
-                cdpCyclotronWorkerNative: true,
                 cdpCyclotronWorkerHogFlow: true,
+                cdpBehaviouralEvents: true,
+                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
+                cdpApi: true,
+            }
+
+        case PluginServerMode.local_cdp:
+            return {
+                ingestionV2: true,
+                cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
+                cdpInternalEvents: true,
+                cdpLegacyOnEvent: true,
+                cdpCyclotronWorker: true,
+                cdpCyclotronWorkerHogFlow: true,
+                cdpBehaviouralEvents: true,
+                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
                 cdpApi: true,
             }
 
@@ -57,6 +71,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpProcessedEvents: true,
             }
+        case PluginServerMode.cdp_person_updates:
+            return {
+                cdpPersonUpdates: true,
+            }
         case PluginServerMode.cdp_internal_events:
             return {
                 cdpInternalEvents: true,
@@ -69,13 +87,13 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_plugins:
+        case PluginServerMode.cdp_behavioural_events:
             return {
-                cdpCyclotronWorkerPlugins: true,
+                cdpBehaviouralEvents: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_segment:
+        case PluginServerMode.cdp_aggregation_writer:
             return {
-                cdpCyclotronWorkerSegment: true,
+                cdpAggregationWriter: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {

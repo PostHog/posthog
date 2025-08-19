@@ -171,7 +171,8 @@ mod tests {
             },
             "deleted": false,
             "active": true,
-            "ensure_experience_continuity": false
+            "ensure_experience_continuity": false,
+            "evaluation_runtime": "all"
         }"#;
 
         let flag: FeatureFlag = serde_json::from_str(json_str).expect("Failed to deserialize");
@@ -191,6 +192,7 @@ mod tests {
         assert!(flag.filters.payloads.is_some());
         assert!(!flag.deleted);
         assert!(flag.active);
+        assert_eq!(flag.evaluation_runtime, Some("all".to_string()));
         assert!(!flag.ensure_experience_continuity.unwrap_or(false));
     }
 
@@ -224,6 +226,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_no_deps.extract_dependencies().unwrap();
@@ -258,6 +261,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_with_dep.extract_dependencies().unwrap();
@@ -306,6 +310,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
@@ -350,6 +355,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
@@ -381,10 +387,9 @@ mod tests {
                 r#"{{
             "key": "test_key",
             "value": "test_value",
-            "operator": "{}",
+            "operator": "{op_str}",
             "type": "person"
-        }}"#,
-                op_str
+        }}"#
             );
             let deserialized: PropertyFilter = serde_json::from_str(&json).unwrap();
             assert_eq!(deserialized.operator, Some(op_type));
@@ -433,7 +438,8 @@ mod tests {
                 }
             },
             "active": true,
-            "deleted": false
+            "deleted": false,
+            "evaluation_runtime": "all"
         });
 
         // Insert into Redis
@@ -460,6 +466,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -559,6 +566,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -599,9 +607,7 @@ mod tests {
                 assert_eq!(
                     variant.name,
                     Some(expected_name.to_string()),
-                    "Incorrect variant name for {} in {}",
-                    key,
-                    source
+                    "Incorrect variant name for {key} in {source}"
                 );
             }
 
@@ -622,8 +628,7 @@ mod tests {
                 };
                 assert_eq!(
                     value["feature"], expected_feature,
-                    "Incorrect payload value for {} in {}",
-                    key, source
+                    "Incorrect payload value for {key} in {source}"
                 );
             }
         }
@@ -692,6 +697,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -761,7 +767,8 @@ mod tests {
                 ]
             },
             "active": true,
-            "deleted": false
+            "deleted": false,
+            "evaluation_runtime": "all"
         });
 
         // Insert into Redis
@@ -788,6 +795,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -874,6 +882,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -892,6 +901,7 @@ mod tests {
                 active: false,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -987,6 +997,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -1067,6 +1078,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1158,6 +1170,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1243,6 +1256,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1311,7 +1325,8 @@ mod tests {
                 "key": "zero_percent",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]},
                 "active": true,
-                "deleted": false
+                "deleted": false,
+                "evaluation_runtime": "all"
             },
             {
                 "id": 2,
@@ -1320,7 +1335,8 @@ mod tests {
                 "key": "hundred_percent",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "active": true,
-                "deleted": false
+                "deleted": false,
+                "evaluation_runtime": "all"
             },
             {
                 "id": 3,
@@ -1329,7 +1345,8 @@ mod tests {
                 "key": "fractional_percent",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 33.33}]},
                 "active": true,
-                "deleted": false
+                "deleted": false,
+                "evaluation_runtime": "all"
             }
         ]);
 
@@ -1357,6 +1374,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1394,7 +1412,8 @@ mod tests {
             "key": "empty_filters",
             "filters": {},
             "deleted": false,
-            "active": true
+            "active": true,
+            "evaluation_runtime": "all"
         }"#;
 
         let flag: FeatureFlag =

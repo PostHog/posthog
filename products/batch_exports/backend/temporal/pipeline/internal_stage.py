@@ -145,7 +145,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
         set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema, inputs.batch_export_id
         )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None

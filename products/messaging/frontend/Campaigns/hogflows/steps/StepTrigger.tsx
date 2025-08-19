@@ -1,6 +1,7 @@
-import { IconBolt } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
+
+import { IconBolt } from '@posthog/icons'
 
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -12,7 +13,8 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
     type: 'trigger',
     name: 'Trigger',
     description: 'Trigger the campaign.',
-    icon: <IconBolt />,
+    icon: <IconBolt className="text-[#1E88E5]" />,
+    color: '#1E88E5',
     renderNode: (props) => <StepTriggerNode {...props} />,
     renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
     create: () => {

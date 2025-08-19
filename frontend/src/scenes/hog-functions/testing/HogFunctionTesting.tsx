@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { useState } from 'react'
+
 import { IconEllipsis } from '@posthog/icons'
 import {
     LemonBanner,
@@ -12,20 +18,16 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useState } from 'react'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -41,8 +43,8 @@ import { HogFunctionFilters } from '../filters/HogFunctionFilters'
 import { tagTypeForLevel } from '../logs/LogsViewer'
 import {
     CyclotronJobTestInvocationResultWithEventId,
-    hogFunctionTestingLogic,
     HogFunctionTestingLogicProps,
+    hogFunctionTestingLogic,
 } from './hogFunctionTestingLogic'
 
 const buildGlobals = (
@@ -111,110 +113,112 @@ export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.El
     }
 
     return (
-        <div className="deprecated-space-y-3">
-            <PageHeader
-                buttons={
-                    <>
-                        {!selectingMany ? (
-                            <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
-                                Select invocations
-                            </LemonButton>
-                        ) : (
-                            <>
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    onClick={() => {
-                                        setSelectingMany(false)
-                                        resetSelectedForRetry()
-                                    }}
-                                >
-                                    Cancel
+        <BindLogic logic={hogFunctionConfigurationLogic} props={{ id }}>
+            <div className="deprecated-space-y-3">
+                <PageHeader
+                    buttons={
+                        <>
+                            {!selectingMany ? (
+                                <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
+                                    Select invocations
                                 </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    onClick={() =>
-                                        selectedForRetry.length === eventsWithRetries.length
-                                            ? deselectForRetry(eventsWithRetries.map((row) => row[0].uuid))
-                                            : selectForRetry(eventsWithRetries.map((row) => row[0].uuid))
-                                    }
-                                >
-                                    <span>
-                                        {selectedForRetry.length === eventsWithRetries.length
-                                            ? 'Deselect all'
-                                            : 'Select all'}
-                                    </span>
-                                </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Test selected events',
-                                            content: `Are you sure you want to test the selected events? Please don't close the window until the invocations have completed.`,
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                            primaryButton: {
-                                                children: 'Test selected events',
-                                                onClick: () => {
-                                                    eventsWithRetries
-                                                        .filter((row) => selectedForRetry.includes(row[0].uuid))
-                                                        .forEach((row) =>
-                                                            retryInvocation({
-                                                                eventId: row[0].uuid,
-                                                                globals: buildGlobals(
-                                                                    row,
-                                                                    groupTypes,
-                                                                    configuration?.name ?? 'Unnamed'
-                                                                ),
-                                                            })
-                                                        )
+                            ) : (
+                                <>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            setSelectingMany(false)
+                                            resetSelectedForRetry()
+                                        }}
+                                    >
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() =>
+                                            selectedForRetry.length === eventsWithRetries.length
+                                                ? deselectForRetry(eventsWithRetries.map((row) => row[0].uuid))
+                                                : selectForRetry(eventsWithRetries.map((row) => row[0].uuid))
+                                        }
+                                    >
+                                        <span>
+                                            {selectedForRetry.length === eventsWithRetries.length
+                                                ? 'Deselect all'
+                                                : 'Select all'}
+                                        </span>
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="primary"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Test selected events',
+                                                content: `Are you sure you want to test the selected events? Please don't close the window until the invocations have completed.`,
+                                                secondaryButton: {
+                                                    children: 'Cancel',
                                                 },
-                                            },
-                                        })
-                                    }}
-                                    loading={loadingRetries.length > 0}
-                                    disabledReason={
-                                        loadingRetries.length > 0
-                                            ? 'Please wait for the current tests to complete.'
-                                            : selectedForRetry.length === 0
-                                            ? 'No invocations selected'
-                                            : undefined
-                                    }
+                                                primaryButton: {
+                                                    children: 'Test selected events',
+                                                    onClick: () => {
+                                                        eventsWithRetries
+                                                            .filter((row) => selectedForRetry.includes(row[0].uuid))
+                                                            .forEach((row) =>
+                                                                retryInvocation({
+                                                                    eventId: row[0].uuid,
+                                                                    globals: buildGlobals(
+                                                                        row,
+                                                                        groupTypes,
+                                                                        configuration?.name ?? 'Unnamed'
+                                                                    ),
+                                                                })
+                                                            )
+                                                    },
+                                                },
+                                            })
+                                        }}
+                                        loading={loadingRetries.length > 0}
+                                        disabledReason={
+                                            loadingRetries.length > 0
+                                                ? 'Please wait for the current tests to complete.'
+                                                : selectedForRetry.length === 0
+                                                  ? 'No invocations selected'
+                                                  : undefined
+                                        }
+                                    >
+                                        Test selected
+                                    </LemonButton>
+                                </>
+                            )}
+                            {configurationChanged ? (
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    onClick={submitConfiguration}
+                                    loading={isConfigurationSubmitting}
                                 >
-                                    Test selected
+                                    Save
+                                    {willReEnableOnSave
+                                        ? ' & re-enable'
+                                        : willChangeEnabledOnSave
+                                          ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                                          : ''}
                                 </LemonButton>
-                            </>
-                        )}
-                        {configurationChanged ? (
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                onClick={submitConfiguration}
-                                loading={isConfigurationSubmitting}
-                            >
-                                Save
-                                {willReEnableOnSave
-                                    ? ' & re-enable'
-                                    : willChangeEnabledOnSave
-                                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                                    : ''}
-                            </LemonButton>
-                        ) : null}
-                    </>
-                }
-            />
-            <LemonBanner type="info">
-                <span>
-                    This is a list of all events matching your filters. You can run the function using these historical
-                    events.
-                </span>
-            </LemonBanner>
-            <RunsFilters id={id} />
-            <TestingEventsList id={id} />
-        </div>
+                            ) : null}
+                        </>
+                    }
+                />
+                <LemonBanner type="info">
+                    <span>
+                        This is a list of all events matching your filters. You can run the function using these
+                        historical events.
+                    </span>
+                </LemonBanner>
+                <RunsFilters id={id} />
+                <TestingEventsList id={id} />
+            </div>
+        </BindLogic>
     )
 }
 
@@ -316,7 +320,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         formKey="configuration"
                         className="deprecated-space-y-3"
                     >
-                        <HogFunctionFilters embedded={true} />
+                        <HogFunctionFilters embedded={true} showTriggerOptions={false} />
                         <div className="flex justify-end mt-2">
                             <LemonButton size="small" type="primary" onClick={() => setDropdownOpen(false)}>
                                 Done

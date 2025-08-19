@@ -1,10 +1,6 @@
-from django.test import override_settings
 from rest_framework import status
 from unittest.mock import patch, ANY
 from typing import cast
-from django.core.cache import cache
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
-from posthog.cloud_utils import get_api_host
 from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -681,96 +677,3 @@ class TestOrganizationRbacMigrations(APIBaseTest):
                 "rbac_team_migration_failed",
                 {"user": self.admin_user.distinct_id, "error": "Test error"},
             )
-
-    @override_settings(
-        CACHES={
-            "default": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            },
-        }
-    )
-    def test_authenticate_wizard_requires_hash(self):
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/authenticate_wizard", data={}, format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    @override_settings(
-        CACHES={
-            "default": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            },
-        }
-    )
-    def test_authenticate_wizard_invalid_hash(self):
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/authenticate_wizard",
-            data={"hash": "nonexistent", "projectId": self.team.id},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_authenticate_wizard_missing_projectId(self):
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/authenticate_wizard",
-            data={"hash": "valid_hash"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_authenticate_wizard_invalid_projectId(self):
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/authenticate_wizard",
-            data={"hash": "valid_hash", "projectId": 999999},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    @override_settings(
-        CACHES={
-            "default": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            },
-        }
-    )
-    def test_authenticate_wizard_successful(self):
-        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
-        cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
-
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/authenticate_wizard",
-            data={"hash": "valid_hash", "projectId": self.team.id},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json(), {"success": True})
-
-        updated_data = cache.get(cache_key)
-        self.assertIsNotNone(updated_data)
-        self.assertEqual(updated_data["project_api_key"], self.team.api_token)
-        self.assertEqual(updated_data["host"], get_api_host())
-        self.assertEqual(updated_data["user_distinct_id"], self.user.distinct_id)
-
-    @override_settings(
-        CACHES={
-            "default": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            },
-        }
-    )
-    @patch("posthog.rate_limit.SetupWizardAuthenticationRateThrottle.rate", new="2/day")
-    def test_authenticate_wizard_rate_limited(self):
-        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
-        cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
-
-        url = f"/api/organizations/{self.organization.id}/authenticate_wizard"
-        data = {"hash": "valid_hash", "projectId": self.team.id}
-
-        response_1 = self.client.post(url, data=data, format="json")
-        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-
-        response_2 = self.client.post(url, data=data, format="json")
-        self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-
-        response_3 = self.client.post(url, data=data, format="json")
-        self.assertEqual(response_3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

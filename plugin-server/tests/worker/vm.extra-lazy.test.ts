@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports
 import { fetch } from 'undici'
 
 import { Hub } from '../../src/types'

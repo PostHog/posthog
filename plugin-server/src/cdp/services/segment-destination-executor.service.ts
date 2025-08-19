@@ -5,7 +5,7 @@ import { PluginsServerConfig } from '~/types'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
+import { FetchOptions, FetchResponse, Response, fetch } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
@@ -304,7 +304,6 @@ export class SegmentDestinationExecutorService {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry
                     result.finished = false
-                    result.invocation.queue = 'segment'
                     result.invocation.queuePriority = metadata.tries
                     result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result

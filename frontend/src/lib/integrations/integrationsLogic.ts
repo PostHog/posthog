@@ -1,13 +1,17 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+
 import api, { getCookie } from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { IntegrationKind, IntegrationType } from '~/types'
+import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
+
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 import { ICONS } from './utils'
@@ -27,8 +31,41 @@ export const integrationsLogic = kea<integrationsLogicType>([
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
+        openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
+        closeNewIntegrationModal: true,
+        openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
+        closeSetupModal: true,
     }),
-
+    reducers({
+        newIntegrationModalKind: [
+            null as IntegrationKind | null,
+            {
+                openNewIntegrationModal: (_, { kind }: { kind: IntegrationKind }) => kind,
+                closeNewIntegrationModal: () => null,
+            },
+        ],
+        setupModalOpen: [
+            false,
+            {
+                openSetupModal: () => true,
+                closeSetupModal: () => false,
+            },
+        ],
+        setupModalType: [
+            null as ChannelType | null,
+            {
+                openSetupModal: (_, { channelType }) => channelType ?? null,
+                closeSetupModal: () => null,
+            },
+        ],
+        selectedIntegration: [
+            null as IntegrationType | null,
+            {
+                openSetupModal: (_, { integration }) => integration ?? null,
+                closeSetupModal: () => null,
+            },
+        ],
+    }),
     loaders(({ values }) => ({
         integrations: [
             null as IntegrationType[] | null,
@@ -77,22 +114,30 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         handleGithubCallback: async ({ searchParams }) => {
             const { state, installation_id } = searchParams
 
             try {
-                if (state !== getCookie('ph_github_state')) {
-                    throw new Error('Invalid state token')
+                if (installation_id) {
+                    if (state !== getCookie('ph_github_state')) {
+                        throw new Error('Invalid state token')
+                    }
+
+                    await api.integrations.create({
+                        kind: 'github',
+                        config: { installation_id },
+                    })
+
+                    actions.loadIntegrations()
+                    lemonToast.success(`Integration successful.`)
+                } else {
+                    // If the requesting user does not have permissions an installation_id will not be returned
+                    // we assume in this situation that a request has been made to the GitHub organization owners
+                    lemonToast.info(
+                        'Your request to connect to GitHub has been sent to the organization owners. They will need to complete the installation.'
+                    )
                 }
-
-                await api.integrations.create({
-                    kind: 'github',
-                    config: { installation_id },
-                })
-
-                actions.loadIntegrations()
-                lemonToast.success(`Integration successful.`)
             } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
@@ -133,8 +178,27 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
 
         deleteIntegration: async ({ id }) => {
-            await api.integrations.delete(id)
-            actions.loadIntegrations()
+            const integration = values.integrations?.find((x) => x.id === id)
+            if (!integration) {
+                return
+            }
+
+            LemonDialog.open({
+                title: `Do you want to disconnect from this ${integration.kind} integration?`,
+                description:
+                    'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
+                primaryButton: {
+                    children: 'Yes, disconnect',
+                    status: 'danger',
+                    onClick: async () => {
+                        await api.integrations.delete(id)
+                        actions.loadIntegrations()
+                    },
+                },
+                secondaryButton: {
+                    children: 'No thanks',
+                },
+            })
         },
     })),
     afterMount(({ actions }) => {
@@ -168,6 +232,28 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (preflight) => {
                 // TODO: Change this to be based on preflight or something
                 return preflight?.slack_service?.available
+            },
+        ],
+
+        domainGroupedEmailIntegrations: [
+            (s) => [s.integrations],
+            (integrations): EmailIntegrationDomainGroupedType[] => {
+                const domainGroupedIntegrations: Record<string, EmailIntegrationDomainGroupedType> = {}
+
+                integrations
+                    ?.filter((x) => x.kind === 'email')
+                    .forEach((integration) => {
+                        const domain = integration.config.domain
+                        if (!domainGroupedIntegrations[domain]) {
+                            domainGroupedIntegrations[domain] = {
+                                domain,
+                                integrations: [],
+                            }
+                        }
+                        domainGroupedIntegrations[domain].integrations.push(integration)
+                    })
+
+                return Object.values(domainGroupedIntegrations)
             },
         ],
     }),

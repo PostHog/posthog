@@ -2,6 +2,8 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
+import { RenderedRows } from 'react-virtualized/dist/es/List'
+
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -15,13 +17,13 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { isEmail, isURL } from 'lib/utils'
-import { RenderedRows } from 'react-virtualized/dist/es/List'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
+import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
@@ -247,7 +249,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         isExpanded: [false, { expand: () => true }],
     })),
     selectors({
-        listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
+        listGroupType: [(_, p) => [p.listGroupType], (listGroupType) => listGroupType],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
@@ -306,22 +308,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (rawLocalItems: (EventDefinition | CohortType)[]) => rawLocalItems,
         ],
         fuse: [
-            (s) => [s.rawLocalItems, s.group],
-            (rawLocalItems, group): ListFuse => {
+            (s) => [s.rawLocalItems, s.taxonomicGroups, s.group],
+            (rawLocalItems, taxonomicGroups, group): ListFuse => {
                 // maps e.g. "selector" to its display value "CSS Selector"
                 // so a search of "css" matches something
                 function asPostHogName(
-                    group: TaxonomicFilterGroup,
+                    g: TaxonomicFilterGroup,
                     item: EventDefinition | CohortType
                 ): string | undefined {
-                    return group ? getCoreFilterDefinition(group.getName?.(item), group.type)?.label : undefined
+                    return g ? getCoreFilterDefinition(g.getName?.(item), g.type)?.label : undefined
                 }
 
-                const haystack = (rawLocalItems || []).map((item) => ({
-                    name: group?.getName?.(item) || '',
-                    posthogName: asPostHogName(group, item),
-                    item: item,
-                }))
+                const haystack = (rawLocalItems || []).map((item) => {
+                    const itemGroup = getItemGroup(item, taxonomicGroups, group)
+                    return {
+                        name: itemGroup?.getName?.(item) || '',
+                        posthogName: asPostHogName(itemGroup, item),
+                        item: item,
+                    }
+                })
 
                 return new Fuse(haystack, {
                     keys: ['name', 'posthogName'],

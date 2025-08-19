@@ -1,5 +1,5 @@
-import musichog from './musichog.lottie'
-import sportshog from './sportshog.lottie'
+import musichog from './musichog.lottie?url'
+import sportshog from './sportshog.lottie?url'
 
 /**
  * We're keeping lottiefiles in this folder.
@@ -15,7 +15,7 @@ export enum AnimationType {
     SportsHog = 'sportshog',
 }
 
-export const animations: Record<AnimationType, { url: string; width: number; height: number }> = {
+export const animations: Record<AnimationType, { url: any; width: number; height: number }> = {
     musichog: { url: musichog, width: 800, height: 800 },
     sportshog: { url: sportshog, width: 800, height: 800 },
 }

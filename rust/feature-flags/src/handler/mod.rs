@@ -18,7 +18,7 @@ use crate::{
     flags::flag_service::FlagService,
     metrics::consts::FLAG_REQUESTS_COUNTER,
 };
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 /// Primary entry point for feature flag requests.
 /// 1) Parses and authenticates the request,
@@ -26,6 +26,7 @@ use tracing::{info, warn};
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
 /// 5) Returns a [`FlagsResponse`] or an error.
+#[instrument(skip_all, fields(request_id = %context.request_id))]
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     async move {
         let start_time = std::time::Instant::now();

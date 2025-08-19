@@ -3,10 +3,11 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional
 
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.models.team import Team
+from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 from posthog.settings import (
     OBJECT_STORAGE_BUCKET,
@@ -67,7 +68,7 @@ def create_data_warehouse_table_from_csv(
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             prefix=source_prefix,
         )
 

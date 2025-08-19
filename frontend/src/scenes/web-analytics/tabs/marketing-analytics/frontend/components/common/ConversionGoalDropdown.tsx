@@ -4,15 +4,15 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
+    ActionsNode,
     ConversionGoalFilter,
     DataWarehouseNode,
-    ActionsNode,
     EventsNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode } from '~/queries/utils'
 import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
-import { BaseMathType, EntityTypes, FilterType, PropertyMathType, ActionFilter, DataWarehouseFilter } from '~/types'
+import { ActionFilter, BaseMathType, DataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
 
 import {
     ConversionGoalSchema,
@@ -92,6 +92,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     schema_map: {
                         ...value.schema_map,
                     },
+                    properties: firstSerie?.properties || [], // if we clear the filter we need the properties to be set to an empty array
                 }
 
                 // Override the schema with the schema from the data warehouse

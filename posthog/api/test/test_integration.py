@@ -1,8 +1,8 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
-from rest_framework import exceptions
-from django.test import override_settings
+
+from posthog.api.test.test_team import create_team
 from posthog.models.integration import Integration
 from posthog.models.integration import EmailIntegration, SlackIntegration, PRIVATE_CHANNEL_WITHOUT_ACCESS
 from posthog.models.user import User
@@ -207,7 +207,10 @@ class TestSlackIntegration:
 class TestEmailIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
-        self.domain = "test.com"
+        self.valid_config = {
+            "email": "test@posthog.com",
+            "name": "Test User",
+        }
         self.user = User.objects.create(email="test@posthog.com")
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -217,27 +220,21 @@ class TestEmailIntegration:
         mock_client = MagicMock()
         mock_mailjet_provider_class.return_value = mock_client
 
-        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         assert integration.kind == "email"
-        assert integration.integration_id == self.domain
+        assert integration.integration_id == self.valid_config["email"]
         assert integration.team_id == self.team.id
         assert integration.config == {
-            "domain": self.domain,
+            "email": self.valid_config["email"],
+            "name": self.valid_config["name"],
+            "domain": "posthog.com",
             "mailjet_verified": False,
             "aws_ses_verified": False,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
-
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_setup_email_valid_domain_parameter_required(self):
-        with pytest.raises(exceptions.ValidationError):
-            EmailIntegration.integration_from_domain("foobar", self.team.id, self.user)
-
-        with pytest.raises(exceptions.ValidationError):
-            EmailIntegration.integration_from_domain("foobar@test.com", self.team.id, self.user)
+        mock_client.create_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
 
     @patch("posthog.models.integration.MailjetProvider")
     def test_email_verify_returns_mailjet_result(self, mock_mailjet_provider_class):
@@ -266,17 +263,19 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
 
         integration.refresh_from_db()
         assert integration.config == {
-            "domain": self.domain,
+            "email": self.valid_config["email"],
+            "name": self.valid_config["name"],
+            "domain": "posthog.com",
             "mailjet_verified": False,
             "aws_ses_verified": False,
         }
@@ -308,17 +307,87 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
 
         integration.refresh_from_db()
         assert integration.config == {
-            "domain": self.domain,
+            "email": self.valid_config["email"],
+            "name": self.valid_config["name"],
+            "domain": "posthog.com",
             "mailjet_verified": True,
             "aws_ses_verified": False,
         }
+
+    @patch("posthog.models.integration.MailjetProvider")
+    def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_mailjet_provider_class, settings):
+        settings.MAILJET_PUBLIC_KEY = "test_api_key"
+        settings.MAILJET_SECRET_KEY = "test_secret_key"
+
+        mock_client = MagicMock()
+        mock_mailjet_provider_class.return_value = mock_client
+        # Mock the verify_email_domain method to return a test result
+        expected_result = {
+            "status": "success",
+            "dnsRecords": [
+                {
+                    "type": "dkim",
+                    "recordType": "TXT",
+                    "recordHostname": "mailjet._domainkey.example.com",
+                    "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
+                    "status": "success",
+                },
+                {
+                    "type": "spf",
+                    "recordType": "TXT",
+                    "recordHostname": "@",
+                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
+                    "status": "success",
+                },
+            ],
+        }
+        mock_client.verify_email_domain.return_value = expected_result
+
+        integration1 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integration2 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integrationOtherDomain = EmailIntegration.create_native_integration(
+            {
+                "email": "me@otherdomain.com",
+                "name": "Me",
+            },
+            self.team.id,
+            self.user,
+        )
+        other_team = create_team(organization=self.organization)
+        integrationOtherTeam = EmailIntegration.create_native_integration(
+            {
+                "email": "me@otherdomain.com",
+                "name": "Me",
+            },
+            other_team.id,
+            self.user,
+        )
+
+        assert not integration1.config["mailjet_verified"]
+        assert not integration2.config["mailjet_verified"]
+        assert not integrationOtherDomain.config["mailjet_verified"]
+        assert not integrationOtherTeam.config["mailjet_verified"]
+
+        email_integration = EmailIntegration(integration1)
+        verification_result = email_integration.verify()
+        assert verification_result["status"] == "success"
+
+        integration1.refresh_from_db()
+        integration2.refresh_from_db()
+        integrationOtherDomain.refresh_from_db()
+        integrationOtherTeam.refresh_from_db()
+
+        assert integration1.config["mailjet_verified"]
+        assert integration2.config["mailjet_verified"]
+        assert not integrationOtherDomain.config["mailjet_verified"]
+        assert not integrationOtherTeam.config["mailjet_verified"]

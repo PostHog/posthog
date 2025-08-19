@@ -3,9 +3,9 @@ import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, ShownAsValue } from 'lib/constants'
 import {
     ChartDisplayType,
     FilterType,
-    FunnelsFilterType,
     FunnelStepReference,
     FunnelVizType,
+    FunnelsFilterType,
     InsightType,
     TrendsFilterType,
 } from '~/types'

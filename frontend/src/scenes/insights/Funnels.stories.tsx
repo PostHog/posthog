@@ -1,7 +1,9 @@
+import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
+
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
-import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -52,7 +54,6 @@ export const FunnelLeftToRightEdit: Story = createInsightStory(
 FunnelLeftToRightEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
-
 export const FunnelLeftToRightBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
 )
@@ -66,7 +67,36 @@ export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
 FunnelLeftToRightBreakdownEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
-
+export const FunnelTopToBottom: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
+)
+FunnelTopToBottom.parameters = {
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+}
+export const FunnelTopToBottomEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
+    'edit'
+)
+FunnelTopToBottomEdit.parameters = {
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+}
+export const FunnelTopToBottomBreakdown: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
+)
+FunnelTopToBottomBreakdown.parameters = {
+    testOptions: {
+        testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    },
+}
+export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
+    'edit'
+)
+FunnelTopToBottomBreakdownEdit.parameters = {
+    testOptions: {
+        testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    },
+}
 export const FunnelHistoricalTrends: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
 )

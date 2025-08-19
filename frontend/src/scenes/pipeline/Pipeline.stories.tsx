@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect } from 'react'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -207,9 +208,7 @@ export const PipelineNodeConfiguration404: Story = {
 }
 
 export function PipelineNodeMetrics(): JSX.Element {
-    useEffect(() => {
-        pipelineNodeMetricsLogic({ id: geoIpConfigId }).mount()
-    }, [])
+    useDelayedOnMountEffect(() => pipelineNodeMetricsLogic({ id: geoIpConfigId }).mount())
 
     return <App />
 }
@@ -218,11 +217,11 @@ PipelineNodeMetrics.parameters = {
 }
 
 export function PipelineNodeMetricsErrorModal(): JSX.Element {
-    useEffect(() => {
+    useDelayedOnMountEffect(() => {
         const logic = pipelineNodeMetricsLogic({ id: geoIpConfigId })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
-    }, [])
+    })
 
     return <App />
 }
@@ -255,9 +254,7 @@ export const PipelineNodeLogsBatchExport: Story = {
 }
 
 export function PipelineNodesManagementPage(): JSX.Element {
-    useEffect(() => {
-        appsManagementLogic.mount()
-    }, [])
+    useDelayedOnMountEffect(() => appsManagementLogic.mount())
 
     return <App />
 }

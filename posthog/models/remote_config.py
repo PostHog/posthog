@@ -17,11 +17,14 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel, execute_with_timeout
+from posthog.models.utils import UUIDTModel, execute_with_timeout
 
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+
+from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
@@ -91,7 +94,7 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
     return config
 
 
-class RemoteConfig(UUIDModel):
+class RemoteConfig(UUIDTModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
     as well as JS code for the frontend. It's main function is to react to changes that would affect it,
@@ -103,6 +106,21 @@ class RemoteConfig(UUIDModel):
     config = models.JSONField()
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
+
+    @classmethod
+    def get_hypercache(cls):
+        def load_config(token):
+            try:
+                return RemoteConfig.objects.select_related("team").get(team__api_token=token).build_config()
+            except RemoteConfig.DoesNotExist:
+                return HyperCacheStoreMissing()
+
+        return HyperCache(
+            namespace="array",
+            value="config.json",
+            token_based=True,  # We store and load via the team token
+            load_fn=load_config,
+        )
 
     def build_config(self):
         from posthog.models.feature_flag import FeatureFlag
@@ -385,6 +403,12 @@ class RemoteConfig(UUIDModel):
             self.synced_at = timezone.now()
             self.save()
 
+            try:
+                RemoteConfig.get_hypercache().update_cache(self.team.api_token)
+            except Exception as e:
+                logger.exception(f"Failed to update hypercache for team {self.team_id}")
+                capture_exception(e)
+
             # Update the redis cache key for the config
             cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
             # Invalidate Cloudflare CDN cache
@@ -449,7 +473,9 @@ def team_saved(sender, instance: "Team", created, **kwargs):
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    # Use transaction.on_commit to ensure cache update happens after DB transaction commits
+    # This prevents race condition where cache sees stale database state
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=PluginConfig)

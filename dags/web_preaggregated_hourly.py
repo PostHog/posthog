@@ -5,12 +5,13 @@ import dagster
 from dagster import Field
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    DAGSTER_HOURLY_JOB_TIMEOUT,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
-    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS_HOURLY,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
+    check_for_concurrent_runs,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -44,7 +45,8 @@ def pre_aggregate_web_analytics_hourly_data(
     cluster: ClickhouseCluster,
 ) -> None:
     config = context.op_config
-    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
+    team_ids = config.get("team_ids")
+
     extra_settings = config.get("extra_clickhouse_settings", "")
     hours_back = config["hours_back"]
     clickhouse_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS_HOURLY, extra_settings)
@@ -138,7 +140,11 @@ web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
         "web_analytics_bounces_hourly",
         "web_analytics_stats_table_hourly",
     ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_HOURLY_JOB_TIMEOUT),
+    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
 
 
@@ -153,11 +159,16 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     Creates real-time web analytics pre-aggregated data with 24h TTL for real-time analytics.
     """
 
+    # Check for existing runs of the same job to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
     return dagster.RunRequest(
         run_config={
             "ops": {
-                "web_analytics_bounces_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
-                "web_analytics_stats_table_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
+                "web_analytics_bounces_hourly": {"config": {}},
+                "web_analytics_stats_table_hourly": {"config": {}},
             }
         },
     )

@@ -14,6 +14,7 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
@@ -87,6 +88,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
@@ -102,6 +104,7 @@ export enum NodeKind {
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
+    StickinessActorsQuery = 'StickinessActorsQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
@@ -118,9 +121,8 @@ export enum NodeKind {
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
-    RevenueAnalyticsArpuQuery = 'RevenueAnalyticsArpuQuery',
-    RevenueAnalyticsCustomerCountQuery = 'RevenueAnalyticsCustomerCountQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsMetricsQuery = 'RevenueAnalyticsMetricsQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
@@ -163,9 +165,8 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | RevenueAnalyticsArpuQuery
-    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsMetricsQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -182,6 +183,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -214,6 +216,7 @@ export type QuerySchema =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | ExperimentQuery
@@ -230,9 +233,8 @@ export type QuerySchema =
     | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
-    | RevenueAnalyticsArpuQuery
-    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsMetricsQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -330,6 +332,7 @@ export interface HogQLQueryModifiers {
     optimizeJoinedFilters?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
+    timings?: boolean
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
@@ -352,7 +355,8 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
-export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
+export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
+    results: T
     /** Input query string */
     query?: string
     /** Executed ClickHouse query */
@@ -435,6 +439,8 @@ export type RecordingOrder =
     | 'mouse_activity_count'
     | 'activity_score'
 
+export type RecordingOrderDirection = 'ASC' | 'DESC'
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     /**
@@ -459,6 +465,18 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "start_time"
      * */
     order?: RecordingOrder
+    /**
+     * Replay originally had all ordering as descending
+     * by specifying the field name,
+     * this runs counter to Django behavior
+     * where the field name specifies ascending sorting (e.g. the_field_name)
+     * and -the_field_name would indicate descending order
+     * to avoid invalidating or migrating all existing filters
+     * we keep DESC as the default
+     * or allow specification of an explicit order direction here
+     * @default "DESC"
+     */
+    order_direction?: RecordingOrderDirection
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>
@@ -662,7 +680,8 @@ export interface QueryTiming {
     /** Time in seconds. Shortened to 't' to save on data. */
     t: number
 }
-export interface EventsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface EventsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
     columns: any[]
     types: string[]
     hogql: string
@@ -758,9 +777,8 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
-                    | RevenueAnalyticsArpuQuery
-                    | RevenueAnalyticsCustomerCountQuery
                     | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsMetricsQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
@@ -768,6 +786,7 @@ export interface DataTableNode
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
                     | ErrorTrackingQuery
+                    | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
@@ -791,9 +810,8 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
-        | RevenueAnalyticsArpuQuery
-        | RevenueAnalyticsCustomerCountQuery
         | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
@@ -801,6 +819,7 @@ export interface DataTableNode
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
         | ErrorTrackingQuery
+        | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
@@ -808,6 +827,8 @@ export interface DataTableNode
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
+    /** Columns that are sticky when scrolling horizontally */
+    pinnedColumns?: HogQLExpression[]
 }
 
 export interface GoalLine {
@@ -877,12 +898,30 @@ export interface TableSettings {
     conditionalFormatting?: ConditionalFormattingRule[]
 }
 
+export interface SharingConfigurationSettings {
+    whitelabel?: boolean
+    // Insights
+    noHeader?: boolean
+    legend?: boolean
+    detailed?: boolean
+    hideExtraDetails?: boolean
+    // Recordings
+    showInspector?: boolean
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
     tableSettings?: TableSettings
+}
+
+export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'
+
+export interface DataTableNodeViewPropsContext {
+    type: DataTableNodeViewPropsContextType
+    eventDefinitionId?: string
 }
 
 interface DataTableNodeViewProps {
@@ -928,10 +967,7 @@ interface DataTableNodeViewProps {
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
-    context?: {
-        type: 'event_definition' | 'team_columns'
-        eventDefinitionId?: string
-    }
+    context?: DataTableNodeViewPropsContext
 }
 
 // Saved insight node
@@ -983,7 +1019,7 @@ interface InsightVizNodeViewProps {
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
-export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
+export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends Node<R> {
     /** Date range for the query */
     dateRange?: DateRange
     /**
@@ -1068,6 +1104,11 @@ export type TrendsFilter = {
         | Record<numerical_key, ResultCustomizationByPosition>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
+    showTrendLines?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
 }
 
 export type CalendarHeatmapFilter = {
@@ -1092,17 +1133,17 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export type ResultCustomizationBase = {
-    color: DataColorToken
+    color?: DataColorToken
+    hidden?: boolean
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -1135,7 +1176,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     conversionGoal?: WebAnalyticsConversionGoal | null
 }
 
-export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
+export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase {
+    results: EventsHeatMapStructuredResult
     /** Wether more breakdown values are available. */
     hasMore?: boolean
 }
@@ -1243,13 +1285,9 @@ export type FunnelTimeToConvertResults = {
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
-export interface FunnelsQueryResponse
-    extends AnalyticsQueryResponseBase<
-        FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
-    > {
+export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
+    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     isUdf?: boolean
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -1274,6 +1312,7 @@ export type RetentionFilter = {
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
+    showTrendLines?: boolean
 }
 
 export interface RetentionValue {
@@ -1290,7 +1329,9 @@ export interface RetentionResult {
     breakdown_value?: string | number | null
 }
 
-export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
+export interface RetentionQueryResponse extends AnalyticsQueryResponseBase {
+    results: RetentionResult[]
+}
 
 export type CachedRetentionQueryResponse = CachedQueryResponse<RetentionQueryResponse>
 
@@ -1309,7 +1350,9 @@ export type PathsLink = {
     average_conversion_time: number
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase {
+    results: PathsLink[]
+}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
@@ -1392,7 +1435,9 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
+}
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
 
@@ -1486,10 +1531,9 @@ export interface QueryUpgradeResponse {
 
 /**
  * All analytics query responses must inherit from this.
- * @internal - no need to emit to schema.json.
  */
-export interface AnalyticsQueryResponseBase<T> {
-    results: T
+export interface AnalyticsQueryResponseBase {
+    results: any
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
     /** Generated HogQL query. */
@@ -1500,6 +1544,8 @@ export interface AnalyticsQueryResponseBase<T> {
     modifiers?: HogQLQueryModifiers
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatus
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 interface CachedQueryResponseMixin {
@@ -1527,7 +1573,9 @@ export interface QueryStatusResponse {
 }
 
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
+export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[]
+}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export type TestCachedBasicQueryResponse = CachedQueryResponse<TestBasicQueryResponse>
 
@@ -1591,9 +1639,8 @@ export type QueryStatus = {
     labels?: string[]
 }
 
-export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponse
+export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
 }
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
@@ -1611,7 +1658,8 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
     lifecycleFilter?: LifecycleFilter
 }
 
-export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface ActorsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
     columns: any[]
     types?: string[]
     hogql: string
@@ -1639,7 +1687,8 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
 
 export type CachedGroupsQueryResponse = CachedQueryResponse<GroupsQueryResponse>
 
-export interface GroupsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface GroupsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
     kind: NodeKind.GroupsQuery
     columns: any[]
     types: string[]
@@ -1668,7 +1717,8 @@ export interface TimelineEntry {
     recording_duration_s?: number
 }
 
-export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase<TimelineEntry[]> {
+export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase {
+    results: TimelineEntry[]
     hasMore?: boolean
 }
 
@@ -1746,7 +1796,8 @@ export interface SamplingRate {
     denominator?: number
 }
 
-export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<WebOverviewItem[]> {
+export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebOverviewItem[]
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
@@ -1786,8 +1837,10 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     limit?: integer
+    offset?: integer
 }
-export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1804,7 +1857,8 @@ export interface WebExternalClicksTableQuery extends WebAnalyticsQueryBase<WebEx
     limit?: integer
     stripQueryParams?: boolean
 }
-export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1820,7 +1874,8 @@ export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryRespon
     limit?: integer
 }
 
-export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1850,7 +1905,9 @@ export interface WebVitalsItem {
     action: WebVitalsItemAction
 }
 
-export type WebVitalsQueryResponse = AnalyticsQueryResponseBase<WebVitalsItem[]>
+export interface WebVitalsQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebVitalsItem[]
+}
 export type CachedWebVitalsQueryResponse = CachedQueryResponse<WebVitalsQueryResponse>
 
 export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVitalsPathBreakdownQueryResponse> {
@@ -1870,7 +1927,9 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 
 // NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry
 // hence the tuple type rather than a single object.
-export type WebVitalsPathBreakdownQueryResponse = AnalyticsQueryResponseBase<[WebVitalsPathBreakdownResult]>
+export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: [WebVitalsPathBreakdownResult]
+}
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
 export enum SessionAttributionGroupBy {
@@ -1893,7 +1952,8 @@ export interface SessionAttributionExplorerQuery extends DataNode<SessionAttribu
     offset?: integer
 }
 
-export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1908,7 +1968,8 @@ export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEvents
     offset?: integer
 }
 
-export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1924,7 +1985,8 @@ export interface RevenueExampleDataWarehouseTablesQuery
     offset?: integer
 }
 
-export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1953,17 +2015,6 @@ export enum RevenueAnalyticsGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsArpuQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsArpuQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsArpuQuery
-    groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
-}
-
-export interface RevenueAnalyticsArpuQueryResponse extends AnalyticsQueryResponseBase<unknown> {
-    columns?: string[]
-}
-export type CachedRevenueAnalyticsArpuQueryResponse = CachedQueryResponse<RevenueAnalyticsArpuQueryResponse>
-
 export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
     kind: NodeKind.RevenueAnalyticsRevenueQuery
     groupBy: RevenueAnalyticsGroupBy[]
@@ -1974,26 +2025,11 @@ export interface RevenueAnalyticsRevenueQueryResult {
     gross: unknown[]
     mrr: unknown[]
 }
-export interface RevenueAnalyticsRevenueQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
+export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
+    results: RevenueAnalyticsRevenueQueryResult
     columns?: string[]
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
-
-export interface RevenueAnalyticsCustomerCountQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsCustomerCountQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsCustomerCountQuery
-    groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
-}
-
-export interface RevenueAnalyticsCustomerCountQueryResponse extends AnalyticsQueryResponseBase<unknown> {
-    columns?: string[]
-}
-export type CachedRevenueAnalyticsCustomerCountQueryResponse =
-    CachedQueryResponse<RevenueAnalyticsCustomerCountQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -2006,22 +2042,31 @@ export interface RevenueAnalyticsOverviewItem {
     value: number
 }
 
-export interface RevenueAnalyticsOverviewQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponse
+export interface RevenueAnalyticsOverviewQueryResponse extends AnalyticsQueryResponseBase {
+    results: RevenueAnalyticsOverviewItem[]
 }
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
+
+export interface RevenueAnalyticsMetricsQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMetricsQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsMetricsQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsMetricsQueryResponse = CachedQueryResponse<RevenueAnalyticsMetricsQueryResponse>
 
 export interface RevenueAnalyticsGrowthRateQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {
     kind: NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
-export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     columns?: string[]
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
@@ -2032,10 +2077,9 @@ export interface RevenueAnalyticsTopCustomersQuery
     groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
 
-export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     columns?: string[]
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsTopCustomersQueryResponse =
     CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
@@ -2054,9 +2098,25 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     volumeResolution: integer
     withAggregations?: boolean
     withFirstEvent?: boolean
+    withLastEvent?: boolean
     limit?: integer
     offset?: integer
 }
+
+export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
+    kind: NodeKind.ErrorTrackingIssueCorrelationQuery
+    events: string[]
+}
+
+export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQueryResponseBase {
+    results: ErrorTrackingCorrelatedIssue[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedErrorTrackingIssueCorrelationQueryResponse =
+    CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
 export interface ErrorTrackingSceneToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
@@ -2066,8 +2126,10 @@ export interface ErrorTrackingSceneToolOutput
     filterTestAccounts?: boolean
 }
 
+export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
+
 export interface ErrorTrackingIssueAssignee {
-    type: 'user' | 'role'
+    type: ErrorTrackingIssueAssigneeType
     id: integer | string
 }
 
@@ -2075,7 +2137,8 @@ export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
-    volumeRange: number[]
+    volumeRange?: number[] // Deprecated
+    volume_buckets: { label: string; value: number }[]
 }
 
 export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
@@ -2105,11 +2168,30 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
+    last_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
 
-export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
+export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    last_seen: string
+    library: string | null
+    event: string
+    odds_ratio: number
+    population: {
+        both: number
+        success_only: number
+        exception_only: number
+        neither: number
+    }
+}
+
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
+    results: ErrorTrackingIssue[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2131,7 +2213,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     serviceNames: string[]
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2340,6 +2423,7 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
@@ -2347,6 +2431,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentTrendsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     count_query: TrendsQuery
@@ -2370,10 +2455,12 @@ export interface ExperimentEventExposureConfig extends Node {
 export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
+    RATIO = 'ratio',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
+    uuid?: string
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
@@ -2414,11 +2501,24 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
     metric.metric_type === ExperimentMetricType.FUNNEL
 
+export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.RATIO
+    numerator: ExperimentMetricSource
+    denominator: ExperimentMetricSource
+}
+
+export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
+    metric.metric_type === ExperimentMetricType.RATIO
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
-export type ExperimentMetricTypeProps = ExperimentMeanMetricTypeProps | ExperimentFunnelMetricTypeProps
+export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentMetricTypeProps =
+    | ExperimentMeanMetricTypeProps
+    | ExperimentFunnelMetricTypeProps
+    | ExperimentRatioMetricTypeProps
 
-export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
+export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -2453,7 +2553,7 @@ export interface ExperimentQueryResponse {
     credible_intervals?: Record<string, [number, number]>
 
     // New fields
-    baseline?: ExperimentStatsBase
+    baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
@@ -2471,35 +2571,43 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
-export interface NewExperimentQueryResponse {
-    baseline: ExperimentStatsBase
-    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
-}
-
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
     sum: number
     sum_squares: number
+    denominator_sum?: number
+    denominator_sum_squares?: number
+    numerator_denominator_sum_product?: number
 }
 
-export interface ExperimentVariantResultFrequentist extends ExperimentStatsBase {
+export enum ExperimentStatsValidationFailure {
+    NotEnoughExposures = 'not-enough-exposures',
+    BaselineMeanIsZero = 'baseline-mean-is-zero',
+    NotEnoughMetricData = 'not-enough-metric-data',
+}
+
+export interface ExperimentStatsBaseValidated extends ExperimentStatsBase {
+    validation_failures?: ExperimentStatsValidationFailure[]
+}
+
+export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseValidated {
     method: 'frequentist'
-    significant: boolean
-    p_value: number
-    confidence_interval: [number, number]
+    significant?: boolean
+    p_value?: number
+    confidence_interval?: [number, number]
 }
 
-export interface ExperimentVariantResultBayesian extends ExperimentStatsBase {
+export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseValidated {
     method: 'bayesian'
-    significant: boolean
-    chance_to_win: number
-    credible_interval: [number, number]
+    significant?: boolean
+    chance_to_win?: number
+    credible_interval?: [number, number]
 }
 
-export interface ExperimentMetricResult {
-    baseline: ExperimentStatsBase
-    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+export interface NewExperimentQueryResponse {
+    baseline: ExperimentStatsBaseValidated
+    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -2551,7 +2659,7 @@ export interface InsightActorsQueryBase extends DataNode<ActorsQueryResponse> {
     modifiers?: HogQLQueryModifiers
 }
 
-export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryResponseBase<any>> = InsightQuerySource>
+export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryResponseBase> = InsightQuerySource>
     extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
     source: S
@@ -2564,8 +2672,13 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     compare?: 'current' | 'previous'
 }
 
-export interface StickinessActorsQuery extends InsightActorsQuery {
+export interface StickinessActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.StickinessActorsQuery
+    source: StickinessQuery
     operator?: StickinessOperator
+    day?: string | Day
+    series?: integer
+    compare?: 'current' | 'previous'
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
@@ -2611,7 +2724,8 @@ export interface FunnelCorrelationResult {
     skewed: boolean
 }
 
-export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase<FunnelCorrelationResult> {
+export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase {
+    results: FunnelCorrelationResult
     columns?: any[]
     types?: any[]
     hasMore?: boolean
@@ -2656,7 +2770,6 @@ export interface MultipleBreakdownOptions {
 }
 
 export interface InsightActorsQueryOptionsResponse {
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
@@ -2723,8 +2836,16 @@ export interface DatabaseSchemaField {
     id?: string
 }
 
+export type DatabaseSchemaTableType =
+    | 'posthog'
+    | 'data_warehouse'
+    | 'view'
+    | 'batch_export'
+    | 'materialized_view'
+    | 'managed_view'
+
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view' | 'managed_view'
+    type: DatabaseSchemaTableType
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -2739,8 +2860,8 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
 export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
-    REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
     REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
+    REVENUE_ANALYTICS_REVENUE_ITEM = 'revenue_analytics_revenue_item',
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
@@ -2784,6 +2905,7 @@ export type DatabaseSchemaTable =
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
+    joins: DataWarehouseViewLink[]
 }
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
@@ -2831,12 +2953,12 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort'
 >
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    property: string
+    property: string | integer
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin
@@ -2939,7 +3061,9 @@ export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
 }
 
-export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse>
+export interface TeamTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
+    results: TeamTaxonomyResponse
+}
 
 export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
 
@@ -2959,25 +3083,28 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     maxPropertyValues?: integer
 }
 
-export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
+export interface EventTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
+    results: EventTaxonomyResponse
+}
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    // Values can be floats and integers. The comment below is to preserve the `integer` type.
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    // Values can be floats and integers
     sample_values: (string | number | boolean | integer)[]
     sample_count: integer
 }
 
 export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
     kind: NodeKind.ActorsPropertyTaxonomyQuery
-    property: string
-    group_type_index?: integer
+    properties: string[]
+    groupTypeIndex?: integer
     maxPropertyValues?: integer
 }
 
-export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+export interface ActorsPropertyTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
+    results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+}
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
@@ -2994,7 +3121,9 @@ export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
     embeddingVersion?: number
 }
 
-export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
+export interface VectorSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: VectorSearchResponse
+}
 
 export type CachedVectorSearchQueryResponse = CachedQueryResponse<VectorSearchQueryResponse>
 
@@ -3054,9 +3183,11 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
+export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
+
 export interface LLMTraceEvent {
     id: string
-    event: string
+    event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
 }
@@ -3085,7 +3216,8 @@ export interface LLMTrace {
     events: LLMTraceEvent[]
 }
 
-export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {
+export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -3268,11 +3400,53 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
+export type SubscriptionDropoffMode = 'last_event' | 'after_dropoff_period'
+
 export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
 
     /**
+     * Property used to identify what product the revenue event refers to
+     * Useful when trying to break revenue down by a specific product
+     */
+    productProperty?: string
+
+    /**
+     * Property used to identify whether the revenue event is connected to a coupon
+     * Useful when trying to break revenue down by a specific coupon
+     */
+    couponProperty?: string
+
+    /**
+     * Property used to identify what subscription the revenue event refers to
+     * Useful when trying to detect churn/LTV/ARPU/etc.
+     */
+    subscriptionProperty?: string
+
+    /**
+     * The number of days we still consider a subscription to be active
+     * after the last event. This is useful to avoid the current month's data
+     * to look as if most of the subscriptions have churned since we might not
+     * have an event for the current month.
+     *
+     * @default 45
+     */
+    subscriptionDropoffDays: number
+
+    /**
+     * After a subscription has dropped off, when should we consider it to have ended?
+     * It should either be at the date of the last event (will alter past periods, the default),
+     * or at the date of the last event plus the dropoff period.
+     *
+     * @default "last_event"
+     */
+    subscriptionDropoffMode: SubscriptionDropoffMode
+
+    /**
+     * TODO: In the future, this should probably be renamed to
+     * `currencyProperty` to follow the pattern above
+     *
      * @default {"static": "USD"}
      */
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
@@ -3324,14 +3498,15 @@ export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLS
     limit?: integer
 }
 
-export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase<PageURL[]> {
+export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: PageURL[]
     hasMore?: boolean
     limit?: integer
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export type MarketingAnalyticsOrderBy = [number, 'ASC' | 'DESC']
+export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
 export interface MarketingAnalyticsTableQuery
     extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
@@ -3346,11 +3521,14 @@ export interface MarketingAnalyticsTableQuery
     offset?: integer
     /** Filter test accounts */
     filterTestAccounts?: boolean
-    /** Dynamic conversion goal that can be set in the UI without saving */
-    dynamicConversionGoal?: ConversionGoalFilter | null
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
-export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -3482,6 +3660,13 @@ export enum MarketingAnalyticsHelperForColumnNames {
     Goal = 'Goal',
     CostPer = 'Cost per',
 }
+
+export interface SourceFieldSSHTunnelConfig {
+    type: 'ssh-tunnel'
+    label: string
+    name: string
+}
+
 export interface SourceFieldOauthConfig {
     type: 'oauth'
     name: string
@@ -3490,13 +3675,25 @@ export interface SourceFieldOauthConfig {
     kind: string
 }
 
+export type SourceFieldInputConfigType =
+    | 'text'
+    | 'email'
+    | 'search'
+    | 'url'
+    | 'password'
+    | 'time'
+    | 'number'
+    | 'textarea'
+
 export interface SourceFieldInputConfig {
-    type: 'text' | 'email' | 'search' | 'url' | 'password' | 'time' | 'number' | 'textarea'
+    type: SourceFieldInputConfigType
     name: string
     label: string
     required: boolean
     placeholder: string
 }
+
+export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
 export interface SourceFieldSelectConfig {
     type: 'select'
@@ -3505,6 +3702,7 @@ export interface SourceFieldSelectConfig {
     required: boolean
     defaultValue: string
     options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+    converter?: SourceFieldSelectConfigConverter
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -3516,11 +3714,16 @@ export interface SourceFieldSwitchGroupConfig {
     caption?: string
 }
 
+export interface SourceFieldFileUploadJsonFormatConfig {
+    format: '.json'
+    keys: '*' | string[]
+}
+
 export interface SourceFieldFileUploadConfig {
     type: 'file-upload'
     name: string
     label: string
-    fileFormat: string
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
     required: boolean
 }
 
@@ -3530,6 +3733,7 @@ export type SourceFieldConfig =
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
     | SourceFieldFileUploadConfig
+    | SourceFieldSSHTunnelConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType

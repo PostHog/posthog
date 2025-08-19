@@ -1,16 +1,18 @@
 import './TextCard.scss'
 
 import clsx from 'clsx'
+import React from 'react'
+
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import React from 'react'
 
-import { DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     textTile: DashboardTile<QueryBasedInsightModel>
+    placement: DashboardPlacement
     children?: JSX.Element
     moreButtonOverlay?: MoreProps['overlay']
 }
@@ -29,7 +31,16 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
 }
 
 export function TextCardInternal(
-    { textTile, showResizeHandles, canResizeWidth, children, className, moreButtonOverlay, ...divProps }: TextCardProps,
+    {
+        textTile,
+        showResizeHandles,
+        canResizeWidth,
+        children,
+        className,
+        moreButtonOverlay,
+        placement,
+        ...divProps
+    }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
     const { text } = textTile
@@ -37,6 +48,8 @@ export function TextCardInternal(
     if (!text) {
         throw new Error('TextCard requires text')
     }
+
+    const shouldHideMoreButton = placement === DashboardPlacement.Public
 
     return (
         <div
@@ -49,7 +62,7 @@ export function TextCardInternal(
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && (
+            {moreButtonOverlay && !shouldHideMoreButton && (
                 <div className="absolute right-4 top-4">
                     <More overlay={moreButtonOverlay} />
                 </div>

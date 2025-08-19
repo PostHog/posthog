@@ -15,7 +15,8 @@ export const patternsPlugin: LegacyDestinationPlugin = {
         description: 'Send events data to Patterns App',
         icon_url: 'https://raw.githubusercontent.com/patterns-app/posthog-patterns-app/main/logo.png',
         category: [],
-        hog: 'return event',
+        code_language: 'javascript',
+        code: 'return event',
         inputs_schema: [
             {
                 templating: false,

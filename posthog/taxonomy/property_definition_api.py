@@ -456,7 +456,6 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
         }
         # free users can update property type but no other properties on property definitions
         if set(changed_fields) == {"property_type"}:
-            changed_fields["updated_by"] = self.context["request"].user
             if changed_fields["property_type"] == "Numeric":
                 changed_fields["is_numerical"] = True
             else:
@@ -464,7 +463,11 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
             return super().update(property_definition, changed_fields)
         else:
-            raise EnterpriseFeatureException()
+            # Any other fields require ingestion taxonomy feature
+            request = self.context.get("request")
+            if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
+                raise EnterpriseFeatureException()
+            return super().update(property_definition, validated_data)
 
 
 class NotCountingLimitOffsetPaginator(LimitOffsetPagination):

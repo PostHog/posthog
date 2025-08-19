@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -78,7 +79,7 @@ const remoteConfigPayload = await client.getRemoteConfigPayload('${flagKey}')`}
     }
 )`
         : localEvalAddition
-        ? `${clientSuffix}${flagFunction}(
+          ? `${clientSuffix}${flagFunction}(
     '${flagKey}',
     'user distinct id',${
         payload
@@ -89,7 +90,7 @@ const remoteConfigPayload = await client.getRemoteConfigPayload('${flagKey}')`}
     {${localEvalAddition}
     }
 )`
-        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+          : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
 
     const variableName = payload ? 'matchedFlagPayload' : multivariant ? 'enabledVariant' : 'isMyFlagEnabledForUser'
 
@@ -149,11 +150,11 @@ export function PHPSnippet({
     ['${groupType.group_type}' => '<${groupType.name_singular || 'group'} ID>'],${localEvalAddition}
 )`
         : localEvalAddition
-        ? `${clientSuffix}${flagFunction}(
+          ? `${clientSuffix}${flagFunction}(
     '${flagKey}',
     'user distinct id',${localEvalAddition}
 )`
-        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+          : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
     const variableName = multivariant ? '$enabledVariant' : '$isMyFlagEnabledForUser'
 
     const conditional = multivariant ? `${variableName} === 'example-variant'` : `${variableName}`
@@ -203,28 +204,26 @@ remoteConfigPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
-        // add group properties used in the flag to ensure the flag
-        // is evaluated locally, vs. going to our servers
-        groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("${propertyName}", "value").Set("name", "xyz")}`
+    // add group properties used in the flag to ensure the flag
+    // is evaluated locally, vs. going to our servers
+    groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("${propertyName}", "value").Set("name", "xyz")}`
             : `
-        // add person properties used in the flag to ensure the flag
-        // is evaluated locally, vs. going to our servers
-        PersonProperties: posthog.NewProperties().Set("${propertyName}", "value")`
+    // add person properties used in the flag to ensure the flag
+    // is evaluated locally, vs. going to our servers
+    PersonProperties: posthog.NewProperties().Set("${propertyName}", "value")`
         : ''
 
     const flagSnippet = groupType
-        ? `${clientSuffix}${flagFunction}(
-    FeatureFlagPayload{
+        ? `${clientSuffix}${flagFunction}(posthog.FeatureFlagPayload{
         Key:        "${flagKey}",
         DistinctId: "distinct-id",
         Groups:     Groups{'${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>'},${localEvalAddition}
     }
 )`
-        : `${clientSuffix}${flagFunction}(
-    FeatureFlagPayload{
-        Key:        '${flagKey}',
-        DistinctId: "distinct-id",${localEvalAddition}
-    })`
+        : `${clientSuffix}${flagFunction}(posthog.FeatureFlagPayload{
+    Key:        '${flagKey}',
+    DistinctId: "distinct-id",${localEvalAddition}
+})`
     const variableName = multivariant ? 'enabledVariant, err' : 'isMyFlagEnabledForUser, err'
 
     const conditional = multivariant ? `enabledVariant == 'example-variant'` : `isMyFlagEnabledForUser`
@@ -233,7 +232,9 @@ remoteConfigPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`
         <>
             <CodeSnippet language={Language.Go} wrap>
                 {`${localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''}${variableName} := ${flagSnippet}
-
+if err != nil {
+    // Handle error (e.g. capture error and fallback to default behaviour)
+}
 if ${conditional} {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
 }`}
@@ -289,11 +290,11 @@ remote_config_payload = posthog.get_remote_config_payload('${flagKey}')`}
     groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
 )`
         : localEvalAddition
-        ? `${clientSuffix}${flagFunction}(
+          ? `${clientSuffix}${flagFunction}(
     '${flagKey}',
     'user distinct id',${localEvalAddition}
 )`
-        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+          : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
     const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
 
     const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
@@ -362,11 +363,11 @@ remote_config_payload = posthog.get_remote_config_payload('${flagKey}')`}
     groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
 )`
         : localEvalAddition
-        ? `${clientSuffix}${flagFunction}(
+          ? `${clientSuffix}${flagFunction}(
     '${flagKey}',
     'user distinct id',${localEvalAddition}
 )`
-        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+          : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
     const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
 
     const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
@@ -402,8 +403,8 @@ export function CSharpSnippet({
     const flagFunction = payload
         ? 'GetFeatureFlagAsync'
         : multivariant
-        ? 'GetFeatureFlagAsync'
-        : 'IsFeatureEnabledAsync'
+          ? 'GetFeatureFlagAsync'
+          : 'IsFeatureEnabledAsync'
 
     const propertyName = samplePropertyName || 'isAuthorized'
 
@@ -444,16 +445,16 @@ var remoteConfigPayload = await posthog.GetRemoteConfigPayloadAsync("${flagKey}"
     new FeatureFlagOptions
     {
         ${localEvalCommentAddition}Groups = [new Group("${groupType.group_type}", "<${
-              groupType.name_singular || 'group'
-          } ID>")${localEvalCodeAddition}]
+            groupType.name_singular || 'group'
+        } ID>")${localEvalCodeAddition}]
     }
 );`
         : localEvalCodeAddition
-        ? `await ${clientSuffix}${flagFunction}(
+          ? `await ${clientSuffix}${flagFunction}(
     "${flagKey}",
     "user distinct id",${localEvalCodeAddition}
 );`
-        : `await ${clientSuffix}${flagFunction}("${flagKey}", "user distinct id");`
+          : `await ${clientSuffix}${flagFunction}("${flagKey}", "user distinct id");`
     const variableName = payload ? 'matchedFlagPayload' : multivariant ? 'enabledVariant' : 'isMyFlagEnabled'
 
     const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
@@ -596,8 +597,8 @@ export function ReactSnippet({ flagKey, multivariant, payload }: FeatureFlagSnip
     const flagFunction = payload
         ? 'useFeatureFlagPayload'
         : multivariant
-        ? 'useFeatureFlagVariantKey'
-        : 'useFeatureFlagEnabled'
+          ? 'useFeatureFlagVariantKey'
+          : 'useFeatureFlagEnabled'
 
     const variable = payload ? 'payload' : multivariant ? 'variant' : 'flagEnabled'
     const variantSuffix = multivariant ? ` == 'example-variant'` : ''
@@ -643,7 +644,7 @@ export function APISnippet({ flagKey, groupType, remoteConfiguration }: FeatureF
     return (
         <>
             <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${apiHostOrigin()}/flags/?v=2/ \\
+                {`curl ${apiHostOrigin()}/flags/?v=2 \\
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",

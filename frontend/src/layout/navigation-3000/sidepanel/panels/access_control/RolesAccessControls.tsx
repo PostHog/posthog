@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useMemo, useState } from 'react'
+
 import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,13 +14,11 @@ import {
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils'
-import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { RoleType } from '~/types'
@@ -24,7 +26,7 @@ import { RoleType } from '~/types'
 import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export function RolesAccessControls(): JSX.Element {
-    const { roles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
+    const { sortedRoles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
 
@@ -53,11 +55,13 @@ export function RolesAccessControls(): JSX.Element {
                 return role ? (
                     role.members.length ? (
                         <ProfileBubbles
-                            people={role.members.map((member) => ({
-                                email: member.user.email,
-                                name: member.user.first_name,
-                                title: `${member.user.first_name} <${member.user.email}>`,
-                            }))}
+                            people={
+                                role?.members?.map((member) => ({
+                                    email: member.user.email,
+                                    name: fullName(member.user),
+                                    title: `${fullName(member.user)} <${member.user.email}>`,
+                                })) ?? []
+                            }
                             onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
                         />
                     ) : (
@@ -80,7 +84,7 @@ export function RolesAccessControls(): JSX.Element {
             <div className="deprecated-space-y-2">
                 <LemonTable
                     columns={columns}
-                    dataSource={roles ?? []}
+                    dataSource={sortedRoles ?? []}
                     loading={rolesLoading}
                     expandable={{
                         isRowExpanded: (role) => !!selectedRoleId && role?.id === selectedRoleId,
@@ -150,8 +154,8 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             !canEditRoles
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please select members to add'
-                                : undefined
+                                  ? 'Please select members to add'
+                                  : undefined
                         }
                     >
                         Add members

@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, TypeVar
 
 from django.core.files.uploadedfile import UploadedFile
 from posthog.models.team.team import Team
@@ -737,12 +737,33 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
+class HasGetQueryset(Protocol):
+    def get_queryset(self): ...
+
+
+T = TypeVar("T", bound=HasGetQueryset)
+
+
+class RuleReorderingMixin:
+    @action(methods=["PATCH"], detail=False)
+    def reorder(self: T, request, **kwargs):
+        orders: dict[str, int] = request.data.get("orders", {})
+        rules = self.get_queryset().filter(id__in=orders.keys())
+
+        for rule in rules:
+            rule.order_key = orders[str(rule.id)]
+
+        self.get_queryset().bulk_update(rules, ["order_key"])
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -753,9 +774,9 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingAssignmentRule.objects.all()
+    queryset = ErrorTrackingAssignmentRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -810,7 +831,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -821,9 +842,9 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingGroupingRule.objects.all()
+    queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -883,9 +904,9 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingSuppressionRule.objects.all()
+    queryset = ErrorTrackingSuppressionRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingSuppressionRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -930,17 +951,24 @@ def create_symbol_set(
         release = None
 
     with transaction.atomic():
-        # Use update_or_create for proper upsert behavior
-        symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
-            team=team,
-            ref=chunk_id,
-            release=release,
-            defaults={
-                "storage_ptr": storage_ptr,
-                "content_hash": content_hash,
-                "failure_reason": None,
-            },
-        )
+        try:
+            symbol_set = ErrorTrackingSymbolSet.objects.get(team=team, ref=chunk_id)
+            if symbol_set.release is None:
+                symbol_set.release = release
+            elif symbol_set.release != release:
+                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+            symbol_set.storage_ptr = storage_ptr
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
+
+        except ErrorTrackingSymbolSet.DoesNotExist:
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                team=team,
+                ref=chunk_id,
+                release=release,
+                storage_ptr=storage_ptr,
+                content_hash=content_hash,
+            )
 
         # Delete any existing frames associated with this symbol set
         ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()

@@ -994,7 +994,7 @@ def validate_team_attrs(
 class PremiumMultiEnvironmentPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+    message = "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:

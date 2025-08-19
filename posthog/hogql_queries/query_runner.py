@@ -17,6 +17,7 @@ from posthog.clickhouse.client.limit import (
     get_api_personal_rate_limiter,
     get_app_org_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -28,13 +29,15 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_cache import QueryCacheManager
+from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
+from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    AnalyticsQueryResponseBase,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
@@ -422,38 +425,25 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsArpuQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_arpu_query_runner import (
-            RevenueAnalyticsArpuQueryRunner,
-        )
-
-        return RevenueAnalyticsArpuQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
-    if kind == "RevenueAnalyticsCustomerCountQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_customer_count_query_runner import (
-            RevenueAnalyticsCustomerCountQueryRunner,
-        )
-
-        return RevenueAnalyticsCustomerCountQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
     if kind == "RevenueAnalyticsGrowthRateQuery":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
             RevenueAnalyticsGrowthRateQueryRunner,
         )
 
         return RevenueAnalyticsGrowthRateQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsMetricsQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
+            RevenueAnalyticsMetricsQueryRunner,
+        )
+
+        return RevenueAnalyticsMetricsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -530,6 +520,17 @@ def get_query_runner(
         from .error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ErrorTrackingIssueCorrelationQuery":
+        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+
+        return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -732,6 +733,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
+        self.__post_init__()
+
+    def __post_init__(self):
+        """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
+        pass
 
     @property
     def query_type(self) -> type[Q]:
@@ -756,14 +762,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return LimitContext.QUERY
         return self.limit_context
 
-    @abstractmethod
     def calculate(self) -> R:
+        return self._calculate()
+
+    @abstractmethod
+    def _calculate(self) -> R:
         raise NotImplementedError()
 
     def enqueue_async_calculation(
         self,
         *,
-        cache_manager: QueryCacheManager,
+        cache_manager: QueryCacheManagerBase,
         refresh_requested: bool = False,
         user: Optional[User] = None,
     ) -> QueryStatus:
@@ -795,7 +804,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=hit, trigger=trigger).inc()
 
     def handle_cache_and_async_logic(
-        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManager, user: Optional[User] = None
+        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManagerBase, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
@@ -897,11 +906,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             self.query_id = query_id or self.query_id
             CachedResponse: type[CR] = self.cached_response_type
-            cache_manager = QueryCacheManager(
-                team_id=self.team.pk,
+            cache_manager = get_query_cache_manager(
+                team=self.team,
                 cache_key=cache_key,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
+                user=user,
             )
 
             if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
@@ -944,6 +954,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     task_id=self.query_id,
                     team_id=self.team.id,
                     is_api=get_query_tag_value("access_method") == "personal_api_key",
+                    limit=get_org_app_concurrency_limit(self.team.organization_id),
                 ):
                     with get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
@@ -1030,6 +1041,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
+            "products_modifiers": {
+                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
+                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
+            },
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
@@ -1120,9 +1135,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
                     )
                 )
+        self.__post_init__()
 
 
-class QueryRunnerWithHogQLContext(QueryRunner):
+# Type constraint for analytics query responses
+AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
+
+
+class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
+    """
+    QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
+    """
+
+    def calculate(self) -> AR:
+        response = self._calculate()
+        if not self.modifiers.timings:
+            response.timings = None
+        return response
+
+
+class QueryRunnerWithHogQLContext(AnalyticsQueryRunner):
     database: Database
     hogql_context: HogQLContext
 

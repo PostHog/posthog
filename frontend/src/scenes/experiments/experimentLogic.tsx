@@ -2,12 +2,12 @@ import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reduc
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors, toParams } from 'lib/utils'
+import { hasFormErrors, toParams, uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -22,17 +22,16 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
+import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
 import {
     AnyEntityNode,
     CachedExperimentFunnelsQueryResponse,
@@ -70,12 +69,19 @@ import {
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
+
+import { getDefaultMetricTitle } from './MetricsView/shared/utils'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     EXPERIMENT_MAX_PRIMARY_METRICS,
     EXPERIMENT_MAX_SECONDARY_METRICS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     MetricInsightId,
 } from './constants'
+import type { experimentLogicType } from './experimentLogicType'
+import { experimentsLogic } from './experimentsLogic'
+import { holdoutsLogic } from './holdoutsLogic'
 import {
     conversionRateForVariant,
     expectedRunningTime,
@@ -83,14 +89,8 @@ import {
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
 } from './legacyExperimentCalculations'
-import type { experimentLogicType } from './experimentLogicType'
-import { experimentsLogic } from './experimentsLogic'
-import { holdoutsLogic } from './holdoutsLogic'
 import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
-import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
-import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
     isLegacyExperiment,
@@ -292,8 +292,6 @@ export const experimentLogic = kea<experimentLogicType>([
             ['currentProjectId'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
-            sceneLogic,
-            ['activeScene'],
             featureFlagLogic,
             ['featureFlags'],
             holdoutsLogic,
@@ -686,10 +684,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = originalMetric.name
                         ? `${originalMetric.name} (copy)`
                         : originalMetric.kind === NodeKind.ExperimentMetric
-                        ? `${getDefaultMetricTitle(originalMetric)} (copy)`
-                        : undefined
+                          ? `${getDefaultMetricTitle(originalMetric)} (copy)`
+                          : undefined
 
-                    const newMetric = { ...originalMetric, id: undefined, name }
+                    const newMetric = { ...originalMetric, uuid: uuid(), name }
                     metrics.splice(metricIndex + 1, 0, newMetric)
 
                     return {
@@ -886,9 +884,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
-                    // Check if the new Bayesian stats method feature flag is enabled
-                    const useNewBayesianStatsMethod = values.featureFlags[FEATURE_FLAGS.NEW_BAYESIAN_STATS_METHOD]
-
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -905,14 +900,6 @@ export const experimentLogic = kea<experimentLogicType>([
                                       minimum_detectable_effect: minimumDetectableEffect,
                                   }
                                 : values.experiment?.parameters,
-                        // Set stats_config based on the feature flag if no existing stats_config
-                        ...(useNewBayesianStatsMethod &&
-                            !values.experiment.stats_config && {
-                                stats_config: {
-                                    method: ExperimentStatsMethod.Bayesian,
-                                    use_new_bayesian_method: true,
-                                },
-                            }),
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })

@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent, setupPlugin } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const userAgentPlugin: LegacyTransformationPlugin = {
     processEvent,
@@ -14,7 +15,8 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
             "Enhances events with user agent details. User Agent plugin allows you to populate events with the $browser, $browser_version for PostHog Clients that don't  typically populate these properties",
         icon_url: '/static/transformations/user-agent.png',
         category: ['Transformation'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'overrideUserAgentDetails',

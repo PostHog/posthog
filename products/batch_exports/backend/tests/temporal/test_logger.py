@@ -148,7 +148,11 @@ async def configure(configure_logger, log_capture, queue, producer):
         # We override settings as otherwise we'll get console logs which
         # are not JSON
         configure_logger_async(
-            extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
+            extra_processors=[log_capture],
+            queue=queue,
+            producer=producer,
+            cache_logger_on_first_use=False,
+            loop=asyncio.get_running_loop(),
         )
 
     yield

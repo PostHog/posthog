@@ -1,13 +1,14 @@
-import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 
+import { Link } from '@posthog/lemon-ui'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AddVariableButton } from '~/queries/nodes/DataVisualization/Components/Variables/AddVariableButton'
 import { NewVariableModal } from '~/queries/nodes/DataVisualization/Components/Variables/NewVariableModal'
-import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import { VariableComponent } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
+import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 

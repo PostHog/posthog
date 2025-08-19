@@ -80,7 +80,7 @@ def _compress_redis_data(input_data: str) -> bytes:
     return gzip.compress(input_data.encode("utf-8"))
 
 
-def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
+def decompress_redis_data(raw_redis_data: bytes | str) -> str:
     """Decode data retrieved from Redis. If data is `bytes` it is assumed to be
     gzip-compressed and will be decompressed. `str` values are returned unchanged."""
     if isinstance(raw_redis_data, bytes):
@@ -147,7 +147,7 @@ async def get_data_str_from_redis(
     if not raw_redis_data:
         raise ValueError(f"Output data not found in Redis for key {redis_key} ({label.value})")
     try:
-        redis_data_str = _decompress_redis_data(raw_redis_data)
+        redis_data_str = decompress_redis_data(raw_redis_data)
         return redis_data_str
     except Exception as err:
         raise ValueError(

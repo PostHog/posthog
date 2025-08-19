@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=True,
     type="site_app",
@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Enable extra debugging tools on your posthog-js",
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom"],
-    hog="""
+    code_language="javascript",
+    code="""
 export function onLoad({ inputs, posthog }) {
     console.log("Enabling PostHog.js debugging", posthog)
 

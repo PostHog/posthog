@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
 
 common_inputs = [
     {
@@ -17,7 +17,7 @@ common_inputs = [
     },
 ]
 
-template_reddit_pixel: HogFunctionTemplate = HogFunctionTemplate(
+template_reddit_pixel: HogFunctionTemplateDC = HogFunctionTemplateDC(
     free=False,
     status="alpha",
     type="site_destination",
@@ -26,7 +26,8 @@ template_reddit_pixel: HogFunctionTemplate = HogFunctionTemplate(
     description="Track how many Reddit users interact with your website. Note that this destination will set third-party cookies.",
     icon_url="/static/services/reddit.png",
     category=["Advertisement"],
-    hog="""
+    code_language="javascript",
+    code="""
 // Adds window.rdt and lazily loads the Reddit Pixel script
 function initSnippet() {
     !function(w,d){if(!w.rdt){var p=w.rdt=function(){p.sendEvent?p.sendEvent.apply(p,arguments):p.callQueue.push(arguments)};p.callQueue=[];var t=d.createElement("script");t.src="https://www.redditstatic.com/ads/pixel.js",t.async=!0;var s=d.getElementsByTagName("script")[0];s.parentNode.insertBefore(t,s)}}(window,document);

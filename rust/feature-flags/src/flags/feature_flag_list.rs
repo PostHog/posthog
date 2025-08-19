@@ -25,7 +25,7 @@ impl FeatureFlagList {
         );
 
         let serialized_flags = client
-            .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id))
+            .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"))
             .await?;
 
         let flags_list: Vec<FeatureFlag> =
@@ -71,7 +71,8 @@ impl FeatureFlagList {
                   f.deleted,
                   f.active,
                   f.ensure_experience_continuity,
-                  f.version
+                  f.version,
+                  f.evaluation_runtime
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
@@ -88,7 +89,7 @@ impl FeatureFlagList {
                     project_id,
                     e
                 );
-                FlagError::Internal(format!("Database query error: {}", e))
+                FlagError::Internal(format!("Database query error: {e}"))
             })?;
 
         let mut had_deserialization_errors = false;
@@ -106,6 +107,7 @@ impl FeatureFlagList {
                         active: row.active,
                         ensure_experience_continuity: row.ensure_experience_continuity,
                         version: row.version,
+                        evaluation_runtime: row.evaluation_runtime,
                     }),
                     Err(e) => {
                         tracing::warn!(
@@ -157,7 +159,7 @@ impl FeatureFlagList {
         );
 
         client
-            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id), payload)
+            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
             .await
             .map_err(|e| {
                 tracing::error!(
@@ -268,7 +270,7 @@ mod tests {
 
         match FeatureFlagList::from_pg(reader.clone(), -1).await {
             Ok((flags, _)) => assert_eq!(flags.flags.len(), 0),
-            Err(err) => panic!("Expected empty result, got error: {:?}", err),
+            Err(err) => panic!("Expected empty result, got error: {err:?}"),
         }
     }
 
@@ -281,7 +283,7 @@ mod tests {
             Err(FlagError::DatabaseUnavailable) => {
                 // Expected error
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 
@@ -306,6 +308,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let flag2 = FeatureFlagRow {
@@ -318,6 +321,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         // Insert multiple flags for the team

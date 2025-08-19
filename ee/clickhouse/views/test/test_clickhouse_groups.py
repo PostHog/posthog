@@ -1,16 +1,20 @@
+import json
 from unittest import mock
 from uuid import UUID
 
+from django.db import IntegrityError
 from freezegun.api import freeze_time
 from orjson import orjson
 from flaky import flaky
+from rest_framework import status
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import GroupTypeMapping, Person
+from posthog.models import GroupTypeMapping, Person, Notebook, GroupUsageMetric
 from posthog.models.group.util import create_group
+from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
@@ -22,8 +26,10 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+PATH = "ee.clickhouse.views.groups"
 
-class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
+
+class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     @freeze_time("2021-05-02")
@@ -127,48 +133,357 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    @freeze_time("2021-05-02")
-    def test_retrieve_group(self):
-        create_group(
+    def test_retrieve_group_wrong_group_type_index(self):
+        group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="key",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="foo//bar",
-            properties={},
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key={group.group_key}"
         )
 
-        fail_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=key")
-        self.assertEqual(fail_response.status_code, 404)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, "Should return 404 Not Found")
 
-        ok_response_data = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=key")
-        self.assertEqual(ok_response_data.status_code, 200)
+    def test_retrieve_group_wrong_group_key(self):
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="key",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index={group.group_type_index}&group_key=wrong_key"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, "Should return 404 Not Found")
+
+    @freeze_time("2021-05-02")
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
+    def test_retrieve_group_crm_disabled(self, _):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
         self.assertEqual(
-            ok_response_data.json(),
+            response.json(),
             {
                 "created_at": "2021-05-02T00:00:00Z",
-                "group_key": "key",
+                "group_key": key,
                 "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                "group_type_index": index,
+                "notebook": None,
+            },
+        )
+        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
+
+    @freeze_time("2021-05-02")
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    def test_retrieve_group_crm_enabled(self, _):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        relationships = ResourceNotebook.objects.filter(group=group)
+        self.assertIsNotNone(relationships)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": key,
+                "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                "group_type_index": index,
+                "notebook": relationships.first().notebook.short_id,
+            },
+        )
+        self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
+
+        # Test default notebook content structure
+        notebook = relationships.first().notebook
+        self.assertIsNotNone(notebook.content)
+        self.assertEqual(notebook.content[0]["type"], "heading")
+        self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
+        self.assertEqual(notebook.content[0]["content"][0]["text"], "Mr. Krabs Notes")
+        self.assertEqual(notebook.content[1]["type"], "text")
+
+    @freeze_time("2021-05-02")
+    def test_retrieve_group_with_notebook(self):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+        notebook = Notebook.objects.create(team=self.team, title="Mr. Krabs Notes")
+        ResourceNotebook.objects.create(group=group, notebook=notebook)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": key,
+                "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                "group_type_index": index,
+                "notebook": notebook.short_id,
+            },
+        )
+
+    @freeze_time("2021-05-02")
+    @patch(f"{PATH}.ResourceNotebook.objects.create", side_effect=IntegrityError)
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        initial_notebook_count = Notebook.objects.filter(team=self.team).count()
+        self.assertEqual(initial_notebook_count, 0)
+
+        with self.assertLogs(level="ERROR") as logs:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        final_notebook_count = Notebook.objects.filter(team=self.team).count()
+        self.assertEqual(final_notebook_count, initial_notebook_count, "Notebook creation should be rolled back")
+        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        mock_relationship_create.assert_called_once()
+        self.assertEqual(len(logs.records), 1)
+        log = logs.records[0]
+        self.assertEqual(log.msg["group_key"], key)
+        self.assertEqual(log.msg["group_type_index"], index)
+        self.assertEqual(log.msg["team_id"], self.team.pk)
+        self.assertEqual(log.msg["event"], "Group notebook creation failed")
+
+    @freeze_time("2021-05-02")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_create_group_missing_group_properties(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group_key = "1234"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups",
+            {
+                "group_key": group_key,
+                "group_type_index": group_type_mapping.group_type_index,
+                "group_properties": None,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": group_key,
+                "group_properties": {},
+                "group_type_index": group_type_mapping.group_type_index,
+            },
+        )
+        mock_capture.assert_called_once()
+
+    @freeze_time("2021-05-02")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @flaky(max_runs=3, min_passes=1)
+    def test_create_group(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group_properties = {"name": "Group Name", "industry": "finance"}
+        group_key = "1234"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups",
+            {
+                "group_key": group_key,
+                "group_type_index": group_type_mapping.group_type_index,
+                "group_properties": group_properties,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": group_key,
+                "group_properties": group_properties,
                 "group_type_index": 0,
             },
         )
-        ok_response_data = self.client.get(
-            f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=foo//bar"
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select properties
+                from groups
+                where index = {index}
+                  and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group_type_mapping.group_type_index),
+                    "key": ast.Constant(value=group_key),
+                },
+            ),
+            self.team,
         )
-        self.assertEqual(ok_response_data.status_code, 200)
-        self.assertEqual(
-            ok_response_data.json(),
+        self.assertEqual(response.results, [(json.dumps(group_properties),)])
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$groupidentify",
+            event_source="ee_ch_views_groups",
+            distinct_id=str(self.team.uuid),
+            timestamp=mock.ANY,
+            properties={
+                "$group_type": group_type_mapping.group_type,
+                "$group_key": group_key,
+                "$group_set": group_properties,
+            },
+            process_person_profile=False,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key={group_key}&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        for result in results:
+            self.assertEqual(result["activity"], "create_group")
+            self.assertEqual(result["scope"], "Group")
+            self.assertEqual(result["detail"]["changes"][0]["action"], "created")
+            self.assertIsNone(result["detail"]["changes"][0]["before"])
+            prop_name = result["detail"]["name"]
+            self.assertEqual(result["detail"]["changes"][0]["after"], group_properties[prop_name])
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_create_group_duplicated_group_key(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group_key = "1234"
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key=group_key,
+            properties={},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups",
             {
-                "created_at": "2021-05-02T00:00:00Z",
-                "group_key": "foo//bar",
+                "group_key": group_key,
+                "group_type_index": 0,
                 "group_properties": {},
-                "group_type_index": 1,
             },
         )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "A group with this key already exists",
+                "attr": "detail",
+            },
+        )
+        mock_capture.assert_not_called()
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_create_group_missing_group_key(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups",
+            {
+                "group_key": None,
+                "group_type_index": group_type_mapping.group_type_index,
+                "group_properties": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": "group_key",
+                "code": "null",
+                "detail": "This field may not be null.",
+                "type": "validation_error",
+            },
+        )
+        mock_capture.assert_not_called()
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_create_group_missing_group_type_index(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups",
+            {
+                "group_key": "foo",
+                "group_type_index": None,
+                "group_properties": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": "group_type_index",
+                "code": "null",
+                "detail": "This field may not be null.",
+                "type": "validation_error",
+            },
+        )
+        mock_capture.assert_not_called()
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
@@ -1140,3 +1455,220 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
         return uuid
+
+
+class GroupsTypesViewSetTestCase(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/groups_types"
+
+    def test_delete(self):
+        group_type_data = {
+            "team": self.team,
+            "project": self.project,
+            "group_type": "organization",
+            "group_type_index": 0,
+        }
+        group_type = GroupTypeMapping.objects.create(**group_type_data)
+        delete_url = self.url + f"/{group_type.group_type_index}"
+
+        delete_response = self.client.delete(delete_url)
+
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GroupTypeMapping.objects.filter(**group_type_data).exists())
+
+        list_response = self.client.get(self.url)
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.json()), 0)
+
+
+class GroupUsageMetricViewSetTestCase(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.group_type = GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        self.url = f"/api/projects/{self.team.id}/groups_types/{str(self.group_type.group_type_index)}/metrics"
+
+        self.other_org = Organization.objects.create(name="other org")
+        self.other_team = Team.objects.create(organization=self.other_org, name="other team")
+        self.other_group_type = GroupTypeMapping.objects.create(
+            team=self.other_team, project_id=self.other_team.project_id, group_type="company", group_type_index=0
+        )
+        self.other_url = (
+            f"/api/projects/{self.other_team.id}/groups_types/{str(self.other_group_type.group_type_index)}/metrics"
+        )
+
+    def assertListFields(self, data, metric):
+        self.assertEqual(data["id"], str(metric.id))
+        self.assertEqual(data["name"], metric.name)
+        self.assertEqual(data["format"], metric.format)
+        self.assertEqual(data["interval"], metric.interval)
+        self.assertEqual(data["display"], metric.display)
+
+    def assertDetailFields(self, data, metric):
+        self.assertListFields(data, metric)
+        self.assertEqual(data["filters"], metric.filters)
+
+    def _create_metric(self, **kwargs):
+        defaults = {
+            "team": self.team,
+            "group_type_index": self.group_type.group_type_index,
+            "name": "Events",
+            "filters": {"foo": "bar"},
+        }
+        defaults.update(kwargs)
+        return GroupUsageMetric.objects.create(**defaults)
+
+    def test_list(self):
+        metric = self._create_metric()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertListFields(response.json()["results"][0], metric)
+
+    def test_create(self):
+        payload = {"name": "Events", "filters": {"foo": "bar"}}
+
+        response = self.client.post(self.url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        metric = GroupUsageMetric.objects.get(id=response.json().get("id"))
+        self.assertListFields(response.json(), metric)
+        self.assertEqual(metric.team, self.team, "Should set team automatically")
+        self.assertEqual(
+            metric.group_type_index, self.group_type.group_type_index, "Should set group_type_index automatically"
+        )
+        self.assertIsNotNone(metric.bytecode, "Should set bytecode automatically")
+
+    def test_retrieve(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertDetailFields(response.json(), metric)
+
+    def test_update(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        payload = {
+            "name": "Updated Events",
+            "format": "currency",
+            "interval": 30,
+            "display": "sparkline",
+            "filters": {"updated": "value"},
+        }
+
+        response = self.client.put(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Updated Events")
+        self.assertEqual(metric.format, "currency")
+        self.assertEqual(metric.interval, 30)
+        self.assertEqual(metric.display, "sparkline")
+        self.assertEqual(metric.filters, {"updated": "value"})
+        self.assertDetailFields(response.json(), metric)
+
+    def test_delete(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GroupUsageMetric.objects.filter(id=metric.id).exists())
+
+    def test_partial_update(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        payload = {"name": "Partially Updated Events"}
+
+        response = self.client.patch(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Partially Updated Events")
+        self.assertEqual(metric.format, "numeric", "Should remain unchanged")
+        self.assertEqual(metric.interval, 7, "Should remain unchanged")
+        self.assertEqual(metric.display, "number", "Should remain unchanged")
+
+    def test_delete_nonexistent(self):
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        url = f"{self.url}/{fake_id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_nonexistent(self):
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        url = f"{self.url}/{fake_id}"
+        payload = {"name": "Updated Events"}
+
+        response = self.client.put(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unauthenticated_access(self):
+        self.client.logout()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_unauthorized_team_access(self):
+        self._create_metric(group_type_index=self.other_group_type.group_type_index, team=self.other_team)
+
+        response = self.client.get(self.other_url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_access(self):
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
+        )
+        url = f"{self.other_url}/{other_metric.id}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_creation(self):
+        payload = {"name": "Unauthorized Events"}
+
+        response = self.client.post(self.other_url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_modification(self):
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
+        )
+        url = f"{self.other_url}/{other_metric.id}"
+        payload = {"name": "Hacked Events"}
+
+        response = self.client.put(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_deletion(self):
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
+        )
+        url = f"{self.other_url}/{other_metric.id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+        self.assertTrue(GroupUsageMetric.objects.filter(id=other_metric.id).exists())

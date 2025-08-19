@@ -1,5 +1,7 @@
-import { LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { Sparkline } from 'lib/components/Sparkline'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,13 +12,16 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
 export function HogFunctionEventEstimates(): JSX.Element | null {
-    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList, type } =
+    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList, type, configuration } =
         useValues(hogFunctionConfigurationLogic)
 
     const { setShowEventsList } = useActions(hogFunctionConfigurationLogic)
+
+    const hasMasking = !!configuration.masking
 
     if (!eventsDataTableNode) {
         return null
@@ -44,7 +49,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
     const canvasUrl = urls.canvas() + '#🦔=' + btoa(JSON.stringify(canvasContent))
 
     return (
-        <div className="relative p-3 deprecated-space-y-2 border rounded bg-surface-primary">
+        <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
             <LemonLabel>Matching events</LemonLabel>
             {sparkline && !sparklineLoading ? (
                 <>
@@ -65,6 +70,9 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                             in the last 7 days.
                         </p>
                     )}
+
+                    {hasMasking && <p>The estimate does not take into account trigger options.</p>}
+
                     {'warning' in sparkline && sparkline.warning && (
                         <LemonBanner type="info">{sparkline.warning}</LemonBanner>
                     )}
@@ -85,7 +93,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
 
                 {showEventsList ? (
                     <>
-                        <div className="flex items-start justify-end">
+                        <div className="flex justify-end items-start">
                             <LemonSelect
                                 placeholder="Open in..."
                                 onChange={(target) => {
@@ -103,7 +111,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                                 ]}
                             />
                         </div>
-                        <div className="flex flex-col flex-1 overflow-y-auto border rounded max-h-200">
+                        <div className="flex overflow-y-auto flex-col flex-1 rounded border max-h-200">
                             {eventsDataTableNode && (
                                 <Query
                                     query={{

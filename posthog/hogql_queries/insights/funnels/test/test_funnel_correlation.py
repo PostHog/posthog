@@ -75,7 +75,9 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationEventNames=funnelCorrelationEventNames,
             funnelCorrelationEventExcludePropertyNames=funnelCorrelationEventExcludePropertyNames,
         )
-        result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate()
+        result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(
+            query=correlation_query, team=self.team
+        )._calculate_internal()
         return result, skewed_totals
 
     def _get_actors_for_event(self, filters: dict[str, Any], event_name: str, properties=None, success=True):

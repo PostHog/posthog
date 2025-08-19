@@ -1,7 +1,9 @@
-import { IconChevronLeft, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconChevronLeft, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { userLogic } from 'scenes/userLogic'
 

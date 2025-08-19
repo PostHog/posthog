@@ -49,7 +49,7 @@ impl LogRow {
                     opentelemetry_proto::tonic::common::v1::any_value::Value::StringValue(s) => {
                         s.clone()
                     }
-                    _ => format!("{:?}", value),
+                    _ => format!("{value:?}"),
                 },
                 None => "".to_string(),
             },
@@ -123,7 +123,7 @@ impl LogRow {
             resource_id,
             service_name,
         };
-        debug!("log: {:?}", log_row);
+        debug!("log: {log_row:?}");
 
         Ok(log_row)
     }
