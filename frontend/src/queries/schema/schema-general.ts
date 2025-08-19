@@ -2178,6 +2178,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    /**  @format date-time */
     last_seen: string
     library: string | null
     event: string

@@ -11136,7 +11136,7 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_seen: datetime
     id: str
-    last_seen: str
+    last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
     odds_ratio: float
