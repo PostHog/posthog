@@ -155,7 +155,7 @@ export function SceneTitleSection({
                     </span>
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
-                {description && (
+                {description !== null && (
                     <div className="flex gap-3 [&_svg]:size-6 items-center">
                         <span
                             className={buttonPrimitiveVariants({

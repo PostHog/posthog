@@ -25,7 +25,7 @@ export function SceneSubscribeButton({ dataAttrKey, insight, dashboardId }: Scen
             data-attr={`${dataAttrKey}-subscribe-dropdown-menu-item`}
         >
             <IconBell />
-            Subscribe
+            Subscribe...
         </ButtonPrimitive>
     )
 }

@@ -1,16 +1,13 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconNotebook, IconPlus } from '@posthog/icons'
+import { IconNotebook, IconPlusSmall } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { DropdownMenuGroup, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Label } from 'lib/ui/Label/Label'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { notebookNodeLogicType } from 'scenes/notebooks/Nodes/notebookNodeLogicType'
 import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
@@ -86,7 +83,140 @@ export function SceneNotebookMenuItems({
     return (
         <>
             <DropdownMenuGroup>
-                <AccessControlAction
+                <Combobox insideMenu>
+                    <Combobox.Search placeholder="Search notebooks..." autoFocus />
+
+                    <Combobox.Content className="max-w-[300px]">
+                        <Combobox.Empty>No notebooks found</Combobox.Empty>
+
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Notebook}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            {({ disabledReason }) => (
+                                <Combobox.Group>
+                                    <Combobox.Item asChild>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={openNewNotebook}
+                                            data-attr={`${dataAttrKey}-new-notebook-button`}
+                                            disabled={!!disabledReason}
+                                            {...(disabledReason && { tooltip: disabledReason })}
+                                        >
+                                            <IconPlusSmall />
+                                            New notebook
+                                        </ButtonPrimitive>
+                                    </Combobox.Item>
+                                </Combobox.Group>
+                            )}
+                        </AccessControlAction>
+
+                        <Combobox.Group value={['My scratchpad']}>
+                            <Combobox.Item asChild>
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={() => {
+                                        openAndAddToNotebook('scratchpad', false)
+                                    }}
+                                    data-attr={`${dataAttrKey}-my-scratchpad-dropdown-menu-item`}
+                                >
+                                    <IconNotebook />
+                                    My scratchpad
+                                </ButtonPrimitive>
+                            </Combobox.Item>
+                        </Combobox.Group>
+
+                        {notebooksLoading &&
+                        !notebooksNotContainingResource.length &&
+                        !notebooksContainingResource.length ? (
+                            <Combobox.Group>
+                                <Combobox.Item asChild>
+                                    <div className="px-2 py-1 flex flex-row items-center gap-x-1">
+                                        {notebooksLoading ? (
+                                            'Loading...'
+                                        ) : searchQuery.length ? (
+                                            <>No matching notebooks</>
+                                        ) : (
+                                            <>You have no notebooks</>
+                                        )}
+                                    </div>
+                                </Combobox.Item>
+                            </Combobox.Group>
+                        ) : (
+                            <>
+                                {resource ? (
+                                    <>
+                                        <Label intent="menu" className="px-2 mt-2">
+                                            Continue in
+                                        </Label>
+                                        <DropdownMenuSeparator />
+                                        {notebooksContainingResource.length > 0 ? (
+                                            notebooksContainingResource.map((notebook: NotebookListItemType) => (
+                                                <>
+                                                    {notebook ? (
+                                                        <Combobox.Group value={[notebook.title ?? '']}>
+                                                            <Combobox.Item key={notebook.short_id} asChild>
+                                                                <ButtonPrimitive
+                                                                    menuItem
+                                                                    onClick={() => {
+                                                                        openAndAddToNotebook(notebook.short_id, true)
+                                                                    }}
+                                                                    data-attr={`${dataAttrKey}-continue-in-notebook-dropdown-menu-item`}
+                                                                >
+                                                                    <IconNotebook />
+                                                                    {notebook.title}
+                                                                </ButtonPrimitive>
+                                                            </Combobox.Item>
+                                                        </Combobox.Group>
+                                                    ) : null}
+                                                </>
+                                            ))
+                                        ) : (
+                                            <ButtonPrimitive menuItem inert className="text-tertiary">
+                                                No notebooks found
+                                            </ButtonPrimitive>
+                                        )}
+                                    </>
+                                ) : null}
+                                {resource ? (
+                                    <>
+                                        <Label intent="menu" className="px-2 mt-2">
+                                            Add to
+                                        </Label>
+                                        <DropdownMenuSeparator />
+                                        {notebooksNotContainingResource.length > 0 ? (
+                                            notebooksNotContainingResource.map((notebook: NotebookListItemType) => (
+                                                <>
+                                                    {notebook ? (
+                                                        <Combobox.Group value={[notebook.title ?? '']}>
+                                                            <Combobox.Item key={notebook.short_id} asChild>
+                                                                <ButtonPrimitive
+                                                                    menuItem
+                                                                    onClick={() => {
+                                                                        openAndAddToNotebook(notebook.short_id, false)
+                                                                    }}
+                                                                    data-attr={`${dataAttrKey}-add-to-notebook-dropdown-menu-item`}
+                                                                >
+                                                                    <IconNotebook />
+                                                                    {notebook.title}
+                                                                </ButtonPrimitive>
+                                                            </Combobox.Item>
+                                                        </Combobox.Group>
+                                                    ) : null}
+                                                </>
+                                            ))
+                                        ) : (
+                                            <ButtonPrimitive menuItem inert className="text-tertiary">
+                                                No notebooks found
+                                            </ButtonPrimitive>
+                                        )}
+                                    </>
+                                ) : null}
+                            </>
+                        )}
+                    </Combobox.Content>
+                </Combobox>
+                {/* <AccessControlAction
                     resourceType={AccessControlResourceType.Notebook}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
@@ -190,7 +320,7 @@ export function SceneNotebookMenuItems({
                             </DropdownMenuItem>
                         )}
                     </>
-                )}
+                )}*/}
             </DropdownMenuGroup>
         </>
     )
