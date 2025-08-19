@@ -4,19 +4,28 @@ from enum import StrEnum
 from types import UnionType
 from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args
 
-import structlog
 import posthoganalytics
+import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 
 from posthog import settings
-from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.caching.utils import (
+    ThresholdMode,
+    cache_target_age,
+    is_stale,
+    last_refresh_from_cached_result,
+)
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    enqueue_process_query_task,
+    get_query_status,
+)
 from posthog.clickhouse.client.limit import (
     get_api_personal_rate_limiter,
-    get_app_org_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_app_org_rate_limiter,
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -39,10 +48,10 @@ from posthog.schema import (
     ActorsQuery,
     AnalyticsQueryResponseBase,
     CacheMissResponse,
+    CalendarHeatmapQuery,
     DashboardFilter,
     DateRange,
     EventsQuery,
-    SessionBatchEventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
@@ -52,14 +61,14 @@ from posthog.schema import (
     FunnelsQuery,
     GenericCachedQueryResponse,
     GroupsQuery,
-    HogQLQuery,
     HogQLASTQuery,
+    HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
-    CalendarHeatmapQuery,
+    MarketingAnalyticsTableQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -69,6 +78,7 @@ from posthog.schema import (
     RetentionQuery,
     SamplingRate,
     SessionAttributionExplorerQuery,
+    SessionBatchEventsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
     SuggestedQuestionsQuery,
@@ -79,7 +89,6 @@ from posthog.schema import (
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    MarketingAnalyticsTableQuery,
 )
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
@@ -169,6 +178,7 @@ RunnableQueryNode = Union[
     WebGoalsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    ActorsPropertyTaxonomyQuery,
 ]
 
 
@@ -226,7 +236,9 @@ def get_query_runner(
         )
 
     if kind == "CalendarHeatmapQuery":
-        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
+        from .insights.trends.calendar_heatmap_query_runner import (
+            CalendarHeatmapQueryRunner,
+        )
 
         return CalendarHeatmapQueryRunner(
             query=cast(CalendarHeatmapQuery | dict[str, Any], query),
@@ -396,7 +408,9 @@ def get_query_runner(
         )
 
     if kind == "WebVitalsPathBreakdownQuery":
-        from .web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+        from .web_analytics.web_vitals_path_breakdown import (
+            WebVitalsPathBreakdownQueryRunner,
+        )
 
         return WebVitalsPathBreakdownQueryRunner(
             query=query,
@@ -415,7 +429,9 @@ def get_query_runner(
         )
 
     if kind == "SessionAttributionExplorerQuery":
-        from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
+        from .web_analytics.session_attribution_explorer_query_runner import (
+            SessionAttributionExplorerQueryRunner,
+        )
 
         return SessionAttributionExplorerQueryRunner(
             query=query,
@@ -528,7 +544,9 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+        from .error_tracking_issue_correlation_query_runner import (
+            ErrorTrackingIssueCorrelationQueryRunner,
+        )
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -539,7 +557,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentFunnelsQuery":
-        from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
+        from .experiments.experiment_funnels_query_runner import (
+            ExperimentFunnelsQueryRunner,
+        )
 
         return ExperimentFunnelsQueryRunner(
             query=query,
@@ -550,7 +570,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentTrendsQuery":
-        from .experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+        from .experiments.experiment_trends_query_runner import (
+            ExperimentTrendsQueryRunner,
+        )
 
         return ExperimentTrendsQueryRunner(
             query=query,
@@ -572,7 +594,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import (
+            ExperimentExposuresQueryRunner,
+        )
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),
@@ -583,7 +607,9 @@ def get_query_runner(
         )
 
     if kind == "SuggestedQuestionsQuery":
-        from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
+        from posthog.hogql_queries.ai.suggested_questions_query_runner import (
+            SuggestedQuestionsQueryRunner,
+        )
 
         return SuggestedQuestionsQueryRunner(
             query=cast(SuggestedQuestionsQuery | dict[str, Any], query),
@@ -613,7 +639,9 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "ActorsPropertyTaxonomyQuery":
-        from .ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
+        from .ai.actors_property_taxonomy_query_runner import (
+            ActorsPropertyTaxonomyQueryRunner,
+        )
 
         return ActorsPropertyTaxonomyQueryRunner(
             query=cast(ActorsPropertyTaxonomyQuery | dict[str, Any], query),
@@ -998,7 +1026,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
             return None
 
-        from ee.billing.quota_limiting import list_limited_team_attributes, QuotaLimitingCaches, QuotaResource
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+        )
         from posthog.constants import AvailableFeature
 
         if self.team.api_token in list_limited_team_attributes(

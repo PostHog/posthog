@@ -36,6 +36,7 @@ import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
+    applyForceOverflowRestrictions,
     applyPersonProcessingRestrictions,
     parseKafkaMessage,
     resolveTeam,
@@ -629,6 +630,19 @@ export class IngestionConsumer {
         for (const message of messages) {
             const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
             if (!filteredMessage) {
+                continue
+            }
+
+            const forceOverflowDecision = applyForceOverflowRestrictions(
+                filteredMessage,
+                this.eventIngestionRestrictionManager
+            )
+            if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
+                ingestionEventOverflowed.inc(1)
+                forcedOverflowEventsCounter.inc()
+                void this.promiseScheduler.schedule(
+                    this.emitToOverflow([filteredMessage], forceOverflowDecision.preservePartitionLocality)
+                )
                 continue
             }
 
