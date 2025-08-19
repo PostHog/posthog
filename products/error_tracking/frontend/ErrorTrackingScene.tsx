@@ -104,9 +104,9 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
     )
 }
 
-const TitleHeader: QueryContextColumnTitleComponent = (props): JSX.Element => {
+const TitleHeader: QueryContextColumnTitleComponent = (): JSX.Element => {
     const { results } = useValues(errorTrackingDataNodeLogic)
-    return <IssueListTitleHeader results={results} {...props} />
+    return <IssueListTitleHeader results={results} />
 }
 
 const TitleColumn: QueryContextColumnComponent = (props): JSX.Element => {
