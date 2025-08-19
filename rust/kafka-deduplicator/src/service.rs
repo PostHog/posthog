@@ -82,6 +82,7 @@ impl KafkaDeduplicatorService {
         // Create consumer config using the kafka module's builder
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
+                .with_tls(self.config.kafka_tls)
                 .offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 
