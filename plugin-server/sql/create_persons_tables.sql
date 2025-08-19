@@ -46,18 +46,22 @@ CREATE TABLE IF NOT EXISTS posthog_personlessdistinctid (
 CREATE TABLE IF NOT EXISTS posthog_cohortpeople (
     id BIGSERIAL PRIMARY KEY,
     cohort_id INTEGER NOT NULL,
-    person_id BIGINT NOT NULL,
-    team_id INTEGER NOT NULL
+    person_id BIGINT NOT NULL REFERENCES posthog_person(id) ON DELETE CASCADE,
+    version INTEGER NULL
 );
 
 CREATE INDEX IF NOT EXISTS posthog_cohortpeople_person_idx
     ON posthog_cohortpeople (person_id);
 
+-- Index from Django model Meta class
+CREATE INDEX IF NOT EXISTS posthog_cohortpeople_cohort_person_idx
+    ON posthog_cohortpeople (cohort_id, person_id);
+
 -- Feature flag hash key overrides (referenced during person merges)
 CREATE TABLE IF NOT EXISTS posthog_featureflaghashkeyoverride (
     id BIGSERIAL PRIMARY KEY,
     team_id INTEGER NOT NULL,
-    person_id BIGINT NOT NULL,
+    person_id BIGINT NOT NULL REFERENCES posthog_person(id) ON DELETE CASCADE,
     feature_flag_key TEXT NOT NULL,
     hash_key TEXT NOT NULL
 );
