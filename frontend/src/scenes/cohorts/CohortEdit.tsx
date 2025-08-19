@@ -346,6 +346,17 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     {cohort.is_static ? (
                         <>
                             <SceneDivider />
+                            {!isNewCohort && (
+                                <SceneSection
+                                    title="Add Users Manually"
+                                    description="Select the users that you would like to add to the cohort."
+                                >
+                                    <LemonButton className="w-fit" type="primary" onClick={showAddPersonToCohortModal}>
+                                        Add Users
+                                    </LemonButton>
+                                </SceneSection>
+                            )}
+                            <LemonDivider label="OR" />
                             <SceneSection
                                 title={isNewCohort ? 'Upload users' : 'Add users'}
                                 description="Upload a CSV file to add users to your cohort. For single-column files, include
@@ -427,9 +438,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         </>
                                     )}
                                 </LemonField>
-                                <LemonButton className="mt-3 w-fit" type="primary" onClick={showAddPersonToCohortModal}>
-                                    Add User Manually
-                                </LemonButton>
                             </SceneSection>
                         </>
                     ) : (
