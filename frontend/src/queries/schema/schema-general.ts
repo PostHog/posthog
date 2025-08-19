@@ -1562,6 +1562,7 @@ interface CachedQueryResponseMixin {
     query_status?: QueryStatus
     /** What triggered the calculation of the query, leave empty if user/immediate */
     calculation_trigger?: string
+    query_metadata?: object
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin

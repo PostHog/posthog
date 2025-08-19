@@ -31,6 +31,8 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
+from posthog.hogql_queries.query_metadata import extract_query_metadata
+from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
@@ -927,6 +929,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user
                 )
                 if results:
+                    if results.query_metadata:
+                        log_event_usage_from_query_metadata(
+                            results.query_metadata,
+                            team_id=self.team.id,
+                            user_id=user.id if user else None,
+                        )
+
                     return results
 
             last_refresh = datetime.now(UTC)
@@ -974,6 +983,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         }
             if get_query_tag_value("trigger"):
                 fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
+
+            query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+            log_event_usage_from_query_metadata(
+                query_metadata,
+                team_id=self.team.id,
+                user_id=user.id if user else None,
+            )
+            fresh_response_dict["query_metadata"] = query_metadata
+
             fresh_response = CachedResponse(**fresh_response_dict)
 
             # Don't cache debug queries with errors and export queries

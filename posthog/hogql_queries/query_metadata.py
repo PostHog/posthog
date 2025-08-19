@@ -34,7 +34,6 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
 )
 from posthog.utils import get_from_dict_or_attr
-from posthog.hogql_queries.query_runner import RunnableQueryNode
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -52,7 +51,7 @@ class QueryEventsExtractor:
         self.team = team
 
     @staticmethod
-    def _ensure_model_instance(query: dict[str, Any] | RunnableQueryNode | BaseModel, model_class: type[T]) -> T:
+    def _ensure_model_instance(query: dict[str, Any] | BaseModel, model_class: type[T]) -> T:
         """
         Ensures the query is an instance of the specified model class.
         """
@@ -60,7 +59,7 @@ class QueryEventsExtractor:
             return query
         return model_class.model_validate(query)
 
-    def extract_events(self, query: dict[str, Any] | RunnableQueryNode | BaseModel) -> list[str]:
+    def extract_events(self, query: dict[str, Any] | BaseModel) -> list[str]:
         """
         Extracts events from a given query dictionary.
 
@@ -226,14 +225,14 @@ class QueryEventsExtractor:
 
 
 def extract_query_metadata(
-    query: dict[str, Any] | RunnableQueryNode | BaseModel,
+    query: dict[str, Any] | BaseModel,
     team: Team,
 ) -> InsightQueryMetadata:
     """
     Extracts metadata from a given query, including the events used in the query.
 
     Args:
-        query (dict | RunnableQueryNode | BaseModel): The query to extract metadata from.
+        query (dict | BaseModel): The query to extract metadata from.
         team (Team): The team associated with the query.
 
     Returns:
