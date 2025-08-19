@@ -80,4 +80,35 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         types = [activity["type"] for activity in data["results"]]
         self.assertIn("Stripe", types)
-        self.assertIn("materialized_view", types)
+        self.assertIn("Materialized view", types)
+
+    def test_recent_activity_pagination(self):
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/recent_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        for i in range(5):
+            ExternalDataJob.objects.create(
+                pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100 + i, status="Completed"
+            )
+
+        # Test first page with limit=2
+        response = self.client.get(f"{endpoint}?limit=2&offset=0")
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 2)
+        self.assertTrue(data["has_more"])
+        self.assertEqual(data["pagination"]["next_offset"], 2)
+
+        # Test second page
+        response = self.client.get(f"{endpoint}?limit=2&offset=2")
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 2)
+        self.assertTrue(data["has_more"])
+        self.assertEqual(data["pagination"]["next_offset"], 4)
