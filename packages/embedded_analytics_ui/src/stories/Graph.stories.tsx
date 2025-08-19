@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { Graph } from '../components'
 
+import { Graph } from '../components'
 import {
     exampleGraphPageviewsResponse,
     exampleGraphRevenueResponse,

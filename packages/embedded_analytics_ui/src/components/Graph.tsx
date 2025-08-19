@@ -1,8 +1,9 @@
 import { ReactNode, useMemo } from 'react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts'
-import { EmbedSkeleton } from './ui/embedSkeleton'
+import { Area, AreaChart, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, XAxis, YAxis } from 'recharts'
+
+import type { ErrorResponse, GraphResponse } from '../types/schemas'
 import { cn, formatNumber } from '../utils'
-import type { GraphResponse, ErrorResponse } from '../types/schemas'
+import { EmbedSkeleton } from './ui/embedSkeleton'
 
 interface GraphProps {
     response?: GraphResponse

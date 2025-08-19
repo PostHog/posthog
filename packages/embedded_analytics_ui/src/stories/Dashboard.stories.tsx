@@ -1,7 +1,8 @@
-import React, { ReactNode } from 'react'
 import type { Meta, StoryObj } from '@storybook/react'
-import { Overview, Graph, Table } from '../components'
-import { exampleGraphVisitorsResponse, exampleTableResponse, exampleOverviewResponse } from './exampleData'
+import React, { ReactNode } from 'react'
+
+import { Graph, Overview, Table } from '../components'
+import { exampleGraphVisitorsResponse, exampleOverviewResponse, exampleTableResponse } from './exampleData'
 
 const meta: Meta = {
     title: 'Analytics/Dashboard',

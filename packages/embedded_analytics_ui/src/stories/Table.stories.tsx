@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+
 import { Table, TableProps } from '../components'
 import { TableColumn, TableResponse, TableRow } from '../types/schemas'
 
