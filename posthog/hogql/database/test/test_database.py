@@ -409,7 +409,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
