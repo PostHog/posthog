@@ -86,7 +86,7 @@ jobs:
                     - others
         needs: changes
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         defaults:
             run:
