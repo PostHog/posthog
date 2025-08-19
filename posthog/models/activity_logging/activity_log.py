@@ -234,6 +234,9 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
     },
+    "BatchExport": {
+        "paused": "enabled",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
@@ -379,12 +382,20 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "BatchExport": [
         "latest_runs",
+        "last_updated_at",
+        "last_paused_at",
+        "batchexportrun_set",
+        "batchexportbackfill_set",
     ],
     "BatchImport": [
+        "lease_id",
         "leased_until",
         "status_message",
         "state",
         "secrets",
+        "lease_id",
+        "backoff_attempt",
+        "backoff_until",
     ],
     "Integration": [
         "sensitive_config",
