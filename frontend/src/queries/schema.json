@@ -13078,8 +13078,33 @@
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+        "HedgehogActorAccessoryOption": {
+            "enum": [
+                "beret",
+                "cap",
+                "chef",
+                "cowboy",
+                "eyepatch",
+                "flag",
+                "glasses",
+                "graduation",
+                "parrot",
+                "party",
+                "pineapple",
+                "sunglasses",
+                "tophat",
+                "xmas-hat",
+                "xmas-antlers",
+                "xmas-scarf"
+            ],
+            "type": "string"
+        },
+        "HedgehogActorColorOption": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "greyscale", "sepia", "invert", "rainbow"],
+            "type": "string"
+        },
+        "HedgehogActorSkinOption": {
+            "enum": ["default", "spiderhog", "robohog"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -15898,14 +15923,24 @@
             "properties": {
                 "accessories": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HedgehogActorAccessoryOption"
                     },
                     "type": "array"
                 },
                 "color": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/HedgehogColorOptions"
+                            "$ref": "#/definitions/HedgehogActorColorOption"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "skin": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogActorSkinOption"
                         },
                         {
                             "type": "null"
@@ -15916,7 +15951,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["use_as_profile", "color", "accessories"],
+            "required": ["use_as_profile"],
             "type": "object"
         },
         "MultipleBreakdownOptions": {
