@@ -32,7 +32,7 @@ export const DashboardOverridesBanner = (): JSX.Element | null => {
                     </LemonButton>
                     <LemonButton
                         type="secondary"
-                        onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                        onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderOverridesBanner)}
                         loading={cancellingPreview}
                     >
                         Discard overrides

@@ -26,6 +26,7 @@ export function DashboardEditBar(): JSX.Element {
         showEditBarApplyPopover,
         loadingPreview,
         cancellingPreview,
+        hasTemporaryFilters,
     } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode, previewTemporaryFilters } =
         useActions(dashboardLogic)
@@ -51,7 +52,12 @@ export function DashboardEditBar(): JSX.Element {
             overlay={
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton
-                        onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                        onClick={() =>
+                            setDashboardMode(
+                                hasTemporaryFilters ? dashboardMode : null,
+                                DashboardEventSource.DashboardHeaderDiscardChanges
+                            )
+                        }
                         loading={cancellingPreview}
                         type="secondary"
                         size="small"

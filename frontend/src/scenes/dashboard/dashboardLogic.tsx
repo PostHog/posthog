@@ -18,7 +18,6 @@ import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uu
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { isDashboardFilterEmpty } from 'scenes/insights/insightSceneLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -341,13 +340,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                filters: values.filters,
+                                filters: values.effectiveEditBarFilters,
                                 variables: values.temporaryVariables,
                                 breakdown_colors: values.temporaryBreakdownColors,
                                 data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
                             }
                         )
+                        actions.resetDashboardFilters()
                         return getQueryBasedDashboard(dashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -775,40 +775,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
             },
         ],
-
-        /** Dashboard filters */
-        filters: [
-            {
-                date_from: null,
-                date_to: null,
-                properties: null,
-                breakdown_filter: null,
-            } as DashboardFilter,
-            {
-                setFiltersAndLayoutsAndVariables: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
-                loadDashboardSuccess: (state, { dashboard, payload }) => {
-                    const result = dashboard
-                        ? {
-                              ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === DashboardLoadAction.Preview
-                                  ? {}
-                                  : {
-                                        date_from: dashboard?.filters.date_from || null,
-                                        date_to: dashboard?.filters.date_to || null,
-                                        properties: dashboard?.filters.properties || [],
-                                        breakdown_filter: dashboard?.filters.breakdown_filter || null,
-                                    }),
-                          }
-                        : state
-
-                    return result
-                },
-            },
-        ],
         intermittentFilters: [
             {
                 date_from: undefined,
@@ -848,6 +814,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.intermittentFilters],
             (intermittentFilters) => {
                 return Object.values(intermittentFilters).some((filter) => filter !== undefined)
+            },
+        ],
+        hasTemporaryFilters: [
+            (s) => [s.temporaryFilters],
+            (temporaryFilters) => {
+                return Object.values(temporaryFilters).some((filter) => filter !== undefined)
             },
         ],
         showEditBarApplyPopover: [
@@ -1465,30 +1437,37 @@ export const dashboardLogic = kea<dashboardLogicType>([
             eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
-            if (mode === DashboardMode.Edit) {
+            if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // Note: handled in subscriptions
-            } else if (mode === null) {
-                if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
-                    // cancel edit mode changes
+            } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
+                // cancel edit mode changes
 
-                    // reset filters to that before previewing
-                    actions.resetDashboardFilters()
-                    actions.resetVariables()
+                // reset filters to that before previewing
+                actions.resetIntermittentFilters()
+                actions.resetVariables()
 
-                    // reset tile data by reloading dashboard
-                    actions.loadDashboard({ action: DashboardLoadAction.Preview })
+                // reset tile data by reloading dashboard
+                actions.loadDashboard({ action: DashboardLoadAction.Preview })
 
-                    // also reset layout to that we stored in dashboardLayouts
-                    // this is done in the reducer for dashboard
-                } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
-                    // save edit mode changes
-                    actions.setFiltersAndLayoutsAndVariables(
-                        values.temporaryFilters,
-                        values.temporaryVariables,
-                        values.temporaryBreakdownColors,
-                        values.dataColorThemeId
-                    )
-                }
+                // also reset layout to that we stored in dashboardLayouts
+                // this is done in the reducer for dashboard
+            } else if (mode === null && source === DashboardEventSource.DashboardHeaderOverridesBanner) {
+                // discard overrides when opening a dashboard from a link with overrides
+
+                // remove overrides from url
+                actions.resetDashboardFilters()
+                actions.resetVariables()
+
+                // reset tile data by reloading dashboard
+                actions.loadDashboard({ action: DashboardLoadAction.Preview })
+            } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
+                // save edit mode changes
+                actions.setFiltersAndLayoutsAndVariables(
+                    values.temporaryFilters,
+                    values.temporaryVariables,
+                    values.temporaryBreakdownColors,
+                    values.dataColorThemeId
+                )
             }
 
             if (mode) {
