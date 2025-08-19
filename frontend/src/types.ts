@@ -1,8 +1,13 @@
+import { LogicWrapper } from 'kea'
+import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
+import { ReactNode } from 'react'
+import { Layout } from 'react-grid-layout'
+
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
-import { LogicWrapper } from 'kea'
+
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,8 +18,8 @@ import {
     ENTITY_MATCH_TYPE,
     FunnelLayout,
     OrganizationMembershipLevel,
-    PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
+    PluginsAccessLevel,
     RETENTION_FIRST_TIME,
     RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
@@ -23,10 +28,6 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { ReactNode } from 'react'
-import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
@@ -63,6 +64,8 @@ import type {
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -4060,9 +4063,9 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined)[]
+        compareLabels?: (CompareLabelType | undefined | null)[]
         /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined)[]
+        personsValues?: (Person | undefined | null)[]
         index?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
         pointValue?: number
@@ -4567,6 +4570,8 @@ export enum ActivityScope {
     ACTION = 'Action',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
+    BATCH_EXPORT = 'BatchExport',
+    BATCH_IMPORT = 'BatchImport',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     GROUP = 'Group',

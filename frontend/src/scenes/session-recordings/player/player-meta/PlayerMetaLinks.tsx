@@ -1,20 +1,22 @@
-import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 
 function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)

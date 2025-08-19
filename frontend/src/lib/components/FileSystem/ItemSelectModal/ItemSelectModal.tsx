@@ -1,7 +1,11 @@
-import { IconFolder, IconFolderOpen } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { ReactNode, useRef, useState } from 'react'
+
+import { IconFolder, IconFolderOpen } from '@posthog/icons'
+
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -10,14 +14,12 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { ReactNode, useRef, useState } from 'react'
 
-import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { itemSelectModalLogic } from './itemSelectModalLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export interface ItemSelectModalProps {
     /** Class name for the component */

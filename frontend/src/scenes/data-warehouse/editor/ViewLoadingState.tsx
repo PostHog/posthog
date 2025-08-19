@@ -1,4 +1,5 @@
 import { useState } from 'react'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const VIEW_EMPTY_STATE_COPY = [

@@ -1,25 +1,26 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { resetKafka } from '~/tests/helpers/kafka'
+import { forSnapshot } from '~/tests/helpers/snapshots'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { logger } from '../utils/logger'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import {
-    createHogExecutionGlobals,
     insertHogFunction as _insertHogFunction,
+    createHogExecutionGlobals,
     insertIntegration,
 } from './_tests/fixtures'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
-import { resetKafka } from '~/tests/helpers/kafka'
-import { logger } from '../utils/logger'
+import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper

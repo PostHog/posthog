@@ -1,6 +1,7 @@
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useState } from 'react'
+
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { InstanceSetting } from '~/types'
 

@@ -520,7 +520,7 @@ if EE_AVAILABLE:
         ExperimentSavedMetricViewSet,
     )
     from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
-    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet
+    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import (
         EnterprisePersonViewSet,
@@ -535,7 +535,12 @@ if EE_AVAILABLE:
         r"experiment_saved_metrics", ExperimentSavedMetricViewSet, "project_experiment_saved_metrics", ["project_id"]
     )
     register_grandfathered_environment_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
-    projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
+    group_types_router = projects_router.register(
+        r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
+    )
+    group_types_router.register(
+        r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
+    )
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
         r"insights", EnterpriseInsightsViewSet, "environment_insights", ["team_id"]
     )

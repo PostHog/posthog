@@ -1,10 +1,12 @@
-import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { HTMLProps, useState } from 'react'
 
-import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation, LemonTableColumn } from './types'
+import { IconCollapse, IconExpand } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
 import { getStickyColumnInfo } from './columnUtils'
+import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T

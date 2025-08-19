@@ -1,7 +1,9 @@
+import posthog, { CaptureResult } from 'posthog-js'
+
 import { lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
-import posthog, { CaptureResult } from 'posthog-js'
 
 interface WindowWithCypressCaptures extends Window {
     // our Cypress tests will use this to check what events were sent to PostHog

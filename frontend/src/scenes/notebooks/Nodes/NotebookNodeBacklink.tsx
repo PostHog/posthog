@@ -1,17 +1,10 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { Node, NodeViewProps, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { QueryBasedInsightModel } from '~/types'
-import { Link } from '@posthog/lemon-ui'
-import { IconCohort } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
 import clsx from 'clsx'
-import { router } from 'kea-router'
-import { posthogNodePasteRule } from './utils'
-import api from 'lib/api'
 import { useValues } from 'kea'
-import { notebookLogic } from '../Notebook/notebookLogic'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
 
-import { openNotebook } from '~/models/notebooksModel'
 import {
     IconChat,
     IconDashboard,
@@ -25,8 +18,18 @@ import {
     IconPlaylist,
     IconRewindPlay,
 } from '@posthog/icons'
-import { useEffect } from 'react'
+import { Link } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { IconCohort } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
+
+import { openNotebook } from '~/models/notebooksModel'
+import { QueryBasedInsightModel } from '~/types'
+
+import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeType, NotebookTarget } from '../types'
+import { posthogNodePasteRule } from './utils'
 
 type BackLinkMapper = {
     regex: RegExp

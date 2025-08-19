@@ -14,7 +14,7 @@ from posthog.helpers.email_utils import EmailValidationHelper, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.utils import UUIDModel, sane_repr
+from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
@@ -48,7 +48,7 @@ class InviteExpiredException(exceptions.ValidationError):
         super().__init__(message, code="expired")
 
 
-class OrganizationInvite(ModelActivityMixin, UUIDModel):
+class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,

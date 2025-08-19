@@ -12,7 +12,7 @@ from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
 )
 
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
