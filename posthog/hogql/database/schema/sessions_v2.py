@@ -508,6 +508,7 @@ def join_events_table_to_sessions_table_v2(
 def get_lazy_session_table_properties_v2(search: Optional[str]):
     # some fields shouldn't appear as properties
     hidden_fields = {
+        "max_inserted_at",
         "team_id",
         "distinct_id",
         "session_id",
