@@ -392,7 +392,7 @@ mod test {
 
         let map_mock = server.mock(|when, then| {
             // Our minified example source uses a relative URL, formatted like this
-            when.method("GET").path(format!("{}.map", CHUNK_PATH));
+            when.method("GET").path(format!("{CHUNK_PATH}.map"));
             then.status(200).body(MAP);
         });
 
@@ -498,7 +498,7 @@ mod test {
         });
 
         let map_mock = server.mock(|when, then| {
-            when.method("GET").path(format!("{}.map", CHUNK_PATH));
+            when.method("GET").path(format!("{CHUNK_PATH}.map"));
             then.status(200).body(Vec::new()); // Empty/invalid sourcemap
         });
 

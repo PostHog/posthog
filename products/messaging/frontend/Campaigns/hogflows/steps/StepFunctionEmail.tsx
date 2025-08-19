@@ -1,10 +1,11 @@
-import { IconLetter } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 
+import { IconLetter } from '@posthog/icons'
+
 import { HogFlowAction } from '../types'
+import { StepFunctionConfiguration } from './StepFunction'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
-import { StepFunctionConfiguration } from './StepFunction'
 
 export const StepFunctionEmail: HogFlowStep<'function_email'> = {
     type: 'function_email',
@@ -22,7 +23,7 @@ export const StepFunctionEmail: HogFlowStep<'function_email'> = {
                 type: 'function_email',
                 on_error: 'continue',
                 config: {
-                    template_id: 'template-email-native',
+                    template_id: 'template-email',
                     inputs: {},
                 },
             },

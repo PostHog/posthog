@@ -1,20 +1,21 @@
+// sort-imports-ignore
 import { DateTime } from 'luxon'
 
 import { Group, ProjectId, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { RaceConditionError } from '../../../utils/utils'
+
 import { BatchWritingGroupStore, BatchWritingGroupStoreForBatch } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
 import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
 import { GroupRepository } from './repositories/group-repository.interface'
 
-// Mock the utils module
+// Mock the module before importing
 jest.mock('../utils', () => ({
     captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
-// Import the mocked function
 import { captureIngestionWarning } from '../utils'
 
 // Mock the DB class

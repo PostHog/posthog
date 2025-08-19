@@ -5,7 +5,6 @@
  * It has been modified to not need the same dependencies
  * Any changes may need to be sync'd between the two
  */
-
 import { RRWebEvent } from '../../../types'
 
 const activeSources = [1, 2, 3, 4, 5, 6, 7, 12]

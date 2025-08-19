@@ -1,4 +1,4 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import { LogLevel, PluginLogLevel, PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -196,6 +196,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: isProdEnv() ? false : true, // For prod we primarily use overflow and some more manual control
         CDP_AGGREGATION_WRITER_ENABLED: false,
+        CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -266,6 +267,8 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+        COOKIELESS_REDIS_HOST: '',
+        COOKIELESS_REDIS_PORT: 6379,
 
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: false,
@@ -273,7 +276,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,
-        PERSON_PROPERTIES_SIZE_LIMIT: 1024 * 1024, // 1MB default
+        // DB constraint check uses pg_column_size(properties); default 512kb + 128kb = 655360 bytes
+        PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: 655360,
+        // Trim target is the customer-facing limit (512kb)
+        PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,

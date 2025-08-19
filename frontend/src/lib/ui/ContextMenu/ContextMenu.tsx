@@ -1,10 +1,12 @@
 'use client'
 
-import { IconCheckCircle } from '@posthog/icons'
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
+import * as React from 'react'
+
+import { IconCheckCircle } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import * as React from 'react'
 
 const ContextMenu = ContextMenuPrimitive.Root
 

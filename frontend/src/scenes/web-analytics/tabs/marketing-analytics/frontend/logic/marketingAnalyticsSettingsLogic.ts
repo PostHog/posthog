@@ -1,13 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { teamLogic } from 'scenes/teamLogic'
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 
+import { teamLogic } from 'scenes/teamLogic'
+
+import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
-import { generateUniqueName } from './utils'
-
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
+import { generateUniqueName } from './utils'
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},

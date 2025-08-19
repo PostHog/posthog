@@ -1,4 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
@@ -8,7 +10,6 @@ import { InsightShortId } from '~/types'
 import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import funnelOneStep from './funnelOneStep.json'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

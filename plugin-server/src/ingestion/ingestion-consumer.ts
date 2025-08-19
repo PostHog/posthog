@@ -33,7 +33,7 @@ import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writ
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
-import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
     applyPersonProcessingRestrictions,
@@ -154,7 +154,8 @@ export class IngestionConsumer {
         this.personStore = new BatchWritingPersonsStore(
             new PostgresPersonRepository(this.hub.db.postgres, {
                 calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-                personPropertiesSizeLimit: this.hub.PERSON_PROPERTIES_SIZE_LIMIT,
+                personPropertiesDbConstraintLimitBytes: this.hub.PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES,
+                personPropertiesTrimTargetBytes: this.hub.PERSON_PROPERTIES_TRIM_TARGET_BYTES,
             }),
             this.hub.db.kafkaProducer,
             {

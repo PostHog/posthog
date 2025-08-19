@@ -1,8 +1,10 @@
-import { LemonButton, LemonFileInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
+
+import { LemonButton, LemonFileInput, LemonModal } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 

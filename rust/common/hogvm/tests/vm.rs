@@ -8,7 +8,7 @@ fn stl_test_extensions() -> HashMap<String, NativeFunction> {
         (
             "print",
             native_func(|_, args| {
-                println!("{:?}", args);
+                println!("{args:?}");
                 Ok(HogLiteral::Null.into())
             }),
         ),
@@ -26,7 +26,7 @@ fn stl_test_extensions() -> HashMap<String, NativeFunction> {
                 {
                     Ok(HogLiteral::Null.into())
                 } else {
-                    panic!("{:?} did not equal {:?}", lhs, rhs)
+                    panic!("{lhs:?} did not equal {rhs:?}")
                 }
             }),
         ),
@@ -93,14 +93,14 @@ pub fn test_vm() {
     let programs = load_test_programs();
     for program in programs {
         let (name, code) = program;
-        println!("Running: {}", name);
+        println!("Running: {name}");
         let parsed: Vec<Value> = serde_json::from_str(&code).unwrap();
         let program = Program::new(parsed).unwrap();
         let ctx = ExecutionContext::with_defaults(program)
             .with_ext_fns(stl_test_extensions())
             .with_globals(test_globals());
         let res = sync_execute(&ctx, false);
-        println!("{:?}", res);
+        println!("{res:?}");
         assert!(res.is_ok());
         assert!(matches!(res, Ok(Value::Bool(true))))
     }

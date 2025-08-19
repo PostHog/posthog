@@ -5,7 +5,7 @@ import { DateTime, Settings } from 'luxon'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'
 import { CyclotronInputType } from '~/schema/cyclotron'
-import { GeoIp, GeoIPService } from '~/utils/geoip'
+import { GeoIPService, GeoIp } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
@@ -45,7 +45,7 @@ const compileObject = async (obj: any): Promise<any> => {
     } else if (typeof obj === 'string') {
         return await compileHog(`return f'${obj}'`)
     } else {
-        return undefined
+        return obj
     }
 }
 
