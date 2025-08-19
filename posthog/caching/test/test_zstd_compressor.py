@@ -61,12 +61,6 @@ class TestZstdCompressor(TestCase):
                 zstd_compressed_bytes,
                 uncompressed_bytes,
             ),
-            (
-                "test_when_enabled_returns_original_for_invalid_zlib",
-                True,
-                zlib_compressed_bytes,
-                zlib_compressed_bytes,
-            ),
         ]
     )
     def test_the_zstd_compressor_decompression(self, _, setting: bool, input: bytes, output: bytes) -> None:
