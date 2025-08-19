@@ -6925,7 +6925,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     )
 
 
-class CalendarHeatmapResponse(BaseModel):
+class CalendarHeatmapResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7878,7 +7878,7 @@ class ErrorTrackingIssue(BaseModel):
     status: Status
 
 
-class ErrorTrackingQueryResponse(BaseModel):
+class ErrorTrackingQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7956,7 +7956,7 @@ class ErrorTrackingSceneToolOutput(BaseModel):
     status: Optional[Status4] = None
 
 
-class EventTaxonomyQueryResponse(BaseModel):
+class EventTaxonomyQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8063,7 +8063,7 @@ class EventsNode(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EventsQueryResponse(BaseModel):
+class EventsQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8237,7 +8237,7 @@ class ExperimentExposureQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelCorrelationResponse(BaseModel):
+class FunnelCorrelationResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8434,7 +8434,7 @@ class FunnelExclusionEventsNode(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelsQueryResponse(BaseModel):
+class FunnelsQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8474,7 +8474,7 @@ class GenericCachedQueryResponse(BaseModel):
     timezone: str
 
 
-class GroupsQueryResponse(BaseModel):
+class GroupsQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8600,7 +8600,7 @@ class InsightActorsQueryBase(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LifecycleQueryResponse(BaseModel):
+class LifecycleQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8624,7 +8624,7 @@ class LifecycleQueryResponse(BaseModel):
     )
 
 
-class LogsQueryResponse(BaseModel):
+class LogsQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8660,7 +8660,7 @@ class MarketingAnalyticsConfig(BaseModel):
     sources_map: Optional[dict[str, SourceMap]] = None
 
 
-class MarketingAnalyticsTableQueryResponse(BaseModel):
+class MarketingAnalyticsTableQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8720,7 +8720,7 @@ class MultipleBreakdownOptions(BaseModel):
     values: list[BreakdownItem]
 
 
-class PathsQueryResponse(BaseModel):
+class PathsQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10460,7 +10460,7 @@ class SurveyCreationSchema(BaseModel):
     type: SurveyType
 
 
-class TeamTaxonomyQueryResponse(BaseModel):
+class TeamTaxonomyQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10527,7 +10527,7 @@ class TracesQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class VectorSearchQueryResponse(BaseModel):
+class VectorSearchQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10709,7 +10709,7 @@ class WebVitalsItem(BaseModel):
     days: list[str]
 
 
-class WebVitalsPathBreakdownQueryResponse(BaseModel):
+class WebVitalsPathBreakdownQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10733,7 +10733,7 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     )
 
 
-class WebVitalsQueryResponse(BaseModel):
+class WebVitalsQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11157,7 +11157,7 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     status: Status
 
 
-class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
+class ErrorTrackingIssueCorrelationQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11579,7 +11579,7 @@ class RecordingsQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RetentionQueryResponse(BaseModel):
+class RetentionQueryResponse(AnalyticsQueryResponseBase):
     model_config = ConfigDict(
         extra="forbid",
     )

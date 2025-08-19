@@ -1171,7 +1171,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
 
 # Type constraint for analytics query responses
-AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
+AR = TypeVar("AR", bound=AnalyticsQueryResponseBase, contravariant=True)
 
 
 class AnalyticsQueryRunner(QueryRunner[Q, AR, CR]):
@@ -1184,6 +1184,14 @@ class AnalyticsQueryRunner(QueryRunner[Q, AR, CR]):
         if not self.modifiers.timings:
             response.timings = None
         return response
+
+    @abstractmethod
+    def _calculate(self) -> AR:
+        """
+        Implement this method with a specific return type annotation.
+        The return type will be automatically inferred for calculate().
+        """
+        raise NotImplementedError()
 
 
 class QueryRunnerWithHogQLContext(AnalyticsQueryRunner):

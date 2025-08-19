@@ -29,3 +29,6 @@ else
     sed -i '' -e 's/str, Enum/StrEnum/g' posthog/schema.py
     sed -i '' 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
 fi
+
+# Fix inheritance for AnalyticsQueryResponseBase subclasses
+python bin/fix-schema-inheritance.py posthog/schema.py
