@@ -49,6 +49,8 @@ services:
                         path /public/webhooks
                         path /public/webhooks/
                         path /public/webhooks/*
+                        path /public/m/
+                        path /public/m/*
                     }
 
                     handle @capture {
@@ -170,6 +172,11 @@ services:
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
+        healthcheck:
+            test: wget -qO- http://127.0.0.1:1080/healthz || exit 1
+            interval: 3s
+            timeout: 1s
+            retries: 3
 
     flower:
         image: mher/flower:2.0.0
