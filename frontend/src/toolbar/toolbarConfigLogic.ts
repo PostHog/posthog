@@ -100,11 +100,11 @@ export async function toolbarFetch(
     method: string = 'GET',
     payload?: Record<string, any>,
     /*
-   allows caller to control how the provided URL is altered before use
-   if "full" then the payload and URL are taken apart and reconstructed
-   if "use-as-provided" then the URL is used as-is, and the payload is not used
-   this is because the heatmapLogic needs more control over how the query parameters are constructed
-  */
+ allows caller to control how the provided URL is altered before use
+ if "full" then the payload and URL are taken apart and reconstructed
+ if "use-as-provided" then the URL is used as-is, and the payload is not used
+ this is because the heatmapLogic needs more control over how the query parameters are constructed
+*/
     urlConstruction: 'full' | 'use-as-provided' = 'full'
 ): Promise<Response> {
     const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken

@@ -9,7 +9,6 @@ import jakarta.persistence.Entity;
 /**
  * events
  */
-@Entity
 public record Events(
         UUID uuid,
         String event,

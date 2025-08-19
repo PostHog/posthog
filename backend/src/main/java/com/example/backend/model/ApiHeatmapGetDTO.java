@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.List;
+
 /**
  * apiHeatmapGetDTO
  */
@@ -18,3 +20,4 @@ public class ApiHeatmapGetDTO {
     private float pointer_relative_x;
     private boolean pointer_target_fixed;
 }
+
