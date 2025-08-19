@@ -121,7 +121,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         paramOffset: number
     ): { cte: string; params: any[] } {
         const cte = `person_inserts AS (
-            INSERT INTO person_performed_events_partitioned (team_id, person_id, event_name)
+            INSERT INTO person_performed_events (team_id, person_id, event_name)
             SELECT * FROM unnest($${paramOffset}::int[], $${paramOffset + 1}::uuid[], $${paramOffset + 2}::text[])
             ON CONFLICT (team_id, person_id, event_name) DO NOTHING
             RETURNING 1
@@ -142,10 +142,10 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         paramOffset: number
     ): { cte: string; params: any[] } {
         const cte = `behavioural_inserts AS (
-            INSERT INTO behavioural_filter_matched_events_partitioned (team_id, person_id, filter_hash, date, counter)
+            INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
             SELECT * FROM unnest($${paramOffset}::int[], $${paramOffset + 1}::uuid[], $${paramOffset + 2}::text[], $${paramOffset + 3}::date[], $${paramOffset + 4}::int[])
             ON CONFLICT (team_id, person_id, filter_hash, date) 
-            DO UPDATE SET counter = behavioural_filter_matched_events_partitioned.counter + EXCLUDED.counter
+            DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
             RETURNING 1
         )`
 

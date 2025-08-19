@@ -1,10 +1,12 @@
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
+import { IconX } from '@posthog/icons'
+
+import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
-    isLemonMenuSection,
     LemonMenu,
     LemonMenuItem,
     LemonMenuItemBase,
@@ -12,10 +14,10 @@ import {
     LemonMenuItemNode,
     LemonMenuProps,
     LemonMenuSection,
+    isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
 import { PopoverProps } from '../Popover'
 import { TooltipProps } from '../Tooltip'
-import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
 
 // Select options are basically menu items that handle onClick and active state internally
 interface LemonSelectOptionBase extends Omit<LemonMenuItemBase, 'active' | 'status'> {

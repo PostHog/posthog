@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

@@ -1,17 +1,19 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconInfo, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { useState } from 'react'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export interface ReplayTaxonomicFiltersProps {
     onChange: (value: TaxonomicFilterValue, item?: any) => void

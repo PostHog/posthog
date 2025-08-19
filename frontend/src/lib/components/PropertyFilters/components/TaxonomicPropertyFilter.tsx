@@ -1,15 +1,18 @@
 import './TaxonomicPropertyFilter.scss'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
-    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -20,7 +23,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { useMemo } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'

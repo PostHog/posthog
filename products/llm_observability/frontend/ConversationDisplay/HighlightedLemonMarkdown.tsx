@@ -1,4 +1,5 @@
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
 import { HighlightedContentWrapper } from './HighlightedContentWrapper'
 
 interface HighlightedLemonMarkdownProps {

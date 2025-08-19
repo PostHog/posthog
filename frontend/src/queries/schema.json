@@ -121,7 +121,6 @@
         },
         "ActorsPropertyTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -370,6 +369,42 @@
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
+        },
+        "AnalyticsQueryResponseBase": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "AnyDataNode": {
             "anyOf": [
@@ -870,7 +905,9 @@
                 "search_error_tracking_issues",
                 "experiment_results_summary",
                 "create_survey",
-                "search_docs"
+                "search_docs",
+                "search_insights",
+                "session_summarization"
             ],
             "type": "string"
         },
@@ -931,7 +968,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "event_metadata", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2334,7 +2371,14 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
                 },
                 "type": {
                     "anyOf": [
@@ -9650,6 +9694,12 @@
                 "id": {
                     "type": "string"
                 },
+                "last_seen": {
+                    "type": "string"
+                },
+                "library": {
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": ["string", "null"]
                 },
@@ -9686,6 +9736,8 @@
                 "event",
                 "first_seen",
                 "id",
+                "last_seen",
+                "library",
                 "name",
                 "odds_ratio",
                 "population",
@@ -10342,7 +10394,6 @@
         },
         "EventTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -13463,6 +13514,9 @@
                     "enum": ["string", "uuid"],
                     "type": "string"
                 },
+                "timings": {
+                    "type": "boolean"
+                },
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
@@ -15879,7 +15933,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -20744,9 +20798,11 @@
             "properties": {
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["color"],
             "type": "object"
         },
         "ResultCustomizationBy": {
@@ -20762,9 +20818,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "ResultCustomizationByValue": {
@@ -20776,9 +20835,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "RetentionDashboardDisplayType": {
@@ -21274,12 +21336,29 @@
                 "revenueProperty": {
                     "type": "string"
                 },
+                "subscriptionDropoffDays": {
+                    "default": 45,
+                    "description": "The number of days we still consider a subscription to be active after the last event. This is useful to avoid the current month's data to look as if most of the subscriptions have churned since we might not have an event for the current month.",
+                    "type": "number"
+                },
+                "subscriptionDropoffMode": {
+                    "$ref": "#/definitions/SubscriptionDropoffMode",
+                    "default": "last_event",
+                    "description": "After a subscription has dropped off, when should we consider it to have ended? It should either be at the date of the last event (will alter past periods, the default), or at the date of the last event plus the dropoff period."
+                },
                 "subscriptionProperty": {
                     "description": "Property used to identify what subscription the revenue event refers to Useful when trying to detect churn/LTV/ARPU/etc.",
                     "type": "string"
                 }
             },
-            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "required": [
+                "eventName",
+                "revenueProperty",
+                "subscriptionDropoffDays",
+                "subscriptionDropoffMode",
+                "revenueCurrencyProperty",
+                "currencyAwareDecimal"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsGoal": {
@@ -23230,6 +23309,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "SubscriptionDropoffMode": {
+            "enum": ["last_event", "after_dropoff_period"],
+            "type": "string"
+        },
         "SuggestedQuestionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -23371,6 +23454,9 @@
                     "type": "number"
                 },
                 "iteration_frequency_days": {
+                    "type": "number"
+                },
+                "linked_flag_id": {
                     "type": "number"
                 },
                 "name": {
@@ -23662,7 +23748,6 @@
         },
         "TeamTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -24390,7 +24475,6 @@
         },
         "VectorSearchQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -25498,7 +25582,6 @@
         },
         "WebVitalsPathBreakdownQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -25658,7 +25741,6 @@
         },
         "WebVitalsQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",

@@ -1,6 +1,8 @@
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+
 import { SourceFormComponent, SourceFormProps } from 'scenes/data-warehouse/external/forms/SourceForm'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'

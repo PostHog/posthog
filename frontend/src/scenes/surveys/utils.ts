@@ -1,10 +1,13 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+
 import { dayjs } from 'lib/dayjs'
-import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { NewSurvey } from 'scenes/surveys/constants'
+import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
+    QuestionProcessedResponses,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -12,6 +15,8 @@ import {
     SurveyEventProperties,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveyRates,
+    SurveyStats,
     SurveyType,
 } from '~/types'
 
@@ -97,11 +102,29 @@ export function sanitizeSurveyDisplayConditions(
         return null
     }
 
-    return {
+    const trimmedUrl = displayConditions.url?.trim()
+    const trimmedSelector = displayConditions.selector?.trim()
+    const trimmedLinkedFlagVariant = displayConditions.linkedFlagVariant?.trim()
+
+    const sanitized: SurveyDisplayConditions = {
         ...displayConditions,
-        url: displayConditions.url?.trim(),
-        selector: displayConditions.selector?.trim(),
+        ...(trimmedUrl && { url: trimmedUrl }),
+        ...(trimmedSelector && { selector: trimmedSelector }),
+        ...(trimmedLinkedFlagVariant && { linkedFlagVariant: trimmedLinkedFlagVariant }),
     }
+
+    // Remove the original keys if they were empty after trimming
+    if (!trimmedUrl) {
+        delete sanitized.url
+    }
+    if (!trimmedSelector) {
+        delete sanitized.selector
+    }
+    if (!trimmedLinkedFlagVariant) {
+        delete sanitized.linkedFlagVariant
+    }
+
+    return sanitized
 }
 
 export function sanitizeSurveyAppearance(
@@ -352,6 +375,60 @@ export function isSurveyRunning(survey: Survey): boolean {
     return !!(survey.start_date && !survey.end_date)
 }
 
+export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    if (!conditions) {
+        return false
+    }
+
+    // check string fields
+    if (conditions.url) {
+        return true
+    }
+
+    if (conditions.selector) {
+        return true
+    }
+
+    if (conditions.linkedFlagVariant) {
+        return true
+    }
+
+    // check numeric fields
+    if (conditions.seenSurveyWaitPeriodInDays !== undefined && conditions.seenSurveyWaitPeriodInDays !== null) {
+        return true
+    }
+
+    // check array fields
+    if (conditions.deviceTypes && conditions.deviceTypes.length > 0) {
+        return true
+    }
+
+    // check enum fields
+    if (conditions.urlMatchType !== undefined && conditions.urlMatchType !== null) {
+        return true
+    }
+
+    if (conditions.deviceTypesMatchType !== undefined && conditions.deviceTypesMatchType !== null) {
+        return true
+    }
+
+    // check complex object fields
+    if (conditions.actions && conditions.actions.values && conditions.actions.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events && conditions.events.values && conditions.events.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events?.repeatedActivation !== undefined && conditions.events.repeatedActivation !== null) {
+        return true
+    }
+
+    return false
+}
+
 export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 export function getSurveyStartDateForQuery(survey: Survey): string {
@@ -408,10 +485,51 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         delete sanitizedAppearance.widgetColor
     }
 
-    return {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    const sanitized: Partial<Survey> = {
         ...survey,
-        conditions: sanitizeSurveyDisplayConditions(survey.conditions),
+        conditions: conditions,
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
+    if (!conditions || Object.keys(conditions).length === 0) {
+        delete sanitized.conditions
+    }
+    if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {
+        delete sanitized.appearance
+    }
+
+    return sanitized
+}
+
+export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
+    const defaultRates: SurveyRates = {
+        response_rate: 0.0,
+        dismissal_rate: 0.0,
+        unique_users_response_rate: 0.0,
+        unique_users_dismissal_rate: 0.0,
+    }
+
+    if (!stats) {
+        return defaultRates
+    }
+
+    const shownCount = stats[SurveyEventName.SHOWN].total_count
+    if (shownCount > 0) {
+        const sentCount = stats[SurveyEventName.SENT].total_count
+        const dismissedCount = stats[SurveyEventName.DISMISSED].total_count
+        const uniqueUsersShownCount = stats[SurveyEventName.SHOWN].unique_persons
+        const uniqueUsersSentCount = stats[SurveyEventName.SENT].unique_persons
+        const uniqueUsersDismissedCount = stats[SurveyEventName.DISMISSED].unique_persons
+
+        return {
+            response_rate: parseFloat(((sentCount / shownCount) * 100).toFixed(2)),
+            dismissal_rate: parseFloat(((dismissedCount / shownCount) * 100).toFixed(2)),
+            unique_users_response_rate: parseFloat(((uniqueUsersSentCount / uniqueUsersShownCount) * 100).toFixed(2)),
+            unique_users_dismissal_rate: parseFloat(
+                ((uniqueUsersDismissedCount / uniqueUsersShownCount) * 100).toFixed(2)
+            ),
+        }
+    }
+    return defaultRates
 }

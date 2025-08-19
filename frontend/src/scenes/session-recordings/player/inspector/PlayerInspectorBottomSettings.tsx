@@ -1,7 +1,9 @@
 import './PlayerInspectorList.scss'
 
-import { BaseIcon, IconCheck } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { BaseIcon, IconCheck } from '@posthog/icons'
+
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'

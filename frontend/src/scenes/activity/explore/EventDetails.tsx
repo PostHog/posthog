@@ -1,15 +1,16 @@
+import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
+import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
-import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+
+import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 
 interface EventDetailsProps {
     event: EventType

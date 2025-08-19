@@ -1,4 +1,5 @@
 import type { Decorator } from '@storybook/react'
+
 import { useAvailableFeatures } from '~/mocks/features'
 
 import { KeaStory } from './kea-story'

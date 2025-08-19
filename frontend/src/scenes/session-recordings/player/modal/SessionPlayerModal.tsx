@@ -1,9 +1,11 @@
-import { LemonModal } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonModal } from '@posthog/lemon-ui'
+
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 import { PlayerMeta } from '../player-meta/PlayerMeta'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
 /**

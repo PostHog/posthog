@@ -1,6 +1,7 @@
 import * as PopoverPrimitiveBase from '@radix-ui/react-popover'
-import { cn } from 'lib/utils/css-classes'
 import * as React from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 function PopoverPrimitive({ ...props }: React.ComponentProps<typeof PopoverPrimitiveBase.Root>): JSX.Element {
     return <PopoverPrimitiveBase.Root data-slot="popover" {...props} />

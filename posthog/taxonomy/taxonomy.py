@@ -2015,7 +2015,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "virtual": True,
         },
         "$virt_revenue": {
-            "description": "The total revenue for this person.",
+            "description": "The total revenue for this person. This will always be the current total revenue even when referring to a person via events.",
             "label": "Total revenue",
             "type": "Numeric",
             "virtual": True,

@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -24,14 +25,27 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     })),
     actions(() => ({
         clearPeople: true,
-        loadMorePeople: (selectedInterval: number) => selectedInterval,
+        loadPeople: (selectedInterval: number, breakdownValue?: string | number | null) => ({
+            selectedInterval,
+            breakdownValue,
+        }),
+        loadMorePeople: (selectedInterval: number, breakdownValue?: string | number | null) => ({
+            selectedInterval,
+            breakdownValue,
+        }),
         loadMorePeopleSuccess: (payload: RetentionTablePeoplePayload) => ({ payload }),
     })),
     loaders(({ values }) => ({
         people: {
             __default: {} as RetentionTablePeoplePayload,
-            loadPeople: async (selectedInterval: number) => {
-                return await queryForActors(values.querySource as RetentionQuery, selectedInterval)
+            loadPeople: async ({
+                selectedInterval,
+                breakdownValue,
+            }: {
+                selectedInterval: number
+                breakdownValue?: string | number | null
+            }) => {
+                return await queryForActors(values.querySource as RetentionQuery, selectedInterval, 0, breakdownValue)
             },
         },
     })),
@@ -57,11 +71,22 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             // clear people when changing the insight filters
             actions.clearPeople()
         },
-        loadMorePeople: async (selectedInterval) => {
+        loadMorePeople: async ({
+            selectedInterval,
+            breakdownValue,
+        }: {
+            selectedInterval: number
+            breakdownValue?: string | number | null
+        }) => {
             if (values.people.next || values.people.offset) {
                 let peopleResult: RetentionTablePeoplePayload
                 if (values.people.offset && values.querySource?.kind === NodeKind.RetentionQuery) {
-                    peopleResult = await queryForActors(values.querySource, selectedInterval, values.people.offset)
+                    peopleResult = await queryForActors(
+                        values.querySource,
+                        selectedInterval,
+                        values.people.offset,
+                        breakdownValue
+                    )
                 } else {
                     peopleResult = await api.get<RetentionTablePeoplePayload>(values.people.next as string)
                 }

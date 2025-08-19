@@ -4,27 +4,27 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 type SeriesCheckColumnTitleProps = {
     indexedResults: IndexedTrendResult[]
     canCheckUncheckSeries: boolean
-    hiddenLegendIndexes: number[]
-    updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => void
+    getTrendsHidden: (dataset: IndexedTrendResult) => boolean
+    toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => void
 }
 
 export function SeriesCheckColumnTitle({
     indexedResults,
     canCheckUncheckSeries,
-    hiddenLegendIndexes,
-    updateHiddenLegendIndexes,
+    getTrendsHidden,
+    toggleAllResultsHidden,
 }: SeriesCheckColumnTitleProps): JSX.Element {
-    const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendIndexes.includes(series.id))
-    const areAllSeriesChecked = indexedResults.every((series) => !hiddenLegendIndexes.includes(series.id))
+    const isAnySeriesChecked = indexedResults.some((dataset) => !getTrendsHidden(dataset))
+    const areAllSeriesChecked = indexedResults.every((dataset) => !getTrendsHidden(dataset))
 
     return (
         <LemonCheckbox
             checked={areAllSeriesChecked || (isAnySeriesChecked ? 'indeterminate' : false)}
             onChange={(checked) => {
                 if (!checked) {
-                    updateHiddenLegendIndexes(indexedResults.map((i) => i.id))
+                    toggleAllResultsHidden(indexedResults, true)
                 } else {
-                    updateHiddenLegendIndexes([])
+                    toggleAllResultsHidden(indexedResults, false)
                 }
             }}
             disabled={!canCheckUncheckSeries}
@@ -35,22 +35,22 @@ export function SeriesCheckColumnTitle({
 type SeriesCheckColumnItemProps = {
     item: IndexedTrendResult
     canCheckUncheckSeries: boolean
-    hiddenLegendIndexes: number[]
-    toggleHiddenLegendIndex: (index: number) => void
+    isHidden: boolean
+    toggleResultHidden: (dataset: IndexedTrendResult) => void
     label?: JSX.Element
 }
 
 export function SeriesCheckColumnItem({
     item,
     canCheckUncheckSeries,
-    hiddenLegendIndexes,
-    toggleHiddenLegendIndex,
+    isHidden,
+    toggleResultHidden,
     label,
 }: SeriesCheckColumnItemProps): JSX.Element {
     return (
         <LemonCheckbox
-            checked={!hiddenLegendIndexes.includes(item.id)}
-            onChange={() => toggleHiddenLegendIndex(item.id)}
+            checked={!isHidden}
+            onChange={() => toggleResultHidden(item)}
             disabled={!canCheckUncheckSeries}
             label={label}
         />

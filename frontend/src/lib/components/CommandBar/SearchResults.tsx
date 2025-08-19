@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
 import { DetectiveHog } from '../hedgehogs'
-import { searchBarLogic } from './searchBarLogic'
 import { SearchResult, SearchResultSkeleton } from './SearchResult'
 import { SearchResultPreview } from './SearchResultPreview'
+import { searchBarLogic } from './searchBarLogic'
 
 export const SearchResults = (): JSX.Element => {
     const { combinedSearchResults, combinedSearchLoading, activeResultIndex } = useValues(searchBarLogic)
