@@ -191,17 +191,19 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-            const uniqueDestinationMetrics = Object.values(notMaskedInvocations).map((inv): MinimalAppMetric => {
-                return {
-                    metric_kind: 'success',
-                    metric_name: 'billable_invocation',
-                    team_id: inv.teamId,
-                    app_source_id: inv.hogFunction.id,
-                    count: 1,
-                }
-            })
+            const billingMetrics = Object.values(notMaskedInvocations)
+                .filter((inv) => inv.hogFunction.type === 'destination')
+                .map((inv): MinimalAppMetric => {
+                    return {
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                        team_id: inv.teamId,
+                        app_source_id: inv.hogFunction.id,
+                        count: 1,
+                    }
+                })
 
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
+            this.hogFunctionMonitoringService.queueAppMetrics(billingMetrics, 'hog_function')
 
             return notMaskedInvocations
         })
