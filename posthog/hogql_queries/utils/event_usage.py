@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer
@@ -38,7 +38,7 @@ def log_event_usage(
 
 
 def log_event_usage_from_query_metadata(
-    query_metadata: dict,
+    query_metadata: dict[str, Any],
     team_id: int,
     user_id: Optional[int] = None,
 ):
