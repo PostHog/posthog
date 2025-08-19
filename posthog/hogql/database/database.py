@@ -577,8 +577,6 @@ def create_hogql_database(
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)
 
-    # For every Stripe source, let's generate its own revenue view
-    # Prefetch related schemas and tables to avoid N+1
     with timings.measure("revenue_analytics_views"):
         revenue_views = []
         try:
@@ -586,11 +584,11 @@ def create_hogql_database(
         except Exception as e:
             capture_exception(e)
 
-        # Each view will have a name similar to stripe.prefix.table_name
-        # We want to create a nested table group where stripe is the parent,
-        # prefix is the child of stripe, and table_name is the child of prefix
-        # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
-        # but still allowing the bare stripe.prefix.table_name string access
+        # Each view will have a name similar to `stripe.<prefix>.<table_name>`
+        # We want to create a nested table group where `stripe` is the parent,
+        # `<prefix>` is the child of `stripe`, and `<table_name>` is the child of `<prefix>`
+        # allowing you to access the table as `stripe[prefix][table_name]` in a dict fashion
+        # but still allowing the bare `stripe.prefix.table_name` string access
         for view in revenue_views:
             try:
                 views[view.name] = view
