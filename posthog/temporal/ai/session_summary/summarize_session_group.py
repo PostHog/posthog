@@ -561,9 +561,9 @@ async def _start_session_group_summary_workflow(
         retry_policy=retry_policy,
     )
 
-    # Track previous states to detect changes
-    previous_sessions_status: dict[str, bool] = {}
-    previous_pattern_keys: list[str] = []
+    # Track previous states to detect changes, starting with None to catch empty state as the step changes
+    previous_sessions_status: dict[str, bool] | None = None
+    previous_pattern_keys: list[str] | None = None
 
     # Poll for status
     while True:
@@ -597,6 +597,9 @@ async def _start_session_group_summary_workflow(
             # Yield intermediate data for the notebook, if it changed
             # Single sessions summarization status
             if sessions_status != previous_sessions_status:
+                if previous_sessions_status is None and step != SessionSummaryStep.WATCHING_SESSIONS:
+                    # Don't define initial step state until it's its turn
+                    continue
                 formatted_sessions_status = format_single_sessions_status(sessions_status)
                 yield (
                     SessionSummaryStreamUpdate.NOTEBOOK_UPDATE,
@@ -607,6 +610,9 @@ async def _start_session_group_summary_workflow(
 
             # Patterns extraction status
             if patterns_keys != previous_pattern_keys:
+                if previous_pattern_keys is None and step != SessionSummaryStep.FINDING_PATTERNS:
+                    # Don't define initial step state until it's its turn
+                    continue
                 patterns = get_patterns_from_redis_outside_workflow(
                     redis_output_keys=patterns_keys,
                     redis_client=get_client(),

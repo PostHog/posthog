@@ -127,7 +127,7 @@ async def get_llm_single_session_summary_activity(
     if success:
         # TODO: Remove after testing
         # Add random sleep to test UI progress updates
-        await asyncio.sleep(random.randint(10, 20))
+        await asyncio.sleep(random.randint(5, 10))
         # Cached successfully
         return None
     # If not yet, or TTL expired - generate the summary with LLM

@@ -101,7 +101,7 @@ class NotebookIntermediateState:
         # Using dict to maintain order (Python 3.7+ guarantees order)
         self.plan_items: dict[SessionSummaryStep, tuple[str, bool]] = {
             SessionSummaryStep.WATCHING_SESSIONS: ("Watch sessions", False),
-            SessionSummaryStep.FINDING_PATTERNS: ("Find patterns", False),
+            SessionSummaryStep.FINDING_PATTERNS: ("Find initial patterns", False),
             SessionSummaryStep.GENERATING_REPORT: ("Generate final report", False),
         }
         # Store content for each step - allows late-arriving updates to be handled correctly
