@@ -1172,7 +1172,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         return response
 
 
-class QueryRunnerWithHogQLContext(AnalyticsQueryRunner):
+class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
     database: Database
     hogql_context: HogQLContext
 
