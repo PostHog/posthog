@@ -172,6 +172,7 @@
 
 .StepLegend {
     height: 100%;
+    white-space: nowrap;
     border-left: 1px solid var(--color-border-primary);
 
     > .LemonRow {
@@ -184,6 +185,7 @@
             width: fit-content;
             margin-top: 0;
             font-weight: 600;
+            white-space: normal;
         }
     }
 
