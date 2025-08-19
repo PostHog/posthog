@@ -54,7 +54,7 @@ export class QuotaLimiting {
         return result.isLimited
     }
 
-    public async getQuotaLimitedTokens(teamToken: string, resource: QuotaResource): Promise<QuotaLimitingResult> {
+    private async getQuotaLimitedTokens(teamToken: string, resource: QuotaResource): Promise<QuotaLimitingResult> {
         const now = Date.now()
         const limitedTokens = await this.limitedTokensLoader.get(resource)
         const limitedUntil = limitedTokens?.[teamToken]
