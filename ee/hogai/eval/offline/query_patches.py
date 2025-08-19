@@ -18,7 +18,7 @@ TEAM_TAXONOMY_QUERY_DATA_SOURCE: dict[int, list[TeamTaxonomyItem]] = {}
 
 
 class PatchedTeamTaxonomyQueryRunner(TeamTaxonomyQueryRunner):
-    def calculate(self):
+    def _calculate(self):
         results: list[TeamTaxonomyItem] = []
         if precomputed_results := TEAM_TAXONOMY_QUERY_DATA_SOURCE.get(self.team.id):
             results = precomputed_results
@@ -30,7 +30,7 @@ EVENT_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[str, list[EventTaxonomyItem]]] 
 
 
 class PatchedEventTaxonomyQueryRunner(EventTaxonomyQueryRunner):
-    def calculate(self):
+    def _calculate(self):
         results: list[EventTaxonomyItem] = []
         team_data = EVENT_TAXONOMY_QUERY_DATA_SOURCE.get(self.team.id, {})
         if self.query.event in team_data:
@@ -41,16 +41,20 @@ class PatchedEventTaxonomyQueryRunner(EventTaxonomyQueryRunner):
 
 
 # This is a global state that is used to store the patched results for the actors property taxonomy query.
-ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[int | Literal["person"], ActorsPropertyTaxonomyResponse]] = (
-    defaultdict(dict)
-)
+ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE: dict[
+    int, dict[int | Literal["person"], dict[str, ActorsPropertyTaxonomyResponse]]
+] = defaultdict(lambda: defaultdict(dict))
 
 
 class PatchedActorsPropertyTaxonomyQueryRunner(ActorsPropertyTaxonomyQueryRunner):
-    def calculate(self):
-        key = self.query.group_type_index or "person"
+    def _calculate(self):
+        key = self.query.groupTypeIndex if isinstance(self.query.groupTypeIndex, int) else "person"
         if snapshotted_query := ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.get(self.team.id, {}).get(key):
-            result = snapshotted_query
+            result: list[ActorsPropertyTaxonomyResponse] = []
+            for prop in self.query.properties:
+                result.append(
+                    snapshotted_query.get(prop, ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0))
+                )
         else:
-            result = ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)
+            result = [ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)]
         return ActorsPropertyTaxonomyQueryResponse(results=result, modifiers=self.modifiers)

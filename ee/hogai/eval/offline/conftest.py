@@ -18,16 +18,16 @@ from pydantic_avro import AvroBase
 # We want the PostHog setup_evals fixture here
 from ee.hogai.eval.conftest import setup_evals  # noqa: F401
 from ee.hogai.eval.schema import (
-    ActorsPropertyTaxonomySchema,
+    ActorsPropertyTaxonomySnapshot,
     DatasetInput,
-    DataWarehouseTableSchema,
+    DataWarehouseTableSnapshot,
     EvalsDockerImageConfig,
-    GroupTypeMappingSchema,
+    GroupTypeMappingSnapshot,
     ProjectSnapshot,
-    PropertyDefinitionSchema,
-    PropertyTaxonomySchema,
-    TeamSchema,
-    TeamTaxonomyItemSchema,
+    PropertyDefinitionSnapshot,
+    PropertyTaxonomySnapshot,
+    TeamSnapshot,
+    TeamTaxonomyItemSnapshot,
 )
 from posthog.models import (
     GroupTypeMapping,
@@ -130,8 +130,8 @@ class SnapshotLoader:
             yield schema.model_validate(record)
 
     async def _load_project_snapshot(self, project: Project, team_id: int, buffer: BytesIO) -> Team:
-        project_snapshot = next(self._parse_snapshot_to_schema(TeamSchema, buffer))
-        team = next(TeamSchema.deserialize_for_project(team_id, [project_snapshot]))
+        project_snapshot = next(self._parse_snapshot_to_schema(TeamSnapshot, buffer))
+        team = next(TeamSnapshot.deserialize_for_project(team_id, [project_snapshot]))
         team.project = project
         team.organization = self.organization
         team.api_token = f"team_{team_id}"
@@ -139,31 +139,32 @@ class SnapshotLoader:
         return team
 
     async def _load_property_definitions(self, team: Team, buffer: BytesIO):
-        snapshot = list(self._parse_snapshot_to_schema(PropertyDefinitionSchema, buffer))
-        property_definitions = PropertyDefinitionSchema.deserialize_for_project(team.id, snapshot)
+        snapshot = list(self._parse_snapshot_to_schema(PropertyDefinitionSnapshot, buffer))
+        property_definitions = PropertyDefinitionSnapshot.deserialize_for_project(team.id, snapshot)
         return await PropertyDefinition.objects.abulk_create(property_definitions, batch_size=500)
 
     async def _load_group_type_mappings(self, team: Team, buffer: BytesIO):
-        snapshot = list(self._parse_snapshot_to_schema(GroupTypeMappingSchema, buffer))
-        group_type_mappings = GroupTypeMappingSchema.deserialize_for_project(team.id, snapshot, team_id=team.id)
+        snapshot = list(self._parse_snapshot_to_schema(GroupTypeMappingSnapshot, buffer))
+        group_type_mappings = GroupTypeMappingSnapshot.deserialize_for_project(team.id, snapshot, team_id=team.id)
         return await GroupTypeMapping.objects.abulk_create(group_type_mappings, batch_size=500)
 
     async def _load_data_warehouse_tables(self, team: Team, buffer: BytesIO):
-        snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSchema, buffer))
-        data_warehouse_tables = DataWarehouseTableSchema.deserialize_for_project(team.id, snapshot)
+        snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSnapshot, buffer))
+        data_warehouse_tables = DataWarehouseTableSnapshot.deserialize_for_project(team.id, snapshot)
         return await DataWarehouseTable.objects.abulk_create(data_warehouse_tables, batch_size=500)
 
     def _load_event_taxonomy(self, team: Team, buffer: BytesIO):
-        snapshot = next(self._parse_snapshot_to_schema(TeamTaxonomyItemSchema, buffer))
+        snapshot = next(self._parse_snapshot_to_schema(TeamTaxonomyItemSnapshot, buffer))
         TEAM_TAXONOMY_QUERY_DATA_SOURCE[team.id] = snapshot.results
 
     def _load_properties_taxonomy(self, team: Team, buffer: BytesIO):
-        for item in self._parse_snapshot_to_schema(PropertyTaxonomySchema, buffer):
+        for item in self._parse_snapshot_to_schema(PropertyTaxonomySnapshot, buffer):
             EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id][item.event] = item.results
 
     def _load_actors_property_taxonomy(self, team: Team, buffer: BytesIO):
-        for item in self._parse_snapshot_to_schema(ActorsPropertyTaxonomySchema, buffer):
-            ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id][item.group_type_index or "person"] = item.results
+        for item in self._parse_snapshot_to_schema(ActorsPropertyTaxonomySnapshot, buffer):
+            key = item.group_type_index if isinstance(item.group_type_index, int) else "person"
+            ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id][key] = item.results
 
     def _patch_query_runners(self):
         self.patches = [
