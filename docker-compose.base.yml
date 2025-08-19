@@ -172,6 +172,11 @@ services:
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
+        healthcheck:
+            test: curl -f http://localhost:1080/email || exit 1
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     flower:
         image: mher/flower:2.0.0
