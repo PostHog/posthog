@@ -23,6 +23,11 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.taxonomy.taxonomy import PROPERTY_NAME_ALIASES, CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    get_all_preaggregated_table_supported_properties,
+)
+
+PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES = get_all_preaggregated_table_supported_properties()
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [
@@ -95,6 +100,12 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=False,
     )
 
+    enable_preaggregated_table_hints = serializers.BooleanField(
+        help_text="Whether to enable UI hints that the property is optimized for the new web analytics query engine for faster queries",
+        required=False,
+        default=False,
+    )
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
@@ -143,6 +154,9 @@ class QueryContext:
     event_name_join_filter: str = ""
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
+
+    # preaggregated table hints parameters
+    enable_preaggregated_table_hints: bool = False
 
     params: dict = dataclasses.field(default_factory=dict)
 
@@ -310,8 +324,22 @@ class QueryContext:
             )
         return self
 
+    def with_preaggregated_table_hints(self, enable_preaggregated_table_hints: bool) -> Self:
+        return dataclasses.replace(
+            self,
+            enable_preaggregated_table_hints=enable_preaggregated_table_hints,
+        )
+
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
+
+        preaggregated_table_ordering = ""
+        if self.enable_preaggregated_table_hints:
+            self.params.update(
+                {"preaggregated_table_supported_properties": list(PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES)}
+            )
+            preaggregated_table_ordering = "CASE WHEN posthog_propertydefinition.name = ANY(%(preaggregated_table_supported_properties)s) THEN 0 ELSE 1 END,"
+
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -322,7 +350,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
+            ORDER BY {preaggregated_table_ordering} is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -420,6 +448,8 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 
 
 class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    supported_by_preaggregated_tables = serializers.SerializerMethodField()
+
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -428,9 +458,13 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "is_numerical",
             "property_type",
             "tags",
+            "supported_by_preaggregated_tables",
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
         )
+
+    def get_supported_by_preaggregated_tables(self, obj):
+        return obj.name in PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES
 
     def validate(self, data):
         validated_data = super().validate(data)
@@ -625,6 +659,9 @@ class PropertyDefinitionViewSet(
             )
             .with_hidden_filter(
                 query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=use_enterprise_taxonomy
+            )
+            .with_preaggregated_table_hints(
+                query.validated_data.get("enable_preaggregated_table_hints", False),
             )
         )
 
