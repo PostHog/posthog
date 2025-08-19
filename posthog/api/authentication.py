@@ -39,7 +39,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
-from posthog.mfa_session import clear_mfa_session_flags, set_mfa_verified_in_session
+from posthog.helpers.mfa_session import clear_mfa_session_flags, set_mfa_verified_in_session
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import (

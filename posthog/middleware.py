@@ -32,7 +32,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.mfa_session import is_mfa_verified_in_session, set_mfa_verified_in_session
+from posthog.helpers.mfa_session import is_mfa_verified_in_session, set_mfa_verified_in_session
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Organization, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token

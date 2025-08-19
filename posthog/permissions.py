@@ -23,7 +23,7 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException
-from posthog.mfa_session import is_mfa_verified_in_session
+from posthog.helpers.mfa_session import is_mfa_verified_in_session
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported

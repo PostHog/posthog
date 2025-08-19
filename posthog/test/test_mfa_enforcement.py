@@ -16,7 +16,7 @@ from posthog.auth import (
     SessionAuthentication,
     TemporaryTokenAuthentication,
 )
-from posthog.mfa_session import (
+from posthog.helpers.mfa_session import (
     clear_mfa_session_flags,
     is_mfa_session_expired,
     is_mfa_verified_in_session,
