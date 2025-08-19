@@ -20,7 +20,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme'],
             retentionLogic(props),
-            ['results', 'selectedBreakdownValue', 'retentionMeans'],
+            ['results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
         ],
         actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
     })),

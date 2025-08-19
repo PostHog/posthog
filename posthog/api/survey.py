@@ -64,6 +64,11 @@ from posthog.models.utils import UUIDT
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
+if "replica" in settings.DATABASES:
+    READ_DB_FOR_SURVEYS = "replica"
+else:
+    READ_DB_FOR_SURVEYS = "default"
+
 
 class EventStats(TypedDict):
     total_count: int
@@ -1330,12 +1335,18 @@ def get_surveys_opt_in(team: Team) -> bool:
 
 
 def get_surveys_count(team: Team) -> int:
-    return Survey.objects.filter(team__project_id=team.project_id).exclude(archived=True).count()
+    return (
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
+        .exclude(archived=True)
+        .count()
+    )
 
 
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
         .exclude(archived=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
