@@ -64,7 +64,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     subscriptions = await get_subscription_ids()
     await logger.ainfo(f"Database query completed, found {len(subscriptions)} total subscriptions")
 
-    subscription_ids = []
+    subscription_ids: list[int] = []
     team_count = 0
     processed_teams = 0
 
