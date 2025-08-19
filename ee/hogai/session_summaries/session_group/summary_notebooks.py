@@ -234,22 +234,6 @@ async def create_notebook_from_summary_content(
     return notebook
 
 
-# async def update_notebook_with_summary(
-#     notebook_short_id: str,
-#     session_ids: list[str],
-#     team: Team,
-#     summary: EnrichedSessionGroupSummaryPatternsList,
-# ) -> Notebook:
-#     """Update a notebook with session summary patterns."""
-#     notebook = await Notebook.objects.aget(short_id=notebook_short_id)
-#     notebook_content = _generate_notebook_content_from_summary(
-#         summary=summary, session_ids=session_ids, project_name=team.name, team_id=team.id
-#     )
-#     notebook.content = notebook_content
-#     await notebook.asave()
-#     return notebook
-
-
 def generate_notebook_content_from_summary(
     summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], project_name: str, team_id: int
 ) -> TipTapNode:
