@@ -20,7 +20,6 @@ export class GroupTypeManager {
         this.loader = new LazyLoader({
             name: 'GroupTypeManager',
             refreshAgeMs: 30_000, // 30 seconds
-            refreshNullAgeMs: 30_000, // 30 seconds
             refreshJitterMs: 0,
             loader: async (projectIds: string[]) => {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
