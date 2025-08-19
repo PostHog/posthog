@@ -56,9 +56,7 @@ export function MessageTemplatesTable(): JSX.Element {
     return (
         <div className="templates-section">
             <MaxTool
-                name="create_message_template"
-                displayName="Create a new message template"
-                description="Max can create a new template from a prompt"
+                identifier="create_message_template"
                 context={{}}
                 callback={(toolOutput: any) => {
                     createTemplate({ template: JSON.parse(toolOutput) })

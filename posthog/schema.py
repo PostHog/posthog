@@ -95,6 +95,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_MESSAGE_TEMPLATE = "create_message_template"
 
 
 class AssistantDateRange(BaseModel):
