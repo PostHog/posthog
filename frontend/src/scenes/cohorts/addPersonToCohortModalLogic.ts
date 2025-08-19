@@ -101,6 +101,8 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                     })
                     mountedDataNodeLogic?.actions.loadData('force_blocking')
                 }
+            } catch {
+                lemonToast.error('Unable to add person to cohort')
             } finally {
                 actions.setCohortUpdateLoading(id, false)
             }
