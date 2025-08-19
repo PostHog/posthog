@@ -859,7 +859,7 @@ class TestNotebookIntermediateState(APIBaseTest):
         state.update_step_progress(content_step_two, SessionSummaryStep.FINDING_PATTERNS)
 
         # Verify the transition
-        assert state.current_step == SessionSummaryStep.FINDING_PATTERNS
+        assert state.current_step == SessionSummaryStep.FINDING_PATTERNS  # type: ignore[comparison-overlap]
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
         assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", False)
         assert state.current_step_content == content_step_two
