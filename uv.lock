@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.11.*"
 
 [[package]]
@@ -1848,6 +1848,15 @@ wheels = [
 ]
 
 [[package]]
+name = "filetype"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/29/745f7d30d47fe0f251d3ad3dc2978a23141917661998763bebb6da007eb1/filetype-1.2.0.tar.gz", hash = "sha256:66b56cd6474bf41d8c54660347d37afcc3f7d1970648de365c102ef77548aadb", size = 998020, upload-time = "2022-11-02T17:34:04.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/79/1b8fa1bb3568781e84c9200f951c735f3f157429f44be0495da55894d620/filetype-1.2.0-py2.py3-none-any.whl", hash = "sha256:7ce71b6880181241cf7ac8697a2f1eb6a8bd9b429f7ad6d27b8db9ba5f1c2d25", size = 19970, upload-time = "2022-11-02T17:34:01.425Z" },
+]
+
+[[package]]
 name = "flaky"
 version = "3.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2001,6 +2010,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7d/23/0e483d236f0f47cecd9b866614186a5845ad6fb03cfc265edcd962d500bf/google_ads-26.1.0.tar.gz", hash = "sha256:3ec4cc8ad07f71c923433bd2a783afc59acd5d428ed75bcc64f8ecaa5b3d8691", size = 7045268, upload-time = "2025-04-16T19:21:46.876Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/de/ecceaa4de5c344fabe6d9a739f92cda1de19889af1dd1aa372841d84b52c/google_ads-26.1.0-py3-none-any.whl", hash = "sha256:5fd2a7ac7216d45c6f7b8cadd765ea2670fda4a05aa280ea849ecc28f1aa7fd0", size = 13655250, upload-time = "2025-04-16T19:21:44.377Z" },
+]
+
+[[package]]
+name = "google-ai-generativelanguage"
+version = "0.6.18"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/eb/77/3e89a4c4200135eac74eca2f6c9153127e3719a825681ad55f5a4a58b422/google_ai_generativelanguage-0.6.18.tar.gz", hash = "sha256:274ba9fcf69466ff64e971d565884434388e523300afd468fc8e3033cd8e606e", size = 1444757, upload-time = "2025-04-29T15:45:45.527Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/77/ca2889903a2d93b3072a49056d48b3f55410219743e338a1d7f94dc6455e/google_ai_generativelanguage-0.6.18-py3-none-any.whl", hash = "sha256:13d8174fea90b633f520789d32df7b422058fd5883b022989c349f1017db7fcf", size = 1372256, upload-time = "2025-04-29T15:45:43.601Z" },
 ]
 
 [[package]]
@@ -2783,6 +2807,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/82/26/c4770d3933237cde2918d502e3b0a8b6ce100b296840b632658f3e59b341/langchain_core-0.3.69.tar.gz", hash = "sha256:c132961117cc7f0227a4c58dd3e209674a6dd5b7e74abc61a0df93b0d736e283", size = 563824, upload-time = "2025-07-15T21:19:56.626Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/51/7b/bb7b088440ff9cc55e9e6eba94162cbdcd3b1693c194e1ad4764acba29b9/langchain_core-0.3.69-py3-none-any.whl", hash = "sha256:383e9cb4919f7ef4b24bf8552ef42e4323c064924fea88b28dd5d7ddb740d3b8", size = 441556, upload-time = "2025-07-15T21:19:55.342Z" },
+]
+
+[[package]]
+name = "langchain-google-genai"
+version = "2.1.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "filetype" },
+    { name = "google-ai-generativelanguage" },
+    { name = "langchain-core" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ba/24/4ad44e9a8ad25682c22b56f0b665eb6d87090f2360355b48095e285a7810/langchain_google_genai-2.1.9.tar.gz", hash = "sha256:cd5d6f644b8dac3e312e30101bb97541aab240e82678e87a4df039ee1dc77531", size = 45866, upload-time = "2025-08-04T18:51:51.42Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/84/d8/e1162835d5d6eefaae341c2d1cf750ab53222a421252346905187e53b8a2/langchain_google_genai-2.1.9-py3-none-any.whl", hash = "sha256:8d3aab59706b8f8920a22bcfd63c5000ce430fe61db6ecdec262977d1a0be5b8", size = 49381, upload-time = "2025-08-04T18:51:50.51Z" },
 ]
 
 [[package]]
@@ -3959,6 +3998,7 @@ dependencies = [
     { name = "kombu" },
     { name = "langchain" },
     { name = "langchain-community" },
+    { name = "langchain-google-genai" },
     { name = "langchain-openai" },
     { name = "langchain-perplexity" },
     { name = "langgraph" },
@@ -4182,6 +4222,7 @@ requires-dist = [
     { name = "kombu", specifier = "==5.3.2" },
     { name = "langchain", specifier = "==0.3.26" },
     { name = "langchain-community", specifier = "==0.3.27" },
+    { name = "langchain-google-genai", specifier = ">=2.1.9" },
     { name = "langchain-openai", specifier = "==0.3.27" },
     { name = "langchain-perplexity", specifier = ">=0.1.1" },
     { name = "langgraph", specifier = "==0.4.10" },

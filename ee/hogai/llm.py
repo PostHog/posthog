@@ -3,9 +3,10 @@ from typing import TYPE_CHECKING, Any
 from posthog.settings import CLOUD_DEPLOYMENT
 
 from langchain_core.outputs import LLMResult
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 import pytz
 
 from asgiref.sync import sync_to_async
@@ -114,3 +115,51 @@ class MaxChatOpenAI(ChatOpenAI):
         else:
             self._enrich_messages(messages, project_org_user_variables)
         return await super().agenerate(messages, *args, **kwargs)
+
+
+class MaxGemini(ChatGoogleGenerativeAI):
+    """PostHog-tuned subclass of ChatGoogleGenerativeAI.
+
+    This subclass filters out SystemMessages since Gemini doesn't support them,
+    converting them to HumanMessages with a system prompt prefix.
+    """
+
+    def __init__(self, *args, user: "User" = None, team: "Team" = None, **kwargs):
+        if "max_retries" not in kwargs:
+            kwargs["max_retries"] = 3
+        super().__init__(*args, **kwargs)
+        self._user = user
+        self._team = team
+
+    def _convert_messages_for_gemini(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Convert messages to be compatible with Gemini (no SystemMessages).
+
+        Simply converts SystemMessages to HumanMessages with a prefix.
+        """
+        converted_messages = []
+
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                converted_messages.append(HumanMessage(content=f"System Instructions:\n{msg.content}"))
+            else:
+                converted_messages.append(msg)
+
+        return converted_messages
+
+    def generate(
+        self,
+        messages: list[list[BaseMessage]],
+        *args,
+        **kwargs,
+    ) -> LLMResult:
+        converted_messages = []
+        for message_sublist in messages:
+            has_system_message = any(isinstance(msg, SystemMessage) for msg in message_sublist)
+
+            if has_system_message:
+                converted_sublist = self._convert_messages_for_gemini(message_sublist)
+                converted_messages.append(converted_sublist)
+            else:
+                converted_messages.append(message_sublist)
+
+        return super().generate(converted_messages, *args, **kwargs)
