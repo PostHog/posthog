@@ -14,7 +14,7 @@ from posthog.schema import (
 
 class ActorsPropertyTaxonomyQueryRunner(
     TaxonomyCacheMixin,
-    AnalyticsQueryRunner[
+    AnalyticsQueryRunner[  # type: ignore
         ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyQueryResponse, CachedActorsPropertyTaxonomyQueryResponse
     ],
 ):
