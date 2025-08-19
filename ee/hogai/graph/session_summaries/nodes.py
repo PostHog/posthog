@@ -200,6 +200,8 @@ class SessionSummarizationNode(AssistantNode):
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
+                # Update intermediate state based on step enum (no content, as it's just a status message)
+                self._intermediate_state.update_step_progress(content=None, step=step)
                 # Status message - stream to user
                 self._stream_progress(progress_message=data, writer=writer)
             # Notebook intermediate data update messages
@@ -210,7 +212,7 @@ class SessionSummarizationNode(AssistantNode):
                         f"(expected: dict)"
                     )
                 # Update intermediate state based on step enum
-                self._intermediate_state.update_step_progress(data, step)
+                self._intermediate_state.update_step_progress(content=data, step=step)
                 # Stream the updated intermediate state
                 formatted_state = self._intermediate_state.format_intermediate_state()
                 self._stream_notebook_content(formatted_state, state, writer)
@@ -264,14 +266,14 @@ class SessionSummarizationNode(AssistantNode):
             # Query the filters to get session ids
             # TODO: Uncomment after testing
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
-            # session_ids = [
-            #     "01985f9e-05f6-788d-a6c4-8271afcfc4c3",
-            #     "01985f9e-a603-7c4a-a403-4a978d5164eb",
-            #     "01985f9e-d284-75cd-b5f2-3390a58aa086",
-            #     "01985f9f-5c73-7c45-8d01-afebbbfd172e",
-            #     "01985f9f-b8f6-7ba5-bc44-45152e5d623a",
-            #     "01985fa1-3e63-748c-9f3b-654528108c56",
-            # ]
+            session_ids = [
+                "01985f9e-05f6-788d-a6c4-8271afcfc4c3",
+                "01985f9e-a603-7c4a-a403-4a978d5164eb",
+                "01985f9e-d284-75cd-b5f2-3390a58aa086",
+                "01985f9f-5c73-7c45-8d01-afebbbfd172e",
+                "01985f9f-b8f6-7ba5-bc44-45152e5d623a",
+                "01985fa1-3e63-748c-9f3b-654528108c56",
+            ]
             if not session_ids:
                 return PartialAssistantState(
                     messages=[
