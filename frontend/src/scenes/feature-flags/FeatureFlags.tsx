@@ -224,22 +224,6 @@ export function OverViewTab({
               ]
             : []),
         {
-            title: 'Runtime',
-            dataIndex: 'evaluation_runtime',
-            width: 120,
-            render: function RenderFlagRuntime(_, featureFlag: FeatureFlagType) {
-                return (
-                    <LemonTag type="default" className="uppercase">
-                        {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL
-                            ? 'All'
-                            : featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.CLIENT
-                            ? 'Client'
-                            : 'Server'}
-                    </LemonTag>
-                )
-            },
-        },
-        {
             width: 0,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (

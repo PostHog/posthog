@@ -28,18 +28,19 @@ pub enum EvaluationRuntime {
 
 impl From<String> for EvaluationRuntime {
     fn from(s: String) -> Self {
-        match s.to_lowercase().as_str() {
-            "client" => EvaluationRuntime::Client,
-            "server" => EvaluationRuntime::Server,
-            "all" => EvaluationRuntime::All,
-            _ => EvaluationRuntime::All,
-        }
+        EvaluationRuntime::from(s.as_str())
     }
 }
 
 impl From<&str> for EvaluationRuntime {
     fn from(s: &str) -> Self {
-        EvaluationRuntime::from(s.to_string())
+        if s.eq_ignore_ascii_case("client") {
+            EvaluationRuntime::Client
+        } else if s.eq_ignore_ascii_case("server") {
+            EvaluationRuntime::Server
+        } else {
+            EvaluationRuntime::All
+        }
     }
 }
 
@@ -121,46 +122,32 @@ fn filter_flags_by_runtime(
     flags: Vec<FeatureFlag>,
     current_runtime: Option<EvaluationRuntime>,
 ) -> Vec<FeatureFlag> {
+    #[inline]
+    fn flag_runtime(flag: &FeatureFlag) -> Option<EvaluationRuntime> {
+        flag.evaluation_runtime
+            .as_deref()
+            .map(EvaluationRuntime::from)
+    }
+
     match current_runtime {
         Some(EvaluationRuntime::All) => {
             // All runtime can evaluate any flag
             flags
         }
-        Some(runtime) => flags
+        runtime_opt => flags
             .into_iter()
-            .filter(|flag| {
+            .filter(|flag| match flag_runtime(flag) {
                 // Include flags that:
                 // 1. Have no specific runtime requirement (backward compatibility)
                 // 2. Are configured for "all" runtimes
+                None | Some(EvaluationRuntime::All) => true,
                 // 3. Are specifically configured for the current runtime
-                flag.evaluation_runtime.is_none()
-                    || flag
-                        .evaluation_runtime
-                        .as_ref()
-                        .map(|r| EvaluationRuntime::from(r.as_str()))
-                        == Some(EvaluationRuntime::All)
-                    || flag
-                        .evaluation_runtime
-                        .as_ref()
-                        .map(|r| EvaluationRuntime::from(r.as_str()))
-                        == Some(runtime)
+                Some(flag_rt) => match runtime_opt {
+                    Some(current_rt) => flag_rt == current_rt,
+                    None => false,
+                },
             })
             .collect(),
-        None => {
-            // If we can't determine the current runtime, only return flags
-            // that don't specify a runtime requirement or are set to "all"
-            flags
-                .into_iter()
-                .filter(|flag| {
-                    flag.evaluation_runtime.is_none()
-                        || flag
-                            .evaluation_runtime
-                            .as_ref()
-                            .map(|r| EvaluationRuntime::from(r.as_str()))
-                            == Some(EvaluationRuntime::All)
-                })
-                .collect()
-        }
     }
 }
 

@@ -1522,7 +1522,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     )}
                 </>
             )}
-            {!multivariateEnabled && (
+            {readOnly && !multivariateEnabled && (
                 <div className="mb-6 flex flex-col gap-y-4">
                     <div>
                         <h3 className="l3">Payload</h3>
