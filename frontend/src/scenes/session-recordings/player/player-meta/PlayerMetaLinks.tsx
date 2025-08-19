@@ -181,7 +181,10 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 ? {
                       label: (
                           <div className="flex w-full deprecated-space-x-2 justify-between items-center">
-                              Export to MP4 <LemonTag type="warning">BETA</LemonTag>
+                              Export to MP4{' '}
+                              <LemonTag type="warning" size="small" className="ml-2">
+                                  BETA
+                              </LemonTag>
                           </div>
                       ),
                       status: 'default',
