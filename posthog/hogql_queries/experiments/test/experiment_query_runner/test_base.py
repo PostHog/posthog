@@ -764,7 +764,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(
             context.exception.detail[0],
-            "Invalid experiment configuration detected. Please check your experiment setup.",
+            "No experiment exposures found. Please ensure users are being exposed to your experiment variants.",
         )
 
     @freeze_time("2020-01-01T12:00:00Z")
@@ -812,7 +812,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(
             context.exception.detail[0],
-            "Invalid experiment configuration detected. Please check your experiment setup.",
+            "No experiment exposures found. Please ensure users are being exposed to your experiment variants.",
         )
 
     @freeze_time("2020-01-01T12:00:00Z")
@@ -868,7 +868,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(
             context.exception.detail[0],
-            "Invalid experiment configuration detected. Please check your experiment setup.",
+            "No control variant found. Please ensure your experiment has a 'control' variant and that users are being exposed to it.",
         )
 
     @parameterized.expand(
@@ -1100,7 +1100,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
             self.assertEqual(
                 context.exception.detail[0],
-                "Invalid experiment configuration detected. Please check your experiment setup.",
+                "No experiment exposures found. Please ensure users are being exposed to your experiment variants.",
             )
         else:
             result = query_runner.calculate()

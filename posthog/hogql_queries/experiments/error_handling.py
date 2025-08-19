@@ -33,7 +33,8 @@ ERROR_TYPE_MESSAGES: dict[type, str] = {
 
 
 def get_user_friendly_message(error: Exception) -> str:
-    """Convert technical error messages to user-friendly ones based on error type."""
+    """Convert technical error messages to user-friendly ones based on error type and message content."""
+
     error_type = type(error)
 
     # Look for exact type match first
