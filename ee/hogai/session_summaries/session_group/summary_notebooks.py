@@ -109,57 +109,67 @@ class NotebookIntermediateState:
             SessionSummaryStep.FINDING_PATTERNS: ("Find patterns", False),
             SessionSummaryStep.GENERATING_REPORT: ("Generate final report", False),
         }
-        self.current_step_content: TipTapNode | None = None
-        self.completed_steps: dict[str, TipTapNode] = {}
-        self.previous_step: SessionSummaryStep | None = None
+        # Store content for each step - allows late-arriving updates to be handled correctly
+        self.steps_content: dict[SessionSummaryStep, TipTapNode] = {}
         self.current_step: SessionSummaryStep | None = SessionSummaryStep.WATCHING_SESSIONS
+        self.previous_step: SessionSummaryStep | None = None
+
+    @property
+    def current_step_content(self) -> TipTapNode | None:
+        """Get the content for the current step."""
+        if self.current_step:
+            return self.steps_content.get(self.current_step)
+        return None
+
+    @property
+    def completed_steps(self) -> dict[str, TipTapNode]:
+        """Get completed steps with their content."""
+        completed = {}
+        for step, (step_name, is_completed) in self.plan_items.items():
+            if is_completed and step in self.steps_content:
+                completed[step_name] = self.steps_content[step]
+        return completed
 
     def update_step_progress(self, content: TipTapNode | None, step: "SessionSummaryStep") -> None:
-        """Update the current step's intermediate content and handle step transitions."""
-        # If the the same step and the same content - ignore
-        if step == self.current_step and content == self.current_step_content:
-            return
-        # Update the current step content, if any (not for progress messages)
+        """Update the step's content and handle step transitions if needed."""
+        # Update content for the specific step if provided
         if content:
-            self.current_step_content = content
-        # If step changed, complete the previous step first
-        if step != self.current_step:
-            self._complete_and_transition()
+            self.steps_content[step] = content
 
-    def _complete_and_transition(self) -> None:
-        """Complete current step and transition to a new step (or next in sequence if not specified)."""
-        # If no current step - ignore
+        # Only transition if moving forward to a new step
+        if step != self.current_step and self._is_forward_transition(step):
+            self._complete_and_transition(step)
+
+    def _is_forward_transition(self, new_step: "SessionSummaryStep") -> bool:
+        """Check if transitioning to new_step would be a forward transition."""
         if self.current_step is None:
-            return
-        # If an unexpected step was provided - ignore
-        if self.current_step not in self.plan_items:
-            logger.exception(f"Unexpected step when streaming notebook update: {self.current_step}")
-            return
-        # If the step is already completed - ignore
-        step_name, _ = self.plan_items[self.current_step]
-        if step_name in self.completed_steps:
-            return
-        # Mark current step as completed
-        self.plan_items[self.current_step] = (step_name, True)
-        # Preserve the current step content if it exists
-        if self.current_step_content:
-            self.completed_steps[step_name] = self.current_step_content
-            self.current_step_content = None
-        # Find the next step in sequence
+            return True
+
+        # Get the order of steps
         steps_list = list(self.plan_items.keys())
         try:
             current_index = steps_list.index(self.current_step)
-            if current_index < len(steps_list) - 1:
-                next_step = steps_list[current_index + 1]
-            else:
-                next_step = None
-        except (ValueError, AttributeError):
-            # Current step not found or is None
-            next_step = None
-        # Update step tracking to the next step
+            new_index = steps_list.index(new_step)
+            return new_index > current_index
+        except ValueError:
+            # If step not found in plan, don't transition
+            return False
+
+    def _complete_and_transition(self, new_step: "SessionSummaryStep") -> None:
+        """Complete current step and transition to the new step."""
+        # If no current step - set the new step as current
+        if self.current_step is None:
+            self.current_step = new_step
+            return
+
+        # Mark current step as completed if it exists in plan
+        if self.current_step in self.plan_items:
+            step_name, _ = self.plan_items[self.current_step]
+            self.plan_items[self.current_step] = (step_name, True)
+
+        # Update step tracking
         self.previous_step = self.current_step
-        self.current_step = next_step
-        self.current_step_content = None
+        self.current_step = new_step
 
     def format_intermediate_state(self) -> TipTapNode:
         """Convert the intermediate state to TipTap format for display."""

@@ -12,8 +12,8 @@ from ee.hogai.session_summaries.session_group.patterns import (
     RawSessionGroupSummaryPattern,
 )
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_notebook_from_summary,
-    _generate_notebook_content_from_summary,
+    create_notebook_from_summary_content,
+    generate_notebook_content_from_summary,
     format_single_sessions_status,
     format_extracted_patterns_status,
     NotebookIntermediateState,
@@ -95,7 +95,9 @@ class TestNotebookCreation(APIBaseTest):
         summary_data = self.create_summary_data()
         session_ids: list[str] = ["session_1", "session_2"]
 
-        notebook = await create_notebook_from_summary(session_ids, self.user, self.team, summary_data)
+        # Generate content first
+        content = generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
+        notebook = await create_notebook_from_summary_content(session_ids, self.user, self.team, content)
 
         # Verify the notebook was created
         assert notebook is not None
@@ -124,7 +126,7 @@ class TestNotebookCreation(APIBaseTest):
         summary_data = self.create_summary_data()
         session_ids: list[str] = ["session_1", "session_2"]
 
-        content: dict[str, Any] = _generate_notebook_content_from_summary(
+        content: dict[str, Any] = generate_notebook_content_from_summary(
             summary_data, session_ids, self.team.name, self.team.id
         )
 
@@ -146,7 +148,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids: list[str] = ["session_1"]
         empty_summary = EnrichedSessionGroupSummaryPatternsList(patterns=[])
 
-        content: dict[str, Any] = _generate_notebook_content_from_summary(
+        content: dict[str, Any] = generate_notebook_content_from_summary(
             empty_summary, session_ids, self.team.name, self.team.id
         )
 
@@ -193,7 +195,7 @@ class TestNotebookCreation(APIBaseTest):
         # Add the second event to the pattern
         summary_data.patterns[0].events.append(segment_context_2)
 
-        content: dict[str, Any] = _generate_notebook_content_from_summary(
+        content: dict[str, Any] = generate_notebook_content_from_summary(
             summary_data, session_ids, self.team.name, self.team.id
         )
 
@@ -256,7 +258,7 @@ class TestNotebookCreation(APIBaseTest):
             patterns.append(pattern)
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=patterns)
-        content: dict[str, Any] = _generate_notebook_content_from_summary(
+        content: dict[str, Any] = generate_notebook_content_from_summary(
             summary_data, session_ids, self.team.name, self.team.id
         )
 
@@ -374,7 +376,7 @@ class TestNotebookCreation(APIBaseTest):
         )
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
-        content: dict[str, Any] = _generate_notebook_content_from_summary(
+        content: dict[str, Any] = generate_notebook_content_from_summary(
             summary_data, ["test_session"], self.team.name, self.team.id
         )
 
@@ -464,7 +466,7 @@ class TestNotebookCreation(APIBaseTest):
         )
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
-        content: dict[str, Any] = _generate_notebook_content_from_summary(
+        content: dict[str, Any] = generate_notebook_content_from_summary(
             summary_data, ["test_session_id"], self.team.name, self.team.id
         )
 
@@ -513,7 +515,7 @@ class TestNotebookCreation(APIBaseTest):
             )
 
             pattern.events = [segment_context_case]
-            content = _generate_notebook_content_from_summary(
+            content = generate_notebook_content_from_summary(
                 summary_data, ["test_session_id"], self.team.name, self.team.id
             )
             content_text = json.dumps(content)
@@ -785,18 +787,59 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert state.plan_items[SessionSummaryStep.GENERATING_REPORT] == ("Generate final report", False)
         assert state.current_step == SessionSummaryStep.WATCHING_SESSIONS
         assert state.current_step_content is None
-        assert state.completed_steps == []
+        assert state.completed_steps == {}
+        assert len(state.steps_content) == 0
 
-    def test_update_step_progress(self) -> None:
+    def test_race_condition_late_arriving_updates(self) -> None:
+        """Test that late-arriving updates for previous steps are handled correctly."""
+        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
+
+        state = NotebookIntermediateState(team_name="Test Team")
+
+        # Simulate UI moving to FINDING_PATTERNS step
+        ui_content: dict[str, Any] = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Starting pattern analysis"}]}],
+        }
+        state.update_step_progress(ui_content, SessionSummaryStep.FINDING_PATTERNS)
+
+        # Verify step transition happened
+        assert state.current_step == SessionSummaryStep.FINDING_PATTERNS
+        assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
+
+        # Now a late notebook update arrives for the previous WATCHING_SESSIONS step
+        late_notebook_content: dict[str, Any] = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Sessions fully processed"}]}],
+        }
+        state.update_step_progress(late_notebook_content, SessionSummaryStep.WATCHING_SESSIONS)
+
+        # The late update should be stored correctly
+        assert SessionSummaryStep.WATCHING_SESSIONS in state.steps_content
+        assert state.steps_content[SessionSummaryStep.WATCHING_SESSIONS] == late_notebook_content
+
+        # Current step should remain unchanged
+        assert state.current_step == SessionSummaryStep.FINDING_PATTERNS
+
+        # Completed steps should now include the late-arriving content
+        completed = state.completed_steps
+        assert "Watch sessions" in completed
+        assert completed["Watch sessions"] == late_notebook_content
+
+    def test_update_step_progress_same_step(self) -> None:
+        """Test updating content for the current step."""
+        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
+
         state = NotebookIntermediateState(team_name="Test Team")
 
         test_content: dict[str, Any] = {
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Progress update"}]}],
         }
-        state.update_step_progress(test_content)
+        state.update_step_progress(test_content, SessionSummaryStep.WATCHING_SESSIONS)
 
         assert state.current_step_content == test_content
+        assert state.steps_content[SessionSummaryStep.WATCHING_SESSIONS] == test_content
 
     def test_step_transition(self) -> None:
         """Test that transitioning to a new step marks the previous step as completed."""
@@ -809,7 +852,7 @@ class TestNotebookIntermediateState(APIBaseTest):
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Watching sessions..."}]}],
         }
-        state.update_step_progress(content1)
+        state.update_step_progress(content1, SessionSummaryStep.WATCHING_SESSIONS)
 
         # Verify initial state
         assert state.current_step == SessionSummaryStep.WATCHING_SESSIONS
@@ -830,33 +873,9 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert state.current_step_content == content2
 
         # Verify the completed step was preserved
-        assert len(state.completed_steps) == 1
-        assert state.completed_steps[0] == ("Watch sessions", content1)
-
-    def test_complete_current_step(self) -> None:
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
-        state = NotebookIntermediateState(team_name="Test Team")
-
-        # Set some progress content
-        test_content: dict[str, Any] = {
-            "type": "doc",
-            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Step 1 content"}]}],
-        }
-        state.update_step_progress(test_content)
-
-        # Complete the first step
-        state._complete_and_transition()
-
-        # Check that the step is marked as completed
-        assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
-        # Check that we moved to the next step
-        assert state.current_step == SessionSummaryStep.FINDING_PATTERNS
-        # Check that current content is cleared
-        assert state.current_step_content is None
-        # Check that the completed step is preserved
-        assert len(state.completed_steps) == 1
-        assert state.completed_steps[0] == ("Watch sessions", test_content)
+        completed = state.completed_steps
+        assert len(completed) == 1
+        assert completed["Watch sessions"] == content1
 
     def test_complete_multiple_steps(self) -> None:
         from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
@@ -865,38 +884,24 @@ class TestNotebookIntermediateState(APIBaseTest):
 
         # Complete first step
         content1: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Sessions watched"}]}
-        state.update_step_progress(content1)
-        state._complete_and_transition()
+        state.update_step_progress(content1, SessionSummaryStep.WATCHING_SESSIONS)
+        state.update_step_progress(None, SessionSummaryStep.FINDING_PATTERNS)  # Transition
 
         # Complete second step
         content2: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Patterns found"}]}
-        state.update_step_progress(content2)
-        state._complete_and_transition()
+        state.update_step_progress(content2, SessionSummaryStep.FINDING_PATTERNS)
+        state.update_step_progress(None, SessionSummaryStep.GENERATING_REPORT)  # Transition
 
         # Check state
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
         assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", True)
         assert state.plan_items[SessionSummaryStep.GENERATING_REPORT] == ("Generate final report", False)
         assert state.current_step == SessionSummaryStep.GENERATING_REPORT
-        assert len(state.completed_steps) == 2
 
-        # Check completed steps are in correct order
-        assert state.completed_steps[0] == ("Watch sessions", content1)
-        assert state.completed_steps[1] == ("Find patterns", content2)
-
-    def test_complete_step_without_content(self) -> None:
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
-        state = NotebookIntermediateState(team_name="Test Team")
-
-        # Complete without setting any content
-        state._complete_and_transition()
-
-        # Should still mark as completed and move forward
-        assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
-        assert state.current_step == SessionSummaryStep.FINDING_PATTERNS
-        # But no content should be preserved
-        assert state.completed_steps == []
+        completed = state.completed_steps
+        assert len(completed) == 2
+        assert completed["Watch sessions"] == content1
+        assert completed["Find patterns"] == content2
 
     def test_format_initial_state(self) -> None:
         state = NotebookIntermediateState(team_name="Test Team")
@@ -925,6 +930,8 @@ class TestNotebookIntermediateState(APIBaseTest):
             assert text.startswith("[ ]")
 
     def test_format_state_with_current_progress(self) -> None:
+        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
+
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Add progress to current step
@@ -939,7 +946,7 @@ class TestNotebookIntermediateState(APIBaseTest):
                 {"type": "paragraph", "content": [{"type": "text", "text": "Processing session 1 of 5"}]},
             ],
         }
-        state.update_step_progress(progress_content)
+        state.update_step_progress(progress_content, SessionSummaryStep.WATCHING_SESSIONS)
 
         formatted: dict[str, Any] = state.format_intermediate_state()
         content: list[dict[str, Any]] = formatted["content"]
@@ -959,6 +966,8 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert found_progress, "Progress content not found in formatted output"
 
     def test_format_state_with_completed_steps(self) -> None:
+        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
+
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Complete first step
@@ -969,10 +978,9 @@ class TestNotebookIntermediateState(APIBaseTest):
                 {"type": "paragraph", "content": [{"type": "text", "text": "All sessions processed"}]},
             ],
         }
-        state.update_step_progress(content1)
-        state._complete_and_transition()
+        state.update_step_progress(content1, SessionSummaryStep.WATCHING_SESSIONS)
 
-        # Add progress for second step
+        # Move to second step
         content2: dict[str, Any] = {
             "type": "doc",
             "content": [
@@ -980,7 +988,7 @@ class TestNotebookIntermediateState(APIBaseTest):
                 {"type": "paragraph", "content": [{"type": "text", "text": "Analyzing behaviors"}]},
             ],
         }
-        state.update_step_progress(content2)
+        state.update_step_progress(content2, SessionSummaryStep.FINDING_PATTERNS)
 
         formatted: dict[str, Any] = state.format_intermediate_state()
         content_str: str = json.dumps(formatted)
@@ -996,47 +1004,9 @@ class TestNotebookIntermediateState(APIBaseTest):
         # Check that current progress is shown
         assert "Analyzing behaviors" in content_str
 
-    def test_format_state_completed_steps_reverse_order(self) -> None:
-        state = NotebookIntermediateState(team_name="Test Team")
-
-        # Complete two steps
-        content1: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "First step done"}]}
-        state.update_step_progress(content1)
-        state._complete_and_transition()
-
-        content2: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Second step done"}]}
-        state.update_step_progress(content2)
-        state._complete_and_transition()
-
-        formatted: dict[str, Any] = state.format_intermediate_state()
-        content_str: str = json.dumps(formatted)
-
-        # Find positions of completed step markers
-        pos_first: int = content_str.find("Step: Watch sessions (Completed)")
-        pos_second: int = content_str.find("Step: Find patterns (Completed)")
-
-        # Second step should appear before first step (reverse order)
-        assert pos_first > pos_second, "Completed steps should appear in reverse order"
-
-    def test_complete_all_steps(self) -> None:
+    def test_e2e_workflow(self) -> None:
         from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
 
-        state = NotebookIntermediateState(team_name="Test Team")
-
-        # Complete all three steps
-        for i in range(3):
-            content: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": f"Step {i+1} done"}]}
-            state.update_step_progress(content)
-            state._complete_and_transition()
-
-        # All should be marked as completed
-        assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
-        assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", True)
-        assert state.plan_items[SessionSummaryStep.GENERATING_REPORT] == ("Generate final report", True)
-        assert state.current_step is None  # No more steps
-        assert len(state.completed_steps) == 3
-
-    def test_e2e_workflow(self) -> None:
         state = NotebookIntermediateState(team_name="PostHog")
 
         # Initial state - just the plan
@@ -1055,21 +1025,17 @@ class TestNotebookIntermediateState(APIBaseTest):
                 "session-3": True,
             }
         )
-        state.update_step_progress(sessions_status)
+        state.update_step_progress(sessions_status, SessionSummaryStep.WATCHING_SESSIONS)
 
         step1_formatted: dict[str, Any] = state.format_intermediate_state()
         step1_str: str = json.dumps(step1_formatted)
         assert "Session Processing Status" in step1_str
-        # Check the emojis appear in the JSON (they get escaped to unicode)
         assert "session-1" in step1_str
         assert "session-2" in step1_str
         assert "\\u2705" in step1_str  # ✅ emoji escaped in JSON
         assert "\\u274c" in step1_str  # ❌ emoji escaped in JSON
 
-        # Complete step 1
-        state._complete_and_transition()
-
-        # Step 2: Finding patterns
+        # Move to step 2: Finding patterns
         patterns: list[RawSessionGroupSummaryPattern] = [
             RawSessionGroupSummaryPattern(
                 pattern_id=1,
@@ -1080,7 +1046,7 @@ class TestNotebookIntermediateState(APIBaseTest):
             )
         ]
         patterns_status: dict[str, Any] = format_extracted_patterns_status(patterns)
-        state.update_step_progress(patterns_status)
+        state.update_step_progress(patterns_status, SessionSummaryStep.FINDING_PATTERNS)
 
         step2_formatted: dict[str, Any] = state.format_intermediate_state()
         step2_str: str = json.dumps(step2_formatted)
@@ -1090,15 +1056,12 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert "Login Issues" in step2_str
         assert "Step: Watch sessions (Completed)" in step2_str
 
-        # Complete step 2
-        state._complete_and_transition()
-
-        # Step 3: Generating report
+        # Move to step 3: Generating report
         report_progress: dict[str, Any] = {
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Generating final report..."}]}],
         }
-        state.update_step_progress(report_progress)
+        state.update_step_progress(report_progress, SessionSummaryStep.GENERATING_REPORT)
 
         step3_formatted: dict[str, Any] = state.format_intermediate_state()
         step3_str: str = json.dumps(step3_formatted)
