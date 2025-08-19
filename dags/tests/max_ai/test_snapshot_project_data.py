@@ -6,10 +6,16 @@ from dagster import OpExecutionContext
 from dagster_aws.s3.resources import S3Resource
 
 from dags.max_ai.snapshot_project_data import (
+    snapshot_actors_property_taxonomy,
+    snapshot_events_taxonomy,
     snapshot_postgres_model,
     snapshot_postgres_project_data,
+    snapshot_properties_taxonomy,
 )
 from ee.hogai.eval.schema import PostgresProjectDataSnapshot, TeamSnapshot
+from posthog.models import GroupTypeMapping, Organization, Project, Team
+from posthog.models.property_definition import PropertyDefinition
+from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 
 
 @pytest.fixture
@@ -24,6 +30,39 @@ def mock_s3():
     mock = MagicMock(spec=S3Resource)
     mock.get_resource_definition = S3Resource().get_resource_definition
     return mock
+
+
+@pytest.fixture
+def team():
+    organization = Organization.objects.create(name="Test")
+    project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
+    team = Team.objects.create(
+        id=project.id,
+        project=project,
+        organization=organization,
+        api_token="token123",
+        test_account_filters=[
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ],
+        has_completed_onboarding_for={"product_analytics": True},
+    )
+    yield team
+
+
+@pytest.fixture
+def mock_dump():
+    with patch("dags.max_ai.snapshot_project_data.dump_model") as mock_dump_model:
+        mock_dump_context = MagicMock()
+        mock_dump_function = MagicMock()
+        mock_dump_context.__enter__ = MagicMock(return_value=mock_dump_function)
+        mock_dump_context.__exit__ = MagicMock(return_value=None)
+        mock_dump_model.return_value = mock_dump_context
+        yield mock_dump_function
 
 
 @patch("dags.max_ai.snapshot_project_data.compose_postgres_dump_path")
@@ -60,22 +99,14 @@ def test_snapshot_postgres_model_skips_when_file_exists(
 
 @patch("dags.max_ai.snapshot_project_data.compose_postgres_dump_path")
 @patch("dags.max_ai.snapshot_project_data.check_dump_exists")
-@patch("dags.max_ai.snapshot_project_data.dump_model")
 def test_snapshot_postgres_model_dumps_when_file_not_exists(
-    mock_dump_model, mock_check_dump_exists, mock_compose_path, mock_context, mock_s3
+    mock_check_dump_exists, mock_compose_path, mock_context, mock_s3, mock_dump
 ):
     """Test that snapshot_postgres_model dumps data when file doesn't exist."""
     # Setup
     file_key = "test/path/teams_abc123.avro"
     mock_compose_path.return_value = file_key
     mock_check_dump_exists.return_value = False
-
-    # Mock the context manager and dump function
-    mock_dump_context = MagicMock()
-    mock_dump_function = MagicMock()
-    mock_dump_context.__enter__ = MagicMock(return_value=mock_dump_function)
-    mock_dump_context.__exit__ = MagicMock(return_value=None)
-    mock_dump_model.return_value = mock_dump_context
 
     # Mock the serialize_for_project method
     mock_serialized_data = [{"id": 1, "name": "test"}]
@@ -99,8 +130,7 @@ def test_snapshot_postgres_model_dumps_when_file_not_exists(
     mock_compose_path.assert_called_once_with(project_id, file_name, code_version)
     mock_check_dump_exists.assert_called_once_with(mock_s3, file_key)
     mock_context.log.info.assert_called_with(f"Dumping {file_key}")
-    mock_dump_model.assert_called_once_with(s3=mock_s3, schema=TeamSnapshot, file_key=file_key)
-    mock_dump_function.assert_called_once_with(mock_serialized_data)
+    mock_dump.assert_called_once_with(mock_serialized_data)
 
 
 @patch("dags.max_ai.snapshot_project_data.snapshot_postgres_model")
@@ -130,3 +160,149 @@ def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgre
 
     # Verify snapshot_postgres_model was called for each model type
     assert mock_snapshot_postgres_model.call_count == 4
+
+
+@pytest.mark.django_db
+@patch("dags.max_ai.snapshot_project_data.call_query_runner")
+def test_snapshot_properties_taxonomy(mock_call_query_runner, mock_context, mock_s3, team, mock_dump):
+    """Test that snapshot_properties_taxonomy correctly processes events and dumps results."""
+    # Setup
+    file_key = "test/path/properties_taxonomy.avro"
+    events = [
+        TeamTaxonomyItem(event="pageview", count=2),
+        TeamTaxonomyItem(event="click", count=1),
+    ]
+
+    # Mock the query runner response
+    mock_query_result = MagicMock()
+    mock_query_result.results = [
+        EventTaxonomyItem(property="$current_url", sample_values=["https://posthog.com"], sample_count=1),
+    ]
+    mock_call_query_runner.return_value = mock_query_result
+
+    mock_s3_client = MagicMock()
+    mock_s3.get_client.return_value = mock_s3_client
+
+    snapshot_properties_taxonomy(mock_context, mock_s3, file_key, team, events)
+    assert mock_call_query_runner.call_count == 2
+    mock_dump.assert_called_once()
+
+
+@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_project_data.EventTaxonomyQueryRunner.calculate")
+@patch("dags.max_ai.snapshot_project_data.TeamTaxonomyQueryRunner.calculate")
+@pytest.mark.django_db
+def test_snapshot_events_taxonomy(
+    mock_team_taxonomy_query_runner,
+    mock_event_taxonomy_query_runner,
+    mock_check_dump_exists,
+    mock_context,
+    mock_s3,
+    team,
+    mock_dump,
+):
+    """Test that snapshot_events_taxonomy correctly processes events and dumps results."""
+    mock_check_dump_exists.return_value = False
+
+    mock_team_taxonomy_query_runner.return_value = MagicMock(
+        results=[
+            TeamTaxonomyItem(event="pageview", count=2),
+            TeamTaxonomyItem(event="click", count=1),
+        ]
+    )
+
+    mock_event_taxonomy_query_runner.return_value = MagicMock(
+        results=[
+            EventTaxonomyItem(property="$current_url", sample_values=["https://posthog.com"], sample_count=1),
+        ]
+    )
+
+    mock_s3_client = MagicMock()
+    mock_s3.get_client.return_value = mock_s3_client
+
+    snapshot_events_taxonomy(mock_context, mock_s3, team)
+    mock_team_taxonomy_query_runner.assert_called_once()
+    assert mock_event_taxonomy_query_runner.call_count == 2
+    assert mock_dump.call_count == 2
+
+
+@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@pytest.mark.django_db
+def test_snapshot_events_taxonomy_can_be_skipped(mock_check_dump_exists, mock_context, mock_s3, team, mock_dump):
+    """est that snapshot_events_taxonomy can be skipped when file already exists."""
+    mock_check_dump_exists.return_value = True
+
+    mock_s3_client = MagicMock()
+    mock_s3.get_client.return_value = mock_s3_client
+
+    snapshot_events_taxonomy(mock_context, mock_s3, team)
+    assert mock_dump.call_count == 0
+
+
+@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@pytest.mark.django_db
+def test_snapshot_actors_property_taxonomy_can_be_skipped(
+    mock_check_dump_exists, mock_context, mock_s3, team, mock_dump
+):
+    """Test that snapshot_actors_property_taxonomy can be skipped when file already exists."""
+    mock_check_dump_exists.return_value = True
+
+    mock_s3_client = MagicMock()
+    mock_s3.get_client.return_value = mock_s3_client
+
+    result = snapshot_actors_property_taxonomy(mock_context, mock_s3, team)
+
+    # Should return file key even when skipped
+    assert result is not None
+    assert "actors_property_taxonomy" in result
+    assert mock_dump.call_count == 0
+    mock_context.log.info.assert_called_with(
+        f"Skipping actors property taxonomy snapshot for {team.id} because it already exists"
+    )
+
+
+@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_project_data.call_query_runner")
+@pytest.mark.django_db
+def test_snapshot_actors_property_taxonomy_dumps_with_group_type_mapping(
+    mock_call_query_runner, mock_check_dump_exists, mock_context, mock_s3, team, mock_dump
+):
+    """Test that snapshot_actors_property_taxonomy dumps data when GroupTypeMapping exists."""
+    mock_check_dump_exists.return_value = False
+
+    # Create a GroupTypeMapping for the team
+    GroupTypeMapping.objects.create(
+        team=team,
+        project=team.project,
+        group_type="organization",
+        group_type_index=0,
+        name_singular="Organization",
+        name_plural="Organizations",
+    )
+
+    # Create PropertyDefinition objects for the group type
+    PropertyDefinition.objects.create(
+        team=team, name="org_name", type=PropertyDefinition.Type.GROUP, group_type_index=0
+    )
+
+    # Mock the query runner response
+    mock_query_result = MagicMock()
+    mock_query_result.results = [
+        ActorsPropertyTaxonomyResponse(sample_values=["test_value_1", "test_value_2"], sample_count=2)
+    ]
+    mock_call_query_runner.return_value = mock_query_result
+
+    mock_s3_client = MagicMock()
+    mock_s3.get_client.return_value = mock_s3_client
+
+    result = snapshot_actors_property_taxonomy(mock_context, mock_s3, team)
+
+    # Should return file key
+    assert result is not None
+    assert "actors_property_taxonomy" in result
+
+    # Should have called the query runner
+    assert mock_call_query_runner.call_count > 0
+
+    # Should have dumped data
+    mock_dump.assert_called_once()
