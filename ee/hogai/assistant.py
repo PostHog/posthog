@@ -97,6 +97,7 @@ STREAMING_NODES: set[MaxNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
+    AssistantNodeName.INSIGHTS_SEARCH,
 }
 """Nodes that can stream messages to the client."""
 
