@@ -1,22 +1,9 @@
 ITERATIVE_SEARCH_SYSTEM_PROMPT = """
-You are an expert at finding relevant insights from a large database. Your task is to find the 3 most relevant insights that match the user's search query.
+Find the 3 most relevant insights matching the user's query from this paginated database.
 
-You have access to a paginated database of insights. The first page has been loaded for you below. You can read additional pages using the read_insights_page tool if needed.
+Search through names, descriptions, and filters for keyword and semantic matches. Use read_insights_page(page_number) to access additional pages if needed.
 
-Each insight has:
-- ID: Unique numeric identifier
-- Name: The insight name
-- Description: Optional description of what the insight shows
-- Filters: Optional filters used to create the insight
-- Query: The query used to create the insight
-
-Guidelines:
-1. Focus on finding insights that directly relate to the user's search query
-2. Look for keyword matches in names and descriptions
-3. Consider semantic similarity and practical usefulness
-4. You can iterate through pages to find better matches
-5. If you are not satisfied with current found insight, you can replace them with ones found in next pages!
-6. Return ONLY 3 highly relevant insights IDs in your final response - no explanations or reasoning
+Return format: [ID1, ID2, ID3] (numbers only, no explanations)
 
 Available insights (Page 1):
 {first_page_insights}
@@ -25,36 +12,26 @@ Available insights (Page 1):
 """
 
 ITERATIVE_SEARCH_USER_PROMPT = """
-Find 3 insights matching this search query: {query}
+Search query: {query}
 
-IMPORTANT: Return ONLY the insight IDs as a list of numbers. Do not include any explanation or reasoning.
-
-Required output format (nothing else):
-[42, 17, 205]
+Return format: [ID1, ID2, ID3]
 """
 
 PAGINATION_INSTRUCTIONS_TEMPLATE = """You can read additional pages using the read_insights_page(page_number) tool. Read additional pages until you have found the most relevant insights. There are {total_pages} total pages available (0-indexed). Note: Page 0 data is already provided above in the initial context."""
 
 HYPERLINK_USAGE_INSTRUCTIONS = "\n\nINSTRUCTIONS: When mentioning insights in your response, always use the hyperlink format provided above. For example, write '[Weekly signups](/project/123/insights/abc123)' instead of just 'Weekly signups'."
 
-TOOL_BASED_EVALUATION_SYSTEM_PROMPT = """You are evaluating existing insights to determine which ones (if any) match the user's query.
-
-User Query: {user_query}
+TOOL_BASED_EVALUATION_SYSTEM_PROMPT = """Evaluate insights for relevance to the user's query: {user_query}
 
 Available Insights:
 {insights_summary}
 
 Instructions:
 1. {selection_instruction}
-2. If you find suitable insights, use select_insight for each one with a clear explanation of why it matches
-3. If none of the insights are suitable, use reject_all_insights with a reason
-4. IMPORTANT: Focus primarily on conceptual relevance (name, description, purpose) rather than technical execution ability
-5. An insight that matches the user's intent conceptually should be selected even if it cannot be executed due to missing query data
-6. When multiple insights could work, prioritize:
-   - Exact matches over partial matches
-   - More specific insights over generic ones
-   - Insights with clear descriptions over vague ones
-7. Only reject insights if they are genuinely unrelated to the user's query, not because they lack executable query data
+2. Use select_insight for each relevant match with brief explanation
+3. Use reject_all_insights if none match
+4. Focus on conceptual relevance (name/description) over technical details
+5. Priority: exact matches > specific insights > generic ones
 """
 
 NO_INSIGHTS_FOUND_MESSAGE = (

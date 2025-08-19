@@ -30,7 +30,9 @@ impl KafkaDeduplicatorService {
         // Create deduplication store config
         let store_config = DeduplicationStoreConfig {
             path: config.store_path_buf(),
-            max_capacity: config.max_store_capacity,
+            max_capacity: config
+                .parse_storage_capacity()
+                .context("Failed to parse max_store_capacity")?,
         };
 
         // Create deduplication processor
