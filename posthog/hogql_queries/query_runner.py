@@ -30,7 +30,7 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
-from posthog.hogql_queries.query_cache import count_query_cache_hit, count_query_cache_write
+from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.schema import (
@@ -968,7 +968,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Set target_age to None in that case
                     target_age=target_age,
                 )
-                count_query_cache_write(self.team.pk)
+                # Cache write metrics are now handled by the cache manager's set_cache_data method
 
             return fresh_response
 

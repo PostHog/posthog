@@ -24,11 +24,6 @@ QUERY_CACHE_HIT_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
 )
 
-CACHE_READ_BYTES_COUNTER = Counter(
-    "posthog_query_cache_read_bytes_total",
-    "Total bytes read from cache (uncompressed JSON)",
-    labelnames=[LABEL_TEAM_ID],
-)
 
 CACHE_WRITE_BYTES_COUNTER = Counter(
     "posthog_query_cache_write_bytes_total",
@@ -36,10 +31,10 @@ CACHE_WRITE_BYTES_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID],
 )
 
-CACHE_DATA_SIZE_HISTOGRAM = Histogram(
-    "posthog_query_cache_data_size_bytes",
-    "Distribution of cache data sizes in bytes (uncompressed JSON)",
-    labelnames=[LABEL_TEAM_ID, "operation"],
+CACHE_WRITE_SIZE_HISTOGRAM = Histogram(
+    "posthog_query_cache_write_size_bytes",
+    "Distribution of cache write data sizes in bytes (uncompressed JSON)",
+    labelnames=[LABEL_TEAM_ID],
     buckets=[
         100,  # Small responses < 100B
         1000,  # 100B - 1KB
@@ -65,21 +60,11 @@ def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
     QUERY_CACHE_HIT_COUNTER.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
 
 
-def count_query_cache_write(team_id: int) -> None:
-    """Count cache write operations."""
+def count_cache_write_data(team_id: int, data_size: int) -> None:
+    """Count cache write operations and data size metrics."""
     QUERY_CACHE_WRITE_COUNTER.labels(team_id=team_id).inc()
-
-
-def count_cache_data_size(team_id: int, data_size: int, operation: str) -> None:
-    """Count cache data size metrics, excluding cache warming for reads."""
-    if operation == "read" and is_cache_warming():
-        return
-
-    if operation == "read":
-        CACHE_READ_BYTES_COUNTER.labels(team_id=team_id).inc(data_size)
-    else:
-        CACHE_WRITE_BYTES_COUNTER.labels(team_id=team_id).inc(data_size)
-    CACHE_DATA_SIZE_HISTOGRAM.labels(team_id=team_id, operation=operation).observe(data_size)
+    CACHE_WRITE_BYTES_COUNTER.labels(team_id=team_id).inc(data_size)
+    CACHE_WRITE_SIZE_HISTOGRAM.labels(team_id=team_id).observe(data_size)
 
 
 class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
@@ -96,8 +81,7 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
         data_size = len(fresh_response_serialized)
 
         # Track cache write metrics
-        count_query_cache_write(self.team_id)
-        count_cache_data_size(self.team_id, data_size, "write")
+        count_cache_write_data(self.team_id, data_size)
 
         cache.set(self.cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
 
@@ -111,9 +95,5 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
 
         if not cached_response_bytes:
             return None
-
-        # Track successful read data size metrics (respects cache warming exclusion)
-        data_size = len(cached_response_bytes)
-        count_cache_data_size(self.team_id, data_size, "read")
 
         return OrjsonJsonSerializer({}).loads(cached_response_bytes)
