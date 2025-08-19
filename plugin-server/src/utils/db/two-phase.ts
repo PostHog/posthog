@@ -45,36 +45,54 @@ export class TwoPhaseCommitCoordinator {
                 lClient = await left.router.connect(left.use)
                 rClient = await right.router.connect(right.use)
 
-                await lClient?.query('BEGIN')
-                await rClient?.query('BEGIN')
+                await Promise.all([lClient?.query('BEGIN'), rClient?.query('BEGIN')])
 
                 const result = await fn(
                     new TransactionClient(left.use, lClient),
                     new TransactionClient(right.use, rClient)
                 )
 
-                try {
-                    await lClient?.query(`PREPARE TRANSACTION ${gidLeftLiteral}`)
-                    preparedLeft = true
-                } catch (e) {
-                    twoPhaseCommitFailuresCounter.labels(tag, 'prepare_left_failed').inc()
-                    throw e
-                }
-                try {
-                    await rClient?.query(`PREPARE TRANSACTION ${gidRightLiteral}`)
-                    preparedRight = true
-                } catch (e) {
-                    twoPhaseCommitFailuresCounter.labels(tag, 'prepare_right_failed').inc()
-                    throw e
-                }
+                const prepareResults = await Promise.allSettled([
+                    lClient?.query(`PREPARE TRANSACTION ${gidLeftLiteral}`),
+                    rClient?.query(`PREPARE TRANSACTION ${gidRightLiteral}`),
+                ])
 
+                // Check left result first
+                if (prepareResults[0].status === 'rejected') {
+                    twoPhaseCommitFailuresCounter.labels(tag, 'prepare_left_failed').inc()
+                    // Right might have succeeded, check and update flag before throwing
+                    if (prepareResults[1].status === 'fulfilled') {
+                        preparedRight = true
+                    }
+                    throw prepareResults[0].reason
+                }
+                preparedLeft = true
+
+                if (prepareResults[1].status === 'rejected') {
+                    twoPhaseCommitFailuresCounter.labels(tag, 'prepare_right_failed').inc()
+                    throw prepareResults[1].reason
+                }
+                preparedRight = true
+
+                // Release the transaction clients back to the connection pool.
+                // After PREPARE TRANSACTION, the transaction is no longer associated with these connections.
+                // The prepared transactions now exist as independent entities in PostgreSQL's shared state
+                // and can be committed or rolled back from ANY connection, not just the original ones.
+                // This is a key feature of 2PC that enables recovery - if this process crashes after PREPARE,
+                // another process can still complete the commit using just the transaction IDs.
+                // Releasing the connections here also improves connection pool efficiency.
                 lClient?.release()
                 rClient?.release()
                 lClient = undefined
                 rClient = undefined
 
+                // COMMIT PREPARED can be executed from any connection, so we use the router to get
+                // fresh connections. This demonstrates the durability guarantee of 2PC - the prepared
+                // transactions persist independently of any specific database connection.
                 try {
                     await left.router.query(left.use, `COMMIT PREPARED ${gidLeftLiteral}`, [], `2pc-commit-left:${tag}`)
+                    // Once committed, the prepared transaction no longer exists and cannot be rolled back
+                    preparedLeft = false
                 } catch (e) {
                     twoPhaseCommitFailuresCounter.labels(tag, 'commit_left_failed').inc()
                     throw e
@@ -86,6 +104,8 @@ export class TwoPhaseCommitCoordinator {
                         [],
                         `2pc-commit-right:${tag}`
                     )
+                    // Once committed, the prepared transaction no longer exists and cannot be rolled back
+                    preparedRight = false
                 } catch (e) {
                     twoPhaseCommitFailuresCounter.labels(tag, 'commit_right_failed').inc()
                     throw e

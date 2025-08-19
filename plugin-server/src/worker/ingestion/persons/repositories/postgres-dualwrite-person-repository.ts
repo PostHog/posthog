@@ -353,7 +353,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                     this.primaryRepo,
                     this.secondaryRepo,
                     lTx,
-                    rTx
+                    rTx,
+                    this.comparisonEnabled
                 )
                 result = await transaction(txWrapper)
                 return true

@@ -103,8 +103,8 @@ describe('TwoPhaseCommitCoordinator', () => {
         const phases = calls.map((c) => c.phase)
         expect(phases).toContain('prepare_left_failed')
         expect(phases).toContain('run_failed')
-        // Right side should have rolled back its local tx
-        expect(right.client.calls.find((c) => c.sql === 'ROLLBACK')).toBeTruthy()
+        // Right side's prepare succeeded, so it should be rolled back via router
+        expect(right.routerCalls.find((c) => c.sql.startsWith('ROLLBACK PREPARED'))).toBeTruthy()
     })
 
     test('prepare right fails increments prepare_right_failed and run_failed and rolls back left prepared', async () => {
@@ -146,7 +146,7 @@ describe('TwoPhaseCommitCoordinator', () => {
         expect(right.routerCalls.find((c) => c.sql.startsWith('ROLLBACK PREPARED'))).toBeTruthy()
     })
 
-    test('commit right fails increments commit_right_failed, run_failed and attempts rollback left (may fail)', async () => {
+    test('commit right fails increments commit_right_failed and run_failed', async () => {
         const left = new FakeRouter('left')
         const right = new FakeRouter('right', { failCommitPrepared: true })
         const coord = new TwoPhaseCommitCoordinator({
@@ -161,9 +161,11 @@ describe('TwoPhaseCommitCoordinator', () => {
         const phases = calls.map((c) => c.phase)
         expect(phases).toContain('commit_right_failed')
         expect(phases).toContain('run_failed')
-        // We may also see rollback_left_failed if rollback left throws (e.g., already committed)
-        // Our FakeRouter doesn't simulate that nuance; ensure at least a rollback left attempt exists
-        expect(left.routerCalls.find((c) => c.sql.startsWith('ROLLBACK PREPARED'))).toBeTruthy()
+        // Left side was already committed when right failed, so it should NOT attempt rollback
+        // (you cannot rollback an already-committed transaction)
+        expect(left.routerCalls.find((c) => c.sql.startsWith('ROLLBACK PREPARED'))).toBeFalsy()
+        // Right side's prepared transaction should be rolled back
+        expect(right.routerCalls.find((c) => c.sql.startsWith('ROLLBACK PREPARED'))).toBeTruthy()
     })
 
     test('fn throws increments run_failed and rolls back both local txs', async () => {

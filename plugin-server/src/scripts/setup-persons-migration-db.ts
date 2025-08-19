@@ -72,23 +72,28 @@ async function checkPreparedTransactions(dbUrl: string): Promise<void> {
 }
 
 async function main() {
-    const args = new Set(process.argv.slice(2))
-    const drop = args.has('--drop')
-
     const defaultUrl = 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
     const dbUrl = process.env.PERSONS_MIGRATION_DATABASE_URL || defaultUrl
 
     const { adminUrl, dbName } = parseDb(dbUrl)
     const sqlPath = path.resolve(__dirname, '../../sql/create_persons_tables.sql')
 
-    if (drop) {
-        await dropDbIfExists(adminUrl, dbName)
-        return
-    }
+    // Always drop and recreate for idempotency
+    console.log(`Setting up persons migration database: ${dbName}`)
 
+    // Drop existing database if it exists
+    await dropDbIfExists(adminUrl, dbName)
+
+    // Create fresh database
     await ensureDbExists(adminUrl, dbName)
+
+    // Apply schema
     await applySchema(dbUrl, sqlPath)
+
+    // Check configuration
     await checkPreparedTransactions(dbUrl)
+
+    console.log(`Database ${dbName} setup completed successfully`)
 }
 
 main().catch((err) => {

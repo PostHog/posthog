@@ -275,82 +275,75 @@ export class PostgresPersonRepository
         const personVersion = 0
 
         try {
-            const { rows } = await this.postgres.query<RawPerson>(
-                tx ?? PostgresUse.PERSONS_WRITE,
-                `${
-                    forcedId
-                        ? `WITH inserted_person AS (
-                        INSERT INTO posthog_person (
-                            id, created_at, properties, properties_last_updated_at,
-                            properties_last_operation, team_id, is_user_id, is_identified, uuid, version
-                        )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            const baseColumns = [
+                'created_at',
+                'properties',
+                'properties_last_updated_at',
+                'properties_last_operation',
+                'team_id',
+                'is_user_id',
+                'is_identified',
+                'uuid',
+                'version',
+            ]
+            const columns = forcedId ? ['id', ...baseColumns] : baseColumns
+
+            const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+
+            const baseParams = [
+                createdAt.toISO(),
+                sanitizeJsonbValue(properties),
+                sanitizeJsonbValue(propertiesLastUpdatedAt),
+                sanitizeJsonbValue(propertiesLastOperation),
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                personVersion,
+            ]
+            const personParams = forcedId ? [forcedId, ...baseParams] : baseParams
+
+            // Find the actual index of team_id in the personParams array (1-indexed for SQL)
+            const teamIdParamIndex = personParams.indexOf(teamId) + 1
+            const distinctIdVersionStartIndex = columns.length + 1
+            const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
+
+            const query =
+                `WITH inserted_person AS (
+                        INSERT INTO posthog_person (${columns.join(', ')})
+                        VALUES (${valuePlaceholders})
                         RETURNING *
-                    )`
-                        : `WITH inserted_person AS (
-                        INSERT INTO posthog_person (
-                            created_at, properties, properties_last_updated_at,
-                            properties_last_operation, team_id, is_user_id, is_identified, uuid, version
-                        )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                        RETURNING *
-                    )`
-                } ` +
-                    distinctIds
-                        .map(
-                            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                            // `addDistinctId`
-                            (_, index) => `, distinct_id_${index} AS (
+                    )` +
+                distinctIds
+                    .map(
+                        // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                        // `addDistinctId`
+                        (_, index) => `, distinct_id_${index} AS (
                             INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                             VALUES (
-                                $${(forcedId ? 12 : 11) + index + distinctIds!.length - 1},
+                                $${distinctIdStartIndex + distinctIds.length - 1 - index},
                                 (SELECT id FROM inserted_person),
-                                $${forcedId ? 6 : 5},
-                                $${(forcedId ? 11 : 10) + index})
+                                $${teamIdParamIndex},
+                                $${distinctIdVersionStartIndex + index})
                             )`
-                        )
-                        .join('') +
-                    `SELECT * FROM inserted_person;`,
-                forcedId
-                    ? [
-                          forcedId,
-                          createdAt.toISO(),
-                          sanitizeJsonbValue(properties),
-                          sanitizeJsonbValue(propertiesLastUpdatedAt),
-                          sanitizeJsonbValue(propertiesLastOperation),
-                          teamId,
-                          isUserId,
-                          isIdentified,
-                          uuid,
-                          personVersion,
-                          ...distinctIds
-                              .slice()
-                              .reverse()
-                              .map(({ version }) => version),
-                          ...distinctIds
-                              .slice()
-                              .reverse()
-                              .map(({ distinctId }) => distinctId),
-                      ]
-                    : [
-                          createdAt.toISO(),
-                          sanitizeJsonbValue(properties),
-                          sanitizeJsonbValue(propertiesLastUpdatedAt),
-                          sanitizeJsonbValue(propertiesLastOperation),
-                          teamId,
-                          isUserId,
-                          isIdentified,
-                          uuid,
-                          personVersion,
-                          ...distinctIds
-                              .slice()
-                              .reverse()
-                              .map(({ version }) => version),
-                          ...distinctIds
-                              .slice()
-                              .reverse()
-                              .map(({ distinctId }) => distinctId),
-                      ],
+                    )
+                    .join('') +
+                ` SELECT * FROM inserted_person;`
+
+            const { rows } = await this.postgres.query<RawPerson>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                query,
+                [
+                    ...personParams,
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ version }) => version),
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ distinctId }) => distinctId),
+                ],
                 'insertPerson',
                 'warn'
             )
