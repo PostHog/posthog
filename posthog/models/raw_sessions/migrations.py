@@ -17,16 +17,16 @@ def update_raw_sessions_table(migration: str):
         # sharded
         run_sql_with_exceptions(
             migration.format(
-                table_name=SHARDED_RAW_SESSIONS_DATA_TABLE,
-                cluster=settings.CLICKHOUSE_CLUSTER,
+                table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
+                on_cluster_clause=ON_CLUSTER_CLAUSE(),
             ),
             node_role=NodeRole.ALL,
         ),
         # writable
         run_sql_with_exceptions(
             migration.format(
-                table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE,
-                cluster=settings.CLICKHOUSE_CLUSTER,
+                table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
+                on_cluster_clause=ON_CLUSTER_CLAUSE(),
             ),
             node_role=NodeRole.ALL,
         ),
@@ -35,8 +35,8 @@ def update_raw_sessions_table(migration: str):
         # distributed
         run_sql_with_exceptions(
             migration.format(
-                table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE,
-                cluster=settings.CLICKHOUSE_CLUSTER,
+                table_name=TABLE_BASE_NAME,
+                on_cluster_clause=ON_CLUSTER_CLAUSE(),
             ),
             node_role=NodeRole.ALL,
         ),
