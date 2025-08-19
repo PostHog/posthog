@@ -47,6 +47,8 @@ from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryCon
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
+    SessionSummaryStep,
+    SessionSummaryStreamUpdate,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
@@ -586,7 +588,7 @@ class TestSummarizeSessionGroupWorkflow:
 
         async def mock_workflow_generator():
             """Mock async generator that yields only the final result"""
-            yield expected_patterns
+            yield (SessionSummaryStreamUpdate.FINAL_RESULT, SessionSummaryStep.GENERATING_REPORT, expected_patterns)
 
         with patch(
             "posthog.temporal.ai.session_summary.summarize_session_group._start_session_group_summary_workflow",
@@ -602,10 +604,13 @@ class TestSummarizeSessionGroupWorkflow:
                 max_timestamp=datetime.now(),
             ):
                 results.append(update)
-
             # Verify we got the expected result
             assert len(results) == 1
-            assert results[0] == expected_patterns
+            assert results[0] == (
+                SessionSummaryStreamUpdate.FINAL_RESULT,
+                SessionSummaryStep.GENERATING_REPORT,
+                expected_patterns,
+            )
 
     @pytest.mark.asyncio
     async def test_summarize_session_group_workflow(
