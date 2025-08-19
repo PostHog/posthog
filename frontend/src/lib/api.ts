@@ -75,6 +75,7 @@ import {
     DataWarehouseActivityRecord,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
@@ -3348,16 +3349,7 @@ const api = {
     },
 
     dataWarehouse: {
-        async total_rows_stats(options?: ApiMethodOptions): Promise<{
-            billing_available: boolean
-            billing_interval: string
-            billing_period_end: string
-            billing_period_start: string
-            materialized_rows_in_billing_period: number
-            total_rows: number
-            tracked_billing_rows: number
-            pending_billing_rows: number
-        }> {
+        async totalRowsStats(options?: ApiMethodOptions): Promise<DataWarehouseSourceRowCount> {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
 

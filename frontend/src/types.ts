@@ -630,6 +630,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    web_analytics_pre_aggregated_tables_enabled?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -4570,6 +4571,8 @@ export enum ActivityScope {
     ACTION = 'Action',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
+    BATCH_EXPORT = 'BatchExport',
+    BATCH_IMPORT = 'BatchImport',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     GROUP = 'Group',
@@ -5648,6 +5651,18 @@ export interface LineageEdge {
 export interface LineageGraph {
     nodes: LineageNode[]
     edges: LineageEdge[]
+}
+
+export interface DataWarehouseSourceRowCount {
+    breakdownOfRowsBySource: Record<string, number>
+    billing_available: boolean
+    billing_interval: string
+    billing_period_end: string
+    billing_period_start: string
+    materialized_rows_in_billing_period: number
+    total_rows: number
+    tracked_billing_rows: number
+    pending_billing_rows: number
 }
 
 export interface DataWarehouseActivityRecord {

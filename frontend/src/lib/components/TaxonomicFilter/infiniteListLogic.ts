@@ -134,7 +134,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         [`${values.group?.searchAlias || 'search'}`]: swappedInQuery || searchQuery,
                         limit,
                         offset,
-                        excluded_properties: JSON.stringify(excludedProperties),
+                        excluded_properties:
+                            excludedProperties && excludedProperties.length > 0
+                                ? JSON.stringify(excludedProperties)
+                                : undefined,
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
                         ...(props.showNumericalPropsOnly ? { is_numerical: 'true' } : {}),
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only

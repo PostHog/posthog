@@ -76,6 +76,7 @@ from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
+from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
@@ -178,6 +179,7 @@ __all__ = [
     "NotificationViewed",
     "Organization",
     "OrganizationDomain",
+    "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
     "OAuthAccessToken",
