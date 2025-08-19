@@ -35,17 +35,16 @@ interface ComboboxProps extends React.HTMLAttributes<HTMLDivElement> {
     insideMenu?: boolean
 }
 
+type Action =
+    | { type: 'register'; id: string; visible: boolean; isSearchable?: boolean }
+    | { type: 'unregister'; id: string }
+
+type State = Map<string, { visible: boolean; isSearchable: boolean }>
+
 const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
     ({ children, className, insideMenu = false, ...props }, ref) => {
         const listboxRef = useRef<ListBoxHandle>(null)
         const [searchValue, setSearchValue] = useState('')
-
-        // Pure-react group visibility state
-        type Action =
-            | { type: 'register'; id: string; visible: boolean; isSearchable?: boolean }
-            | { type: 'unregister'; id: string }
-
-        type State = Map<string, { visible: boolean; isSearchable: boolean }>
 
         const groupReducer = (state: State, action: Action): State => {
             const newState = new Map(state)
