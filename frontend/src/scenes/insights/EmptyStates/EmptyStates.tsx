@@ -400,24 +400,24 @@ export function SlowQuerySuggestions({
 
     const steps = [
         slowQueryPossibilities.includes('all_events') ? (
-            <li key="all_events">
+            <>
                 Don't use the <CodeWrapper>All events</CodeWrapper> event type. Use a specific event instead.
-            </li>
+            </>
         ) : null,
         slowQueryPossibilities.includes('first_time_for_user') ? (
-            <li key="first_time_for_user">
+            <>
                 When possible, avoid <CodeWrapper>First-ever occurrence</CodeWrapper> metric types.
-            </li>
+            </>
         ) : null,
         slowQueryPossibilities.includes('strict_funnel') ? (
-            <li key="strict_funnel">
+            <>
                 When possible, use <CodeWrapper>Sequential</CodeWrapper> step order rather than{' '}
                 <CodeWrapper>Strict</CodeWrapper>.
-            </li>
+            </>
         ) : null,
-        <li key="reduce_date_range">Reduce the date range.</li>,
+        <>Reduce the date range.</>,
         loadingTimeSeconds >= EVEN_SLOWER_LOADING_TIME && suggestedSamplingPercentage ? (
-            <li key="sampling">
+            <>
                 {samplingPercentage ? (
                     <>
                         Reduce volume further with <SamplingLink insightProps={insightProps} />.
@@ -427,7 +427,7 @@ export function SlowQuerySuggestions({
                         Turn on <SamplingLink insightProps={insightProps} />.
                     </>
                 )}
-            </li>
+            </>
         ) : null,
     ].filter((x) => x !== null)
 
@@ -439,10 +439,24 @@ export function SlowQuerySuggestions({
         <div className="flex items-center p-4 rounded bg-primary gap-x-3">
             <IconInfo className="text-xl shrink-0" />
             <div className="text-xs">
-                <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
-                    Need to speed things up? Some steps to optimize this query:
-                </p>
-                <ul className="mb-0 list-disc list-inside ml-2">{steps}</ul>
+                {steps.length === 1 ? (
+                    <>
+                        <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
+                            Need to speed things up? {steps[0]}
+                        </p>
+                    </>
+                ) : (
+                    <>
+                        <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
+                            Need to speed things up? Some steps to optimize this query:
+                        </p>
+                        <ul className="mb-0 list-disc list-inside ml-2">
+                            {steps.map((step, index) => (
+                                <li key={index}>{step}</li>
+                            ))}
+                        </ul>
+                    </>
+                )}
             </div>
         </div>
     )
