@@ -38,6 +38,7 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import (
     EventTaxonomyQueryRunner,
 )
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import GroupTypeMapping, Team
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
@@ -137,7 +138,7 @@ def snapshot_properties_taxonomy(
             lambda: EventTaxonomyQueryRunner(
                 query=EventTaxonomyQuery(event=item.event),
                 team=team,
-            ).calculate()
+            ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         )
 
     for item in events:
@@ -164,7 +165,11 @@ def snapshot_events_taxonomy(
 
     context.log.info(f"Snapshotting events taxonomy for {team.id}")
 
-    res = call_query_runner(lambda: TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate())
+    res = call_query_runner(
+        lambda: TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+    )
     if not res.results:
         raise ValueError("No results from events taxonomy query")
 
@@ -233,7 +238,7 @@ def snapshot_actors_property_taxonomy(
                     lambda: ActorsPropertyTaxonomyQueryRunner(
                         query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
                         team=team,
-                    ).calculate()
+                    ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
                 )
 
             res = snapshot(index, batch)
