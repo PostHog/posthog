@@ -21,8 +21,6 @@ from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from posthog.models import Team, User
 from posthoganalytics import capture_exception
-from ee.hogai.utils.helpers import format_events_yaml
-from posthog.schema import MaxEventContext
 
 
 class HogQLGeneratorArgs(BaseModel):
@@ -70,12 +68,6 @@ class HogQLGeneratorNode(
         ]
         system_messages = [("system", message) for message in all_messages]
         return ChatPromptTemplate(system_messages, template_format="mustache")
-
-    def _format_events(self, events_in_context: list[MaxEventContext]) -> str:
-        """
-        Override parent implementation to use YAML format instead of XML.
-        """
-        return format_events_yaml(events_in_context, self._team)
 
     def _construct_messages(self, state: TaxonomyAgentState) -> ChatPromptTemplate:
         """

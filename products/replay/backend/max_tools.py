@@ -9,7 +9,7 @@ from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
-from posthog.schema import MaxRecordingUniversalFilters, MaxEventContext
+from posthog.schema import MaxRecordingUniversalFilters
 from .prompts import (
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
@@ -17,7 +17,6 @@ from .prompts import (
     DATE_FIELDS_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
 )
-from ee.hogai.utils.helpers import format_events_yaml
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -59,12 +58,6 @@ class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgen
         ]
         system_messages = [("system", message) for message in all_messages]
         return ChatPromptTemplate(system_messages, template_format="mustache")
-
-    def _format_events(self, events_in_context: list[MaxEventContext]) -> str:
-        """
-        Override parent implementation to use YAML format instead of XML.
-        """
-        return format_events_yaml(events_in_context, self._team)
 
 
 class SessionReplayFilterOptionsToolsNode(

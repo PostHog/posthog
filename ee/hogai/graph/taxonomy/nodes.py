@@ -27,7 +27,7 @@ from .prompts import (
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     ITERATION_LIMIT_PROMPT,
 )
-from ee.hogai.utils.helpers import format_events_xml
+from ee.hogai.utils.helpers import format_events_yaml
 from posthog.schema import MaxEventContext
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
@@ -91,9 +91,9 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
     def _format_events(self, events_in_context: list[MaxEventContext]) -> str:
         """
         Generate the output format for events. Can be overridden by subclasses.
-        Default implementation uses XML format but it can be overridden to use YAML format.
+        Default implementation uses YAML format but it can be overridden to use XML format.
         """
-        return format_events_xml(events_in_context, self._team)
+        return format_events_yaml(events_in_context, self._team)
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
