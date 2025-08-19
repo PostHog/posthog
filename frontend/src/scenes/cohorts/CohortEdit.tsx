@@ -7,7 +7,7 @@ import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip
 
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
@@ -160,8 +160,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <ScenePanelDivider />
 
                 <ScenePanelActions>
-                    <SceneAddToDropdownMenu
-                        notebook={true}
+                    <SceneAddToNotebookDropdownMenu
                         dataAttrKey={RESOURCE_TYPE}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
