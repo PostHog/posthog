@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
-import { Query } from '~/queries/Query/Query'
-import { QueryContext } from '~/queries/types'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { IconPlusSmall } from '@posthog/icons'
 import React from 'react'
 
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+
+import { Query } from '~/queries/Query/Query'
+import { QueryContext } from '~/queries/types'
+
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+
 export function AddPersonToCohortModalBody(): JSX.Element {
-    const { query, cohortPersons } = useValues(addPersonToCohortModalLogic)
+    const { query, cohortPersons, cohortUpdatesInProgress } = useValues(addPersonToCohortModalLogic)
     const { setQuery, addPersonToCohort } = useActions(addPersonToCohortModalLogic)
 
     const cohortPersonsSet = React.useMemo(() => {
@@ -30,11 +33,14 @@ export function AddPersonToCohortModalBody(): JSX.Element {
                             status="default"
                             size="small"
                             onClick={(e) => {
+                                if (cohortUpdatesInProgress[id]) {
+                                    return
+                                }
                                 e.preventDefault()
                                 addPersonToCohort(id)
                             }}
                         >
-                            <IconPlusSmall />
+                            {cohortUpdatesInProgress[id] ? <Spinner textColored /> : <IconPlusSmall />}
                         </LemonButton>
                     )
                 },
