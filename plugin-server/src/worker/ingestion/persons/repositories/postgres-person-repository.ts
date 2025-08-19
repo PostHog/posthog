@@ -265,7 +265,7 @@ export class PostgresPersonRepository
         // Used to support dual-write; we want to force the id a person is created with to prevent drift
         forcedId?: number
     ): Promise<CreatePersonResult> {
-        distinctIds ||= []
+        distinctIds = distinctIds || []
 
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
@@ -321,7 +321,7 @@ export class PostgresPersonRepository
                         (_, index) => `, distinct_id_${index} AS (
                             INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                             VALUES (
-                                $${distinctIdStartIndex + distinctIds.length - 1 - index},
+                                $${distinctIdStartIndex + distinctIds!.length - 1 - index},
                                 (SELECT id FROM inserted_person),
                                 $${teamIdParamIndex},
                                 $${distinctIdVersionStartIndex + index})

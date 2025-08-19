@@ -12,10 +12,10 @@ class FakePoolClient {
     query(sql: string, args?: any[]): any {
         this.calls.push({ sql, args })
         if (sql.startsWith('PREPARE TRANSACTION') && this.opts.failOnPrepare) {
-            throw new Error(`prepare_failed_${this.opts.side}`)
+            return Promise.reject(new Error(`prepare_failed_${this.opts.side}`))
         }
         // BEGIN / ROLLBACK are always ok in this fake
-        return { rowCount: 0, rows: [] }
+        return Promise.resolve({ rowCount: 0, rows: [] })
     }
 
     release(): void {
@@ -40,12 +40,12 @@ class FakeRouter {
     query(_use: PostgresUse, sql: string, args?: any[], _tag?: string): any {
         this.routerCalls.push({ sql, args })
         if (sql.startsWith('COMMIT PREPARED') && this.opts.failCommitPrepared) {
-            throw new Error(`commit_failed_${this.side}`)
+            return Promise.reject(new Error(`commit_failed_${this.side}`))
         }
         if (sql.startsWith('ROLLBACK PREPARED') && this.opts.failRollbackPrepared) {
-            throw new Error(`rollback_failed_${this.side}`)
+            return Promise.reject(new Error(`rollback_failed_${this.side}`))
         }
-        return { rowCount: 0, rows: [] }
+        return Promise.resolve({ rowCount: 0, rows: [] })
     }
 }
 
