@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import urlencode
+from operator import itemgetter
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -894,6 +895,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_get_matching_events_with_query(self) -> None:
         """both sessions have a pageview, but only the specified session returns a single UUID for the pageview events"""
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        event_ts = base_time + timedelta(seconds=1)
 
         # the matching session
         matching_events_session = str(uuid7())
@@ -903,6 +905,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             properties={"$session_id": matching_events_session},
             team=self.team,
             distinct_id=str(uuid7()),
+            timestamp=event_ts,
         )
         _create_event(
             event="a different event that we shouldn't see",
@@ -931,7 +934,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"results": [event_id]}
+        assert response.json() == {"results": [{"uuid": event_id, "timestamp": event_ts.isoformat()}]}
 
     def test_get_matching_events(self) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -982,7 +985,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         # TODO: right now we don't care about the order of events in the response
-        assert sorted(response.json()["results"]) == sorted([event_id_one, event_id_three, event_id_two])
+
+        expected = [
+            {"uuid": event_id_one, "timestamp": (base_time + timedelta(seconds=1)).isoformat()},
+            {"uuid": event_id_two, "timestamp": (base_time + timedelta(seconds=10)).isoformat()},
+            {"uuid": event_id_three, "timestamp": (base_time + timedelta(seconds=6)).isoformat()},
+        ]
+
+        assert sorted(response.json()["results"], key=itemgetter("uuid")) == sorted(expected, key=itemgetter("uuid"))
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:

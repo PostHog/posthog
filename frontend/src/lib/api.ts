@@ -35,6 +35,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    MatchingEventsResponse,
     Node,
     NodeKind,
     PersistedFolder,
@@ -44,7 +45,6 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
-    MatchingEventsResponse,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {

@@ -33,6 +33,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MatchedRecordingEvent,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -49,7 +50,6 @@ import {
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
-    MatchedRecordingEvent,
 } from '~/types'
 
 import { integer, numerical_key } from './type-utils'

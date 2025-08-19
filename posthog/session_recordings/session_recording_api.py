@@ -647,7 +647,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         This API is intended for internal use and might have unannounced breaking changes.""",
     )
     @action(methods=["GET"], detail=False)
-    def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> MatchingEventsResponse:
+    def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
         tag_queries(product=Product.REPLAY)
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)

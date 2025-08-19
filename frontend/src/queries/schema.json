@@ -15414,7 +15414,7 @@
             "additionalProperties": false,
             "properties": {
                 "timestamp": {
-                    "type": ["string", "null"]
+                    "type": "string"
                 },
                 "uuid": {
                     "type": "string"
