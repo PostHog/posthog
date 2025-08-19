@@ -91,7 +91,7 @@ const GrossRevenueTile = ({
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-    const results = (response?.results?.gross as GraphDataset[]) ?? []
+    const results = (response?.results?.gross.map((gross) => gross.total) as GraphDataset[]) ?? []
     const { labels, datasets } = extractLabelAndDatasets(results)
 
     return (
@@ -159,7 +159,7 @@ const MRRTile = ({
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-    const results = (response?.results?.mrr as GraphDataset[]) ?? []
+    const results = (response?.results?.mrr.map((mrr) => mrr.total) as GraphDataset[]) ?? []
 
     const { labels, datasets } = extractLabelAndDatasets(results)
 

@@ -21838,15 +21838,31 @@
             "additionalProperties": false,
             "properties": {
                 "gross": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResultItem"
+                    },
                     "type": "array"
                 },
                 "mrr": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResultItem"
+                    },
                     "type": "array"
                 }
             },
             "required": ["gross", "mrr"],
+            "type": "object"
+        },
+        "RevenueAnalyticsRevenueQueryResultItem": {
+            "additionalProperties": false,
+            "properties": {
+                "churn": {},
+                "contraction": {},
+                "expansion": {},
+                "new": {},
+                "total": {}
+            },
+            "required": ["total", "new", "expansion", "contraction", "churn"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersGroupBy": {

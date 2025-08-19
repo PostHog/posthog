@@ -2023,9 +2023,17 @@ export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<
     interval: IntervalType
 }
 
+export interface RevenueAnalyticsRevenueQueryResultItem {
+    total: unknown
+    new: unknown
+    expansion: unknown
+    contraction: unknown
+    churn: unknown
+}
+
 export interface RevenueAnalyticsRevenueQueryResult {
-    gross: unknown[]
-    mrr: unknown[]
+    gross: RevenueAnalyticsRevenueQueryResultItem[]
+    mrr: RevenueAnalyticsRevenueQueryResultItem[]
 }
 export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
     results: RevenueAnalyticsRevenueQueryResult
