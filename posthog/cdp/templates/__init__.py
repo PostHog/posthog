@@ -30,7 +30,11 @@ from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
 from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
-from .attio.template_attio import template as attio
+from .attio.template_attio import (
+    template_contact as attio_contact,
+    template_user as attio_user,
+    template_workspace as attio_workspace,
+)
 from .mailchimp.template_mailchimp import template as mailchimp
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
 from .linkedin_ads.template_linkedin_ads import template as linkedin_ads
@@ -58,7 +62,9 @@ HOG_FUNCTION_TEMPLATES = [
     slack,
     activecampaign,
     airtable,
-    attio,
+    attio_contact,
+    attio_user,
+    attio_workspace,
     avo,
     aws_kinesis,
     braze,
