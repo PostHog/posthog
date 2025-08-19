@@ -39,8 +39,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder
     used_preaggregated_tables: bool
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.use_v2_tables = use_v2_tables
         self.used_preaggregated_tables = False
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
@@ -611,7 +612,7 @@ GROUP BY session_id, breakdown_value
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion

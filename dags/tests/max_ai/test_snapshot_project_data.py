@@ -205,7 +205,7 @@ def test_snapshot_events_taxonomy(
     team,
     mock_dump,
 ):
-    """Test that snapshot_properties_taxonomy correctly processes events and dumps results."""
+    """Test that snapshot_events_taxonomy correctly processes events and dumps results."""
     mock_check_dump_exists.return_value = False
 
     mock_team_taxonomy_query_runner.return_value = MagicMock(
@@ -233,7 +233,7 @@ def test_snapshot_events_taxonomy(
 @patch("dags.max_ai.snapshot_project_data.check_dump_exists")
 @pytest.mark.django_db
 def test_snapshot_events_taxonomy_can_be_skipped(mock_check_dump_exists, mock_context, mock_s3, team, mock_dump):
-    """Test that snapshot_properties_taxonomy correctly processes events and dumps results."""
+    """est that snapshot_events_taxonomy can be skipped when file already exists."""
     mock_check_dump_exists.return_value = True
 
     mock_s3_client = MagicMock()

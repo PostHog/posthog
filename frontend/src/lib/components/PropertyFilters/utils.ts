@@ -25,6 +25,7 @@ import {
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
+    FlagPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
@@ -40,7 +41,6 @@ import {
     RecordingPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
-    FlagPropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(

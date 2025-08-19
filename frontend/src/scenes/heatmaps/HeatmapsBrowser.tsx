@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
 import { IconGear, IconLaptop, IconPhone, IconRevert, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
 import {
     LemonBanner,
@@ -7,19 +10,18 @@ import {
     LemonSegmentedButton,
     LemonSkeleton,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { useRef } from 'react'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()

@@ -1,11 +1,13 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { MetricsTable } from './MetricsTable'

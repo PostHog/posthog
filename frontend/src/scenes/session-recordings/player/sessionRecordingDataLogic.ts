@@ -1,13 +1,17 @@
-import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
 import { actions, beforeUnmount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
-import posthog from 'posthog-js'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
     parseEncodedSnapshots,
@@ -17,11 +21,11 @@ import { keyForSource } from 'scenes/session-recordings/player/snapshot-processi
 import { teamLogic } from 'scenes/teamLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
-import { hogql, HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '~/queries/utils'
 import {
     CommentType,
-    RecordingEventsFilters,
     RecordingEventType,
+    RecordingEventsFilters,
     RecordingSegment,
     RecordingSnapshot,
     SessionPlayerData,
@@ -37,10 +41,8 @@ import {
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
+import { ViewportResolution, getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.

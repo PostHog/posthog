@@ -13,19 +13,17 @@ impl Team {
         token: &str,
     ) -> Result<Team, FlagError> {
         tracing::debug!(
-            "Attempting to read team from Redis at key '{}{}'",
-            TEAM_TOKEN_CACHE_PREFIX,
-            token
+            "Attempting to read team from Redis at key '{TEAM_TOKEN_CACHE_PREFIX}{token}'"
         );
 
         // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
-            .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
+            .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"))
             .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
-            tracing::error!("failed to parse data to team for token {}: {}", token, e);
+            tracing::error!("failed to parse data to team for token {token}: {e}");
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
@@ -211,7 +209,7 @@ mod tests {
 
         match Team::from_redis(client.clone(), team.api_token.as_str()).await {
             Err(FlagError::RedisDataParsingError) => (),
-            Err(other) => panic!("Expected DataParsingError, got {:?}", other),
+            Err(other) => panic!("Expected DataParsingError, got {other:?}"),
             Ok(_) => panic!("Expected DataParsingError"),
         };
     }
@@ -234,10 +232,10 @@ mod tests {
         };
 
         let serialized_team = serde_json::to_string(&test_team).expect("Failed to serialize team");
-        tracing::info!("Inserting test team payload: {}", serialized_team);
+        tracing::info!("Inserting test team payload: {serialized_team}");
         client
             .set(
-                format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, target_token),
+                format!("{TEAM_TOKEN_CACHE_PREFIX}{target_token}"),
                 serialized_team,
             )
             .await

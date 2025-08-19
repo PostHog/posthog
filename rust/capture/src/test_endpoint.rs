@@ -203,8 +203,7 @@ pub fn from_bytes(bytes: Bytes, limit: usize, comp: String) -> Result<RawRequest
                 metrics::counter!(GZIP_FAILED, "reason" => "too_big", "comp" => comp.clone())
                     .increment(1);
                 return Err(CaptureError::EventTooBig(format!(
-                    "Event or batch exceeded {} during unzipping",
-                    limit
+                    "Event or batch exceeded {limit} during unzipping",
                 )));
             }
         }
@@ -225,8 +224,7 @@ pub fn from_bytes(bytes: Bytes, limit: usize, comp: String) -> Result<RawRequest
         })?;
         if s.len() > limit {
             return Err(CaptureError::EventTooBig(format!(
-                "Event or batch exceeded {}, wasn't compressed",
-                limit
+                "Event or batch exceeded {limit}, wasn't compressed",
             )));
         }
         s

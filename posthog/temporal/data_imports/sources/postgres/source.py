@@ -4,11 +4,11 @@ from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldSSHTunnelConfig,
-    Type4,
+    SourceFieldInputConfigType,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -22,8 +22,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-from posthog.warehouse.types import IncrementalField
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -37,13 +36,13 @@ PostgresErrors = {
 @SourceRegistry.register
 class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.POSTGRES
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.POSTGRES
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.POSTGRES,
+            name=SchemaExternalDataSourceType.POSTGRES,
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             fields=cast(
                 list[FieldType],
@@ -51,27 +50,51 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
                     SourceFieldInputConfig(
                         name="connection_string",
                         label="Connection string (optional)",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="postgresql://user:password@localhost:5432/database",
                     ),
                     SourceFieldInputConfig(
-                        name="host", label="Host", type=Type4.TEXT, required=True, placeholder="localhost"
+                        name="host",
+                        label="Host",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="localhost",
                     ),
                     SourceFieldInputConfig(
-                        name="port", label="Port", type=Type4.NUMBER, required=True, placeholder="5432"
+                        name="port",
+                        label="Port",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=True,
+                        placeholder="5432",
                     ),
                     SourceFieldInputConfig(
-                        name="database", label="Database", type=Type4.TEXT, required=True, placeholder="postgres"
+                        name="database",
+                        label="Database",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="postgres",
                     ),
                     SourceFieldInputConfig(
-                        name="user", label="User", type=Type4.TEXT, required=True, placeholder="postgres"
+                        name="user",
+                        label="User",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="postgres",
                     ),
                     SourceFieldInputConfig(
-                        name="password", label="Password", type=Type4.PASSWORD, required=True, placeholder=""
+                        name="password",
+                        label="Password",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldInputConfig(
-                        name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
+                        name="schema",
+                        label="Schema",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="public",
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],

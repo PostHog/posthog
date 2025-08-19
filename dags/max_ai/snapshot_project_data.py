@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable, Iterator
 from itertools import islice
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import dagster
 from dagster_aws.s3.resources import S3Resource
@@ -42,6 +42,7 @@ from posthog.models import GroupTypeMapping, Team
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
+    ActorsPropertyTaxonomyResponse,
     EventTaxonomyQuery,
     TeamTaxonomyItem,
     TeamTaxonomyQuery,
@@ -80,7 +81,10 @@ def snapshot_postgres_model(
     description="Snapshots Postgres project data (property definitions, DWH schema, etc.)",
     retry_policy=DEFAULT_RETRY_POLICY,
     code_version="v1",
-    tags={"owner": JobOwners.TEAM_MAX_AI.value},
+    tags={
+        "owner": JobOwners.TEAM_MAX_AI.value,
+        "dagster/max_runtime": 60 * 15,  # 15 minutes
+    },
 )
 def snapshot_postgres_project_data(
     context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
@@ -110,13 +114,21 @@ def snapshot_postgres_project_data(
 C = TypeVar("C")
 
 
-@retry(retry=retry_if_exception_type(InternalCHQueryError), stop=stop_after_attempt(4), wait=wait_exponential(min=8))
+@retry(
+    retry=retry_if_exception_type(InternalCHQueryError),
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(min=8),
+)
 def call_query_runner(callable: Callable[[], C]) -> C:
     return callable()
 
 
 def snapshot_properties_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, file_key: str, team: Team, events: list[TeamTaxonomyItem]
+    context: dagster.OpExecutionContext,
+    s3: S3Resource,
+    file_key: str,
+    team: Team,
+    events: list[TeamTaxonomyItem],
 ):
     results: list[PropertyTaxonomySnapshot] = []
 
@@ -138,7 +150,10 @@ def snapshot_properties_taxonomy(
 
 
 def snapshot_events_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, code_version: str | None = None
+    context: dagster.OpExecutionContext,
+    s3: S3Resource,
+    team: Team,
+    code_version: str | None = None,
 ):
     # Check if files are cached
     events_file_key = compose_clickhouse_dump_path(team.id, "events_taxonomy", code_version=code_version)
@@ -177,7 +192,10 @@ def chunked(iterable: Iterable[T], size: int = 200) -> Iterator[list[T]]:
 
 
 def snapshot_actors_property_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, code_version: str | None = None
+    context: dagster.OpExecutionContext,
+    s3: S3Resource,
+    team: Team,
+    code_version: str | None = None,
 ):
     file_key = compose_clickhouse_dump_path(team.id, "actors_property_taxonomy", code_version=code_version)
     if check_dump_exists(s3, file_key):
@@ -197,7 +215,7 @@ def snapshot_actors_property_taxonomy(
         context.log.info(f"Snapshotting properties taxonomy for {log_entity}")
 
         # Retrieve saved property definitions for the group type or person
-        property_defs = (
+        property_defs: Iterator[str] = (
             PropertyDefinition.objects.filter(
                 team=team,
                 type=PropertyDefinition.Type.GROUP if is_group else PropertyDefinition.Type.PERSON,
@@ -226,7 +244,7 @@ def snapshot_actors_property_taxonomy(
                 )
 
             # Snapshot queries in the same way as the toolkit expects
-            for prop, prop_results in zip(batch, res.results):
+            for prop, prop_results in zip(batch, cast(list[ActorsPropertyTaxonomyResponse], res.results)):
                 results.append(
                     ActorsPropertyTaxonomySnapshot(property=prop, group_type_index=index, results=prop_results)
                 )
@@ -239,7 +257,11 @@ def snapshot_actors_property_taxonomy(
 
 @dagster.op(
     description="Snapshots ClickHouse project data",
-    tags={"owner": JobOwners.TEAM_MAX_AI.value},
+    retry_policy=DEFAULT_RETRY_POLICY,
+    tags={
+        "owner": JobOwners.TEAM_MAX_AI.value,
+        "dagster/max_runtime": 60 * 15,  # 15 minutes
+    },
     code_version="v1",
 )
 def snapshot_clickhouse_project_data(

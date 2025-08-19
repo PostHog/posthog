@@ -5,12 +5,12 @@ This guide explains how to create isolated PostHog development environments usin
 **Key Benefits:**
 
 - Work on multiple branches simultaneously with isolated environments
-- Each worktree has its own Flox environment and Python dependencies  
+- Each worktree has its own Flox environment and Python dependencies
 - Quick switching between features, bug fixes, and PR reviews
 - Standard `bin/start` command works in each worktree
 
 > [!IMPORTANT]
-**Important:** Only one PostHog instance (`bin/start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
+> **Important:** Only one PostHog instance (`bin/start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
 
 ## Prerequisites
 
@@ -206,14 +206,14 @@ phw list
 
 # Output:
 # All PostHog Worktrees:
-# 
+#
 # Branch                        Path                                           Location
 # ------                        ----                                           --------
 # haacked/improved-workflow     /Users/username/dev/posthog/posthog            other
 # haacked/analytics-dashboard   /Users/username/.worktrees/posthog/haacked/... current
 # main                         /Users/username/.worktrees/posthog/main        current
 # pr-5678-teammate             /Users/username/.worktrees/posthog/pr-5678-... current
-# 
+#
 # Legend:
 #   current = in current worktree base (/Users/username/.worktrees/posthog)
 #   other   = in different location
@@ -225,6 +225,7 @@ phw remove pr-5678-teammate
 ## Quick Reference
 
 ### Commands
+
 ```bash
 phw create <branch> [base-branch]   # Create new branch & worktree (defaults to master)
 phw checkout <branch>               # Create worktree for existing branch
@@ -253,7 +254,7 @@ phw list                            # List all worktrees
 ### The Magic Flow
 
 ```text
-phw create branch → creates worktree → copies .envrc → cd to worktree → 
+phw create branch → creates worktree → copies .envrc → cd to worktree →
 direnv detects .envrc → activates Flox → runs uv sync → ready to code!
 ```
 
@@ -265,10 +266,11 @@ When you switch between worktrees while already in a Flox environment, you'll se
 ⚠️  About to activate Flox environment in worktree while already in environment for:
    /Users/username/dev/posthog/posthog
 
-Continue with nested activation? (y/N): 
+Continue with nested activation? (y/N):
 ```
 
 **Your options:**
+
 - **Press Enter or 'n'** (recommended): Skips activation. Run `exit` first to cleanly switch environments
 - **Type 'y'**: Proceeds with nested activation (you'll need multiple `exit` commands later)
 - **Ctrl+C**: Cancels direnv entirely so you can run `exit` and retry

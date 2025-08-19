@@ -27,16 +27,17 @@ from posthog.test.base import (
 from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import (
-    STRIPE_CHARGE_RESOURCE_NAME,
-    STRIPE_INVOICE_RESOURCE_NAME,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import STRIPE_PRODUCT_RESOURCE_NAME
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
+)
+
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_invoices"

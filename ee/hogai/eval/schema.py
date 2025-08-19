@@ -118,7 +118,7 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
 class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
     name: str
     format: str
-    columns: list[str]
+    columns: dict
 
     @classmethod
     def serialize_for_project(cls, project_id: int):
@@ -162,6 +162,7 @@ class PropertyTaxonomySnapshot(AvroBase):
 # posthog/hogql_queries/ai/actors_property_taxonomy_query_runner.py
 class ActorsPropertyTaxonomySnapshot(AvroBase):
     group_type_index: int | None
+    property: str
     results: ActorsPropertyTaxonomyResponse
 
 

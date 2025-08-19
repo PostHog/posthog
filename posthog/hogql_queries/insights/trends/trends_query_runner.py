@@ -33,7 +33,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -78,7 +78,7 @@ from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
-class TrendsQueryRunner(QueryRunner):
+class TrendsQueryRunner(AnalyticsQueryRunner):
     query: TrendsQuery
     response: TrendsQueryResponse
     cached_response: CachedTrendsQueryResponse
@@ -339,7 +339,7 @@ class TrendsQueryRunner(QueryRunner):
             compare=res_compare,
         )
 
-    def calculate(self):
+    def _calculate(self):
         queries = self.to_queries()
 
         if len(queries) == 0:

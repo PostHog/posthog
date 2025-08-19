@@ -16,6 +16,7 @@ from django.db import transaction
 from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
@@ -33,22 +34,34 @@ from two_factor.views.utils import (
 )
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
+from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
-from posthog.tasks.email import send_password_reset, send_two_factor_auth_backup_code_used_email
-from posthog.utils import get_instance_available_sso_providers
+from posthog.tasks.email import (
+    login_from_new_device_notification,
+    send_password_reset,
+    send_two_factor_auth_backup_code_used_email,
+)
+from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
 
 
 @receiver(user_logged_in)
 def post_login(sender, user, request: HttpRequest, **kwargs):
     """
-    This is the most reliable way of setting this value as it will be called regardless of where the login occurs
-    including tests.
+    Runs after every user login (including tests)
+    Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time
     """
+
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+
+    # Cache device info on signup to skip login notification for this device
+    if user.last_login is None:
+        short_user_agent = get_short_user_agent(request)
+        ip_address = get_ip_address(request)
+        check_and_cache_login_device(user.id, ip_address, short_user_agent)
 
 
 @csrf_protect
@@ -134,6 +147,7 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+        was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
         user = cast(
             Optional[User],
             authenticate(
@@ -163,6 +177,12 @@ class LoginSerializer(serializers.Serializer):
             raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+        # Trigger login notification (password, no-2FA) and skip re-auth
+        if not was_authenticated_before_login_attempt:
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
         report_user_logged_in(user, social_provider="")
         return user

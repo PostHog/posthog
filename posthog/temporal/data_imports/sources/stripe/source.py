@@ -1,5 +1,10 @@
 from typing import cast
-from posthog.schema import ExternalDataSourceType, SourceConfig, SourceFieldInputConfig, Type4
+from posthog.schema import (
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -15,19 +20,19 @@ from posthog.temporal.data_imports.sources.stripe.settings import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class StripeSource(BaseSource[StripeSourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.STRIPE
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.STRIPE
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="""Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
 
 You can find your account ID [in your Stripe dashboard](https://dashboard.stripe.com/settings/account), and create a secret key [here](https://dashboard.stripe.com/apikeys/create).
@@ -43,14 +48,14 @@ Currently, **read permissions are required** for the following resources:
                     SourceFieldInputConfig(
                         name="stripe_account_id",
                         label="Account id",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="stripe_account_id",
                     ),
                     SourceFieldInputConfig(
                         name="stripe_secret_key",
                         label="API key",
-                        type=Type4.PASSWORD,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="rk_live_...",
                     ),

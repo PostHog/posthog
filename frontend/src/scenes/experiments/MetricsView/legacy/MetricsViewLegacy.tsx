@@ -1,11 +1,13 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../../constants'
-import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
+import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { getNiceTickValues } from '../shared/utils'
 import { DeltaChart } from './DeltaChart'

@@ -93,7 +93,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
             - name: Build the Docker image with Depot
               if: needs.changes.outputs.shouldRun == 'true'
               # Build the container image in preparation for the E2E tests
@@ -115,7 +115,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldRun == 'true'
@@ -123,7 +123,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: 'pnpm'
@@ -133,7 +133,7 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+            - uses: actions/cache@v4
               if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache
               with:
@@ -239,7 +239,7 @@ jobs:
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive report
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: playwright-container-report
                   path: playwright/playwright-report/
@@ -248,7 +248,7 @@ jobs:
 
             - name: Archive screenshots
               if: always()
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: playwright-container-screenshots
                   path: playwright/test-results
@@ -266,7 +266,7 @@ jobs:
                   echo "Skipping E2E checks - no changes detected"
                   exit 0
 
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.shouldRun == 'true'
 
             - name: Stop/Start stack with Docker Compose
@@ -313,7 +313,7 @@ jobs:
 
             - name: Set up Python
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version: 3.11.9
                   cache: pip
@@ -348,7 +348,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -413,7 +413,7 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+            - uses: actions/cache@v4
               if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache
               with:
@@ -510,7 +510,7 @@ jobs:
 
             - name: Archive Playwright report on failure
               if: failure()
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: playwright-report
                   path: playwright/playwright-report/
@@ -518,7 +518,7 @@ jobs:
 
             - name: Archive screenshots
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: playwright-screenshots
                   path: playwright/test-results

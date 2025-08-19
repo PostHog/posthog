@@ -140,7 +140,11 @@ def spawn_evaluation_container(
 
 @dagster.job(
     description="Runs an AI evaluation",
-    tags={"owner": JobOwners.TEAM_MAX_AI.value},
+    tags={
+        "owner": JobOwners.TEAM_MAX_AI.value,
+        "dagster/max_runtime": 60 * 60,  # 1 hour
+    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
     config=dagster.RunConfig(
         ops={
             "export_projects": ExportProjectsConfig(project_ids=[]),

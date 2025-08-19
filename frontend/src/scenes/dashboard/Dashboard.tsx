@@ -1,16 +1,19 @@
 import './Dashboard.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -21,7 +24,6 @@ import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 interface DashboardProps {
     id?: string
@@ -30,17 +32,17 @@ interface DashboardProps {
     themes?: DataColorThemeModel[]
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }) => ({
         id: parseInt(id as string),
         placement,
     }),
     settingSectionId: 'environment-product-analytics',
 }
 
-export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (

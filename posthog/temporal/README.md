@@ -1,11 +1,12 @@
 # Temporal
 
 PostHog uses Temporal to power multiple products and features like:
-* All of Batch exports,
-* Syncs for data warehouse,
-* Processing AI agent conversations,
-* Data warehouse model materialization,
-* And more...
+
+- All of Batch exports,
+- Syncs for data warehouse,
+- Processing AI agent conversations,
+- Data warehouse model materialization,
+- And more...
 
 All these products and features require a scheduling and orchestration system with idempotent execution, granular error management, and an observable history for debugging and maintenance. All while also being distributed across a scalable number of workers.
 
@@ -60,6 +61,7 @@ if __name__ == "__main__":
 An activity represents a single operation executed by a workflow. Again, if you are familiar with Apache Airflow, activities are analogous to tasks. Like workflows, activities are also code: using the Python SDK, we decorate functions with `temporalio.activity.defn` to mark them as activities.
 
 There are three types of activities:
+
 1. Coroutines (`async def` functions),
 2. Synchronous multithreaded functions,
 3. And synchronous multiprocessing functions.
@@ -150,7 +152,7 @@ schedule = Schedule(
 
 ## Implement a product or feature with Temporal
 
-The first step when working with Temporal is deciding whether Temporal is the right tool for the job. If the application and/or feature you are implementing requires offloading work to specialized workers that must ensure durability and idempotency, offer tools to manage error handling and retry mechanisms, and you are willing to accept an increase in complexity and maintenance burden then Temporal could be the right tool for the job. Once you chosen Temporal, you will be please to know that a lot of our work here is making that increase complexity and maintenance burden small and easier to manage, so you get to re-use some of the tooling we have built when developing other products. *Yay!*
+The first step when working with Temporal is deciding whether Temporal is the right tool for the job. If the application and/or feature you are implementing requires offloading work to specialized workers that must ensure durability and idempotency, offer tools to manage error handling and retry mechanisms, and you are willing to accept an increase in complexity and maintenance burden then Temporal could be the right tool for the job. Once you chosen Temporal, you will be please to know that a lot of our work here is making that increase complexity and maintenance burden small and easier to manage, so you get to re-use some of the tooling we have built when developing other products. _Yay!_
 
 Let's now dive into some of the decisions you will need to take when developing a product or feature with Temporal.
 
@@ -169,21 +171,22 @@ Temporal workers run multiple workflows and activities simultaneously. In order 
 The most important rule when writing asyncio code is: **DO NOT BLOCK** the event loop. Asyncio is the optimal choice for code that is bound by I/O operations, like network or database requests. However, it is of utmost importance that those requests are done using non-blocking primitives. Otherwise, no tasks will be executing concurrently in the worker, and any performance benefit of using asyncio is lost. Moreover, the same event loop is also used to run other activities in the worker which can also be blocked and eventually timed-out.
 
 Asyncio is not new in Python (originally introduced in 3.4, and the new keywords in 3.5), but it has not been widely adopted in PostHog (yet!). This means that there isn't much code we can re-use from the PostHog monolith within Temporal activities. In particular, Django models will issue blocking requests when using the same method calls used anywhere else in PostHog. For this reason, more often than not, some amount of work is required to bring code from other parts of PostHog into activities:
-* Sometimes, the library you need to use has adopted asyncio and offers methods that can be a drop-in replacement.
-  * For example: Django models have async methods that just append `a` to the front: `MyModel.objects.get(...)` becomes `await MyModel.objects.aget(...)`. But not all the Django model API has support for asyncio, so check the documentation for our current version of Django.
-* If the library you require doesn't support asyncio, an alternative may exist.
-  * For example: The popular `requests` is blocking, but multiple alternatives with asyncio support exist, like `aiohttp` and `httpx`, and generally the API is quite similar, and doesn't require many code changes.
-  * Another example: The `aioboto3` implements asyncio support for `boto3`.
-  * One more: The `aiokafka` provides consumer and producer classes with non-blocking methods to interact with Kafka.
-* If none of the above, you could get around by running blocking code in a thread pool using `concurrent.futures.ThreadPoolExecutor` or just `asyncio.to_thread`.
-  * Python releases the GIL on an I/O operation, so you can send that code to a different thread to avoid blocking the main thread with the asyncio event loop.
-* Similarly, if the blocking code is CPU bound, you could try using a `concurrent.futures.ProcessPoolExecutor`.
-* If nothing worked, you will need to re-implement the code using asyncio libraries and primitives.
+
+- Sometimes, the library you need to use has adopted asyncio and offers methods that can be a drop-in replacement.
+    - For example: Django models have async methods that just append `a` to the front: `MyModel.objects.get(...)` becomes `await MyModel.objects.aget(...)`. But not all the Django model API has support for asyncio, so check the documentation for our current version of Django.
+- If the library you require doesn't support asyncio, an alternative may exist.
+    - For example: The popular `requests` is blocking, but multiple alternatives with asyncio support exist, like `aiohttp` and `httpx`, and generally the API is quite similar, and doesn't require many code changes.
+    - Another example: The `aioboto3` implements asyncio support for `boto3`.
+    - One more: The `aiokafka` provides consumer and producer classes with non-blocking methods to interact with Kafka.
+- If none of the above, you could get around by running blocking code in a thread pool using `concurrent.futures.ThreadPoolExecutor` or just `asyncio.to_thread`.
+    - Python releases the GIL on an I/O operation, so you can send that code to a different thread to avoid blocking the main thread with the asyncio event loop.
+- Similarly, if the blocking code is CPU bound, you could try using a `concurrent.futures.ProcessPoolExecutor`.
+- If nothing worked, you will need to re-implement the code using asyncio libraries and primitives.
 
 Now that your code is using asyncio, it will run in the Temporal workers cooperating with everyone else to execute concurrently.
 
 > [!TIP]
-> Having asyncio code opens up the door to applying *asyncio patterns* that go beyond adding an `await` and changing a method: That group of sequential requests could run concurrently if you wrap them in tasks and `asyncio.gather` or in an `asyncio.TaskGroup`, maybe that progress update request can be done as a background task while the rest of the application carries on, perhaps the data processing can be done as the data arrives using a `asyncio.Queue` in a consumer-producer pattern. Now you are using *asyncio patterns* instead of running sequential code with `await`s sprinkled around it.
+> Having asyncio code opens up the door to applying _asyncio patterns_ that go beyond adding an `await` and changing a method: That group of sequential requests could run concurrently if you wrap them in tasks and `asyncio.gather` or in an `asyncio.TaskGroup`, maybe that progress update request can be done as a background task while the rest of the application carries on, perhaps the data processing can be done as the data arrives using a `asyncio.Queue` in a consumer-producer pattern. Now you are using _asyncio patterns_ instead of running sequential code with `await`s sprinkled around it.
 
 #### Multithreading
 
@@ -196,6 +199,7 @@ Using synchronous activities means that you have to opt for synchronous versions
 ### Set timeouts for your activities
 
 Temporal allows us to apply multiple timeouts to activities:
+
 1. Schedule-to-close: Time out based on the time from the moment the Temporal service puts an activity task in its queue.
 2. Start-to-close: Time out based on the time from the moment a worker starts executing an activity.
 3. Schedule-to-start: Time out based on the time it takes for an activity to be picked up by a worker.
@@ -227,6 +231,7 @@ By default activities retry forever.
 > Always set `max_retries` in tests.
 
 Here is an example showcasing all of the above, but more can be found by searching the codebase:
+
 ```python
 import asyncio
 import datetime as dt
@@ -295,8 +300,9 @@ class HelloWorldWorkflow:
 ### Logging from activities
 
 In our experience, we have identified two types of logs:
-* Logs intended only for our internal monitoring dashboards.
-* Logs that we want to show to users, and/or make available for querying by ClickHouse.
+
+- Logs intended only for our internal monitoring dashboards.
+- Logs that we want to show to users, and/or make available for querying by ClickHouse.
 
 In order to support both types of logs, the `posthog/temporal/common/logger.py` module contains some useful logging functions, respectively `get_logger` and `get_external_logger`, which can be used to obtain a [structlog](https://www.structlog.org/en/stable/) logger.
 
@@ -316,6 +322,7 @@ The key difference is that `get_external_logger` will return a logger named `EXT
 When developing an activity, you will most likely want **all** your logs to have Temporal context variables (like `activity_type`, or `workflow_id`). To achieve this, `logger.py` offers the `bind_contextvars` function to bind any context variables you want, plus include all relevant Temporal variables by default. These context variables will be available to **all** loggers in the same context, so they don't need to be bound again. The context is preserved when spawning tasks and threads, so most of the time you will only be calling `bind_contextvars` once at the beginning of the activity to set the context based on some input.
 
 This logging pipeline also works locally, if you run your tests with:
+
 ```sh
 DEBUG=1 pytest path/to/your/tests.py --log-cli-level=info
 ```
@@ -463,7 +470,7 @@ All that being said, a common scenario is that workflows have to be executed reg
 
 ### Schedule workflow to run regularly
 
-Create a Temporal schedule to, well, *schedule* workflows to run at set intervals. This can be achieved by calling the `create_schedule` method of a Temporal client. Similarly, a schedule can be updated by the `update_schedule` method in the client.
+Create a Temporal schedule to, well, _schedule_ workflows to run at set intervals. This can be achieved by calling the `create_schedule` method of a Temporal client. Similarly, a schedule can be updated by the `update_schedule` method in the client.
 
 There are examples on how to achieve this throughout the codebase: Batch exports, for example, creates a new schedule every time a batch export is created, other products have a Django management command to initialize all their schedules. The pattern you choose will depend on how your product is set up.
 
@@ -477,11 +484,11 @@ As you run workflows, you will be able to see the logs in the worker's logs, and
 
 ## Relevant documentation
 
-* [Documentation for the Temporal Python SDK](https://docs.temporal.io/develop/python).
-* [Documentation on Temporal schedules](https://docs.temporal.io/evaluate/development-production-features/schedules).
-* [Documentation on different types of activities](https://docs.temporal.io/develop/python/python-sdk-sync-vs-async).
-* [Temporal Python SDK repository](https://github.com/temporalio/sdk-python).
-* [Temporal Python SDK code samples](https://github.com/temporalio/samples-python).
+- [Documentation for the Temporal Python SDK](https://docs.temporal.io/develop/python).
+- [Documentation on Temporal schedules](https://docs.temporal.io/evaluate/development-production-features/schedules).
+- [Documentation on different types of activities](https://docs.temporal.io/develop/python/python-sdk-sync-vs-async).
+- [Temporal Python SDK repository](https://github.com/temporalio/sdk-python).
+- [Temporal Python SDK code samples](https://github.com/temporalio/samples-python).
 
 ## Examples in PostHog
 

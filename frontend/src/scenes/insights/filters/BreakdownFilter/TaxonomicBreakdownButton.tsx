@@ -1,11 +1,13 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 interface TaxonomicBreakdownButtonProps {
     disabledReason?: string
