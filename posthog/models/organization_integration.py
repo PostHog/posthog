@@ -1,14 +1,16 @@
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.utils import UUIDModel
 
 
 class OrganizationIntegration(UUIDModel):
+    class OrganizationIntegrationKind(models.TextChoices):
+        VERCEL = "vercel"
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    kind = models.CharField(max_length=50, choices=Integration.IntegrationKind.choices)
+    kind = models.CharField(max_length=50, choices=OrganizationIntegrationKind.choices)
     # The ID of the integration in the external system
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
