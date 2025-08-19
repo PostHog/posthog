@@ -46,7 +46,6 @@ from posthog.batch_exports.service import (
     unpause_batch_export,
 )
 from posthog.cdp.validation import has_data_pipelines_addon
-from posthog.constants import AvailableFeature
 from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select

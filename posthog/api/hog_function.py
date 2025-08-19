@@ -33,7 +33,6 @@ from posthog.cdp.validation import (
     has_data_pipelines_addon,
 )
 from posthog.cdp.site_functions import get_transpiled_function
-from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
