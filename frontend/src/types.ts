@@ -630,6 +630,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    web_analytics_pre_aggregated_tables_enabled?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean

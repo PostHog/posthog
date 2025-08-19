@@ -7,7 +7,7 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -73,6 +73,23 @@ export function HogFunctionFilters({
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
     const isTransformation = type === 'transformation'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
+
+    const excludedProperties: ExcludedProperties = {
+        [TaxonomicFilterGroupType.EventProperties]: [
+            '$exception_types',
+            '$exception_functions',
+            '$exception_values',
+            '$exception_sources',
+            '$exception_list',
+            '$exception_type',
+            '$exception_level',
+            '$exception_message',
+        ],
+    }
+
+    if (type === 'transformation') {
+        excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
+    }
 
     const taxonomicGroupTypes = useMemo(() => {
         const types = [
@@ -190,6 +207,7 @@ export function HogFunctionFilters({
                                     onChange(newValue as CyclotronJobFiltersType)
                                 }}
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
+                                excludedProperties={excludedProperties}
                             />
 
                             {showEventMatchers ? (
@@ -229,6 +247,7 @@ export function HogFunctionFilters({
                                             type: EntityTypes.EVENTS,
                                         }}
                                         buttonCopy="Add event matcher"
+                                        excludedProperties={excludedProperties}
                                     />
                                 </>
                             ) : null}
