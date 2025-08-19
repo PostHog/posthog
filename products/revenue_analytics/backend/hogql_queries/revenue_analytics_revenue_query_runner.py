@@ -29,7 +29,7 @@ ZERO_IN_DECIMAL_PRECISION = ast.Call(
     name="toDecimal",
     args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
 )
-ZERO_PLACEHOLDERS = {"zero": ZERO_IN_DECIMAL_PRECISION}
+ZERO_PLACEHOLDERS: dict[str, ast.Expr] = {"zero": ZERO_IN_DECIMAL_PRECISION}
 
 
 class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
@@ -329,15 +329,21 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
 
         gross_results = [
             RevenueAnalyticsRevenueQueryResultItem(
-                total=_build_result(breakdown, [grouped_results.get(("total", breakdown, day), 0) for day in days]),
-                new=_build_result(breakdown, [grouped_results.get(("new", breakdown, day), 0) for day in days]),
+                total=_build_result(
+                    breakdown, [grouped_results.get(("total", breakdown, day), Decimal(0)) for day in days]
+                ),
+                new=_build_result(
+                    breakdown, [grouped_results.get(("new", breakdown, day), Decimal(0)) for day in days]
+                ),
                 expansion=_build_result(
-                    breakdown, [grouped_results.get(("expansion", breakdown, day), 0) for day in days]
+                    breakdown, [grouped_results.get(("expansion", breakdown, day), Decimal(0)) for day in days]
                 ),
                 contraction=_build_result(
-                    breakdown, [grouped_results.get(("contraction", breakdown, day), 0) for day in days]
+                    breakdown, [grouped_results.get(("contraction", breakdown, day), Decimal(0)) for day in days]
                 ),
-                churn=_build_result(breakdown, [grouped_results.get(("churn", breakdown, day), 0) for day in days]),
+                churn=_build_result(
+                    breakdown, [grouped_results.get(("churn", breakdown, day), Decimal(0)) for day in days]
+                ),
             )
             for breakdown in breakdowns
         ]
