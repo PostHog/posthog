@@ -1,21 +1,28 @@
+import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
+import React from 'react'
+
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
+import * as notebooksModel from '~/models/notebooksModel'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
-import { ConversationDetail, ConversationStatus } from '~/types'
 import { initKeaTests } from '~/test/init'
+import { ConversationDetail, ConversationStatus } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
-    maxMocks,
     MOCK_CONVERSATION_ID,
     MOCK_IN_PROGRESS_CONVERSATION,
     MOCK_TEMP_CONVERSATION_ID,
+    maxMocks,
     mockStream,
 } from './testUtils'
 
@@ -52,12 +59,6 @@ describe('maxThreadLogic', () => {
         // Stop any active streaming in the thread logic
         if (logic.cache?.generationController) {
             logic.cache.generationController.abort()
-        }
-
-        // Unmount the maxGlobalLogic
-        const maxGlobalLogicInstance = maxGlobalLogic.findMounted()
-        if (maxGlobalLogicInstance) {
-            maxGlobalLogicInstance.unmount()
         }
 
         sidePanelStateLogic.unmount()
@@ -648,6 +649,74 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('processNotebookUpdate', () => {
+        it('navigates to notebook when not already on notebook page', async () => {
+            router.actions.push(urls.max())
+
+            // Mock openNotebook to track its calls
+            const openNotebookSpy = jest.spyOn(notebooksModel, 'openNotebook')
+            openNotebookSpy.mockImplementation(async (notebookId, _target, _, callback) => {
+                const logic = notebookLogic({ shortId: notebookId })
+                logic.mount()
+                if (callback) {
+                    callback(logic)
+                }
+                router.actions.push(urls.notebook(notebookId))
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate('test-notebook-id', { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(openNotebookSpy).toHaveBeenCalledWith(
+                'test-notebook-id',
+                NotebookTarget.Scene,
+                undefined,
+                expect.any(Function)
+            )
+            expect(router.values.location.pathname).toContain(urls.notebook('test-notebook-id'))
+        })
+
+        it('updates existing notebook when already on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            router.actions.push(urls.notebook(notebookId))
+
+            const notebookLogicInstance = notebookLogic({ shortId: notebookId })
+            notebookLogicInstance.mount()
+
+            // Create spies BEFORE calling the action
+            const setLocalContentSpy = jest.spyOn(notebookLogicInstance.actions, 'setLocalContent')
+            const findMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
+            findMountedSpy.mockReturnValue(notebookLogicInstance)
+            const routerActionsSpy = jest.spyOn(router.actions, 'push')
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(routerActionsSpy).not.toHaveBeenCalled()
+            expect(setLocalContentSpy).toHaveBeenCalledWith({ type: 'doc', content: [] }, true, true)
+        })
+
+        it('handles gracefully when notebook logic is not mounted on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            router.actions.push(urls.notebook(notebookId))
+
+            // Create spies BEFORE calling the action
+            const routerActionsSpy = jest.spyOn(router.actions, 'push')
+            const notebookLogicFindMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
+            notebookLogicFindMountedSpy.mockReturnValue(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(notebookLogicFindMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(routerActionsSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('threadRaw status fields', () => {
         it('initializes threadRaw with status fields from conversation messages', async () => {
             const conversationWithMessages: ConversationDetail = {
@@ -777,6 +846,89 @@ describe('maxThreadLogic', () => {
                     status: 'completed',
                 },
             ])
+        })
+    })
+
+    describe('command selection and activation', () => {
+        beforeEach(() => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+            logic.mount()
+        })
+
+        it('selectCommand sets question for command without arg', async () => {
+            const initCommand = {
+                name: '/init' as const,
+                description: 'Test command',
+                icon: React.createElement('div'),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.selectCommand(initCommand)
+            }).toDispatchActions(['setQuestion'])
+
+            expect(logic.values.question).toBe('/init')
+        })
+
+        it('selectCommand sets question with space for command with arg', async () => {
+            const rememberCommand = {
+                name: '/remember' as const,
+                arg: '[information]' as const,
+                description: 'Test command with arg',
+                icon: React.createElement('div'),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.selectCommand(rememberCommand)
+            }).toDispatchActions(['setQuestion'])
+
+            expect(logic.values.question).toBe('/remember ')
+        })
+
+        it('activateCommand calls askMax directly for command without arg', async () => {
+            const initCommand = {
+                name: '/init' as const,
+                description: 'Test command',
+                icon: React.createElement('div'),
+            }
+
+            const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
+
+            logic.actions.activateCommand(initCommand)
+
+            expect(askMaxSpy).toHaveBeenCalledWith('/init')
+        })
+
+        it('activateCommand sets question for command with arg', async () => {
+            const rememberCommand = {
+                name: '/remember' as const,
+                arg: '[information]' as const,
+                description: 'Test command with arg',
+                icon: React.createElement('div'),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.activateCommand(rememberCommand)
+            }).toDispatchActions(['setQuestion'])
+
+            expect(logic.values.question).toBe('/remember ')
+        })
+
+        it('activateCommand does not call askMax for command with arg, only setQuestion', async () => {
+            const rememberCommand = {
+                name: '/remember' as const,
+                arg: '[information]' as const,
+                description: 'Test command with arg',
+                icon: React.createElement('div'),
+            }
+
+            const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
+            const setQuestionSpy = jest.spyOn(logic.actions, 'setQuestion')
+
+            logic.actions.activateCommand(rememberCommand)
+
+            expect(askMaxSpy).not.toHaveBeenCalled()
+            expect(setQuestionSpy).toHaveBeenCalledWith('/remember ')
+            expect(logic.values.question).toBe('/remember ')
         })
     })
 })

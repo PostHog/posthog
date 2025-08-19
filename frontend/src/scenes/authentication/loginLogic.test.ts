@@ -1,5 +1,7 @@
 import { router } from 'kea-router'
 import { testUtilsPlugin } from 'kea-test-utils'
+
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogic'
 
 import { initKea } from '~/initKea'
@@ -56,7 +58,7 @@ describe('loginLogic', () => {
                 handleLoginRedirect()
                 const newPath =
                     router.values.location.pathname + router.values.location.search + router.values.location.hash
-                expect(newPath).toEqual(result)
+                expect(removeProjectIdIfPresent(newPath)).toEqual(result)
             })
         }
     })

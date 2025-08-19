@@ -1,15 +1,28 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { TitledSnack } from 'lib/components/TitledSnack'
+import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
 
-import { errorPropertiesLogic } from './errorPropertiesLogic'
+import { EventType, RecordingEventType } from '~/types'
+
 import { ChainedStackTraces } from './StackTraces'
+import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ErrorEventId, ErrorEventProperties } from './types'
 import { concatValues } from './utils'
+
+export function idFrom(event: EventType | RecordingEventType): string {
+    if ('uuid' in event && event.uuid) {
+        return event.uuid
+    }
+    // Fallback to timestamp if uuid is not available
+    return event.timestamp ? dayjs(event.timestamp).toISOString() : (event.id ?? 'error')
+}
 
 export function ErrorDisplay({
     eventProperties,

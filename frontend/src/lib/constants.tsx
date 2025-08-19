@@ -157,16 +157,17 @@ export const FEATURE_FLAGS = {
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: #team-max-ai
     FLOATING_ARTIFICIAL_HOG: 'floating-artificial-hog', // owner: #team-max-ai
+    MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-max-ai
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
-    APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
-    INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
+    INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
+    SURVEY_EMPTY_STATE_V2: 'survey-empty-states-v2', // owner: #team-surveys
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
@@ -189,21 +190,20 @@ export const FEATURE_FLAGS = {
     INSIGHT_FUNNELS_USE_UDF: 'insight-funnels-use-udf', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TIME_TO_CONVERT: 'insight-funnels-use-udf-time-to-convert', // owner: @aspicer #team-product-analytics
+    QUERY_CACHE_USE_S3: 'query-cache-use-s3', // owner: @aspicer #team-product-analytics
+    DASHBOARD_THREADS: 'dashboard-threads', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
-    ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
+    ENVIRONMENTS: 'environments', // owner: #team-platform-features
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     MESSAGING: 'messaging', // owner @haven #team-messaging
-    INVITE_PROJECT_ACCESS: 'invite-project-access', // owner: @team-platform-features
     MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
     METALYTICS: 'metalytics', // owner: @surbhi
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
-    SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
-    HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED: 'hog-transformation-custom-hog-code', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_GROUPS_FILTERS: 'replay-groups-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
@@ -215,29 +215,26 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
-    EXPERIMENT_P_VALUE: 'experiment-p-value', // owner: @jurajmajerik #team-experiments
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
-    RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
-    EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
-    RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny #team-growth
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     REVENUE_ANALYTICS: 'revenue-analytics-beta', // owner: @rafaeelaudibert #team-revenue-analytics
-    REVENUE_ANALYTICS_MRR: 'revenue-analytics-mrr', // owner: @rafaeelaudibert #team-revenue-analytics
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
-    CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
-    CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @danielbachhuber #team-crm
+    CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-crm
+    CRM_USAGE_METRICS: 'crm-usage-metrics', // owner: @arthurdedeus #team-crm
+    TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-crm
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
     RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
+    RECORDINGS_BLOBBY_V2_LTS_REPLAY: 'use-blob-v2-lts', // owner: @pauldambra #team-replay
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
-    ERROR_TRACKING_INTEGRATIONS: 'error-tracking-integrations', // owner: @david #team-error-tracking
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
     ERROR_TRACKING_SCENE_TOOL: 'error-tracking-scene-max-tool', // owner: @olly #team-error-tracking
+    ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
     POSTHOG_STORIES: 'posthog-stories', // owner: @jabahamondes #team-web-analytics
     ACTIVE_HOURS_HEATMAP: 'active-hours-heatmap', // owner: @jabahamondes #team-web-analytics
@@ -249,7 +246,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_FRUSTRATING_PAGES_TILE: 'web-analytics-frustrating-pages-tile', // owner: @lricoy #team-web-analytics
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
-    SHOW_COMING_SOON_DESTINATIONS: 'show-coming-soon-destinations', // owner: @meikel #team-cdp
     BLOCKING_EXPORTS: 'blocking-exports', // owner: @aspicer #team-product-analytics
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
@@ -259,32 +255,34 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-observability @peter-k
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
-    CDP_HOG_INPUT_LIQUID: 'cdp-hog-input-liquid', // owner: #team-messaging
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-cdp
-    REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
     SCREENSHOT_EDITOR: 'screenshot-editor', // owner: @veryayskiy #team-replay
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     TAXONOMIC_EVENT_SORTING: 'taxonomic-event-sorting', // owner: @pauldambra #team-replay
-    AI_HOG_FUNCTION_CREATION: 'ai-hog-function-creation', // owner: @meikel #team-cdp
     REPLAY_FILTERS_IN_PLAYLIST_MAX_AI: 'replay-filters-in-playlist-max-ai', // owner: @veryayskiy #team-replay
     REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU: 'replay-exclude-from-hide-recordings-menu', // owner: @veryayskiy #team-replay
     USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-product-analytics
     EXPERIMENTS_DEV_STATS_METHOD_TOGGLE: 'experiments-dev-stats-method-toggle', // owner: #team-experiments
-    REPLAY_EXPORT_RAW_RECORDING: 'replay-export-raw-recording', // owner: @veryayskiy #team-replay
-    NEW_BAYESIAN_STATS_METHOD: 'new-bayesian-stats-method', // owner: @andehen #team-experiments
     META_ADS_DWH: 'meta-ads-dwh', // owner: @EDsCODE #team-data-warehouse
     AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
-    REPLAY_BULK_DELETE_SELECTED_RECORDINGS: 'replay-bulk-delete-selected-recordings', // owner: @veryayskiy #team-replay
     NEW_SCENE_LAYOUT: 'new-scene-layout', // owner: @adamleithp #team-devex
     EXPERIMENTS_AI_SUMMARY: 'experiments-ai-summary', // owner: @rodrigoi #team-experiments
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
-    EXPERIMENTS_NEW_METRICS_TABLE: 'experiments-new-metrics-table', // owner: @andehen #team-experiments
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dylan #team-feature-flags
     PATH_CLEANING_FILTER_TABLE_UI: 'path-cleaning-filter-table-ui', // owner: @lricoy #team-web-analytics
+    REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
+    EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-warehouse
+    DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: @naumaanh #team-data-warehouse
+    MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
+    SCENE_TABS: 'scene-tabs', // owner @mariusandra #team-devex
+    FEATURE_FLAGS_FLAG_DEPENDENCY: 'feature-flags-flag-dependency', // owner: @haacked #team-feature-flags
+    LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-observability
+    MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
+    EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -405,8 +403,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 ]
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
-export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '0194a763-9a13-0000-8088-32b52acf7156'
-export const SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 = '0195ec93-5f91-0000-15fa-55aaf5e0c562'
+export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '01985c68-bd25-0000-b7e3-f1ccc987e979'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,
@@ -415,3 +412,7 @@ export const TAILWIND_BREAKPOINTS = {
     xl: 1200,
     '2xl': 1600,
 }
+
+export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
+export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
+export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'

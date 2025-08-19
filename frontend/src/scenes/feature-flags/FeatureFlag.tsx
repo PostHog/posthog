@@ -1,21 +1,26 @@
 import './FeatureFlag.scss'
 
+import { useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { PostHogFeature } from 'posthog-js/react'
+import { useEffect, useState } from 'react'
+
 import {
     IconBalance,
     IconCollapse,
     IconExpand,
+    IconGlobe,
     IconInfo,
+    IconLaptop,
     IconPlus,
     IconRewindPlay,
-    IconTrash,
-    IconGlobe,
     IconServer,
-    IconLaptop,
+    IconTrash,
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -40,25 +45,23 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
-import { PostHogFeature } from 'posthog-js/react'
-import { useEffect, useState } from 'react'
+import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
-import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -72,6 +75,7 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagType,
+    MultivariateFlagVariant,
     ProductKey,
     PropertyFilterType,
     PropertyOperator,
@@ -82,20 +86,18 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
-
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
-import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { NotebookNodeType } from 'scenes/notebooks/types'
+import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }): (typeof featureFlagLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
     settingSectionId: 'environment-feature-flags',
@@ -108,7 +110,7 @@ function focusVariantKeyField(index: number): void {
     )
 }
 
-export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
@@ -127,6 +129,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         loadFeatureFlag,
         saveFeatureFlag,
         createStaticCohort,
+        createSurvey,
         setFeatureFlagFilters,
         setActiveTab,
     } = useActions(featureFlagLogic)
@@ -216,7 +219,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         tabs.push({
             label: 'Usage',
             key: FeatureFlagsTab.USAGE,
-            content: <UsageTab id={id} featureFlag={featureFlag} />,
+            content: <UsageTab featureFlag={featureFlag} />,
         })
 
         tabs.push({
@@ -246,7 +249,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.Analysis,
             content: (
                 <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                    <AnalysisTab id={id} featureFlag={featureFlag} />
+                    <AnalysisTab featureFlag={featureFlag} />
                 </PostHogFeature>
             ),
         })
@@ -380,7 +383,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     tags={value}
                                                     onChange={(tags) => onChange(tags)}
                                                     tagsAvailable={tags.filter(
-                                                        (tag) => !featureFlag.tags?.includes(tag)
+                                                        (tag: string) => !featureFlag.tags?.includes(tag)
                                                     )}
                                                     className="mt-2"
                                                 />
@@ -539,7 +542,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 saveFeatureFlag({ tags })
                                                             }}
                                                             tagsAvailable={tags.filter(
-                                                                (tag) => !featureFlag.tags?.includes(tag)
+                                                                (tag: string) => !featureFlag.tags?.includes(tag)
                                                             )}
                                                         />
                                                     ) : featureFlag.tags.length > 0 ? (
@@ -580,6 +583,16 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     >
                                                         <span>Duplicate feature flag</span>
                                                     </LemonButton>
+
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            createSurvey()
+                                                        }}
+                                                        data-attr="create-survey"
+                                                        fullWidth
+                                                    >
+                                                        Create survey
+                                                    </LemonButton>
                                                     <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
@@ -601,10 +614,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             !featureFlag.can_edit
                                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                                 : (featureFlag.features?.length || 0) > 0
-                                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                : (featureFlag.experiment_set?.length || 0) > 0
-                                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                                : null
+                                                                  ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                                  : (featureFlag.experiment_set?.length || 0) > 0
+                                                                    ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                                    : (featureFlag.surveys?.length || 0) > 0
+                                                                      ? 'This feature flag is linked to a survey. Delete the survey to delete this flag'
+                                                                      : null
                                                         }
                                                     >
                                                         {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
@@ -633,8 +648,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 !featureFlag.can_edit
                                                     ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                     : featureFlag.deleted
-                                                    ? 'This feature flag has been deleted. Restore it to edit.'
-                                                    : null
+                                                      ? 'This feature flag has been deleted. Restore it to edit.'
+                                                      : null
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)
@@ -669,7 +684,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const {
         key: featureFlagKey,
         usage_dashboard: dashboardId,
@@ -994,7 +1009,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <div>Rollout</div>
                                 </div>
                                 <LemonDivider className="my-3" />
-                                {variants.map((variant, index) => (
+                                {variants.map((variant: MultivariateFlagVariant, index: number) => (
                                     <div key={index}>
                                         <div className="grid grid-cols-10 gap-4">
                                             <div className="col-span-2">
@@ -1005,7 +1020,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     style={{
                                                         marginLeft: '0.5rem',
                                                     }}
-                                                    iconStyle={{ color: 'var(--text-secondary)' }}
+                                                    iconStyle={{ color: 'var(--color-text-secondary)' }}
                                                 >
                                                     {variant.key}
                                                 </CopyToClipboardInline>
@@ -1359,7 +1374,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         </LemonButton>
                                     </div>
                                 </div>
-                                {variants.map((variant, index) => (
+                                {variants.map((variant: MultivariateFlagVariant, index: number) => (
                                     <Group key={index} name="filters">
                                         <div className="VariantFormList__row grid gap-2">
                                             <div className="flex items-center justify-center">

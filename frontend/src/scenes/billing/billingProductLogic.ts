@@ -1,23 +1,23 @@
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     BillingPlan,
     BillingPlanType,
     BillingProductV2AddonType,
     BillingProductV2Type,
-    BillingTierType,
     BillingType,
     SurveyEventName,
 } from '~/types'
 
-import { convertAmountToUsage } from './billing-utils'
+import { isAddonVisible } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
@@ -258,7 +258,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (customLimit === 0 || customLimit) {
                     return customLimit
                 }
-                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] ?? null : null
+                return product.usage_key ? (billing?.custom_limits_usd?.[product.usage_key] ?? null) : null
             },
         ],
         visibleAddons: [
@@ -268,25 +268,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return []
                 }
 
-                return product.addons.filter((addon: BillingProductV2AddonType) => {
-                    // Filter out inclusion-only addons if personless events are not supported
-                    if (addon.inclusion_only && featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
-                        return false
-                    }
-
-                    // Filter out legacy addons for platform_and_support if not subscribed
-                    if (product.type === 'platform_and_support' && addon.legacy_product && !addon.subscribed) {
-                        return false
-                    }
-
-                    // Filter out addons that are hidden by feature flag
-                    const hideAddonFlag = `billing_hide_addon_${addon.type}`
-                    if (featureFlags[hideAddonFlag]) {
-                        return false
-                    }
-
-                    return true
-                })
+                return product.addons.filter((addon: BillingProductV2AddonType) =>
+                    isAddonVisible(product, addon, featureFlags)
+                )
             },
         ],
         hasCustomLimitSet: [
@@ -332,7 +316,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (nextPeriodLimit === 0 || nextPeriodLimit) {
                     return nextPeriodLimit
                 }
-                return product.usage_key ? billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null : null
+                return product.usage_key ? (billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null) : null
             },
         ],
         billingGaugeItems: [
@@ -506,7 +490,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             }
         },
     })),
-    forms(({ actions, props, values }) => ({
+    forms(({ actions, props }) => ({
         billingLimitInput: {
             errors: ({ input }) => ({
                 input:
@@ -517,22 +501,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : 'Please enter a whole number',
             }),
             submit: async ({ input }) => {
-                const addonTiers =
-                    'addons' in props.product
-                        ? props.product.addons
-                              ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                              ?.map((addon: BillingProductV2AddonType) => addon.tiers)
-                        : []
-
-                const productAndAddonTiers: BillingTierType[][] = [props.product.tiers, ...addonTiers].filter(
-                    Boolean
-                ) as BillingTierType[][]
-
-                const newAmountAsUsage = props.product.tiers
-                    ? convertAmountToUsage(`${input}`, productAndAddonTiers, values.billing?.discount_percent)
-                    : 0
-
-                if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
+                if (props.product.current_amount_usd && input < props.product.current_amount_usd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',
@@ -553,7 +522,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return
                 }
 
-                if (props.product.projected_usage && newAmountAsUsage < props.product.projected_usage) {
+                if (props.product.projected_amount_usd && input < props.product.projected_amount_usd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',

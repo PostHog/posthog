@@ -1,8 +1,13 @@
+import { LogicWrapper } from 'kea'
+import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
+import { ReactNode } from 'react'
+import { Layout } from 'react-grid-layout'
+
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
-import { LogicWrapper } from 'kea'
+
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,8 +18,8 @@ import {
     ENTITY_MATCH_TYPE,
     FunnelLayout,
     OrganizationMembershipLevel,
-    PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
+    PluginsAccessLevel,
     RETENTION_FIRST_TIME,
     RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
@@ -23,9 +28,6 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
@@ -50,6 +52,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
@@ -58,8 +61,11 @@ import type {
     RecordingOrder,
     RecordingsQuery,
     RevenueAnalyticsConfig,
+    SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -163,7 +169,8 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    ADVANCED_PERMISSIONS = 'advanced_permissions',
+    ADVANCED_PERMISSIONS = 'advanced_permissions', // TODO: Remove this once access_control is propagated
+    ACCESS_CONTROL = 'access_control',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
@@ -412,6 +419,7 @@ export interface OrganizationBasicType {
     logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
     members_can_use_personal_api_keys: boolean
+    allow_publicly_shared_resources: boolean
 }
 
 interface OrganizationMetadata {
@@ -431,6 +439,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_data_processing_approved?: boolean
     members_can_invite?: boolean
     members_can_use_personal_api_keys: boolean
+    allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
@@ -621,6 +630,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    web_analytics_pre_aggregated_tables_enabled?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -819,6 +829,7 @@ export enum ExperimentsTabs {
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
+    Settings = 'settings',
 }
 
 export enum ActivityTab {
@@ -1044,9 +1055,9 @@ export interface RecordingConsoleLogBase {
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
     count?: number // Number of duplicate console logs
-    previewContent?: React.ReactNode // Content to show in first line
-    fullContent?: React.ReactNode // Full content to show when item is expanded
-    traceContent?: React.ReactNode // Url content to show on right side
+    previewContent?: ReactNode // Content to show in first line
+    fullContent?: ReactNode // Full content to show when item is expanded
+    traceContent?: ReactNode // Url content to show on right side
     rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
@@ -1565,6 +1576,8 @@ export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
         RecordingTimeMixinType {
     fullyLoaded: boolean
+    // allowing for absent distinct id which events don't
+    distinct_id?: EventType['distinct_id']
 }
 
 export interface PlaylistCollectionCount {
@@ -1955,6 +1968,12 @@ export interface BillingType {
     }
 }
 
+export interface BillingPeriod {
+    start: Dayjs | null
+    end: Dayjs | null
+    interval: 'month' | 'year' | null
+}
+
 export interface BillingPlanType {
     free_allocation?: number | null
     features: BillingFeatureType[]
@@ -2020,6 +2039,10 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     deleted?: boolean
     is_cached?: boolean
     order?: number
+    error?: {
+        type: string
+        message: string
+    }
 }
 
 export interface DashboardTileBasicType {
@@ -2441,7 +2464,6 @@ export enum RetentionPeriod {
 
 export type SlowQueryPossibilities = 'all_events' | 'large_date_range' | 'first_time_for_user' | 'strict_funnel'
 
-// eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
 export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
 /**
@@ -2947,7 +2969,7 @@ export interface ChartParams {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     /** allows overriding by queries, e.g. setting empty state text*/
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
 }
 
 export interface HistogramGraphDatum {
@@ -3008,6 +3030,7 @@ export interface SurveyDisplayConditions {
     urlMatchType?: SurveyMatchType
     deviceTypes?: string[]
     deviceTypesMatchType?: SurveyMatchType
+    linkedFlagVariant?: string
     actions: {
         values: {
             id: number
@@ -3062,6 +3085,66 @@ export interface SurveyStatsResponse {
     stats: SurveyStats
     rates: SurveyRates
 }
+
+export interface ChoiceQuestionResponseData {
+    label: string
+    value: number
+    isPredefined: boolean
+    // For unique responses (value === 1), include person data for display
+    distinctId?: string
+    personProperties?: Record<string, any>
+    timestamp?: string
+}
+
+export interface OpenQuestionResponseData {
+    distinctId: string
+    response: string
+    personProperties?: Record<string, any>
+    timestamp?: string
+}
+
+export interface ChoiceQuestionProcessedResponses {
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
+    data: ChoiceQuestionResponseData[]
+    totalResponses: number
+}
+
+export interface OpenQuestionProcessedResponses {
+    type: SurveyQuestionType.Open
+    data: OpenQuestionResponseData[]
+    totalResponses: number
+}
+
+export type QuestionProcessedResponses = ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
+
+export interface ResponsesByQuestion {
+    [questionId: string]: QuestionProcessedResponses
+}
+
+export interface ConsolidatedSurveyResults {
+    responsesByQuestion: {
+        [questionId: string]: QuestionProcessedResponses
+    }
+}
+
+/**
+ * Raw survey response data from the SQL query.
+ * Each SurveyResponseRow represents one user's complete response to all questions.
+ *
+ * Structure:
+ * - response[questionIndex] contains the answer to that specific question
+ * - For rating/single choice/open questions: response[questionIndex] is a string
+ * - For multiple choice questions: response[questionIndex] is a string[]
+ * - The last elements may contain metadata like person properties and distinct_id
+ *
+ * Example:
+ * [
+ *   ["9", ["Customer case studies"], "Great product!", "user123"],
+ *   ["7", ["Tutorials", "Other"], "Good but could improve", "user456"]
+ * ]
+ */
+export type SurveyResponseRow = Array<string | string[]>
+export type SurveyRawResults = SurveyResponseRow[]
 
 export interface Survey {
     /** UUID */
@@ -3263,6 +3346,7 @@ export interface FeatureFlagGroupType {
     variant?: string | null
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
+    description?: string | null
 }
 
 export interface MultivariateFlagVariant {
@@ -3503,7 +3587,8 @@ export interface PreflightStatus {
     dev_disable_navigation_hooks?: boolean
 }
 
-export enum ItemMode { // todo: consolidate this and dashboardmode
+// TODO: Consolidate this and DashboardMode
+export enum ItemMode {
     Edit = 'edit',
     View = 'view',
     Subscriptions = 'subscriptions',
@@ -3521,7 +3606,8 @@ export enum DashboardPlacement {
     Group = 'group', // When the dashboard is being viewed on a group page
 }
 
-export enum DashboardMode { // Default mode is null
+// Default mode is null
+export enum DashboardMode {
     Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
@@ -3585,6 +3671,10 @@ export interface EventDefinition {
     default_columns?: string[]
 }
 
+export interface EventDefinitionMetrics {
+    query_usage_30_day: number
+}
+
 // TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum PropertyType {
     DateTime = 'DateTime',
@@ -3596,6 +3686,7 @@ export enum PropertyType {
     Cohort = 'Cohort',
     Assignee = 'Assignee',
     StringArray = 'StringArray',
+    Flag = 'Flag',
 }
 
 export enum PropertyDefinitionType {
@@ -3609,6 +3700,7 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    FlagValue = 'flag_value',
 }
 
 export interface PropertyDefinition {
@@ -3663,10 +3755,11 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: GroupTypeIndex
-    group_key: string
     created_at: string
+    group_key: string
+    group_type_index: GroupTypeIndex
     group_properties: Record<string, any>
+    notebook: string | null
 }
 
 export interface UserInterviewType {
@@ -3807,13 +3900,15 @@ export interface SelectOptionWithChildren extends SelectOption {
 
 export interface CoreFilterDefinition {
     label: string
-    description?: string | JSX.Element
+    description?: string | ReactNode
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
     type?: PropertyType
     /** Virtual properties are not "sent as", because they are calculated from other properties or SQL expressions **/
     virtual?: boolean
+    /** whether this is a property PostHog adds to aid with debugging */
+    used_for_debug?: boolean
 }
 
 export interface TileParams {
@@ -3843,6 +3938,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
+    effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
@@ -3968,9 +4064,9 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined)[]
+        compareLabels?: (CompareLabelType | undefined | null)[]
         /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined)[]
+        personsValues?: (Person | undefined | null)[]
         index?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
         pointValue?: number
@@ -4175,6 +4271,7 @@ export const INTEGRATION_KINDS = [
     'google-pubsub',
     'google-cloud-storage',
     'google-ads',
+    'google-sheets',
     'linkedin-ads',
     'snapchat',
     'intercom',
@@ -4183,6 +4280,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'meta-ads',
+    'clickup',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4196,6 +4294,11 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+}
+
+export interface EmailIntegrationDomainGroupedType {
+    domain: string
+    integrations: IntegrationType[]
 }
 
 export interface SlackChannelType {
@@ -4221,6 +4324,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    settings?: SharingConfigurationSettings
 }
 
 export enum ExporterFormat {
@@ -4235,7 +4339,7 @@ export enum ExporterFormat {
 export type LocalExportContext = {
     localData: string
     filename: string
-    mediaType: ExporterFormat
+    mediaType?: ExporterFormat
 }
 
 export type OnlineExportContext = {
@@ -4251,7 +4355,16 @@ export type QueryExportContext = {
     filename?: string
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
+export interface ReplayExportContext {
+    session_recording_id: string
+    timestamp?: number
+    css_selector?: string
+    width?: number
+    height?: number
+    filename?: string
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
 
 export interface ExportedAssetType {
     id: number
@@ -4456,6 +4569,10 @@ export type PromptFlag = {
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
     ACTION = 'Action',
+    ALERT_CONFIGURATION = 'AlertConfiguration',
+    ANNOTATION = 'Annotation',
+    BATCH_EXPORT = 'BatchExport',
+    BATCH_IMPORT = 'BatchImport',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     GROUP = 'Group',
@@ -4477,9 +4594,14 @@ export enum ActivityScope {
     COMMENT = 'Comment',
     COHORT = 'Cohort',
     TEAM = 'Team',
+    ORGANIZATION = 'Organization',
+    ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
+    ORGANIZATION_INVITE = 'OrganizationInvite',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
+    TAG = 'Tag',
+    TAGGED_ITEM = 'TaggedItem',
 }
 
 export type CommentType = {
@@ -4526,6 +4648,21 @@ export interface DataWarehouseSavedQuery {
     latest_history_id?: string
 }
 
+export interface DataWarehouseSavedQueryDraft {
+    id: string
+    query: HogQLQuery
+    saved_query_id?: string
+    created_at: string
+    updated_at: string
+    name: string
+    edited_history_id?: string
+}
+
+export interface DataWarehouseViewLinkConfiguration {
+    experiments_optimized?: boolean
+    experiments_timestamp_key?: string | null
+}
+
 export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string
@@ -4535,10 +4672,7 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
-    configuration?: {
-        experiments_optimized?: boolean
-        experiments_timestamp_key?: string | null
-    }
+    configuration?: DataWarehouseViewLinkConfiguration
 }
 
 export interface QueryTabState {
@@ -4981,7 +5115,7 @@ export enum SDKTag {
     OTHER = 'Other',
 }
 
-export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
+export type SDKInstructionsMap = Partial<Record<SDKKey, ReactNode>>
 
 export interface AppMetricsUrlParams {
     tab?: AppMetricsTab
@@ -5033,7 +5167,7 @@ export type BillingTableTierRow = {
     basePrice: string
     usage: string
     total: string
-    projectedTotal: string | React.ReactNode
+    projectedTotal: string | ReactNode
     subrows: ProductPricingTierSubrows
 }
 
@@ -5069,6 +5203,7 @@ export type CyclotronJobInputSchemaType = {
         | 'integration'
         | 'integration_field'
         | 'email'
+        | 'native_email'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -5122,6 +5257,7 @@ export type CyclotronJobFilterPropertyFilter =
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
+    | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
     source?: 'events' | 'person-updates'
@@ -5234,13 +5370,13 @@ export type HogFunctionIconResponse = {
 export enum HogWatcherState {
     healthy = 1,
     overflowed = 2,
-    disabledForPeriod = 3,
-    disabledIndefinitely = 4,
+    disabled = 3,
+    forcefully_degraded = 11,
+    forcefully_disabled = 12,
 }
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    rating: number
     tokens: number
 }
 
@@ -5331,7 +5467,7 @@ export type ReplayTemplateType = {
     description: string
     variables?: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
-    icon?: React.ReactNode
+    icon?: ReactNode
     order?: RecordingOrder
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'

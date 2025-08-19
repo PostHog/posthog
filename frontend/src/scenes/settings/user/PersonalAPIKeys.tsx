@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { Fragment, useEffect } from 'react'
+
 import { IconWarning } from '@posthog/icons'
 import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
@@ -14,15 +19,12 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
-import { Fragment, useEffect } from 'react'
+import { capitalizeFirstLetter, detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
@@ -157,8 +159,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                              ? 'Not available for project scoped keys'
+                                                                              : undefined,
                                                                     },
                                                                     {
                                                                         label: 'Write',
@@ -168,8 +170,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                              ? 'Not available for project scoped keys'
+                                                                              : undefined,
                                                                     },
                                                                 ]}
                                                                 size="xsmall"
@@ -452,19 +454,37 @@ function PersonalAPIKeysTable(): JSX.Element {
                     title: 'Last Used',
                     dataIndex: 'last_used_at',
                     key: 'lastUsedAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A'),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_used_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Created',
                     dataIndex: 'created_at',
                     key: 'createdAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.created_at),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.created_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.created_at)}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Last Rolled',
                     dataIndex: 'last_rolled_at',
                     key: 'lastRolledAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A'),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_rolled_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: '',
@@ -553,8 +573,8 @@ export function PersonalAPIKeys(): JSX.Element {
                     !canUsePersonalApiKeys
                         ? 'Your organization does not allow members using personal API keys.'
                         : keys.length >= MAX_API_KEYS_PER_USER
-                        ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
-                        : false
+                          ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
+                          : false
                 }
             >
                 Create personal API key

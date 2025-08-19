@@ -1,20 +1,14 @@
-import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonTabs } from '@posthog/lemon-ui'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
-import { AISummary } from '../components/AISummary'
-import {
-    ExploreAsInsightButton,
-    ResultsBreakdown,
-    ResultsBreakdownSkeleton,
-    ResultsInsightInfoBanner,
-    ResultsQuery,
-} from '../components/ResultsBreakdown'
+
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
-import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
@@ -23,14 +17,16 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
+import { AISummary } from '../components/AISummary'
 import {
-    EditConclusionModal,
-    LegacyExploreButton,
-    LegacyResultsQuery,
-    LoadingState,
-    PageHeaderCustom,
-    StopExperimentModal,
-} from './components'
+    ExploreAsInsightButton,
+    ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
+    ResultsQuery,
+} from '../components/ResultsBreakdown'
+import { experimentLogic } from '../experimentLogic'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -39,7 +35,14 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
-import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import {
+    EditConclusionModal,
+    LegacyExploreButton,
+    LegacyResultsQuery,
+    LoadingState,
+    PageHeaderCustom,
+    StopExperimentModal,
+} from './components'
 
 const ResultsTab = (): JSX.Element => {
     const {
@@ -61,6 +64,22 @@ const ResultsTab = (): JSX.Element => {
     const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
 
     const hasLegacyResults = legacyPrimaryMetricsResults.some((result) => result != null)
+
+    /**
+     * Show a detailed results if:
+     * - there's a single primary metric
+     * - if the metric has insight results
+     * - if we have the minimum number of exposures
+     * - if it's the first primary metric (?)
+     *
+     * this is only for legacy experiments.
+     */
+    const showResultDetails =
+        hasSomeResults &&
+        hasMinimumExposureForResults &&
+        hasSinglePrimaryMetric &&
+        firstPrimaryMetric &&
+        firstPrimaryMetricResult
 
     return (
         <>
@@ -85,70 +104,64 @@ const ResultsTab = (): JSX.Element => {
             {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
-                    {/**
-                     * Show a detailed results if:
-                     * - there's a single primary metric
-                     * - if the metric has insight results
-                     * - if we have the minimum number of exposures
-                     * - if it's the first primary metric (?)
-                     */}
-                    {hasSomeResults &&
-                        hasMinimumExposureForResults &&
-                        hasSinglePrimaryMetric &&
-                        firstPrimaryMetric &&
-                        firstPrimaryMetricResult && (
-                            <div>
-                                <div className="pb-4">
-                                    <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
-                                </div>
-                                {isLegacyExperimentQuery(firstPrimaryMetricResult) ? (
-                                    <>
-                                        <div className="flex justify-end">
-                                            <LegacyExploreButton result={firstPrimaryMetricResult} size="xsmall" />
-                                        </div>
-                                        <div className="pb-4">
-                                            <LegacyResultsQuery
-                                                result={firstPrimaryMetricResult || null}
-                                                showTable={true}
-                                            />
-                                        </div>
-                                    </>
-                                ) : (
-                                    /**
-                                     * altough we don't have a great typeguard here, we know that the result is a CachedExperimentQueryResponse
-                                     * because we're only showing results for experiment queries (legacy check)
-                                     */
-                                    <ResultsBreakdown
-                                        result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
-                                        experiment={experiment}
-                                        metricIndex={0}
-                                        isPrimary={true}
-                                    >
-                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
-                                            <div>
-                                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
-                                                {query && breakdownResults && (
-                                                    <div>
-                                                        <div className="flex justify-end">
-                                                            <ExploreAsInsightButton query={query} />
-                                                        </div>
-                                                        <ResultsInsightInfoBanner
-                                                            exposureDifference={exposureDifference}
-                                                        />
-                                                        <div className="pb-4">
-                                                            <ResultsQuery
-                                                                query={query}
-                                                                breakdownResults={breakdownResults}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </ResultsBreakdown>
-                                )}
+                    {showResultDetails && (
+                        <div>
+                            <div className="pb-4">
+                                <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                             </div>
-                        )}
+                            {isLegacyExperimentQuery(firstPrimaryMetricResult) ? (
+                                <>
+                                    <div className="flex justify-end">
+                                        <LegacyExploreButton result={firstPrimaryMetricResult} size="xsmall" />
+                                    </div>
+                                    <div className="pb-4">
+                                        <LegacyResultsQuery
+                                            result={firstPrimaryMetricResult || null}
+                                            showTable={true}
+                                        />
+                                    </div>
+                                </>
+                            ) : (
+                                /**
+                                 * altough we don't have a great typeguard here, we know that the result is a CachedExperimentQueryResponse
+                                 * because we're only showing results for experiment queries (legacy check)
+                                 */
+                                <ResultsBreakdown
+                                    result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
+                                    experiment={experiment}
+                                    metricIndex={0}
+                                    isPrimary={true}
+                                >
+                                    {({
+                                        query,
+                                        breakdownResults,
+                                        breakdownResultsLoading,
+                                        exposureDifference,
+                                        breakdownLastRefresh,
+                                    }) => (
+                                        <div>
+                                            {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
+                                            {query && breakdownResults && (
+                                                <div>
+                                                    <div className="flex justify-end">
+                                                        <ExploreAsInsightButton query={query} />
+                                                    </div>
+                                                    <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
+                                                    <div className="pb-4">
+                                                        <ResultsQuery
+                                                            query={query}
+                                                            breakdownResults={breakdownResults}
+                                                            breakdownLastRefresh={breakdownLastRefresh}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </ResultsBreakdown>
+                            )}
+                        </div>
+                    )}
                     <MetricsViewLegacy isSecondary={true} />
                 </>
             ) : (

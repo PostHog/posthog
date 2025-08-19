@@ -7,11 +7,13 @@ from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    DAGSTER_DAILY_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
     CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
+    check_for_concurrent_runs,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -286,19 +288,9 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
     selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        # The instance level config limits the job concurrency on the run queue
-        # https://github.com/PostHog/charts/blob/chore/dagster-config/config/dagster/prod-us.yaml#L179-L181
+        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
     },
-    # This limit the concurrency of the assets inside the job, so they run sequentially
-    config={
-        "execution": {
-            "config": {
-                "multiprocess": {
-                    "max_concurrent": 1,
-                }
-            }
-        }
-    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
 
 
@@ -313,6 +305,11 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
     Runs daily for the previous day's partition.
     The usage of pre-aggregated tables is controlled by a query modifier AND is behind a feature flag.
     """
+
+    # Check for existing runs of the same job to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
 
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
 

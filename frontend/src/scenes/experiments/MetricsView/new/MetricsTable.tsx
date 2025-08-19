@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { TableHeader } from './TableHeader'
-import { MetricRowGroup } from './MetricRowGroup'
-import { getVariantInterval, type ExperimentVariantResult } from '../shared/utils'
-import { experimentLogic } from '../../experimentLogic'
+
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
+
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -12,12 +10,18 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
+import { experimentLogic } from '../../experimentLogic'
+import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
+import { MetricRowGroup } from './MetricRowGroup'
+import { TableHeader } from './TableHeader'
+
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
     results: NewExperimentQueryResponse[]
     errors: any[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
+    showDetailsModal?: boolean
 }
 
 export function MetricsTable({
@@ -26,6 +30,7 @@ export function MetricsTable({
     errors,
     isSecondary,
     getInsightType,
+    showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const {
         experiment,
@@ -35,7 +40,7 @@ export function MetricsTable({
     } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
 
-    // Calculate shared chartRadius across all metrics
+    // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
         ...results.flatMap((result: NewExperimentQueryResponse) => {
             const variantResults = result?.variant_results || []
@@ -47,7 +52,7 @@ export function MetricsTable({
     )
 
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const chartRadius = maxAbsValue + axisMargin
+    const axisRange = maxAbsValue + axisMargin
 
     // Check if duplicating would exceed the metric limit
     const currentMetricCount = isSecondary
@@ -67,7 +72,15 @@ export function MetricsTable({
     return (
         <div className="w-full overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
-                <TableHeader results={results} chartRadius={chartRadius} />
+                <colgroup>
+                    <col className="min-w-[200px]" />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col className="min-w-[400px]" />
+                </colgroup>
+                <TableHeader axisRange={axisRange} />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {
                         const result = results[metricIndex]
@@ -83,7 +96,7 @@ export function MetricsTable({
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
                                 metricIndex={metricIndex}
-                                chartRadius={chartRadius}
+                                axisRange={axisRange}
                                 isSecondary={isSecondary}
                                 isLastMetric={metricIndex === metrics.length - 1}
                                 isAlternatingRow={metricIndex % 2 === 1}
@@ -95,6 +108,7 @@ export function MetricsTable({
                                 error={error}
                                 isLoading={isLoading}
                                 hasMinimumExposureForResults={hasMinimumExposureForResults}
+                                showDetailsModal={showDetailsModal}
                             />
                         )
                     })}

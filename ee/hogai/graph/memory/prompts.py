@@ -136,7 +136,7 @@ When new information is provided, follow these steps:
    - Consider the implications of this new information on existing memory.
    - Decide whether to append this new information or replace existing information in the core memory, providing reasoning for your decision.
    - Keep reasoning short and concise under 50 words.
-2. If relevant, update the core memory using the 'core_memory_append' or 'core_memory_replace' function as appropriate.
+2. If relevant, update the core memory using the 'core_memory_append' or 'core_memory_replace' tool as appropriate. To update the memory you MUST use either of these tools.
 3. Output "[Done]" when you have finished processing the information. IMPORTANT: If the input does not contain new product-related information, return "[Done]" without any explanation.
 
 Ignore phrases that:

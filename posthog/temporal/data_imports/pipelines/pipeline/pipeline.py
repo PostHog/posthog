@@ -44,9 +44,9 @@ from posthog.warehouse.models import (
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
-    ExternalDataSource,
 )
 from posthog.warehouse.models.external_data_schema import process_incremental_value
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class PipelineNonDLT:
@@ -414,14 +414,14 @@ def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
     We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
     the approach.
     """
-    return schema.source.source_type == ExternalDataSource.Type.STRIPE
+    return schema.source.source_type == ExternalDataSourceType.STRIPE
 
 
 def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
     try:
         if (
             schema.name == STRIPE_CHARGE_RESOURCE_NAME
-            and schema.source.source_type == ExternalDataSource.Type.STRIPE
+            and schema.source.source_type == ExternalDataSourceType.STRIPE
             and schema.source.revenue_analytics_enabled
             and not schema.team.revenue_analytics_config.notified_first_sync
         ):

@@ -1,7 +1,9 @@
-import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { PropsWithChildren } from 'react'
+
+import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
+
+import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 type PanelContainerProps = PropsWithChildren<{
     primary: boolean

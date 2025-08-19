@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, UTC
 import re
 from typing import Any, cast, TypedDict
 from urllib.parse import urlparse
-import json
+import orjson
 
 import nh3
 import posthoganalytics
@@ -63,6 +63,11 @@ from posthog.models.utils import UUIDT
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+if "replica" in settings.DATABASES:
+    READ_DB_FOR_SURVEYS = "replica"
+else:
+    READ_DB_FOR_SURVEYS = "default"
 
 
 class EventStats(TypedDict):
@@ -361,11 +366,29 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
+        linked_flag = None
         if linked_flag_id:
             try:
-                FeatureFlag.objects.get(pk=linked_flag_id)
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id)
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided
+        linked_flag_variant = data.get("conditions", {}).get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            # Get available variants from the linked feature flag
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
 
         if (
             self.context["request"].method == "POST"
@@ -1312,12 +1335,18 @@ def get_surveys_opt_in(team: Team) -> bool:
 
 
 def get_surveys_count(team: Team) -> int:
-    return Survey.objects.filter(team__project_id=team.project_id).exclude(archived=True).count()
+    return (
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
+        .exclude(archived=True)
+        .count()
+    )
 
 
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
         .exclude(archived=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
@@ -1397,11 +1426,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
-        survey = (
-            Survey.objects.select_related("team")
-            .only("id", "name", "appearance", "archived", "type", "team__id", "team__api_token")
-            .get(id=survey_id)
-        )
+        survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
         # Use generic error message to prevent survey ID enumeration
@@ -1458,11 +1483,12 @@ def public_survey_page(request, survey_id: str):
     if hasattr(survey.team, "ui_host") and survey.team.ui_host:
         project_config["ui_host"] = survey.team.ui_host
 
+    serializer = SurveyAPISerializer(survey)
+    survey_data = serializer.data
     context = {
         "name": survey.name,
-        "id": survey.id,
-        "appearance": json.dumps(survey.appearance),
-        "project_config_json": json.dumps(project_config),
+        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
+        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
         "debug": settings.DEBUG,
     }
 

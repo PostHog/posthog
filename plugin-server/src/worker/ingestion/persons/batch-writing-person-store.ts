@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { NoRowsUpdatedError } from '~/utils/utils'
 
@@ -32,11 +33,11 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
+import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
-import { PersonRepository } from './repositories/person-repository'
+import { PersonPropertiesSizeViolationError, PersonRepository } from './repositories/person-repository'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 type MethodName =
@@ -67,7 +68,10 @@ interface PersonUpdateResult {
 }
 
 class MaxRetriesError extends Error {
-    constructor(message: string, public latestPersonUpdate: PersonUpdate) {
+    constructor(
+        message: string,
+        public latestPersonUpdate: PersonUpdate
+    ) {
         super(message)
         this.name = 'MaxRetriesError'
     }
@@ -240,6 +244,26 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     db_write_mode: this.options.dbWriteMode,
                                     method: this.options.dbWriteMode,
                                     outcome: 'error',
+                                })
+                                return []
+                            }
+
+                            if (error instanceof PersonPropertiesSizeViolationError) {
+                                await captureIngestionWarning(
+                                    this.kafkaProducer,
+                                    update.team_id,
+                                    'person_properties_size_violation',
+                                    {
+                                        personId: update.id,
+                                        distinctId: update.distinct_id,
+                                        teamId: update.team_id,
+                                        message: 'Person properties exceeds size limit and was rejected',
+                                    }
+                                )
+                                personWriteMethodAttemptCounter.inc({
+                                    db_write_mode: this.options.dbWriteMode,
+                                    method: this.options.dbWriteMode,
+                                    outcome: 'properties_size_violation',
                                 })
                                 return []
                             }
@@ -530,8 +554,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
     }
 
-    async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {
-        return await this.personRepository.personPropertiesSize(teamId, distinctId)
+    async personPropertiesSize(personId: string): Promise<number> {
+        return await this.personRepository.personPropertiesSize(personId)
     }
 
     reportBatch(): void {
@@ -1061,6 +1085,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                         }
                         // If we can't refresh the person ID, we can't retry, fail gracefully
                         return { success: true, messages: [] }
+                    }
+
+                    // Don't retry size violations - they will never succeed
+                    // throw the error so that we capture an ingestion warning
+                    if (error instanceof PersonPropertiesSizeViolationError) {
+                        throw error
                     }
 
                     // For any other error type, still retry but with generic logging

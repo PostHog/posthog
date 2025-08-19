@@ -1,3 +1,11 @@
+import { Pool as GenericPool } from 'generic-pool'
+import { Redis } from 'ioredis'
+import { Kafka } from 'kafkajs'
+import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
+import { VM } from 'vm2'
+import { z } from 'zod'
+
 import {
     Element,
     PluginAttachment,
@@ -9,13 +17,6 @@ import {
     Properties,
     Webhook,
 } from '@posthog/plugin-scaffold'
-import { Pool as GenericPool } from 'generic-pool'
-import { Redis } from 'ioredis'
-import { Kafka } from 'kafkajs'
-import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
-import { VM } from 'vm2'
-import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
@@ -35,6 +36,8 @@ import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
+import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -66,6 +69,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
+    local_cdp = 'local-cdp',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -76,6 +80,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_aggregation_writer = 'cdp-aggregation-writer',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -105,9 +110,15 @@ export type CdpConfig = {
     CDP_WATCHER_THRESHOLD_DEGRADED: number // Percentage of the bucket where we count it as degraded
     CDP_WATCHER_BUCKET_SIZE: number // The total bucket size
     CDP_WATCHER_TTL: number // The expiry for the rate limit key
+    CDP_WATCHER_STATE_LOCK_TTL: number // The expiry for the state lock key preventing transitions too fast
     CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
+    CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
+    CDP_AGGREGATION_WRITER_ENABLED: boolean // If true then the CDP aggregation writer consumer will be enabled
+    CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
+    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
+    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -130,10 +141,10 @@ export type CdpConfig = {
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
-    CDP_FETCH_TIMEOUT_MS: number
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+    CDP_OVERFLOW_QUEUE_ENABLED: boolean
 
     // topic that plugin VM capture events are produced to
     CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: string
@@ -141,6 +152,8 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
     HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
+
+    CDP_EMAIL_TRACKING_URL: string
 }
 
 export type IngestionConsumerConfig = {
@@ -176,6 +189,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
+    PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number // maximum size in bytes for person properties JSON as stored, checked via pg_column_size(properties)
+    PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
@@ -185,19 +200,16 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
+    COUNTERS_DATABASE_URL: string // Optional read-write Postgres database for counters
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
-    CASSANDRA_HOST: string
-    CASSANDRA_PORT: number
-    CASSANDRA_KEYSPACE: string
-    CASSANDRA_USER: string | null
-    CASSANDRA_PASSWORD: string | null
-    WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
-    EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
+    POSTGRES_COUNTERS_HOST: string
+    POSTGRES_COUNTERS_USER: string
+    POSTGRES_COUNTERS_PASSWORD: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -273,6 +285,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
@@ -328,6 +341,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_SALT_TTL_SECONDS: number
     COOKIELESS_SESSION_INACTIVITY_MS: number
     COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+    COOKIELESS_REDIS_HOST: string
+    COOKIELESS_REDIS_PORT: number
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number
@@ -371,6 +386,7 @@ export interface Hub extends PluginsServerConfig {
     db: DB
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
+    cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     objectStorage?: ObjectStorage
@@ -392,6 +408,8 @@ export interface Hub extends PluginsServerConfig {
     appMetrics: AppMetrics
     rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
+    groupRepository: GroupRepository
+    clickhouseGroupRepository: ClickhouseGroupRepository
     celery: Celery
     // geoip database, setup in workers
     geoipService: GeoIPService
@@ -422,6 +440,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpBehaviouralEvents?: boolean
+    cdpAggregationWriter?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }
@@ -907,6 +926,7 @@ export interface ClickHousePerson {
     is_identified: number
     is_deleted: number
     timestamp: string
+    version: number
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
@@ -1287,6 +1307,12 @@ export type RawClickhouseHeatmapEvent = {
     team_id: number
 }
 
+export interface CdpPersonPerformedEvent {
+    teamId: number
+    personId: string
+    eventName: string
+}
+
 export interface HookPayload {
     hook: Pick<Hook, 'id' | 'event' | 'target'>
 
@@ -1306,3 +1332,8 @@ export interface HookPayload {
         }
     }
 }
+
+/**
+ * Metadata switchover can be absent, enforced (boolean true), or after a provided date
+ */
+export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

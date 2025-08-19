@@ -1,23 +1,23 @@
 import { combineUrl } from 'kea-router'
+
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
+import { ExternalDataSourceType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import {
     ActivityTab,
     AnnotationType,
+    CommentType,
+    OnboardingStepKey,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
     SDKKey,
-    OnboardingStepKey,
-    CommentType,
 } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 /**
  * To add a new URL to the front end:
@@ -36,6 +36,7 @@ export const urls = {
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
+    newTab: () => '/new',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
@@ -79,7 +80,7 @@ export const urls = {
             nodeTab ? `/${nodeTab}` : ''
         }`,
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
         if (query) {
             return `/sql?open_query=${encodeURIComponent(query)}`
         }
@@ -90,6 +91,10 @@ export const urls = {
 
         if (insightShortId) {
             return `/sql?open_insight=${insightShortId}`
+        }
+
+        if (draftId) {
+            return `/sql?open_draft=${draftId}`
         }
 
         return '/sql'
@@ -141,7 +146,7 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
-    shared: (token: string, exportOptions: ExportOptions = {}): string =>
+    shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
         combineUrl(
             `/shared/${token}`,
             Object.entries(exportOptions)
@@ -157,7 +162,7 @@ export const urls = {
                     {}
                 )
         ).url,
-    embedded: (token: string, exportOptions?: ExportOptions): string =>
+    embedded: (token: string, exportOptions?: SharingConfigurationSettings): string =>
         urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
@@ -174,6 +179,7 @@ export const urls = {
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
+    dataWarehouse: (): string => '/data-warehouse',
     dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
     dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
     batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,

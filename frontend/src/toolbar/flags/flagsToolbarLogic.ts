@@ -2,8 +2,9 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import type { PostHog } from 'posthog-js'
+
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -151,7 +152,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     const currentValue =
                         flag.feature_flag.key in localOverrides
                             ? localOverrides[flag.feature_flag.key]
-                            : posthogClientFlagValues[flag.feature_flag.key] ?? flag.value
+                            : (posthogClientFlagValues[flag.feature_flag.key] ?? flag.value)
 
                     return {
                         ...flag,

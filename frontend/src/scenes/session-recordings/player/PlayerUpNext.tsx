@@ -1,11 +1,13 @@
 import './PlayerUpNext.scss'
 
-import { IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { BuiltLogic, useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
+import { IconPlay } from '@posthog/icons'
+
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useEffect, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -60,7 +62,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         }
 
         return () => clearTimeout(timeoutRef.current)
-    }, [endReached, !!nextSessionRecording, similarRecordingsCount])
+    }, [endReached, !!nextSessionRecording, similarRecordingsCount]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (playNextAnimationInterrupted) {

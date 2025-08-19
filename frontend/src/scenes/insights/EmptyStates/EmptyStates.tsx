@@ -1,5 +1,10 @@
 import './EmptyStates.scss'
 
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
+
 import {
     IconArchive,
     IconHourglass,
@@ -11,28 +16,26 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -284,7 +287,7 @@ export function StatelessInsightLoadingState({
     }, [pollResponse, showLoadingDetails])
 
     // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
-    useEffect(() => {
+    useOnMountEffect(() => {
         const TOGGLE_INTERVAL_MIN = 2500
         const TOGGLE_INTERVAL_JITTER = 1000
         const FADE_OUT_DURATION = 300
@@ -294,23 +297,26 @@ export function StatelessInsightLoadingState({
             return
         }
 
-        const interval = setInterval(() => {
-            setIsLoadingMessageVisible(false)
-            setTimeout(() => {
-                setLoadingMessageIndex((current) => {
-                    // Attempt to do random messages, but don't do the same message twice
-                    let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
-                    if (newIndex === current) {
-                        newIndex = (newIndex + 1) % LOADING_MESSAGES.length
-                    }
-                    return newIndex
-                })
-                setIsLoadingMessageVisible(true)
-            }, FADE_OUT_DURATION)
-        }, TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER)
+        const interval = setInterval(
+            () => {
+                setIsLoadingMessageVisible(false)
+                setTimeout(() => {
+                    setLoadingMessageIndex((current) => {
+                        // Attempt to do random messages, but don't do the same message twice
+                        let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
+                        if (newIndex === current) {
+                            newIndex = (newIndex + 1) % LOADING_MESSAGES.length
+                        }
+                        return newIndex
+                    })
+                    setIsLoadingMessageVisible(true)
+                }, FADE_OUT_DURATION)
+            },
+            TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER
+        )
 
         return () => clearInterval(interval)
-    }, [])
+    })
 
     const suggestions = suggestion ? (
         suggestion
@@ -451,7 +457,7 @@ export function InsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeScene } = useValues(
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeSceneId } = useValues(
         insightDataLogic(insightProps)
     )
     const { currentTeam } = useValues(teamLogic)
@@ -466,7 +472,7 @@ export function InsightLoadingState({
             pollResponse={insightPollResponse}
             delayLoadingAnimation={
                 featureFlags[FEATURE_FLAGS.DELAYED_LOADING_ANIMATION] === 'test' &&
-                activeScene == Scene.Insight &&
+                activeSceneId == Scene.Insight &&
                 queryChanged
             }
             loadingTimeSeconds={insightLoadingTimeSeconds}
@@ -710,16 +716,16 @@ const SAVED_INSIGHTS_COPY = {
     },
 }
 
-export function SavedInsightsEmptyState(): JSX.Element {
-    const {
-        filters: { tab },
-        insights,
-        usingFilters,
-    } = useValues(savedInsightsLogic)
-
+export function SavedInsightsEmptyState({
+    filters,
+    usingFilters,
+}: {
+    filters: SavedInsightFilters
+    usingFilters?: boolean
+}): JSX.Element {
     // show the search string that was used to make the results, not what it currently is
-    const searchString = insights.filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
+    const searchString = filters?.search || null
+    const { title, description } = SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
 
     return (
         <div
@@ -743,7 +749,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            {tab !== SavedInsightsTabs.Favorites && (
+            {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
                         <AccessControlledLemonButton

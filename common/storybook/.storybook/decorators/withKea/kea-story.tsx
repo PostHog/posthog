@@ -1,14 +1,16 @@
 import { createMemoryHistory } from 'history'
-import { initKea } from '~/initKea'
-import { router } from 'kea-router'
 import { getContext } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
-import { App } from 'scenes/App'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { worker } from '~/mocks/browser'
+import { App } from 'scenes/App'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { projectLogic } from 'scenes/projectLogic'
+
+import { initKea } from '~/initKea'
+import { worker } from '~/mocks/browser'
 
 export function resetKeaStory(): void {
     worker.resetHandlers()
@@ -16,7 +18,7 @@ export function resetKeaStory(): void {
     const history = createMemoryHistory({})
     ;(history as any).pushState = history.push
     ;(history as any).replaceState = history.replace
-    initKea({ routerLocation: history.location, routerHistory: history })
+    initKea({ routerLocation: history.location, routerHistory: history, replaceInitialPathInWindow: false })
     featureFlagLogic.mount()
     teamLogic.mount()
     projectLogic.mount()

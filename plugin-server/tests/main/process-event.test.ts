@@ -4,18 +4,20 @@ This file contains a bunch of legacy E2E tests mixed with unit tests.
 Rather than add tests here, consider improving event-pipeline-integration test suite or adding
 unit tests to appropriate classes/functions.
 */
-
-// eslint-disable-next-line simple-import-sort/imports
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
+import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { DateTime } from 'luxon'
 
+import { KAFKA_GROUPS } from '~/config/kafka-topics'
 import { createRedis } from '~/utils/db/redis'
+import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -26,9 +28,6 @@ import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/rep
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
-import { KAFKA_GROUPS } from '~/config/kafka-topics'
-import { parseRawClickHouseEvent } from '~/utils/event'
-import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.
@@ -105,7 +104,11 @@ describe('processEvent', () => {
             new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
@@ -210,7 +213,11 @@ describe('processEvent', () => {
             personRepository || new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
@@ -240,7 +247,11 @@ describe('processEvent', () => {
     }
 
     test('capture bad team', async () => {
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         await expect(
             eventsProcessor.processEvent(
                 'asdfasdfasdf',
@@ -254,7 +265,7 @@ describe('processEvent', () => {
                 false,
                 groupStoreForBatch
             )
-        ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
+        ).rejects.toThrow("No team found with ID 1337. Can't ingest event.")
     })
 
     test('ip none', async () => {
@@ -1204,7 +1215,7 @@ describe('processEvent', () => {
         const next: DateTime = now.plus({ minutes: 1 })
 
         await createPerson(hub, team, ['distinct_id1'])
-        await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {})
+        await hub.groupRepository.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {})
 
         await processEvent(
             'distinct_id1',
@@ -1237,7 +1248,7 @@ describe('processEvent', () => {
             version: 2,
         })
 
-        const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+        const group = await hub.groupRepository.fetchGroup(team.id, 0, 'org::5')
         expect(group).toEqual({
             id: expect.any(Number),
             team_id: team.id,

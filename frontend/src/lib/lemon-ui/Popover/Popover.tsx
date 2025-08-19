@@ -1,25 +1,26 @@
 import './Popover.scss'
 
 import {
-    arrow,
-    autoUpdate,
-    flip,
     FloatingPortal,
     Middleware,
     Placement,
+    UseFloatingReturn,
+    arrow,
+    autoUpdate,
+    flip,
     shift,
     size,
     useFloating,
-    UseFloatingReturn,
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { CSSTransition } from 'react-transition-group'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 import { LemonTableLoader } from '../LemonTable/LemonTableLoader'
 
@@ -134,7 +135,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     } = useFloating<HTMLElement>({
         open: visible,
         placement,
-        strategy: 'fixed',
+        strategy: 'absolute',
         middleware: [
             ...(fallbackPlacements
                 ? [
@@ -142,7 +143,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                           fallbackPlacements: [
                               // Prioritize top placements when there might be space issues
                               ...fallbackPlacements.filter((p) => p.startsWith('top')),
-                              ...fallbackPlacements.filter((p) => p.startsWith('bottom')),
+                              ...fallbackPlacements.filter((p) => !p.startsWith('top')),
                           ],
                           fallbackStrategy: 'bestFit',
                           padding: { bottom: 150 }, // Require at least 150px of space below to avoid flipping
@@ -192,7 +193,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (referenceElement) {
             setReference(referenceElement)
         }
-    }, [referenceElement])
+    }, [referenceElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEventListener(
         'keydown',
@@ -222,7 +223,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs])
+    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const floatingContainer = useFloatingContainer()
 
@@ -243,8 +244,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
     const isAttached = clonedChildren || referenceElement
-    const top = isAttached ? y ?? 0 : undefined
-    const left = isAttached ? x ?? 0 : undefined
+    const top = isAttached ? (y ?? 0) : undefined
+    const left = isAttached ? (x ?? 0) : undefined
 
     return (
         <>

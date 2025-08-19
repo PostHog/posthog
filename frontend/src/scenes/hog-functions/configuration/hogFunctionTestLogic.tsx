@@ -1,17 +1,19 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { editor } from 'monaco-editor'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { editor } from 'monaco-editor'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
 
 import {
-    hogFunctionConfigurationLogic,
     HogFunctionConfigurationLogicProps,
+    hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
@@ -31,7 +33,6 @@ export type HogTransformationEvent = {
 
 const convertToTransformationEvent = (result: any): HogTransformationEvent => {
     const properties = result.properties ?? {}
-    properties.$ip = properties.$ip ?? '89.160.20.129'
     // We don't want to use these values given they will change in the test invocation
     delete properties.$transformations_failed
     delete properties.$transformations_succeeded
@@ -102,7 +103,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         receiveExampleGlobals: (globals: CyclotronJobInvocationGlobals | null) => ({ globals }),
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
-            ({ value, editor, decorations } as CodeEditorValidation),
+            ({ value, editor, decorations }) as CodeEditorValidation,
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
         cancelSampleGlobalsLoading: true,
     }),
@@ -362,7 +363,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     return null
                 }
 
-                const input = JSON.stringify(JSON.parse(testInvocation.globals), null, 2)
+                const rawInput = convertFromTransformationEvent(
+                    convertToTransformationEvent(JSON.parse(testInvocation.globals))
+                )
+
+                const input = JSON.stringify(rawInput, null, 2)
                 const output = JSON.stringify(testResult.result, null, 2)
 
                 return {

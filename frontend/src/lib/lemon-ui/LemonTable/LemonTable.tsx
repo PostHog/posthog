@@ -1,35 +1,24 @@
 import './LemonTable.scss'
 
-import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { LemonTableLoader } from './LemonTableLoader'
-import { getNextSorting, Sorting, SortingIndicator } from './sorting'
 import { TableRow } from './TableRow'
-import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
-
-/**
- * Determine the column's key, using `dataIndex` as fallback.
- * If `obligationReason` is specified, will throw an error if the key can't be determined.
- */
-function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason: string): string
-function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
-function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
-    const columnKey = column.key || column.dataIndex
-    if (obligationReason && columnKey == null) {
-        // == is intentional to catch undefined too
-        throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
-    }
-    return columnKey
-}
+import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
+import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { ExpandableConfig, LemonTableColumnGroup, LemonTableColumns } from './types'
 
 export interface LemonTableProps<T extends Record<string, any>> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -88,6 +77,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     footer?: React.ReactNode
     /** Whether the first column should always remain visible when scrolling horizontally. */
     firstColumnSticky?: boolean
+    /** Array of column keys to pin (make sticky). Columns won't be pinned in order. */
+    pinnedColumns?: string[]
     // Max width for the column headers
     maxHeaderWidth?: string
     /** Whether to hide the scrollbar. */
@@ -126,6 +117,7 @@ export function LemonTable<T extends Record<string, any>>({
     'data-attr': dataAttr,
     footer,
     firstColumnSticky,
+    pinnedColumns,
     maxHeaderWidth,
     hideScrollbar,
 }: LemonTableProps<T>): JSX.Element {
@@ -156,7 +148,7 @@ export function LemonTable<T extends Record<string, any>>({
                 )
             }
         },
-        [location, searchParams, hashParams, push]
+        [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
     const columnGroups = (
@@ -171,6 +163,12 @@ export function LemonTable<T extends Record<string, any>>({
     const columns = columnGroups.flatMap((group) => group.children)
 
     const scrollRef = useRef<HTMLDivElement>(null)
+
+    // Width calculation for pinned columns
+    const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
+        columnKeys: pinnedColumns,
+        columns,
+    })
 
     /** Sorting. */
     const currentSorting =
@@ -199,7 +197,7 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting])
+    }, [dataSource, currentSorting, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -219,7 +217,7 @@ export function LemonTable<T extends Record<string, any>>({
         throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
     }
 
-    const isRowExpansionToggleShown = expandable ? expandable?.showRowExpansionToggle ?? true : false
+    const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
     return (
         <div
@@ -245,7 +243,7 @@ export function LemonTable<T extends Record<string, any>>({
                 scrollRef={scrollRef}
             >
                 <div className="LemonTable__content">
-                    <table>
+                    <table ref={tableRef}>
                         <colgroup>
                             {isRowExpansionToggleShown && <col className="w-0" /> /* Expand/collapse column */}
                             {columns
@@ -292,113 +290,128 @@ export function LemonTable<T extends Record<string, any>>({
                                     {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                         columnGroup.children
                                             .filter((column) => !column.isHidden)
-                                            .map((column, columnIndex) => (
-                                                <th
-                                                    key={`LemonTable-th-${columnGroupIndex}-${
-                                                        determineColumnKey(column) ?? columnIndex
-                                                    }`}
-                                                    className={clsx(
-                                                        'LemonTable__header',
-                                                        column.sorter && 'LemonTable__header--actionable',
-                                                        columnIndex === 0 && 'LemonTable__boundary',
-                                                        firstColumnSticky &&
-                                                            columnGroupIndex === 0 &&
-                                                            columnIndex === 0 &&
-                                                            'LemonTable__header--sticky',
-                                                        column.className
-                                                    )}
-                                                    /* eslint-disable-next-line react/forbid-dom-props */
-                                                    style={{ textAlign: column.align }}
-                                                    onClick={
-                                                        column.sorter && !column.more
-                                                            ? (event) => {
-                                                                  const target = event.target as HTMLElement
+                                            .map((column, columnIndex) => {
+                                                const columnKey = determineColumnKey(column) ?? `${columnIndex}`
+                                                const stickyInfo = getStickyColumnInfo(
+                                                    columnKey,
+                                                    pinnedColumns,
+                                                    pinnedColumnWidths,
+                                                    columns
+                                                )
+                                                const { isSticky: isPinned, leftPosition } = stickyInfo
 
-                                                                  // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
-                                                                  if (
-                                                                      target.classList.contains('LemonCheckbox__box') ||
-                                                                      target.tagName.toLowerCase() === 'label' ||
-                                                                      target.tagName.toLowerCase() === 'input'
-                                                                  ) {
-                                                                      return // Do nothing if the click is on the checkbox
-                                                                  }
-
-                                                                  const nextSorting = getNextSorting(
-                                                                      currentSorting,
-                                                                      determineColumnKey(column, 'sorting'),
-                                                                      disableSortingCancellation
-                                                                  )
-
-                                                                  setLocalSorting(nextSorting)
-                                                              }
-                                                            : undefined
-                                                    }
-                                                >
-                                                    <div
-                                                        className="LemonTable__header-content"
+                                                return (
+                                                    <th
+                                                        key={`LemonTable-th-${columnGroupIndex}-${columnKey}`}
+                                                        className={clsx(
+                                                            'LemonTable__header',
+                                                            column.sorter && 'LemonTable__header--actionable',
+                                                            columnIndex === 0 && 'LemonTable__boundary',
+                                                            firstColumnSticky &&
+                                                                columnGroupIndex === 0 &&
+                                                                columnIndex === 0 &&
+                                                                'LemonTable__header--sticky',
+                                                            isPinned && 'LemonTable__header--pinned',
+                                                            column.className
+                                                        )}
                                                         /* eslint-disable-next-line react/forbid-dom-props */
-                                                        style={{ justifyContent: column.align }}
+                                                        style={{
+                                                            textAlign: column.align,
+                                                            ...(isPinned ? { left: `${leftPosition}px` } : {}),
+                                                        }}
+                                                        onClick={
+                                                            column.sorter && !column.more
+                                                                ? (event) => {
+                                                                      const target = event.target as HTMLElement
+
+                                                                      // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
+                                                                      if (
+                                                                          target.classList.contains(
+                                                                              'LemonCheckbox__box'
+                                                                          ) ||
+                                                                          target.tagName.toLowerCase() === 'label' ||
+                                                                          target.tagName.toLowerCase() === 'input'
+                                                                      ) {
+                                                                          return // Do nothing if the click is on the checkbox
+                                                                      }
+
+                                                                      const nextSorting = getNextSorting(
+                                                                          currentSorting,
+                                                                          determineColumnKey(column, 'sorting'),
+                                                                          disableSortingCancellation
+                                                                      )
+
+                                                                      setLocalSorting(nextSorting)
+                                                                  }
+                                                                : undefined
+                                                        }
                                                     >
                                                         <div
-                                                            className={clsx(
-                                                                'flex items-center',
-                                                                column?.fullWidth && 'w-full'
-                                                            )}
+                                                            className="LemonTable__header-content"
                                                             /* eslint-disable-next-line react/forbid-dom-props */
-                                                            style={
-                                                                maxHeaderWidth
-                                                                    ? { maxWidth: maxHeaderWidth }
-                                                                    : undefined
-                                                            }
+                                                            style={{ justifyContent: column.align }}
                                                         >
-                                                            {column.tooltip ? (
-                                                                <Tooltip title={column.tooltip}>
-                                                                    <div className="flex items-center">
-                                                                        {column.title}
-                                                                        <IconInfo className="ml-1 text-base" />
-                                                                    </div>
-                                                                </Tooltip>
-                                                            ) : (
-                                                                column.title
-                                                            )}
-                                                            {column.sorter && (
-                                                                <Tooltip
-                                                                    title={() => {
-                                                                        const nextSorting = getNextSorting(
-                                                                            currentSorting,
-                                                                            determineColumnKey(column, 'sorting'),
-                                                                            disableSortingCancellation
-                                                                        )
-                                                                        return `Click to ${
-                                                                            nextSorting
-                                                                                ? nextSorting.order === 1
-                                                                                    ? 'sort ascending'
-                                                                                    : 'sort descending'
-                                                                                : 'cancel sorting'
-                                                                        }`
-                                                                    }}
-                                                                >
-                                                                    <SortingIndicator
-                                                                        order={
-                                                                            currentSorting?.columnKey ===
-                                                                            determineColumnKey(column, 'sorting')
-                                                                                ? currentSorting.order
-                                                                                : null
-                                                                        }
-                                                                    />
-                                                                </Tooltip>
+                                                            <div
+                                                                className={clsx(
+                                                                    'flex items-center',
+                                                                    column?.fullWidth && 'w-full'
+                                                                )}
+                                                                /* eslint-disable-next-line react/forbid-dom-props */
+                                                                style={
+                                                                    maxHeaderWidth
+                                                                        ? { maxWidth: maxHeaderWidth }
+                                                                        : undefined
+                                                                }
+                                                            >
+                                                                {column.tooltip ? (
+                                                                    <Tooltip title={column.tooltip}>
+                                                                        <div className="flex items-center">
+                                                                            {column.title}
+                                                                            <IconInfo className="ml-1 text-base" />
+                                                                        </div>
+                                                                    </Tooltip>
+                                                                ) : (
+                                                                    column.title
+                                                                )}
+                                                                {column.sorter && (
+                                                                    <Tooltip
+                                                                        title={() => {
+                                                                            const nextSorting = getNextSorting(
+                                                                                currentSorting,
+                                                                                determineColumnKey(column, 'sorting'),
+                                                                                disableSortingCancellation
+                                                                            )
+                                                                            return `Click to ${
+                                                                                nextSorting
+                                                                                    ? nextSorting.order === 1
+                                                                                        ? 'sort ascending'
+                                                                                        : 'sort descending'
+                                                                                    : 'cancel sorting'
+                                                                            }`
+                                                                        }}
+                                                                    >
+                                                                        <SortingIndicator
+                                                                            order={
+                                                                                currentSorting?.columnKey ===
+                                                                                determineColumnKey(column, 'sorting')
+                                                                                    ? currentSorting.order
+                                                                                    : null
+                                                                            }
+                                                                        />
+                                                                    </Tooltip>
+                                                                )}
+                                                            </div>
+                                                            {column.more && (
+                                                                <More
+                                                                    overlay={column.more}
+                                                                    className="ml-1"
+                                                                    data-attr="table-header-more"
+                                                                />
                                                             )}
                                                         </div>
-                                                        {column.more && (
-                                                            <More
-                                                                overlay={column.more}
-                                                                className="ml-1"
-                                                                data-attr="table-header-more"
-                                                            />
-                                                        )}
-                                                    </div>
-                                                </th>
-                                            ))
+                                                    </th>
+                                                )
+                                            })
                                     )}
                                     <LemonTableLoader loading={loading} tag="th" />
                                 </tr>
@@ -410,7 +423,7 @@ export function LemonTable<T extends Record<string, any>>({
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record, rowIndex)
-                                            : record[rowKey] ?? rowIndex
+                                            : (record[rowKey] ?? rowIndex)
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function'
@@ -418,7 +431,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             : rowClassName
                                     const rowRibbonColorDetermined =
                                         typeof rowRibbonColor === 'function'
-                                            ? rowRibbonColor(record, rowIndex) || 'var(--border-primary)'
+                                            ? rowRibbonColor(record, rowIndex) || 'var(--color-border-primary)'
                                             : rowRibbonColor
                                     const rowStatusDetermined =
                                         typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus
@@ -437,6 +450,9 @@ export function LemonTable<T extends Record<string, any>>({
                                             expandable={expandable}
                                             rowCount={paginationState.dataSourcePage.length}
                                             firstColumnSticky={firstColumnSticky}
+                                            pinnedColumns={pinnedColumns}
+                                            pinnedColumnWidths={pinnedColumnWidths}
+                                            columns={columns}
                                         />
                                     )
                                 })

@@ -1,22 +1,24 @@
-import { IconCheckCircle, IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { ReactNode, useRef } from 'react'
+
+import { IconCheckCircle, IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
-import { billingProductAddonLogic } from './billingProductAddonLogic'
-import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+import { billingLogic } from './billingLogic'
+import { billingProductAddonLogic } from './billingProductAddonLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {

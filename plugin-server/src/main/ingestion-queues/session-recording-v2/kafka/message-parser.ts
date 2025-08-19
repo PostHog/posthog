@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
-import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
+import { promisify } from 'node:util'
 import { gunzip } from 'zlib'
 
 import { parseJSON } from '../../../../utils/json-parse'

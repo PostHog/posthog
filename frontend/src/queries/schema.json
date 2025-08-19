@@ -1,6 +1,10 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AIEventType": {
+            "enum": ["$ai_generation", "$ai_embedding", "$ai_span", "$ai_trace", "$ai_metric", "$ai_feedback"],
+            "type": "string"
+        },
         "AccessControlLevel": {
             "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
             "type": "string"
@@ -81,7 +85,7 @@
         "ActorsPropertyTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
-                "group_type_index": {
+                "groupTypeIndex": {
                     "$ref": "#/definitions/integer"
                 },
                 "kind": {
@@ -95,8 +99,11 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "property": {
-                    "type": "string"
+                "properties": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
@@ -109,12 +116,11 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "property"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "ActorsPropertyTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -132,8 +138,22 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
-                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -296,6 +316,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -346,6 +370,42 @@
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
         },
+        "AnalyticsQueryResponseBase": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "AnyDataNode": {
             "anyOf": [
                 {
@@ -388,13 +448,10 @@
                     "$ref": "#/definitions/HogQLAutocomplete"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsArpuQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsCustomerCountQuery"
-                },
-                {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
@@ -443,6 +500,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                 },
                 {
                     "$ref": "#/definitions/LogsQuery"
@@ -844,7 +904,10 @@
                 "navigate",
                 "search_error_tracking_issues",
                 "experiment_results_summary",
-                "create_survey"
+                "create_survey",
+                "search_docs",
+                "search_insights",
+                "session_summarization"
             ],
             "type": "string"
         },
@@ -905,11 +968,11 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "event_metadata", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation"],
+            "enum": ["status", "message", "conversation", "notebook"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1581,7 +1644,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/notebook"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -2269,6 +2332,14 @@
             ],
             "type": "string"
         },
+        "BillingSpendResponseBreakdownType": {
+            "enum": ["type", "team", "multiple"],
+            "type": "string"
+        },
+        "BillingUsageResponseBreakdownType": {
+            "enum": ["type", "team", "multiple"],
+            "type": "string"
+        },
         "BinCountValue": {
             "anyOf": [
                 {
@@ -2300,7 +2371,14 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
                 },
                 "type": {
                     "anyOf": [
@@ -2515,8 +2593,22 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
-                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timezone": {
                     "type": "string"
@@ -2595,6 +2687,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -2679,8 +2775,99 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "$ref": "#/definitions/EventsHeatMapStructuredResult"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedErrorTrackingIssueCorrelationQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
+                    },
+                    "type": "array"
                 },
                 "timezone": {
                     "type": "string"
@@ -2759,6 +2946,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingIssue"
@@ -2826,6 +3017,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "$ref": "#/definitions/EventTaxonomyResponse"
@@ -2904,6 +3099,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -3376,6 +3575,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
                 },
@@ -3547,6 +3750,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -3660,6 +3867,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {},
@@ -4067,6 +4278,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timezone": {
                     "type": "string"
@@ -4142,6 +4357,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {},
@@ -4279,6 +4498,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/PathsLink"
@@ -4347,6 +4570,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/RetentionResult"
@@ -4374,145 +4601,80 @@
             ],
             "type": "object"
         },
-        "CachedRevenueAnalyticsArpuQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "columns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
-        "CachedRevenueAnalyticsCustomerCountQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "columns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
         "CachedRevenueAnalyticsGrowthRateQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedRevenueAnalyticsMetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -4859,6 +5021,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timezone": {
                     "type": "string"
@@ -4938,6 +5104,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {},
                 "timezone": {
@@ -5019,6 +5189,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timezone": {
                     "type": "string"
@@ -5098,6 +5272,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -5194,6 +5372,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/TimelineEntry"
@@ -5261,6 +5443,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -5379,6 +5565,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "$ref": "#/definitions/TeamTaxonomyResponse"
                 },
@@ -5458,6 +5648,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -5603,6 +5797,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "$ref": "#/definitions/VectorSearchResponse"
                 },
@@ -5680,6 +5878,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {},
@@ -5767,6 +5969,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {},
                     "type": "array"
@@ -5845,6 +6051,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -5925,6 +6135,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -6007,6 +6221,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {},
                     "type": "array"
@@ -6083,6 +6301,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/WebVitalsPathBreakdownResult"
@@ -6152,6 +6374,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -6311,6 +6537,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "$ref": "#/definitions/EventsHeatMapStructuredResult"
@@ -7140,19 +7370,8 @@
                     "type": "array"
                 },
                 "context": {
-                    "additionalProperties": false,
-                    "description": "Context for the table, used by components like ColumnConfigurator",
-                    "properties": {
-                        "eventDefinitionId": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "enum": ["event_definition", "team_columns"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type"],
-                    "type": "object"
+                    "$ref": "#/definitions/DataTableNodeViewPropsContext",
+                    "description": "Context for the table, used by components like ColumnConfigurator"
                 },
                 "embedded": {
                     "description": "Uses the embedded version of LemonTable",
@@ -7226,6 +7445,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "items": {
                                         "items": {},
@@ -7284,6 +7507,10 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {
                                     "items": {
@@ -7344,6 +7571,10 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {
                                     "items": {
@@ -7421,6 +7652,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "items": {},
                                     "type": "array"
@@ -7465,6 +7700,10 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {
                                     "items": {
@@ -7521,6 +7760,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "items": {},
                                     "type": "array"
@@ -7578,6 +7821,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "items": {},
                                     "type": "array"
@@ -7632,6 +7879,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "items": {},
                                     "type": "array"
@@ -7672,6 +7923,10 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {
                                     "items": {
@@ -7724,6 +7979,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {},
                                 "timings": {
                                     "description": "Measured timings for different parts of the query generation process",
@@ -7765,42 +8024,9 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
-                                "results": {},
-                                "timings": {
-                                    "description": "Measured timings for different parts of the query generation process",
-                                    "items": {
-                                        "$ref": "#/definitions/QueryTiming"
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["results"],
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "columns": {
-                                    "items": {
-                                        "type": "string"
-                                    },
-                                    "type": "array"
-                                },
-                                "error": {
-                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                                    "type": "string"
-                                },
-                                "hogql": {
-                                    "description": "Generated HogQL query.",
-                                    "type": "string"
-                                },
-                                "modifiers": {
-                                    "$ref": "#/definitions/HogQLQueryModifiers",
-                                    "description": "Modifiers used when performing the query"
-                                },
-                                "query_status": {
-                                    "$ref": "#/definitions/QueryStatus",
-                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {},
                                 "timings": {
@@ -8011,53 +8237,9 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
-                                "results": {},
-                                "timings": {
-                                    "description": "Measured timings for different parts of the query generation process",
-                                    "items": {
-                                        "$ref": "#/definitions/QueryTiming"
-                                    },
-                                    "type": "array"
-                                },
-                                "types": {
-                                    "items": {},
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["results"],
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "columns": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "error": {
-                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                                    "type": "string"
-                                },
-                                "hasMore": {
-                                    "type": "boolean"
-                                },
-                                "hogql": {
-                                    "description": "Generated HogQL query.",
-                                    "type": "string"
-                                },
-                                "limit": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "modifiers": {
-                                    "$ref": "#/definitions/HogQLQueryModifiers",
-                                    "description": "Modifiers used when performing the query"
-                                },
-                                "offset": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "query_status": {
-                                    "$ref": "#/definitions/QueryStatus",
-                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {},
                                 "timings": {
@@ -8106,6 +8288,62 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
+                                "results": {},
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {
                                     "items": {},
@@ -8163,9 +8401,68 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "items": {
                                         "$ref": "#/definitions/ErrorTrackingIssue"
+                                    },
+                                    "type": "array"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
+                                "results": {
+                                    "items": {
+                                        "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
                                     },
                                     "type": "array"
                                 },
@@ -8348,6 +8645,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "items": {
                                         "$ref": "#/definitions/LLMTrace"
@@ -8483,13 +8784,10 @@
                             "$ref": "#/definitions/SessionAttributionExplorerQuery"
                         },
                         {
-                            "$ref": "#/definitions/RevenueAnalyticsArpuQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsCustomerCountQuery"
-                        },
-                        {
                             "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
                         },
                         {
                             "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
@@ -8513,6 +8811,9 @@
                             "$ref": "#/definitions/ErrorTrackingQuery"
                         },
                         {
+                            "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
+                        },
+                        {
                             "$ref": "#/definitions/ExperimentFunnelsQuery"
                         },
                         {
@@ -8531,6 +8832,23 @@
             },
             "required": ["kind", "source"],
             "type": "object"
+        },
+        "DataTableNodeViewPropsContext": {
+            "additionalProperties": false,
+            "properties": {
+                "eventDefinitionId": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/DataTableNodeViewPropsContextType"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "DataTableNodeViewPropsContextType": {
+            "enum": ["event_definition", "team_columns"],
+            "type": "string"
         },
         "DataVisualizationNode": {
             "additionalProperties": false,
@@ -8702,6 +9020,59 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DataWarehouseViewLink": {
+            "additionalProperties": false,
+            "properties": {
+                "configuration": {
+                    "$ref": "#/definitions/DataWarehouseViewLinkConfiguration"
+                },
+                "created_at": {
+                    "type": ["string", "null"]
+                },
+                "created_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/UserBasicType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "field_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "joining_table_key": {
+                    "type": "string"
+                },
+                "joining_table_name": {
+                    "type": "string"
+                },
+                "source_table_key": {
+                    "type": "string"
+                },
+                "source_table_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
+        "DataWarehouseViewLinkConfiguration": {
+            "additionalProperties": false,
+            "properties": {
+                "experiments_optimized": {
+                    "type": "boolean"
+                },
+                "experiments_timestamp_key": {
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "DatabaseSchemaBatchExportTable": {
             "additionalProperties": false,
             "properties": {
@@ -8849,8 +9220,8 @@
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
-                "revenue_analytics_invoice_item",
                 "revenue_analytics_product",
+                "revenue_analytics_revenue_item",
                 "revenue_analytics_subscription"
             ],
             "type": "string"
@@ -8944,6 +9315,12 @@
         "DatabaseSchemaQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "joins": {
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseViewLink"
+                    },
+                    "type": "array"
+                },
                 "tables": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaTable"
@@ -8951,7 +9328,7 @@
                     "type": "object"
                 }
             },
-            "required": ["tables"],
+            "required": ["tables", "joins"],
             "type": "object"
         },
         "DatabaseSchemaSchema": {
@@ -9042,12 +9419,15 @@
                     "type": "number"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
-                    "type": "string"
+                    "$ref": "#/definitions/DatabaseSchemaTableType"
                 }
             },
             "required": ["type", "id", "name", "fields"],
             "type": "object"
+        },
+        "DatabaseSchemaTableType": {
+            "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
+            "type": "string"
         },
         "DatabaseSchemaViewTable": {
             "additionalProperties": false,
@@ -9282,6 +9662,89 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "ErrorTrackingCorrelatedIssue": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "event": {
+                    "type": "string"
+                },
+                "external_issues": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingExternalReference"
+                    },
+                    "type": "array"
+                },
+                "first_seen": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "library": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "odds_ratio": {
+                    "type": "number"
+                },
+                "population": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "both": {
+                            "type": "number"
+                        },
+                        "exception_only": {
+                            "type": "number"
+                        },
+                        "neither": {
+                            "type": "number"
+                        },
+                        "success_only": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["both", "success_only", "exception_only", "neither"],
+                    "type": "object"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+                    "type": "string"
+                }
+            },
+            "required": [
+                "assignee",
+                "description",
+                "event",
+                "first_seen",
+                "id",
+                "last_seen",
+                "library",
+                "name",
+                "odds_ratio",
+                "population",
+                "status"
+            ],
+            "type": "object"
+        },
         "ErrorTrackingExternalReference": {
             "additionalProperties": false,
             "properties": {
@@ -9448,11 +9911,100 @@
                     ]
                 },
                 "type": {
-                    "enum": ["user", "role"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingIssueAssigneeType"
                 }
             },
             "required": ["type", "id"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueAssigneeType": {
+            "enum": ["user", "role"],
+            "type": "string"
+        },
+        "ErrorTrackingIssueCorrelationQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "ErrorTrackingIssueCorrelationQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCorrelationQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["events", "kind"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueCorrelationQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "ErrorTrackingIssueFilter": {
@@ -9591,6 +10143,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -9838,7 +10394,6 @@
         },
         "EventTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -9855,6 +10410,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "$ref": "#/definitions/EventTaxonomyResponse"
@@ -10229,6 +10788,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -10561,6 +11124,9 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10741,6 +11307,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetric"
                 }
             ]
         },
@@ -10804,7 +11373,7 @@
             ]
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean"],
+            "enum": ["funnel", "mean", "ratio"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -10814,6 +11383,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetricTypeProps"
                 }
             ]
         },
@@ -10934,6 +11506,63 @@
             },
             "type": "object"
         },
+        "ExperimentRatioMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["denominator", "kind", "metric_type", "numerator"],
+            "type": "object"
+        },
+        "ExperimentRatioMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                }
+            },
+            "required": ["metric_type", "numerator", "denominator"],
+            "type": "object"
+        },
         "ExperimentSignificanceCode": {
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
             "type": "string"
@@ -10941,11 +11570,20 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -10960,11 +11598,20 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -11014,6 +11661,9 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "uuid": {
+                    "type": "string"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -11120,6 +11770,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11129,6 +11785,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "significant": {
                     "type": "boolean"
@@ -11160,6 +11819,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11169,6 +11834,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "p_value": {
                     "type": "number"
@@ -11627,6 +12295,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
@@ -12461,6 +13133,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -12937,6 +13613,9 @@
                     "enum": ["string", "uuid"],
                     "type": "string"
                 },
+                "timings": {
+                    "type": "boolean"
+                },
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
@@ -13000,6 +13679,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {},
@@ -13941,6 +14624,7 @@
                 "google-pubsub",
                 "google-cloud-storage",
                 "google-ads",
+                "google-sheets",
                 "linkedin-ads",
                 "snapchat",
                 "intercom",
@@ -13948,7 +14632,8 @@
                 "twilio",
                 "linear",
                 "github",
-                "meta-ads"
+                "meta-ads",
+                "clickup"
             ],
             "type": "string"
         },
@@ -14008,7 +14693,14 @@
                     "type": "string"
                 },
                 "event": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AIEventType"
+                        },
+                        {
+                            "type": "string"
+                        }
+                    ]
                 },
                 "id": {
                     "type": "string"
@@ -14483,6 +15175,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -14563,7 +15259,8 @@
             "additionalProperties": false,
             "properties": {
                 "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter"
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -14694,6 +15391,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {},
                     "type": "array"
@@ -14788,6 +15489,262 @@
                 }
             },
             "required": ["type", "id", "name"],
+            "type": "object"
+        },
+        "MaxAddonInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "current_usage": {
+                    "type": "number"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "docs_url": {
+                    "type": "string"
+                },
+                "has_exceeded_limit": {
+                    "type": "boolean"
+                },
+                "is_used": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "percentage_usage": {
+                    "type": "number"
+                },
+                "projected_amount_usd": {
+                    "type": ["string", "null"]
+                },
+                "projected_amount_usd_with_limit": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "type": "string"
+                },
+                "usage_limit": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["type", "name", "description", "is_used", "has_exceeded_limit", "current_usage"],
+            "type": "object"
+        },
+        "MaxBillingContext": {
+            "additionalProperties": false,
+            "properties": {
+                "billing_period": {
+                    "$ref": "#/definitions/MaxBillingContextBillingPeriod"
+                },
+                "billing_plan": {
+                    "type": ["string", "null"]
+                },
+                "has_active_subscription": {
+                    "type": "boolean"
+                },
+                "is_deactivated": {
+                    "type": "boolean"
+                },
+                "products": {
+                    "items": {
+                        "$ref": "#/definitions/MaxProductInfo"
+                    },
+                    "type": "array"
+                },
+                "projected_total_amount_usd": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_after_discount": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_with_limit": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_with_limit_after_discount": {
+                    "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/MaxBillingContextSettings"
+                },
+                "spend_history": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "breakdown_type": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/BillingSpendResponseBreakdownType"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "breakdown_value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "data": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            "dates": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "id": {
+                                "type": "number"
+                            },
+                            "label": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["id", "label", "data", "dates", "breakdown_type", "breakdown_value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "startup_program_label": {
+                    "type": "string"
+                },
+                "startup_program_label_previous": {
+                    "type": "string"
+                },
+                "subscription_level": {
+                    "$ref": "#/definitions/MaxBillingContextSubscriptionLevel"
+                },
+                "total_current_amount_usd": {
+                    "type": "string"
+                },
+                "trial": {
+                    "$ref": "#/definitions/MaxBillingContextTrial"
+                },
+                "usage_history": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "breakdown_type": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/BillingUsageResponseBreakdownType"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "breakdown_value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "data": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            "dates": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "id": {
+                                "type": "number"
+                            },
+                            "label": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["id", "label", "data", "dates", "breakdown_type", "breakdown_value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["has_active_subscription", "subscription_level", "billing_plan", "products", "settings"],
+            "type": "object"
+        },
+        "MaxBillingContextBillingPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "current_period_end": {
+                    "type": "string"
+                },
+                "current_period_start": {
+                    "type": "string"
+                },
+                "interval": {
+                    "$ref": "#/definitions/MaxBillingContextBillingPeriodInterval"
+                }
+            },
+            "required": ["current_period_start", "current_period_end", "interval"],
+            "type": "object"
+        },
+        "MaxBillingContextBillingPeriodInterval": {
+            "enum": ["month", "year"],
+            "type": "string"
+        },
+        "MaxBillingContextSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "active_destinations": {
+                    "type": "number"
+                },
+                "autocapture_on": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["autocapture_on", "active_destinations"],
+            "type": "object"
+        },
+        "MaxBillingContextSubscriptionLevel": {
+            "enum": ["free", "paid", "custom"],
+            "type": "string"
+        },
+        "MaxBillingContextTrial": {
+            "additionalProperties": false,
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "target": {
+                    "type": "string"
+                }
+            },
+            "required": ["is_active"],
             "type": "object"
         },
         "MaxDashboardContext": {
@@ -14894,6 +15851,58 @@
             "required": ["type", "values"],
             "type": "object"
         },
+        "MaxProductInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "addons": {
+                    "items": {
+                        "$ref": "#/definitions/MaxAddonInfo"
+                    },
+                    "type": "array"
+                },
+                "current_usage": {
+                    "type": "number"
+                },
+                "custom_limit_usd": {
+                    "type": ["number", "null"]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "docs_url": {
+                    "type": "string"
+                },
+                "has_exceeded_limit": {
+                    "type": "boolean"
+                },
+                "is_used": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "next_period_custom_limit_usd": {
+                    "type": ["number", "null"]
+                },
+                "percentage_usage": {
+                    "type": "number"
+                },
+                "projected_amount_usd": {
+                    "type": ["string", "null"]
+                },
+                "projected_amount_usd_with_limit": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "type": "string"
+                },
+                "usage_limit": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["type", "name", "description", "is_used", "has_exceeded_limit", "percentage_usage", "addons"],
+            "type": "object"
+        },
         "MaxRecordingUniversalFilters": {
             "additionalProperties": false,
             "properties": {
@@ -14918,6 +15927,11 @@
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "default": "DESC",
+                    "description": "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here"
                 }
             },
             "required": ["duration", "filter_group"],
@@ -15018,7 +16032,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -15070,6 +16084,7 @@
                 "RevenueExampleEventsQuery",
                 "RevenueExampleDataWarehouseTablesQuery",
                 "ErrorTrackingQuery",
+                "ErrorTrackingIssueCorrelationQuery",
                 "LogsQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
@@ -15095,9 +16110,8 @@
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
                 "WebAnalyticsExternalSummaryQuery",
-                "RevenueAnalyticsArpuQuery",
-                "RevenueAnalyticsCustomerCountQuery",
                 "RevenueAnalyticsGrowthRateQuery",
+                "RevenueAnalyticsMetricsQuery",
                 "RevenueAnalyticsOverviewQuery",
                 "RevenueAnalyticsRevenueQuery",
                 "RevenueAnalyticsTopCustomersQuery",
@@ -15118,6 +16132,32 @@
                 "VectorSearchQuery"
             ],
             "type": "string"
+        },
+        "NotebookUpdateMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/ProsemirrorJSONContent"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "notebook_id": {
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantToolCall"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "notebook_id", "content"],
+            "type": "object"
         },
         "PageURL": {
             "additionalProperties": false,
@@ -15412,6 +16452,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/PathsLink"
@@ -15679,6 +16723,41 @@
             ],
             "type": "string"
         },
+        "ProsemirrorJSONContent": {
+            "properties": {
+                "attrs": {
+                    "type": "object"
+                },
+                "content": {
+                    "items": {
+                        "$ref": "#/definitions/ProsemirrorJSONContent"
+                    },
+                    "type": "array"
+                },
+                "marks": {
+                    "items": {
+                        "properties": {
+                            "attrs": {
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
             "type": "string"
@@ -15768,6 +16847,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "items": {},
@@ -15826,6 +16909,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -15886,6 +16973,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -16042,6 +17133,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/TimelineEntry"
@@ -16129,6 +17224,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {},
@@ -16246,53 +17345,9 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {},
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -16341,6 +17396,62 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {},
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -16392,9 +17503,68 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/ErrorTrackingIssue"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
                             },
                             "type": "array"
                         },
@@ -16677,6 +17847,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/WebOverviewItem"
@@ -16732,6 +17906,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -16789,6 +17967,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -16843,6 +18025,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -16883,6 +18069,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -16927,6 +18117,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -16986,42 +18180,9 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {},
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -17232,6 +18393,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -17293,6 +18458,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "items": {},
@@ -17351,6 +18520,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -17411,6 +18584,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -17488,6 +18665,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -17532,6 +18713,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -17588,6 +18773,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -17645,6 +18834,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -17699,6 +18892,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -17739,6 +18936,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -17791,6 +18992,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -17832,42 +19037,9 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {},
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -18078,53 +19250,9 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {},
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -18173,6 +19301,62 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {},
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {},
@@ -18230,9 +19414,68 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/ErrorTrackingIssue"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
                             },
                             "type": "array"
                         },
@@ -18415,6 +19658,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/LLMTrace"
@@ -18498,6 +19745,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "$ref": "#/definitions/EventsHeatMapStructuredResult"
@@ -18585,6 +19836,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/RetentionResult"
@@ -18621,6 +19876,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/PathsLink"
@@ -18656,6 +19915,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -18746,6 +20009,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "$ref": "#/definitions/FunnelCorrelationResult"
                         },
@@ -18767,6 +20034,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "joins": {
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseViewLink"
+                            },
+                            "type": "array"
+                        },
                         "tables": {
                             "additionalProperties": {
                                 "$ref": "#/definitions/DatabaseSchemaTable"
@@ -18774,7 +20047,7 @@
                             "type": "object"
                         }
                     },
-                    "required": ["tables"],
+                    "required": ["tables", "joins"],
                     "type": "object"
                 },
                 {
@@ -18810,6 +20083,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -18855,6 +20132,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "$ref": "#/definitions/TeamTaxonomyResponse"
                         },
@@ -18887,6 +20168,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "$ref": "#/definitions/EventTaxonomyResponse"
@@ -18921,8 +20206,22 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
-                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -18969,6 +20268,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/LLMTrace"
@@ -19004,6 +20307,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "$ref": "#/definitions/VectorSearchResponse"
@@ -19084,6 +20391,9 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
+                    "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
+                },
+                {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
@@ -19120,13 +20430,10 @@
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsArpuQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsCustomerCountQuery"
-                },
-                {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
@@ -19583,9 +20890,11 @@
             "properties": {
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["color"],
             "type": "object"
         },
         "ResultCustomizationBy": {
@@ -19601,9 +20910,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "ResultCustomizationByValue": {
@@ -19615,9 +20927,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "RetentionDashboardDisplayType": {
@@ -19696,6 +21011,9 @@
                 },
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "showTrendLines": {
+                    "type": "boolean"
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
@@ -19844,6 +21162,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/RetentionResult"
@@ -19902,143 +21224,6 @@
             "required": ["count"],
             "type": "object"
         },
-        "RevenueAnalyticsArpuQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "groupBy": {
-                    "items": {
-                        "$ref": "#/definitions/RevenueAnalyticsGroupBy"
-                    },
-                    "type": "array"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType"
-                },
-                "kind": {
-                    "const": "RevenueAnalyticsArpuQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "properties": {
-                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsArpuQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["groupBy", "interval", "kind", "properties"],
-            "type": "object"
-        },
-        "RevenueAnalyticsArpuQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "RevenueAnalyticsBaseQuery<RevenueAnalyticsArpuQueryResponse>": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "$ref": "#/definitions/NodeKind"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "properties": {
-                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsArpuQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "properties"],
-            "type": "object"
-        },
-        "RevenueAnalyticsBaseQuery<RevenueAnalyticsCustomerCountQueryResponse>": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "$ref": "#/definitions/NodeKind"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "properties": {
-                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsCustomerCountQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "properties"],
-            "type": "object"
-        },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse>": {
             "additionalProperties": false,
             "properties": {
@@ -20057,6 +21242,36 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "RevenueAnalyticsBaseQuery<RevenueAnalyticsMetricsQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQueryResponse"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -20184,86 +21399,13 @@
             "required": ["events", "goals", "filter_test_accounts"],
             "type": "object"
         },
-        "RevenueAnalyticsCustomerCountQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "groupBy": {
-                    "items": {
-                        "$ref": "#/definitions/RevenueAnalyticsGroupBy"
-                    },
-                    "type": "array"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType"
-                },
-                "kind": {
-                    "const": "RevenueAnalyticsCustomerCountQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "properties": {
-                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsCustomerCountQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["groupBy", "interval", "kind", "properties"],
-            "type": "object"
-        },
-        "RevenueAnalyticsCustomerCountQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
         "RevenueAnalyticsEventItem": {
             "additionalProperties": false,
             "properties": {
+                "couponProperty": {
+                    "description": "Property used to identify whether the revenue event is connected to a coupon Useful when trying to break revenue down by a specific coupon",
+                    "type": "string"
+                },
                 "currencyAwareDecimal": {
                     "default": false,
                     "description": "If true, the revenue will be divided by the smallest unit of the currency.\n\nFor example, in case this is set to true, if the revenue is 1089 and the currency is USD, the revenue will be $10.89, but if the currency is JPY, the revenue will be ¥1089.",
@@ -20272,17 +21414,43 @@
                 "eventName": {
                     "type": "string"
                 },
+                "productProperty": {
+                    "description": "Property used to identify what product the revenue event refers to Useful when trying to break revenue down by a specific product",
+                    "type": "string"
+                },
                 "revenueCurrencyProperty": {
                     "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
                     "default": {
                         "static": "USD"
-                    }
+                    },
+                    "description": "TODO: In the future, this should probably be renamed to `currencyProperty` to follow the pattern above"
                 },
                 "revenueProperty": {
                     "type": "string"
+                },
+                "subscriptionDropoffDays": {
+                    "default": 45,
+                    "description": "The number of days we still consider a subscription to be active after the last event. This is useful to avoid the current month's data to look as if most of the subscriptions have churned since we might not have an event for the current month.",
+                    "type": "number"
+                },
+                "subscriptionDropoffMode": {
+                    "$ref": "#/definitions/SubscriptionDropoffMode",
+                    "default": "last_event",
+                    "description": "After a subscription has dropped off, when should we consider it to have ended? It should either be at the date of the last event (will alter past periods, the default), or at the date of the last event plus the dropoff period."
+                },
+                "subscriptionProperty": {
+                    "description": "Property used to identify what subscription the revenue event refers to Useful when trying to detect churn/LTV/ARPU/etc.",
+                    "type": "string"
                 }
             },
-            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "required": [
+                "eventName",
+                "revenueProperty",
+                "subscriptionDropoffDays",
+                "subscriptionDropoffMode",
+                "revenueCurrencyProperty",
+                "currencyAwareDecimal"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsGoal": {
@@ -20337,6 +21505,87 @@
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "RevenueAnalyticsMetricsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "groupBy": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGroupBy"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType"
+                },
+                "kind": {
+                    "const": "RevenueAnalyticsMetricsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["groupBy", "interval", "kind", "properties"],
+            "type": "object"
+        },
+        "RevenueAnalyticsMetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "columns": {
@@ -20746,6 +21995,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -20825,6 +22078,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -20857,6 +22114,9 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "$ref": "#/definitions/NotebookUpdateMessage"
                 },
                 {
                     "additionalProperties": false,
@@ -20908,19 +22168,8 @@
                     "type": "boolean"
                 },
                 "context": {
-                    "additionalProperties": false,
-                    "description": "Context for the table, used by components like ColumnConfigurator",
-                    "properties": {
-                        "eventDefinitionId": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "enum": ["event_definition", "team_columns"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type"],
-                    "type": "object"
+                    "$ref": "#/definitions/DataTableNodeViewPropsContext",
+                    "description": "Context for the table, used by components like ColumnConfigurator"
                 },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
@@ -21157,6 +22406,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -21315,6 +22568,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -21553,6 +22810,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/TimelineEntry"
@@ -21568,6 +22829,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SharingConfigurationSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "detailed": {
+                    "type": "boolean"
+                },
+                "hideExtraDetails": {
+                    "type": "boolean"
+                },
+                "legend": {
+                    "type": "boolean"
+                },
+                "noHeader": {
+                    "type": "boolean"
+                },
+                "showInspector": {
+                    "type": "boolean"
+                },
+                "whitelabel": {
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         },
         "SourceConfig": {
@@ -21695,12 +22980,15 @@
                     "type": "boolean"
                 },
                 "type": {
-                    "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldInputConfigType"
                 }
             },
             "required": ["type", "name", "label", "required", "placeholder"],
             "type": "object"
+        },
+        "SourceFieldInputConfigType": {
+            "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
+            "type": "string"
         },
         "SourceFieldOauthConfig": {
             "additionalProperties": false,
@@ -21746,8 +23034,7 @@
             "additionalProperties": false,
             "properties": {
                 "converter": {
-                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldSelectConfigConverter"
                 },
                 "defaultValue": {
                     "type": "string"
@@ -21790,6 +23077,10 @@
             },
             "required": ["type", "name", "label", "required", "defaultValue", "options"],
             "type": "object"
+        },
+        "SourceFieldSelectConfigConverter": {
+            "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+            "type": "string"
         },
         "SourceFieldSwitchGroupConfig": {
             "additionalProperties": false,
@@ -22089,6 +23380,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -22105,6 +23400,10 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "SubscriptionDropoffMode": {
+            "enum": ["last_event", "after_dropoff_period"],
+            "type": "string"
         },
         "SuggestedQuestionsQuery": {
             "additionalProperties": false,
@@ -22249,6 +23548,9 @@
                 "iteration_frequency_days": {
                     "type": "number"
                 },
+                "linked_flag_id": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -22309,6 +23611,9 @@
                 "deviceTypesMatchType": {
                     "$ref": "#/definitions/SurveyMatchType"
                 },
+                "linkedFlagVariant": {
+                    "type": "string"
+                },
                 "seenSurveyWaitPeriodInDays": {
                     "type": "number"
                 },
@@ -22343,6 +23648,10 @@
             ],
             "type": "string"
         },
+        "SurveyQuestionBranchingType": {
+            "enum": ["next_question", "end", "response_based", "specific_question"],
+            "type": "string"
+        },
         "SurveyQuestionDescriptionContentType": {
             "enum": ["html", "text"],
             "type": "string"
@@ -22363,8 +23672,7 @@
                             "type": "object"
                         },
                         "type": {
-                            "enum": ["next_question", "end", "response_based", "specific_question"],
-                            "type": "string"
+                            "$ref": "#/definitions/SurveyQuestionBranchingType"
                         }
                     },
                     "required": ["type"],
@@ -22532,7 +23840,6 @@
         },
         "TeamTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -22549,6 +23856,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "$ref": "#/definitions/TeamTaxonomyResponse"
@@ -22589,6 +23900,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {},
@@ -22646,6 +23961,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {},
@@ -22777,6 +24096,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/LLMTrace"
@@ -22871,6 +24194,9 @@
                 "minDecimalPlaces": {
                     "type": "number"
                 },
+                "movingAverageIntervals": {
+                    "type": "number"
+                },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
@@ -22910,12 +24236,18 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showMovingAverage": {
+                    "type": "boolean"
+                },
                 "showMultipleYAxes": {
                     "default": false,
                     "type": "boolean"
                 },
                 "showPercentStackView": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showTrendLines": {
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
@@ -23235,7 +24567,6 @@
         },
         "VectorSearchQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -23252,6 +24583,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "$ref": "#/definitions/VectorSearchResponse"
@@ -23590,6 +24925,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {},
                     "type": "array"
@@ -23718,6 +25057,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {},
@@ -23870,6 +25213,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/WebOverviewItem"
@@ -23998,6 +25345,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -24163,6 +25514,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {},
                     "type": "array"
@@ -24319,7 +25674,6 @@
         },
         "WebVitalsPathBreakdownQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -24336,6 +25690,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -24475,7 +25833,6 @@
         },
         "WebVitalsQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -24492,6 +25849,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -24545,6 +25906,22 @@
         },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentRatioMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentRatioMetric",
             "properties": {
                 "namedArgs": {
                     "additionalProperties": false,
