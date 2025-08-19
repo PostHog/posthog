@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 
@@ -29,7 +29,7 @@ export function SceneAddToDashboardButton({
             }}
             data-attr={`${dataAttrKey}-add-to-dashboard-button`}
         >
-            <IconPlus /> Add to dashboard...
+            <IconPlusSmall /> Add to dashboard...
         </ButtonPrimitive>
     )
 }

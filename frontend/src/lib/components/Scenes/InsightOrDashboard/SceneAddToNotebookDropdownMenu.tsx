@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -32,7 +32,7 @@ export function SceneAddToNotebookDropdownMenu({
                     data-attr={`${dataAttrKey}-add-to-dropdown-menu`}
                     disabledReasons={disabledReasons}
                 >
-                    <IconPlus />
+                    <IconPlusSmall />
                     Add to notebook
                     <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>
