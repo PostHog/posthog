@@ -190,12 +190,18 @@ impl IntoResponse for FlagError {
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
-                    CookielessManagerError::MissingProperty(prop) =>
-                        (StatusCode::BAD_REQUEST, format!("Missing required property: {prop}")),
-                    CookielessManagerError::UrlParseError(e) =>
-                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {e}")),
-                    CookielessManagerError::InvalidTimestamp(msg) =>
-                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}")),
+                    CookielessManagerError::MissingProperty(prop) => {
+                        tracing::warn!("Cookieless missing property: {}", prop);
+                        (StatusCode::BAD_REQUEST, format!("Missing required property: {prop}"))
+                    },
+                    CookielessManagerError::UrlParseError(e) => {
+                        tracing::warn!("Cookieless URL parse error: {}", e);
+                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {e}"))
+                    },
+                    CookielessManagerError::InvalidTimestamp(msg) => {
+                        tracing::warn!("Cookieless invalid timestamp: {}", msg);
+                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}"))
+                    },
 
                     // 500 Internal Server Error - server-side issues
                     err @ (CookielessManagerError::HashError(_) |
