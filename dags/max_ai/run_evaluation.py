@@ -9,12 +9,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from dags.common import JobOwners
 from dags.max_ai.snapshot_project_data import (
-    ClickhouseProjectDataSnapshot,
-    PostgresProjectDataSnapshot,
-    snapshot_clickhouse_project_data,
-    snapshot_postgres_project_data,
+    ClickhouseTeamDataSnapshot,
+    PostgresTeamDataSnapshot,
+    snapshot_clickhouse_team_data,
+    snapshot_postgres_team_data,
 )
-from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, ProjectSnapshot
+from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, TeamEvaluationSnapshot
 
 
 def get_object_storage_endpoint() -> str:
@@ -31,19 +31,19 @@ def get_object_storage_endpoint() -> str:
     return settings.OBJECT_STORAGE_ENDPOINT
 
 
-class ExportProjectsConfig(dagster.Config):
-    project_ids: list[int]
-    """Project IDs to run the evaluation for."""
+class ExportTeamsConfig(dagster.Config):
+    team_ids: list[int]
+    """Team IDs to run the evaluation for."""
 
 
 @dagster.op(out=dagster.DynamicOut(int))
-def export_projects(config: ExportProjectsConfig):
-    seen_projects = set()
-    for pid in config.project_ids:
-        if pid in seen_projects:
+def export_teams(config: ExportTeamsConfig):
+    seen_teams = set()
+    for tid in config.team_ids:
+        if tid in seen_teams:
             continue
-        seen_projects.add(pid)
-        yield dagster.DynamicOutput(pid, mapping_key=str(pid))
+        seen_teams.add(tid)
+        yield dagster.DynamicOutput(tid, mapping_key=str(tid))
 
 
 class EvaluationConfig(dagster.Config):
@@ -83,25 +83,25 @@ def spawn_evaluation_container(
     context: dagster.OpExecutionContext,
     config: EvaluationConfig,
     docker_pipes_client: PipesDockerClient,
-    project_ids: list[int],
-    postgres_snapshots: list[PostgresProjectDataSnapshot],
-    clickhouse_snapshots: list[ClickhouseProjectDataSnapshot],
+    team_ids: list[int],
+    postgres_snapshots: list[PostgresTeamDataSnapshot],
+    clickhouse_snapshots: list[ClickhouseTeamDataSnapshot],
 ):
     evaluation_config = EvalsDockerImageConfig(
         aws_endpoint_url=get_object_storage_endpoint(),
         aws_bucket_name=settings.OBJECT_STORAGE_BUCKET,
-        project_snapshots=[
-            ProjectSnapshot(project=project_id, postgres=postgres, clickhouse=clickhouse).model_dump()
-            for project_id, postgres, clickhouse in zip(project_ids, postgres_snapshots, clickhouse_snapshots)
+        team_snapshots=[
+            TeamEvaluationSnapshot(team_id=team_id, postgres=postgres, clickhouse=clickhouse).model_dump()
+            for team_id, postgres, clickhouse in zip(team_ids, postgres_snapshots, clickhouse_snapshots)
         ],
         experiment_name=config.experiment_name,
         dataset=[
             DatasetInput(
-                project_id=project_id,
+                team_id=team_id,
                 input={"query": "List all events from the last 7 days. Use SQL."},
                 expected={"output": "SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 day"},
             )
-            for project_id in project_ids
+            for team_id in team_ids
         ],
     )
 
@@ -147,7 +147,7 @@ def spawn_evaluation_container(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
     config=dagster.RunConfig(
         ops={
-            "export_projects": ExportProjectsConfig(project_ids=[]),
+            "export_teams": ExportTeamsConfig(team_ids=[]),
             "spawn_evaluation_container": EvaluationConfig(
                 evaluation_module="",
                 experiment_name="offline_evaluation",
@@ -158,7 +158,7 @@ def spawn_evaluation_container(
     ),
 )
 def run_evaluation():
-    project_ids = export_projects()
-    postgres_snapshots = project_ids.map(snapshot_postgres_project_data)
-    clickhouse_snapshots = project_ids.map(snapshot_clickhouse_project_data)
-    spawn_evaluation_container(project_ids.collect(), postgres_snapshots.collect(), clickhouse_snapshots.collect())
+    team_ids = export_teams()
+    postgres_snapshots = team_ids.map(snapshot_postgres_team_data)
+    clickhouse_snapshots = team_ids.map(snapshot_clickhouse_team_data)
+    spawn_evaluation_container(team_ids.collect(), postgres_snapshots.collect(), clickhouse_snapshots.collect())

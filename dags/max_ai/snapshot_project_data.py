@@ -21,10 +21,10 @@ from dags.max_ai.utils import (
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
     BaseSnapshot,
-    ClickhouseProjectDataSnapshot,
+    ClickhouseTeamDataSnapshot,
     DataWarehouseTableSnapshot,
     GroupTypeMappingSnapshot,
-    PostgresProjectDataSnapshot,
+    PostgresTeamDataSnapshot,
     PropertyDefinitionSnapshot,
     PropertyTaxonomySnapshot,
     TeamSnapshot,
@@ -65,21 +65,21 @@ def snapshot_postgres_model(
     model_type: type[SchemaBound],
     file_name: str,
     s3: S3Resource,
-    project_id: int,
+    team_id: int,
     code_version: str | None = None,
 ) -> str:
-    file_key = compose_postgres_dump_path(project_id, file_name, code_version)
+    file_key = compose_postgres_dump_path(team_id, file_name, code_version)
     if check_dump_exists(s3, file_key):
         context.log.info(f"Skipping {file_key} because it already exists")
         return file_key
     context.log.info(f"Dumping {file_key}")
     with dump_model(s3=s3, schema=model_type, file_key=file_key) as dump:
-        dump(model_type.serialize_for_project(project_id))
+        dump(model_type.serialize_for_team(team_id))
     return file_key
 
 
 @dagster.op(
-    description="Snapshots Postgres project data (property definitions, DWH schema, etc.)",
+    description="Snapshots Postgres team data (property definitions, DWH schema, etc.)",
     retry_policy=DEFAULT_RETRY_POLICY,
     code_version="v1",
     tags={
@@ -87,29 +87,29 @@ def snapshot_postgres_model(
         "dagster/max_runtime": 60 * 15,  # 15 minutes
     },
 )
-def snapshot_postgres_project_data(
-    context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
-) -> PostgresProjectDataSnapshot:
-    context.log.info(f"Snapshotting Postgres project data for {project_id}")
+def snapshot_postgres_team_data(
+    context: dagster.OpExecutionContext, team_id: int, s3: S3Resource
+) -> PostgresTeamDataSnapshot:
+    context.log.info(f"Snapshotting Postgres team data for {team_id}")
     snapshot_map: dict[str, type[BaseSnapshot]] = {
-        "project": TeamSnapshot,
+        "team": TeamSnapshot,
         "property_definitions": PropertyDefinitionSnapshot,
         "group_type_mappings": GroupTypeMappingSnapshot,
         "data_warehouse_tables": DataWarehouseTableSnapshot,
     }
     deps = {
-        file_name: snapshot_postgres_model(context, model_type, file_name, s3, project_id, context.op_def.version)
+        file_name: snapshot_postgres_model(context, model_type, file_name, s3, team_id, context.op_def.version)
         for file_name, model_type in snapshot_map.items()
     }
     context.log_event(
         dagster.AssetMaterialization(
-            asset_key="project_postgres_snapshot",
-            description="Avro snapshots of project Postgres data",
-            metadata={"project_id": project_id, **deps},
+            asset_key="team_postgres_snapshot",
+            description="Avro snapshots of team Postgres data",
+            metadata={"team_id": team_id, **deps},
             tags={"owner": JobOwners.TEAM_MAX_AI.value},
         )
     )
-    return PostgresProjectDataSnapshot(**deps)
+    return PostgresTeamDataSnapshot(**deps)
 
 
 C = TypeVar("C")
@@ -261,7 +261,7 @@ def snapshot_actors_property_taxonomy(
 
 
 @dagster.op(
-    description="Snapshots ClickHouse project data",
+    description="Snapshots ClickHouse team data",
     retry_policy=DEFAULT_RETRY_POLICY,
     tags={
         "owner": JobOwners.TEAM_MAX_AI.value,
@@ -269,17 +269,17 @@ def snapshot_actors_property_taxonomy(
     },
     code_version="v1",
 )
-def snapshot_clickhouse_project_data(
-    context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
-) -> ClickhouseProjectDataSnapshot:
-    team = Team.objects.get(id=project_id)
+def snapshot_clickhouse_team_data(
+    context: dagster.OpExecutionContext, team_id: int, s3: S3Resource
+) -> ClickhouseTeamDataSnapshot:
+    team = Team.objects.get(id=team_id)
 
     event_taxonomy_file_key, properties_taxonomy_file_key = snapshot_events_taxonomy(
         context, s3, team, context.op_def.version
     )
     actors_property_taxonomy_file_key = snapshot_actors_property_taxonomy(context, s3, team, context.op_def.version)
 
-    materialized_result = ClickhouseProjectDataSnapshot(
+    materialized_result = ClickhouseTeamDataSnapshot(
         event_taxonomy=event_taxonomy_file_key,
         properties_taxonomy=properties_taxonomy_file_key,
         actors_property_taxonomy=actors_property_taxonomy_file_key,
@@ -287,10 +287,10 @@ def snapshot_clickhouse_project_data(
 
     context.log_event(
         dagster.AssetMaterialization(
-            asset_key="project_clickhouse_snapshot",
-            description="Avro snapshots of project's ClickHouse queries",
+            asset_key="team_clickhouse_snapshot",
+            description="Avro snapshots of team's ClickHouse queries",
             metadata={
-                "project_id": project_id,
+                "team_id": team_id,
                 **materialized_result.model_dump(),
             },
             tags={"owner": JobOwners.TEAM_MAX_AI.value},

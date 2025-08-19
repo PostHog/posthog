@@ -12,7 +12,7 @@ from dags.max_ai.snapshot_project_data import (
     snapshot_postgres_project_data,
     snapshot_properties_taxonomy,
 )
-from ee.hogai.eval.schema import PostgresProjectDataSnapshot, TeamSnapshot
+from ee.hogai.eval.schema import PostgresTeamDataSnapshot, TeamSnapshot
 from posthog.models import GroupTypeMapping, Organization, Project, Team
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
@@ -156,7 +156,7 @@ def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgre
     result = snapshot_postgres_project_data(context, project_id, mock_s3)
 
     # Verify all expected models are in the result
-    assert isinstance(result, PostgresProjectDataSnapshot)
+    assert isinstance(result, PostgresTeamDataSnapshot)
     assert result.project == "path/to/project.avro"
     assert result.property_definitions == "path/to/property_definitions.avro"
     assert result.group_type_mappings == "path/to/group_type_mappings.avro"
