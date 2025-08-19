@@ -312,7 +312,6 @@ async fn handle_common(
     Span::current().record("method", method.as_str());
     Span::current().record("path", path.as_str().trim_end_matches('/'));
 
-    // TODO(eli): add event_next compression and lib_version extraction into this flow if we don't unify entirely
     let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
     Span::current().record("version", meta.lib_version.clone());
     Span::current().record("compression", resolved_cmp);
@@ -480,7 +479,7 @@ pub async fn event(
 
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event_next: request payload processing error: {:?}", err);
+            error!("event: request payload processing error: {:?}", err);
             Err(err)
         }
 
@@ -496,7 +495,7 @@ pub async fn event(
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                error!("event_next: rejected payload: {}", err);
+                error!("event: rejected payload: {}", err);
                 return Err(err);
             }
 

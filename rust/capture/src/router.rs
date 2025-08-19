@@ -155,7 +155,6 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
-    // borrow the is_mirror_deploy flag to condintionally opt OUT of new capture processing if needed
     let batch_router = Router::new()
         .route(
             "/batch",
