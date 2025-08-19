@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 from posthog.test.base import APIBaseTest
 
 from ee.hogai.session_summaries.session_group.patterns import (
@@ -108,7 +109,6 @@ class TestNotebookCreation(APIBaseTest):
         assert f"Session Summaries Report - {self.team.name}" in notebook.title
 
         # Check content structure
-        content: dict[str, Any] = notebook.content
         assert content["type"] == "doc"
         assert len(content["content"]) > 2  # Should have more content with summary data
 
@@ -776,8 +776,6 @@ class TestTaskListUtilities(APIBaseTest):
 
 class TestNotebookIntermediateState(APIBaseTest):
     def test_initialization(self) -> None:
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="Test Team")
 
         assert state.team_name == "Test Team"
@@ -792,8 +790,6 @@ class TestNotebookIntermediateState(APIBaseTest):
 
     def test_race_condition_late_arriving_updates(self) -> None:
         """Test that late-arriving updates for previous steps are handled correctly."""
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Simulate UI moving to FINDING_PATTERNS step
@@ -828,8 +824,6 @@ class TestNotebookIntermediateState(APIBaseTest):
 
     def test_update_step_progress_same_step(self) -> None:
         """Test updating content for the current step."""
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="Test Team")
 
         test_content: dict[str, Any] = {
@@ -843,8 +837,6 @@ class TestNotebookIntermediateState(APIBaseTest):
 
     def test_step_transition(self) -> None:
         """Test that transitioning to a new step marks the previous step as completed."""
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Add content for the first step
@@ -878,8 +870,6 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert completed["Watch sessions"] == content1
 
     def test_complete_multiple_steps(self) -> None:
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Complete first step
@@ -930,8 +920,6 @@ class TestNotebookIntermediateState(APIBaseTest):
             assert text.startswith("[ ]")
 
     def test_format_state_with_current_progress(self) -> None:
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Add progress to current step
@@ -966,8 +954,6 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert found_progress, "Progress content not found in formatted output"
 
     def test_format_state_with_completed_steps(self) -> None:
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Complete first step
@@ -1005,8 +991,6 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert "Analyzing behaviors" in content_str
 
     def test_e2e_workflow(self) -> None:
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         state = NotebookIntermediateState(team_name="PostHog")
 
         # Initial state - just the plan
