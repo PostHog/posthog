@@ -25,7 +25,7 @@ class Migration(SchemaMigration):
         result_customizations = insight_filter.get("resultCustomizations") or {}
         result_customization_by = insight_filter.get("resultCustomizationBy")
 
-        #remove hiddenLegendIndexes if it's null/empty
+        # remove hiddenLegendIndexes if it's null/empty
         if not hidden_indexes:
             new_insight_filter = dict(insight_filter)
             new_insight_filter.pop("hiddenLegendIndexes", None)
