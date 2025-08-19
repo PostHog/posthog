@@ -10,7 +10,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -158,7 +158,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -509,7 +509,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -860,7 +860,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -1114,7 +1114,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -1368,7 +1368,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -1643,11 +1643,11 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
-            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-12-01 00:00:00']), 6, 'UTC')) AS period_start,
+            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-06-01 00:00:00']), 6, 'UTC')) AS period_start,
             countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(revenue_analytics_subscription.started_at), period_start), 0), or(isNull(revenue_analytics_subscription.ended_at), ifNull(greaterOrEquals(toStartOfMonth(revenue_analytics_subscription.ended_at), period_start), 0)))) AS subscription_count,
             countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(revenue_analytics_subscription.started_at), date_add(period_start, toIntervalMonth(-1))), 0), or(isNull(revenue_analytics_subscription.ended_at), ifNull(greaterOrEquals(toStartOfMonth(revenue_analytics_subscription.ended_at), date_add(period_start, toIntervalMonth(-1))), 0)))) AS prev_subscription_count,
             countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(revenue_analytics_subscription.started_at), period_start), isNull(toStartOfMonth(revenue_analytics_subscription.started_at))
@@ -1897,7 +1897,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -2248,7 +2248,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -2599,7 +2599,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -2876,7 +2876,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
@@ -3152,7 +3152,7 @@
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
-         multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
