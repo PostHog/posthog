@@ -112,7 +112,6 @@ class NotebookIntermediateState:
         # Store content for each step - allows late-arriving updates to be handled correctly
         self.steps_content: dict[SessionSummaryStep, TipTapNode] = {}
         self.current_step: SessionSummaryStep | None = SessionSummaryStep.WATCHING_SESSIONS
-        self.previous_step: SessionSummaryStep | None = None
 
     @property
     def current_step_content(self) -> TipTapNode | None:
@@ -167,8 +166,7 @@ class NotebookIntermediateState:
             step_name, _ = self.plan_items[self.current_step]
             self.plan_items[self.current_step] = (step_name, True)
 
-        # Update step tracking
-        self.previous_step = self.current_step
+        # Update current step
         self.current_step = new_step
 
     def format_intermediate_state(self) -> TipTapNode:
