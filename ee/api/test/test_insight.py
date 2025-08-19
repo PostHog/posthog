@@ -39,30 +39,35 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @freeze_time("2012-01-14T03:21:34.000Z")
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_add_and_remove_tags(self) -> None:
-        insight_id, response_data = self.dashboard_api.create_insight(
-            {
-                "name": "a created dashboard",
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-            }
-        )
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            insight_id, response_data = self.dashboard_api.create_insight(
+                {
+                    "name": "a created dashboard",
+                    "filters": {
+                        "events": [{"id": "$pageview"}],
+                        "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                        "date_from": "-90d",
+                    },
+                }
+            )
         insight_short_id = response_data["short_id"]
         self.assertEqual(response_data["tags"], [])
 
-        add_tags_response = self.client.patch(
-            # tags are displayed in order of insertion
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"tags": ["2", "1", "3"]},
-        )
+        with freeze_time("2012-01-14T03:21:35.000Z"):
+            add_tags_response = self.client.patch(
+                # tags are displayed in order of insertion
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"tags": ["2", "1", "3"]},
+            )
 
         self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
 
-        remove_tags_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]})
+        with freeze_time("2012-01-14T03:21:36.000Z"):
+            remove_tags_response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]}
+            )
 
         self.assertEqual(remove_tags_response.json()["tags"], ["3"])
 
@@ -70,62 +75,62 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             insight_id=insight_id,
             expected=[
                 {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "created",
-                    "scope": "Insight",
+                    "activity": "updated",
+                    "created_at": "2012-01-14T03:21:36Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": ["3"],
+                                "before": ["1", "2", "3"],
+                                "field": "tags",
+                                "type": "Insight",
+                            }
+                        ],
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                        "trigger": None,
+                        "type": None,
+                    },
                     "item_id": str(insight_id),
+                    "scope": "Insight",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+                {
+                    "activity": "updated",
+                    "created_at": "2012-01-14T03:21:35Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": ["1", "2", "3"],
+                                "before": [],
+                                "field": "tags",
+                                "type": "Insight",
+                            }
+                        ],
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(insight_id),
+                    "scope": "Insight",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+                {
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
                     "detail": {
                         "changes": None,
-                        "trigger": None,
-                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
+                        "trigger": None,
+                        "type": None,
                     },
-                    "created_at": "2012-01-14T03:21:34Z",
-                },
-                {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "updated",
-                    "scope": "Insight",
                     "item_id": str(insight_id),
-                    "detail": {
-                        "changes": [
-                            {
-                                "type": "Insight",
-                                "action": "changed",
-                                "field": "tags",
-                                "before": [],
-                                "after": ["1", "2", "3"],
-                            }
-                        ],
-                        "trigger": None,
-                        "type": None,
-                        "name": "a created dashboard",
-                        "short_id": insight_short_id,
-                    },
-                    "created_at": "2012-01-14T03:21:34Z",
-                },
-                {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "updated",
                     "scope": "Insight",
-                    "item_id": str(insight_id),
-                    "detail": {
-                        "changes": [
-                            {
-                                "type": "Insight",
-                                "action": "changed",
-                                "field": "tags",
-                                "before": ["1", "2", "3"],
-                                "after": ["3"],
-                            }
-                        ],
-                        "trigger": None,
-                        "type": None,
-                        "name": "a created dashboard",
-                        "short_id": insight_short_id,
-                    },
-                    "created_at": "2012-01-14T03:21:34Z",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
                 },
             ],
         )

@@ -36,6 +36,7 @@ from posthog.schema import (
 from posthog.schema import RetentionQuery, RetentionType, Breakdown
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7
@@ -68,7 +69,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
         self.start_event = self.query.retentionFilter.targetEntity or DEFAULT_ENTITY
         self.return_event = self.query.retentionFilter.returningEntity or DEFAULT_ENTITY
 
-        self.convert_single_breakdown_to_multiple_breakdowns()
+        if self.query.breakdownFilter:
+            self.convert_single_breakdown_to_multiple_breakdowns()
+            # Clean up old fields
+            self.query.breakdownFilter.breakdown = None
+            self.query.breakdownFilter.breakdown_type = None
 
     @property
     def group_type_index(self) -> int | None:
@@ -76,15 +81,37 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
 
     def convert_single_breakdown_to_multiple_breakdowns(self):
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown:
-            self.query.breakdownFilter.breakdowns = [
-                Breakdown(
-                    type=self.query.breakdownFilter.breakdown_type,
-                    property=self.query.breakdownFilter.breakdown,
-                    group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
-                    histogram_bin_count=self.query.breakdownFilter.breakdown_histogram_bin_count,
-                    normalize_url=self.query.breakdownFilter.breakdown_normalize_url,
-                )
-            ]
+            if self.query.breakdownFilter.breakdown_type == "cohort":
+                # Ensure breakdown is always a list for cohorts
+                breakdown_values = self.query.breakdownFilter.breakdown
+                if not isinstance(breakdown_values, list):
+                    breakdown_values = [breakdown_values]
+
+                # Convert "all" to ALL_USERS_COHORT_ID (0) for frontend compatibility
+                normalized_breakdown_values = []
+                for cohort_id in breakdown_values:
+                    if cohort_id == "all":
+                        normalized_breakdown_values.append(ALL_USERS_COHORT_ID)
+                    else:
+                        normalized_breakdown_values.append(int(cohort_id))
+
+                self.query.breakdownFilter.breakdowns = [
+                    Breakdown(
+                        type="cohort",
+                        property=cohort_id,
+                    )
+                    for cohort_id in normalized_breakdown_values
+                ]
+            else:
+                self.query.breakdownFilter.breakdowns = [
+                    Breakdown(
+                        type=self.query.breakdownFilter.breakdown_type,
+                        property=self.query.breakdownFilter.breakdown,
+                        group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
+                        histogram_bin_count=self.query.breakdownFilter.breakdown_histogram_bin_count,
+                        normalize_url=self.query.breakdownFilter.breakdown_normalize_url,
+                    )
+                ]
 
     @cached_property
     def breakdowns_in_query(self) -> bool:
@@ -193,6 +220,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
     def breakdown_extract_expr(
         self, property_name: str, breakdown_type: str, group_type_index: int | None = None
     ) -> ast.Expr:
+        if breakdown_type == "cohort":
+            # For cohort breakdowns, filtering is handled in the WHERE clause
+            # so we just return the cohort ID as a constant
+            return ast.Constant(value=str(property_name))
+
         if breakdown_type == "person":
             if property_name.startswith("$virt_"):
                 # Virtual properties exist as expression fields on the persons table
@@ -231,6 +263,23 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
         start_entity_expr = entity_to_expr(self.start_event, self.team)
         return_entity_expr = entity_to_expr(self.return_event, self.team)
         global_event_filters = self.events_where_clause(event_query_type)
+
+        if (
+            self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdowns
+            and len(self.query.breakdownFilter.breakdowns) == 1
+            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
+        ):
+            cohort_id = self.query.breakdownFilter.breakdowns[0].property
+            # Don't add cohort filter for "all users" (cohort_id = 0)
+            if int(cohort_id) != ALL_USERS_COHORT_ID:
+                global_event_filters.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.InCohort,
+                        left=ast.Field(chain=["person_id"]),
+                        right=ast.Constant(value=int(cohort_id)),
+                    )
+                )
 
         # Pre-filter events to only those we care about
         is_relevant_event = ast.Or(exprs=[start_entity_expr, return_entity_expr])
@@ -455,7 +504,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
                 # supporting only single breakdowns for now
                 breakdown = self.query.breakdownFilter.breakdowns[0]
                 breakdown_expr = self.breakdown_extract_expr(
-                    breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
+                    str(breakdown.property), cast(str, breakdown.type), breakdown.group_type_index
                 )
             elif self.query.breakdownFilter.breakdown is not None:
                 breakdown_expr = self.breakdown_extract_expr(
@@ -472,19 +521,40 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
-            if self.query.retentionFilter.cumulative:
-                actor_query = parse_select(
-                    """
-                    SELECT
-                        actor_id,
-                        arrayJoin(range(0, intervals_from_base + 1)) as intervals_from_base,
-                        start_interval_index
-                    FROM {actor_query}
-                    """,
-                    {"actor_query": self.actor_query(cumulative=True)},
-                )
+            actor_query: ast.SelectQuery | ast.SelectSetQuery
+
+            # is cohort breakdown
+            if (
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdowns is not None
+                and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
+            ):
+                actor_queries = []
+                cohort_breakdowns = [b for b in self.query.breakdownFilter.breakdowns if b.type == "cohort"]
+
+                for breakdown in cohort_breakdowns:
+                    temp_query = self.query.model_copy(deep=True)
+                    if temp_query.breakdownFilter:
+                        temp_query.breakdownFilter.breakdowns = [breakdown]
+                        temp_query.breakdownFilter.breakdown = str(breakdown.property)
+                        temp_query.breakdownFilter.breakdown_type = breakdown.type  # type: ignore
+
+                    temp_runner = RetentionQueryRunner(
+                        query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
+                    )
+                    actor_queries.append(temp_runner.actor_query(cumulative=False))
+
+                if len(actor_queries) == 1:
+                    actor_query = actor_queries[0]
+                else:
+                    actor_query = ast.SelectSetQuery.create_from_queries(actor_queries, "UNION ALL")
             else:
-                actor_query = self.actor_query()
+                actor_query = self.actor_query(cumulative=False)
+
+            if self.query.retentionFilter.cumulative:
+                # For cumulative, we need to calculate the max interval and then explode it
+                cumulative_actors_query = self._build_cumulative_actors_query(actor_query)
+                actor_query = self._explode_cumulative_actors(cumulative_actors_query)
 
             # Add breakdown if needed
             if self.breakdowns_in_query:
@@ -534,6 +604,64 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
                     timings=self.timings,
                 )
         return retention_query
+
+    def _build_cumulative_actors_query(
+        self, actor_query_base: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        # We need to calculate the max interval from the base query
+        # Note: we can't use actor_query(cumulative=True) anymore because it doesn't work with UNION ALL
+        if self.breakdowns_in_query:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    max(intervals_from_base) as max_interval,
+                    start_interval_index,
+                    any(breakdown_value) as breakdown_value
+                FROM {actor_query}
+                GROUP BY actor_id, start_interval_index, breakdown_value
+                """,
+                {"actor_query": actor_query_base},
+            )
+        else:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    max(intervals_from_base) as max_interval,
+                    start_interval_index
+                FROM {actor_query}
+                GROUP BY actor_id, start_interval_index
+                """,
+                {"actor_query": actor_query_base},
+            )
+
+    def _explode_cumulative_actors(
+        self, cumulative_actors_query: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        if self.breakdowns_in_query:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    arrayJoin(range(0, max_interval + 1)) as intervals_from_base,
+                    start_interval_index,
+                    breakdown_value
+                FROM {cumulative_actors_query}
+                """,
+                {"cumulative_actors_query": cumulative_actors_query},
+            )
+        else:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    arrayJoin(range(0, max_interval + 1)) as intervals_from_base,
+                    start_interval_index
+                FROM {cumulative_actors_query}
+                """,
+                {"cumulative_actors_query": cumulative_actors_query},
+            )
 
     def get_date(self, interval: int):
         date = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(

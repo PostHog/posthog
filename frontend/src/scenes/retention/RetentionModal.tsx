@@ -28,9 +28,14 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedInterval, exploreUrl, insightEventsQueryUrl, actorsQuery } = useValues(
-        retentionModalLogic(insightProps)
-    )
+    const {
+        aggregationTargetLabel,
+        selectedInterval,
+        selectedBreakdownValue,
+        exploreUrl,
+        insightEventsQueryUrl,
+        actorsQuery,
+    } = useValues(retentionModalLogic(insightProps))
     const { theme } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
     const { startExport } = useActions(exportsLogic)
@@ -47,7 +52,19 @@ export function RetentionModal(): JSX.Element | null {
         return null
     }
 
-    const row = results[selectedInterval]
+    // Find the correct row based on both selectedInterval and selectedBreakdownValue
+    const row =
+        selectedBreakdownValue !== null
+            ? (() => {
+                  // Get the target date from the selected interval in the non-breakdown results
+                  const targetLabel = results[selectedInterval]?.label
+                  // Find the row with matching breakdown value and date label
+                  return (
+                      results.find((r) => r.breakdown_value === selectedBreakdownValue && r.label === targetLabel) ||
+                      results[selectedInterval]
+                  )
+              })()
+            : results[selectedInterval]
     const rowLength = row.values.length
     const isEmpty = row.values[0]?.count === 0
 
@@ -211,7 +228,7 @@ export function RetentionModal(): JSX.Element | null {
                             <div className="m-4 flex justify-center">
                                 <LemonButton
                                     type="primary"
-                                    onClick={() => loadMorePeople(selectedInterval)}
+                                    onClick={() => loadMorePeople(selectedInterval, selectedBreakdownValue)}
                                     loading={peopleLoadingMore}
                                 >
                                     Load more {aggregationTargetLabel.plural}
