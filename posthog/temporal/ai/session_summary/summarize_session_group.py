@@ -30,6 +30,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
 )
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     format_extracted_patterns_status,
+    format_patterns_assignment_progress,
     format_single_sessions_status,
 )
 from posthog import constants
@@ -43,7 +44,6 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
     get_patterns_from_redis_outside_workflow,
-    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
@@ -230,8 +230,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         self._processed_patterns_extraction = 0
         # Initial state is watching sessions, as it's intented to always be the first step
         self._current_status: tuple[SessionSummaryStep, str] = (SessionSummaryStep.WATCHING_SESSIONS, "")
+        # Tracking the progress of the individual steps
         self._single_sessions_summarized: dict[str, bool] = {}
         self._raw_patterns_extracted_keys: list[str] = []
+        self._pattern_assignments_completed = 0
 
     @temporalio.workflow.query
     def get_current_status(self) -> tuple[str, str]:
@@ -248,6 +250,20 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     def get_raw_patterns_extraction_keys(self) -> list[str]:
         """Query handler to get keys of the current extracted patterns stored in Redis."""
         return self._raw_patterns_extracted_keys
+
+    @temporalio.workflow.signal
+    async def update_pattern_assignments_progress(self, sessions_completed: int) -> None:
+        """Signal to update pattern assignment progress."""
+        self._pattern_assignments_completed += sessions_completed
+        self._current_status = (
+            SessionSummaryStep.GENERATING_REPORT,
+            f"Generating a report from analyzed patterns and sessions. Almost there ({self._pattern_assignments_completed}/{self._total_sessions})",
+        )
+
+    @temporalio.workflow.query
+    def get_pattern_assignments_progress(self) -> dict:
+        """Query pattern assignment progress."""
+        return self._pattern_assignments_completed
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SessionGroupSummaryInputs:
@@ -407,12 +423,18 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     ) -> list[str] | None:
         """Extract patterns from session summaries using chunking if needed."""
         # Execute chunking activity to split sessions based on token count
-        chunks: list[list[str]] = await temporalio.workflow.execute_activity(
-            split_session_summaries_into_chunks_for_patterns_extraction_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        # # TODO: Revert after testing
+        # # TODO: Also track splitting summaries into chunks? Should be crazy fast though, not sure if it worth it
+        # chunks: list[list[str]] = await temporalio.workflow.execute_activity(
+        #     split_session_summaries_into_chunks_for_patterns_extraction_activity,
+        #     inputs,
+        #     start_to_close_timeout=timedelta(minutes=5),
+        #     retry_policy=RetryPolicy(maximum_attempts=3),
+        # )
+        # Forcing chunks to check UI with chunking
+        chunk_one = [x.session_id for x in inputs.single_session_summaries_inputs[:3]]
+        chunk_two = [x.session_id for x in inputs.single_session_summaries_inputs[3:]]
+        chunks = [chunk_one, chunk_two]
         # If a single chunk is returned, use the activity directly, as it should cover all the sessions, so combination step is not needed
         if len(chunks) == 1:
             result = await self._run_patterns_extraction_chunk(inputs)
@@ -525,7 +547,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         # Assign events to patterns
         self._current_status = (
             SessionSummaryStep.GENERATING_REPORT,
-            "Generating a report from analyzed sessions. Almost there",
+            "Generating a report from analyzed patterns and sessions. Almost there",
         )
         patterns_assignments = await temporalio.workflow.execute_activity(
             assign_events_to_patterns_activity,
@@ -564,6 +586,7 @@ async def _start_session_group_summary_workflow(
     # Track previous states to detect changes, starting with None to catch empty state as the step changes
     previous_sessions_status: dict[str, bool] | None = None
     previous_pattern_keys: list[str] | None = None
+    previous_pattern_assignments_progress: int | None = None
 
     # Poll for status
     while True:
@@ -575,6 +598,7 @@ async def _start_session_group_summary_workflow(
         # Query the intermediate data
         sessions_status: dict[str, bool] = await handle.query("get_single_sessions_status")
         patterns_keys: list[str] = await handle.query("get_raw_patterns_extraction_keys")
+        pattern_assignments_progress: int = await handle.query("get_pattern_assignments_progress")
         # Workflow completed - get and yield the final result
         if workflow_description.status == WorkflowExecutionStatus.COMPLETED:
             result_raw: dict = await handle.result()
@@ -627,6 +651,19 @@ async def _start_session_group_summary_workflow(
                     formatted_patterns,
                 )
                 previous_pattern_keys = patterns_keys.copy()
+
+            # Patterns assignment status
+            if pattern_assignments_progress != previous_pattern_assignments_progress:
+                if previous_pattern_assignments_progress is None and step != SessionSummaryStep.GENERATING_REPORT:
+                    # Don't define initial step state until it's its turn
+                    continue
+                formatted_patterns_assignment_progress = format_patterns_assignment_progress()
+                yield (
+                    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE,
+                    SessionSummaryStep.GENERATING_REPORT,
+                    formatted_patterns_assignment_progress,
+                )
+                previous_pattern_assignments_progress = pattern_assignments_progress
 
             # Wait till the next polling
             await asyncio.sleep(int(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000))

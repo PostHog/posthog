@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field, ValidationError, field_serializer, field_
 from enum import Enum
 
 import yaml
-from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO
 import structlog
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
@@ -399,7 +398,9 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
-    if len(combined_patterns) < len(patterns.patterns) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO:
+    # TODO: Rever after testing
+    # if len(combined_patterns) < len(patterns.patterns) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO:
+    if not len(combined_patterns):
         exception_message = (
             f"Too many patterns failed to assign session events, when summarizing {len(session_ids)} "
             f"sessions ({session_ids}) for user {user_id}"

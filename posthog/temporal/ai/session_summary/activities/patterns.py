@@ -12,6 +12,7 @@ from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_SYNC_MODEL,
     SINGLE_ENTITY_MAX_TOKENS,
 )
+from temporalio.client import WorkflowHandle
 from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_combination,
@@ -54,6 +55,8 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryPatternsExtractionChunksInputs,
 )
 from temporalio.exceptions import ApplicationError
+
+from posthog.temporal.common.client import async_connect
 
 logger = structlog.get_logger(__name__)
 
@@ -284,6 +287,7 @@ async def _generate_patterns_assignments_per_chunk(
     user_id: int,
     session_ids: list[str],
     model_to_use: str,
+    workflow_handle: WorkflowHandle,
     extra_summary_context: ExtraSummaryContext | None,
     trace_id: str | None = None,
 ) -> RawSessionGroupPatternAssignmentsList | Exception:
@@ -294,13 +298,16 @@ async def _generate_patterns_assignments_per_chunk(
             session_summaries_str=session_summaries_chunk_str,
             extra_summary_context=extra_summary_context,
         )
-        return await get_llm_session_group_patterns_assignment(
+        result = await get_llm_session_group_patterns_assignment(
             prompt=patterns_assignment_prompt,
             user_id=user_id,
             session_ids=session_ids,
             model_to_use=model_to_use,
             trace_id=trace_id,
         )
+        # Send progress signal to workflow
+        await workflow_handle.signal("update_pattern_assignments_progress", len(session_summaries_chunk_str))
+        return result
     except Exception as err:  # Activity retries exhausted
         # Let caller handle the error
         return err
@@ -318,6 +325,14 @@ async def _generate_patterns_assignments(
     """Run pattern assignments concurrently for multiple chunks."""
     patterns_assignments_list_of_lists = []
     tasks = {}
+    # Get workflow handle to send progress signals
+    # TODO: Replace later by splitting `_generate_patterns_assignments` into separate activity
+    temporal_client = await async_connect()
+    info = temporalio.activity.info()
+    workflow_handle = temporal_client.get_workflow_handle(info.workflow_id, run_id=info.workflow_run_id)
+    # Send initial progress
+    await workflow_handle.signal("update_pattern_assignments_progress", 0)
+    # Assign events to patterns in chunks
     async with asyncio.TaskGroup() as tg:
         for chunk_index, summaries_chunk in enumerate(session_summaries_chunks_str):
             tasks[chunk_index] = tg.create_task(
@@ -327,12 +342,14 @@ async def _generate_patterns_assignments(
                     user_id=user_id,
                     session_ids=session_ids,
                     model_to_use=model_to_use,
+                    workflow_handle=workflow_handle,
                     extra_summary_context=extra_summary_context,
                     trace_id=trace_id,
                 )
             )
+    # Process results and send progress updates
     for _, task in tasks.items():
-        res = task.result()
+        res: RawSessionGroupPatternAssignmentsList | Exception = task.result()
         if isinstance(res, Exception):
             logger.warning(
                 f"Patterns assignments generation failed for chunk from sessions ({session_ids}) for user {user_id}: {res}"

@@ -79,6 +79,13 @@ def format_extracted_patterns_status(patterns: list[RawSessionGroupSummaryPatter
     return {"type": "doc", "content": content}
 
 
+def format_patterns_assignment_progress() -> TipTapNode:
+    """Format patterns assignment progress as a TipTap document with details"""
+    # TODO: Replace later when we move pattern assignment chunks into separate activities
+    content = [create_paragraph_with_text(f"Generating a report from analyzed patterns and sessions...")]
+    return {"type": "doc", "content": content}
+
+
 class NotebookIntermediateState:
     """Manages the intermediate state of a notebook during session group summarization."""
 
