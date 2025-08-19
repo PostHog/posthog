@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react'
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 
+import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -19,7 +20,8 @@ export type CommentProps = {
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { editingComment, commentsLoading, replyingCommentId } = useValues(commentsLogic)
-    const { deleteComment, setEditingComment, persistEditedComment, setReplyingComment } = useActions(commentsLogic)
+    const { deleteComment, setEditingComment, persistEditedComment, setReplyingComment, sendEmojiReaction } =
+        useActions(commentsLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -75,7 +77,18 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
-                    {comment.version ? <span className="text-xs text-secondary italic">(edited)</span> : null}
+                    <div className="flex flex-row items-center justify-between">
+                        <span className="text-xs text-secondary italic">
+                            {comment.version ? <span>(edited)</span> : null}
+                        </span>
+                        <div data-attr="comment-reactions">
+                            <EmojiPickerPopover
+                                onSelect={(emoji: string): void => {
+                                    sendEmojiReaction(emoji, comment.id)
+                                }}
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
 

@@ -43,6 +43,7 @@ export const commentsLogic = kea<commentsLogicType>([
         maybeLoadComments: true,
         setComposedComment: (content: string) => ({ content }),
         sendComposedContent: true,
+        sendEmojiReaction: (emoji: string, sourceCommentId: string) => ({ emoji, sourceCommentId }),
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
@@ -155,6 +156,23 @@ export const commentsLogic = kea<commentsLogicType>([
                     })
 
                     return values.comments?.filter((c) => c.id !== comment.id) ?? null
+                },
+
+                sendEmojiReaction: async ({ emoji, sourceCommentId }) => {
+                    const existingComments = values.comments ?? []
+
+                    const newComment = await api.comments.create({
+                        content: emoji,
+                        scope: props.scope,
+                        item_id: props.item_id,
+                        source_comment: sourceCommentId,
+                        item_context: {
+                            is_emoji: true,
+                        },
+                    })
+
+                    actions.incrementCommentCount()
+                    return [...existingComments, newComment]
                 },
             },
         ],
