@@ -1,8 +1,10 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
 import { DateTime } from 'luxon'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { Hub, InternalPerson, Team } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
