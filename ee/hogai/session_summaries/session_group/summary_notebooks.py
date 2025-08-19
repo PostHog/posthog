@@ -28,34 +28,21 @@ logger = get_logger(__name__)
 
 
 def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNode:
-    """Format sessions status dictionary as a TipTap bullet list with a header"""
+    """Format sessions status dictionary as a TipTap bullet list"""
     items = []
     for session_id, is_completed in sessions_status.items():
         emoji = "✅" if is_completed else "❌"
         items.append(f"{session_id} {emoji}")
 
     bullet_list = create_bullet_list(items)
-    # Add a proper header
-    content = [
-        {
-            "type": "heading",
-            "attrs": {"level": 2},
-            "content": [{"type": "text", "text": "Session Processing Status"}],
-        },
-        bullet_list,
-    ]
-    # Wrap content in a doc node
-    json_content = {"type": "doc", "content": content}
-    return json_content
+    # Return just the bullet list without wrapping in doc
+    return bullet_list
 
 
 def format_extracted_patterns_status(patterns: list[RawSessionGroupSummaryPattern]) -> TipTapNode:
-    """Format extracted patterns as a TipTap document with header and details"""
+    """Format extracted patterns as a TipTap document with details"""
     content = []
-    # Add header
-    content.append(
-        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Extracted Patterns"}]}
-    )
+
     if not patterns:
         # Show a message when no patterns are extracted yet
         content.append(create_paragraph_with_text("No patterns extracted yet..."))
@@ -177,10 +164,16 @@ class NotebookIntermediateState:
         # Extract just the name and completion status for the task list
         task_list_items = [(name, completed) for name, completed in self.plan_items.values()]
         content.append(create_task_list(task_list_items))
+        content.append(create_empty_paragraph())
+        content.append(_create_line_separator())
 
         # Add current step content if exists
-        if self.current_step_content:
+        if self.current_step_content and self.current_step:
             content.append(create_empty_paragraph())
+            # Add header for current step (In progress)
+            if self.current_step in self.plan_items:
+                step_name, _ = self.plan_items[self.current_step]
+                content.append(create_heading_with_text(f"Step: {step_name} (In progress)", 2))
             # Extract content from the doc node if it's wrapped
             # TODO: Do I need the check of I can guarantee `doc` every time?
             if isinstance(self.current_step_content, dict) and self.current_step_content.get("type") == "doc":
@@ -191,7 +184,6 @@ class NotebookIntermediateState:
         # Add completed steps in reverse order (most recent first)
         for step_name, step_content in reversed(list(self.completed_steps.items())):
             content.append(create_empty_paragraph())
-            content.append(_create_line_separator())
             content.append(create_heading_with_text(f"Step: {step_name} (Completed)", 2))
             # Extract content from the doc node if it's wrapped
             # TODO: Do I need the check of I can guarantee `doc` every time?

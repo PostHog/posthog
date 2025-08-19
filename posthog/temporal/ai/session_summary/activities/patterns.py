@@ -376,7 +376,7 @@ async def assign_events_to_patterns_activity(
     if patterns_with_events_context:
         # TODO: Remove after testing
         # Add random sleep to test UI progress updates
-        await asyncio.sleep(random.randint(5, 10))
+        await asyncio.sleep(random.randint(500, 1000))
         return patterns_with_events_context
     # Get session summaries from Redis
     session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
