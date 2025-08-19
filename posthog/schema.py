@@ -1721,7 +1721,7 @@ class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    timestamp: Optional[str] = None
+    timestamp: str
     uuid: str
 
 
