@@ -769,7 +769,7 @@ exports[`replay/transform transform can convert status bar 1`] = `
                             "childNodes": [
                               {
                                 "id": 101,
-                                "textContent": "12:00 AM",
+                                "textContent": "00:00",
                                 "type": 3,
                               },
                             ],
