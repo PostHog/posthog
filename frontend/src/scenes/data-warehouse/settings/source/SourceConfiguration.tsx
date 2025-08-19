@@ -47,11 +47,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         // It's also the reason why it can't live in the kea logic - the selector will update on object reference changes
     }, [
         JSON.stringify(source?.job_inputs ?? {}),
-        JSON.stringify(sourceFieldConfig),
-        source.source_type,
-        source.job_inputs,
-        source,
-        sourceFieldConfig,
+        JSON.stringify(sourceFieldConfig)
     ])
 
     if (!sourceFieldConfig || !source) {
