@@ -1,4 +1,5 @@
 import { IconRocket } from '@posthog/icons'
+
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'

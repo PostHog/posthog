@@ -49,7 +49,11 @@ class TeamSnapshot(BaseSnapshot[Team]):
     @classmethod
     def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs) -> Generator[Team, None, None]:
         for model in models:
-            yield Team(id=project_id, name=model.name, test_account_filters=json.loads(model.test_account_filters))
+            yield Team(
+                id=project_id,
+                name=model.name,
+                test_account_filters=json.loads(model.test_account_filters),
+            )
 
 
 # posthog/models/property_definition.py

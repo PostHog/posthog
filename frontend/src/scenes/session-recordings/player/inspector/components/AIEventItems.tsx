@@ -2,6 +2,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+
 import { ConversationMessagesDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationMessagesDisplay'
 import { LLMInputOutput } from 'products/llm_observability/frontend/LLMInputOutput'
 import { normalizeMessages } from 'products/llm_observability/frontend/utils'

@@ -1,12 +1,12 @@
-import { ClickHouseClient, createClient as createClickhouseClient, ExecResult } from '@clickhouse/client'
+import { ClickHouseClient, ExecResult, createClient as createClickhouseClient } from '@clickhouse/client'
 import { performance } from 'perf_hooks'
 import { Readable } from 'stream'
 
 import {
     ClickHouseEvent,
-    ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
+    ClickhouseGroup,
     DeadLetterQueueEvent,
     InternalPerson,
     RawClickHouseEvent,

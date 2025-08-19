@@ -1,14 +1,14 @@
 import {
     Assignment,
-    ClientMetrics,
     CODES,
+    ClientMetrics,
     ConsumerGlobalConfig,
-    KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
     MessageHeader,
     Metadata,
     PartitionMetadata,
+    KafkaConsumer as RdKafkaConsumer,
     TopicPartitionOffset,
     WatermarkOffsets,
 } from 'node-rdkafka'

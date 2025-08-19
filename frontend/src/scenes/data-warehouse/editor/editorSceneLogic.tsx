@@ -1,15 +1,16 @@
-import { IconDatabase, IconDocument } from '@posthog/icons'
-import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { IconDatabase, IconDocument } from '@posthog/icons'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -74,7 +75,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     connect(() => ({
         values: [
             sceneLogic,
-            ['activeScene', 'sceneParams'],
+            ['activeSceneId', 'sceneParams'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'initialDataWarehouseSavedQueryLoading'],
             databaseTableListLogic,
@@ -344,9 +345,9 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         activeListItemKey: [
-            (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams): [string, number] | null => {
-                return activeScene === Scene.SQLEditor && sceneParams.params.id
+            (s) => [s.activeSceneId, s.sceneParams],
+            (activeSceneId, sceneParams): [string, number] | null => {
+                return activeSceneId === Scene.SQLEditor && sceneParams.params.id
                     ? ['saved-queries', parseInt(sceneParams.params.id)]
                     : null
             },

@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 
 
-class NotificationViewed(UUIDModel):
+class NotificationViewed(UUIDTModel):
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
     # when viewing notifications made by viewing the activity log we count unread notifications
     # as any after the last viewed date

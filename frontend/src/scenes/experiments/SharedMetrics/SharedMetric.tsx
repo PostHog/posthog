@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,9 +15,9 @@ import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { LegacySharedFunnelsMetricForm } from './LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from './LegacySharedTrendsMetricForm'
-import { sharedMetricLogic } from './sharedMetricLogic'
+import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SharedMetricLogicProps> = {
     component: SharedMetric,
     logic: sharedMetricLogic,
     paramsToProps: ({ params: { id, action } }) => ({

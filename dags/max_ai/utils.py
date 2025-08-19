@@ -9,6 +9,7 @@ from dagster_aws.s3 import S3Resource
 from django.conf import settings
 from fastavro import parse_schema, writer
 from pydantic_avro import AvroBase
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 EVALS_S3_PREFIX = "ai_evals"
 
@@ -53,18 +54,16 @@ def get_consistent_hash_suffix(file_name: str, date: datetime | None = None, cod
     return hash_obj.hexdigest()[:8]
 
 
-def compose_postgres_dump_path(project_id: int, file_name: str, code_version: str | None = None) -> str:
+def compose_postgres_dump_path(project_id: int, dir_name: str, code_version: str | None = None) -> str:
     """Compose S3 path for Postgres dumps with consistent hashing"""
-    hash_suffix = get_consistent_hash_suffix(file_name, code_version=code_version)
-    versioned_file_name = f"{file_name}_{hash_suffix}"
-    return f"{EVALS_S3_PREFIX}/postgres_models/{project_id}/{versioned_file_name}.avro"
+    hash_suffix = get_consistent_hash_suffix(dir_name, code_version=code_version)
+    return f"{EVALS_S3_PREFIX}/postgres_models/{project_id}/{dir_name}/{hash_suffix}.avro"
 
 
-def compose_clickhouse_dump_path(project_id: int, file_name: str, code_version: str | None = None) -> str:
+def compose_clickhouse_dump_path(project_id: int, dir_name: str, code_version: str | None = None) -> str:
     """Compose S3 path for ClickHouse dumps with consistent hashing"""
-    hash_suffix = get_consistent_hash_suffix(file_name, code_version=code_version)
-    versioned_file_name = f"{file_name}_{hash_suffix}"
-    return f"{EVALS_S3_PREFIX}/clickhouse_queries/{project_id}/{versioned_file_name}.avro"
+    hash_suffix = get_consistent_hash_suffix(dir_name, code_version=code_version)
+    return f"{EVALS_S3_PREFIX}/clickhouse_queries/{project_id}/{dir_name}/{hash_suffix}.avro"
 
 
 def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
@@ -88,5 +87,9 @@ def dump_model(*, s3: S3Resource, schema: type[AvroBase], file_key: str):
 
         yield dump
 
-        f.seek(0)
-        s3.get_client().upload_fileobj(f, EVALS_S3_BUCKET, file_key)
+        @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=4))
+        def upload():
+            f.seek(0)
+            s3.get_client().upload_fileobj(f, EVALS_S3_BUCKET, file_key)
+
+        upload()

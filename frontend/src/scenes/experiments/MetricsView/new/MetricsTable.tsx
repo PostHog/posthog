@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
+
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -7,8 +9,9 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
+
 import { experimentLogic } from '../../experimentLogic'
-import { getVariantInterval, type ExperimentVariantResult } from '../shared/utils'
+import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
 

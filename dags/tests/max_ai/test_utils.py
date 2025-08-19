@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
 from dagster_aws.s3 import S3Resource
@@ -91,11 +92,11 @@ def test_hash_format():
 def test_compose_postgres_dump_path():
     """Test that compose_postgres_dump_path generates correct S3 path with hash."""
     project_id = 123
-    file_name = "test_dump"
+    dir_name = "test_dump"
     code_version = "v1.0"
 
     with override_settings(DAGSTER_AI_EVALS_S3_BUCKET="test-bucket"):
-        result = compose_postgres_dump_path(project_id, file_name, code_version)
+        result = compose_postgres_dump_path(project_id, dir_name, code_version)
 
         # Should contain the project ID in path
         assert f"/{project_id}/" in result
@@ -107,14 +108,14 @@ def test_compose_postgres_dump_path():
         assert result.endswith(".avro")
 
         # Should contain the file name and hash suffix
-        assert file_name in result
+        assert dir_name in result
 
         # Should be deterministic - same inputs produce same output
-        result2 = compose_postgres_dump_path(project_id, file_name, code_version)
+        result2 = compose_postgres_dump_path(project_id, dir_name, code_version)
         assert result == result2
 
         # Different code version should produce different path
-        result_different_version = compose_postgres_dump_path(project_id, file_name, "v2.0")
+        result_different_version = compose_postgres_dump_path(project_id, dir_name, "v2.0")
         assert result != result_different_version
 
 
@@ -170,7 +171,10 @@ def test_dump_model_creates_avro_file(s3_resource):
     """Test that dump_model creates an Avro file with correct data in S3."""
     file_key = "test/path/data.avro"
 
-    test_models = [DummySchema(name="test1", value=1), DummySchema(name="test2", value=2)]
+    test_models = [
+        DummySchema(name="test1", value=1),
+        DummySchema(name="test2", value=2),
+    ]
 
     with dump_model(s3=s3_resource, schema=DummySchema, file_key=file_key) as dump:
         dump(test_models)
@@ -178,7 +182,7 @@ def test_dump_model_creates_avro_file(s3_resource):
     uploaded_file = s3_resource.get_client().get_object(Bucket=EVALS_S3_BUCKET, Key=file_key)["Body"]
 
     # Verify the uploaded file contains valid Avro data
-    records = list(reader(uploaded_file))
+    records = list(cast(list[dict[str, Any]], reader(uploaded_file)))
     assert len(records) == 2
     assert records[0]["name"] == "test1"
     assert records[0]["value"] == 1

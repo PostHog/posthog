@@ -4,18 +4,20 @@ This file contains a bunch of legacy E2E tests mixed with unit tests.
 Rather than add tests here, consider improving event-pipeline-integration test suite or adding
 unit tests to appropriate classes/functions.
 */
-
-// eslint-disable-next-line simple-import-sort/imports
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
+import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { DateTime } from 'luxon'
 
+import { KAFKA_GROUPS } from '~/config/kafka-topics'
 import { createRedis } from '~/utils/db/redis'
+import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -23,13 +25,9 @@ import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
-
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
-import { KAFKA_GROUPS } from '~/config/kafka-topics'
-import { parseRawClickHouseEvent } from '~/utils/event'
-import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.

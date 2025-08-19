@@ -15,11 +15,7 @@ from dags.max_ai.snapshot_project_data import (
 from ee.hogai.eval.schema import PostgresProjectDataSnapshot, TeamSnapshot
 from posthog.models import GroupTypeMapping, Organization, Project, Team
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    ActorsPropertyTaxonomyResponse,
-    EventTaxonomyItem,
-    TeamTaxonomyItem,
-)
+from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 
 
 @pytest.fixture

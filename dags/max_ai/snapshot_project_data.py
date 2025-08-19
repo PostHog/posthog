@@ -110,13 +110,21 @@ def snapshot_postgres_project_data(
 C = TypeVar("C")
 
 
-@retry(retry=retry_if_exception_type(InternalCHQueryError), stop=stop_after_attempt(4), wait=wait_exponential(min=8))
+@retry(
+    retry=retry_if_exception_type(InternalCHQueryError),
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(min=8),
+)
 def call_query_runner(callable: Callable[[], C]) -> C:
     return callable()
 
 
 def snapshot_properties_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, file_key: str, team: Team, events: list[TeamTaxonomyItem]
+    context: dagster.OpExecutionContext,
+    s3: S3Resource,
+    file_key: str,
+    team: Team,
+    events: list[TeamTaxonomyItem],
 ):
     results: list[PropertyTaxonomySnapshot] = []
 
@@ -138,7 +146,10 @@ def snapshot_properties_taxonomy(
 
 
 def snapshot_events_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, code_version: str | None = None
+    context: dagster.OpExecutionContext,
+    s3: S3Resource,
+    team: Team,
+    code_version: str | None = None,
 ):
     # Check if files are cached
     events_file_key = compose_clickhouse_dump_path(team.id, "events_taxonomy", code_version=code_version)
@@ -177,7 +188,10 @@ def chunked(iterable: Iterable[T], size: int = 200) -> Iterator[list[T]]:
 
 
 def snapshot_actors_property_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, code_version: str | None = None
+    context: dagster.OpExecutionContext,
+    s3: S3Resource,
+    team: Team,
+    code_version: str | None = None,
 ):
     file_key = compose_clickhouse_dump_path(team.id, "actors_property_taxonomy", code_version=code_version)
     if check_dump_exists(s3, file_key):

@@ -1,21 +1,17 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { sceneLogic, SceneTab } from '~/scenes/sceneLogic'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
+import React from 'react'
+
+import { IconChevronLeft, IconChevronRight, IconCopy, IconExternal, IconPencil, IconX } from '@posthog/icons'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { IconCopy, IconX, IconChevronRight, IconChevronLeft, IconExternal } from '@posthog/icons'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
+import { SceneTab } from 'scenes/sceneTypes'
+
+import { sceneLogic } from '~/scenes/sceneLogic'
 
 export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children: React.ReactElement }): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { setTabs, removeTab, cloneTab } = useActions(sceneLogic)
-
-    const duplicateTab = (): void => {
-        cloneTab(tab)
-    }
-
-    const closeThis = (): void => {
-        removeTab(tab)
-    }
+    const { setTabs, removeTab, duplicateTab, renameTab } = useActions(sceneLogic)
 
     const openInNewWindow = (): void => {
         const fullUrl = `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
@@ -43,8 +39,13 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
             <ContextMenuTrigger>{children}</ContextMenuTrigger>
             <ContextMenuContent>
                 <ContextMenuItem asChild>
-                    <ButtonPrimitive menuItem onClick={duplicateTab}>
+                    <ButtonPrimitive menuItem onClick={() => duplicateTab(tab)}>
                         <IconCopy /> Duplicate tab
+                    </ButtonPrimitive>
+                </ContextMenuItem>
+                <ContextMenuItem asChild>
+                    <ButtonPrimitive menuItem onClick={() => renameTab(tab)}>
+                        <IconPencil /> Rename tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>
@@ -53,7 +54,7 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>
-                    <ButtonPrimitive menuItem onClick={closeThis}>
+                    <ButtonPrimitive menuItem onClick={() => removeTab(tab)}>
                         <IconX /> Close tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
