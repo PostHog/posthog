@@ -440,7 +440,7 @@ async fn it_handles_malformed_json() -> Result<()> {
 #[tokio::test]
 async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    
+
     // Set up Redis and PostgreSQL clients
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
@@ -450,7 +450,7 @@ async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
     insert_new_team_in_pg(pg_client.clone(), Some(team.id))
         .await
         .unwrap();
-    
+
     let server = ServerHandle::for_config(config).await;
 
     let json_payload = json!({
@@ -468,7 +468,7 @@ async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
     // Test 2: Base64 encoded JSON with compression not specified
     let json_string = json_payload.to_string();
     let base64_payload = general_purpose::STANDARD.encode(json_string.as_bytes());
-    
+
     let res = server
         .send_flags_request(base64_payload, Some("2"), None)
         .await;
@@ -480,7 +480,7 @@ async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
         .send_flags_request(invalid_base64.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
-    
+
     let response_text = res.text().await?;
     assert!(
         response_text.contains("Failed to decode request: invalid JSON"),

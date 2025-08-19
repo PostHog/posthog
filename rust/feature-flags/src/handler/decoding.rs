@@ -29,7 +29,7 @@ pub fn decode_request(
     match base_content_type {
         "application/json" | "text/plain" => {
             let decoded_body = decode_body(body, query.compression, headers)?;
-            
+
             try_parse_with_fallbacks(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
@@ -129,34 +129,30 @@ pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
     if let Ok(request) = FlagRequest::from_bytes(body.clone()) {
         return Ok(request);
     }
-    
-    // Strategy 2: Try base64 decode then JSON 
+
+    // Strategy 2: Try base64 decode then JSON
     // Even if compression is not specified, we still try to decode it as base64
     tracing::warn!("Direct JSON parsing failed, trying base64 decode fallback");
     match decode_base64(body.clone()) {
-        Ok(decoded) => {
-            match FlagRequest::from_bytes(decoded) {
-                Ok(request) => {
-                    inc(
-                        FLAG_REQUEST_KLUDGE_COUNTER,
-                        &[("type".to_string(), "base64_fallback_success".to_string())],
-                        1,
-                    );
-                    return Ok(request);
-                }
-                Err(e) => {
-                    tracing::warn!("Base64 decode succeeded but JSON parsing failed: {}", e);
-                }
+        Ok(decoded) => match FlagRequest::from_bytes(decoded) {
+            Ok(request) => {
+                inc(
+                    FLAG_REQUEST_KLUDGE_COUNTER,
+                    &[("type".to_string(), "base64_fallback_success".to_string())],
+                    1,
+                );
+                return Ok(request);
             }
-        }
+            Err(e) => {
+                tracing::warn!("Base64 decode succeeded but JSON parsing failed: {}", e);
+            }
+        },
         Err(e) => {
             tracing::warn!("Base64 decode failed: {}", e);
         }
     }
-    
-    Err(FlagError::RequestDecodingError(
-        "invalid JSON".to_string()
-    ))
+
+    Err(FlagError::RequestDecodingError("invalid JSON".to_string()))
 }
 
 pub fn decode_form_data(
