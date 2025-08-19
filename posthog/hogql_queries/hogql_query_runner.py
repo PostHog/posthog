@@ -25,10 +25,7 @@ from posthog.schema import (
 )
 
 
-class HogQLQueryRunner(AnalyticsQueryRunner):
-    query: HogQLQuery | HogQLASTQuery
-    response: HogQLQueryResponse
-    cached_response: CachedHogQLQueryResponse
+class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQuery | HogQLASTQuery, HogQLQueryResponse, CachedHogQLQueryResponse]):
     settings: Optional[HogQLGlobalSettings]
 
     def __init__(

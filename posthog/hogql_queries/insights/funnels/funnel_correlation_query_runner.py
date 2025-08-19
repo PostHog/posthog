@@ -83,16 +83,14 @@ class EventContingencyTable:
 PRIOR_COUNT = 1
 
 
-class FunnelCorrelationQueryRunner(AnalyticsQueryRunner):
+class FunnelCorrelationQueryRunner(
+    AnalyticsQueryRunner[FunnelCorrelationQuery, FunnelCorrelationResponse, CachedFunnelCorrelationResponse]
+):
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
     ELEMENTS_DIVIDER = "__~~__"
     AUTOCAPTURE_EVENT_TYPE = "$event_type"
     MIN_PERSON_COUNT = 25
     MIN_PERSON_PERCENTAGE = 0.02
-
-    query: FunnelCorrelationQuery
-    response: FunnelCorrelationResponse
-    cached_response: CachedFunnelCorrelationResponse
 
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery

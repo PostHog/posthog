@@ -26,11 +26,7 @@ from posthog.schema import (
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 
-class ActorsQueryRunner(AnalyticsQueryRunner):
-    query: ActorsQuery
-    response: ActorsQueryResponse
-    cached_response: CachedActorsQueryResponse
-
+class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(

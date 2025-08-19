@@ -37,11 +37,7 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 ]
 
 
-class EventsQueryRunner(AnalyticsQueryRunner):
-    query: EventsQuery
-    response: EventsQueryResponse
-    cached_response: CachedEventsQueryResponse
-
+class EventsQueryRunner(AnalyticsQueryRunner[EventsQuery, EventsQueryResponse, CachedEventsQueryResponse]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(

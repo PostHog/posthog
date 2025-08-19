@@ -47,10 +47,13 @@ AD_IDS_PREFIXES_SESSIONS_V2 = [
 ]
 
 
-class SessionAttributionExplorerQueryRunner(AnalyticsQueryRunner):
-    query: SessionAttributionExplorerQuery
-    response: SessionAttributionExplorerQueryResponse
-    cached_response: CachedSessionAttributionExplorerQueryResponse
+class SessionAttributionExplorerQueryRunner(
+    AnalyticsQueryRunner[
+        SessionAttributionExplorerQuery,
+        SessionAttributionExplorerQueryResponse,
+        CachedSessionAttributionExplorerQueryResponse,
+    ]
+):
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):

@@ -48,10 +48,7 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TracesQueryRunner(AnalyticsQueryRunner):
-    query: TracesQuery
-    response: TracesQueryResponse
-    cached_response: CachedTracesQueryResponse
+class TracesQueryRunner(AnalyticsQueryRunner[TracesQuery, TracesQueryResponse, CachedTracesQueryResponse]):
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):

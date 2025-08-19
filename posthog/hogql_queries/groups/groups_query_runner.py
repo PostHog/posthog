@@ -7,11 +7,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import GroupsQuery, GroupsQueryResponse, CachedGroupsQueryResponse
 
 
-class GroupsQueryRunner(AnalyticsQueryRunner):
-    query: GroupsQuery
-    response: GroupsQueryResponse
-    cached_response: CachedGroupsQueryResponse
-
+class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQuery, GroupsQueryResponse, CachedGroupsQueryResponse]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

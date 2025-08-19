@@ -27,10 +27,13 @@ class VolumeOptions:
     resolution: int
 
 
-class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner):
-    query: ErrorTrackingIssueCorrelationQuery
-    response: ErrorTrackingIssueCorrelationQueryResponse
-    cached_response: CachedErrorTrackingIssueCorrelationQueryResponse
+class ErrorTrackingIssueCorrelationQueryRunner(
+    AnalyticsQueryRunner[
+        ErrorTrackingIssueCorrelationQuery,
+        ErrorTrackingIssueCorrelationQueryResponse,
+        CachedErrorTrackingIssueCorrelationQueryResponse,
+    ]
+):
     paginator: HogQLHasMorePaginator
     date_from: datetime.datetime
     date_to: datetime.datetime

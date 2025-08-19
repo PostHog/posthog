@@ -34,10 +34,7 @@ from posthog.schema import (
 )
 
 
-class FunnelsQueryRunner(AnalyticsQueryRunner):
-    query: FunnelsQuery
-    response: FunnelsQueryResponse
-    cached_response: CachedFunnelsQueryResponse
+class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQuery, FunnelsQueryResponse, CachedFunnelsQueryResponse]):
     context: FunnelQueryContext
 
     def __init__(

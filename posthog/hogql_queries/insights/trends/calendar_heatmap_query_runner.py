@@ -112,10 +112,9 @@ FROM (
 """
 
 
-class CalendarHeatmapQueryRunner(AnalyticsQueryRunner):
-    query: CalendarHeatmapQuery
-    response: CalendarHeatmapResponse
-    cached_response: CachedCalendarHeatmapQueryResponse
+class CalendarHeatmapQueryRunner(
+    AnalyticsQueryRunner[CalendarHeatmapQuery, CalendarHeatmapResponse, CachedCalendarHeatmapQueryResponse]
+):
     series: list[SeriesWithExtras]
 
     def __init__(

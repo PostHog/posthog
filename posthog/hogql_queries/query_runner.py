@@ -1174,7 +1174,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
 
 
-class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
+class AnalyticsQueryRunner(QueryRunner[Q, AR, CR]):
     """
     QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
     """

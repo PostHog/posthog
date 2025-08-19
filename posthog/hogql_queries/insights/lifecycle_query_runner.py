@@ -31,11 +31,7 @@ from posthog.schema import (
 )
 
 
-class LifecycleQueryRunner(AnalyticsQueryRunner):
-    query: LifecycleQuery
-    response: LifecycleQueryResponse
-    cached_response: CachedLifecycleQueryResponse
-
+class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQuery, LifecycleQueryResponse, CachedLifecycleQueryResponse]):
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
             counts_with_sampling: ast.Expr = ast.Constant(value=0)
