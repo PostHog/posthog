@@ -1,12 +1,6 @@
 from datetime import datetime, timedelta
-
-from posthog.hogql.ast import Alias
-from posthog.hogql.base import Expr
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
-from typing import Any, cast, Optional
+from typing import Any, Optional, cast
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.constants import (
@@ -14,29 +8,38 @@ from posthog.constants import (
     RetentionQueryType,
 )
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.ast import Alias
+from posthog.hogql.base import Expr
+from posthog.hogql.constants import (
+    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+    HogQLGlobalSettings,
+    LimitContext,
+    get_breakdown_limit_for_context,
+)
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import entity_to_expr
+from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.models.action.action import Action
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
+from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    Breakdown,
     CachedRetentionQueryResponse,
+    EntityType,
     HogQLQueryModifiers,
-    RetentionQueryResponse,
     IntervalType,
     RetentionEntity,
-    EntityType,
+    RetentionQuery,
+    RetentionQueryResponse,
+    RetentionType,
 )
-from posthog.schema import RetentionQuery, RetentionType, Breakdown
-from posthog.hogql.constants import get_breakdown_limit_for_context
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7
@@ -232,7 +235,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner):
             else:
                 properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
-            properties_chain = [f"groups_{group_type_index}", "properties", property_name]
+            if property_name.startswith("$virt_"):
+                # Virtual properties exist as expression fields on the groups table
+                properties_chain = [f"groups_{group_type_index}", property_name]
+            else:
+                properties_chain = [f"groups_{group_type_index}", "properties", property_name]
         else:
             # Default to event properties
             properties_chain = ["events", "properties", property_name]
