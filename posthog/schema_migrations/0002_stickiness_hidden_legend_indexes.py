@@ -28,7 +28,7 @@ class Migration(SchemaMigration):
         #remove hiddenLegendIndexes if it's null/empty
         if not hidden_indexes:
             new_insight_filter = dict(insight_filter)
-            new_insight_filter.pop("hiddenLegnedIndexes", None)
+            new_insight_filter.pop("hiddenLegendIndexes", None)
             query = dict(query)
             query[filter_key] = new_insight_filter
             return query
