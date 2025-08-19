@@ -1,23 +1,24 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
+import { PaginationManual } from '@posthog/lemon-ui'
+
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { processCohort } from '~/models/cohortsModel'
 import { Breadcrumb, CohortType, ExporterFormat } from '~/types'
 
 import type { cohortsSceneLogicType } from './cohortsSceneLogicType'
-import { loaders } from 'kea-loaders'
-import api, { CountedPaginatedResponse } from 'lib/api'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { processCohort } from '~/models/cohortsModel'
-import { PaginationManual, Sorting } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import posthog from 'posthog-js'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 
 export interface CohortFilters {
     search?: string
