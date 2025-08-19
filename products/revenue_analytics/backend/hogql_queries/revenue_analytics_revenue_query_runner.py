@@ -107,11 +107,15 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
                 # to properly account it as `new` revenue everytime
                 ast.Alias(
                     alias="subscription_id",
-                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]),
-                ),
-                ast.Alias(
-                    alias="revenue_item_id",
-                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "id"]),
+                    expr=ast.Call(
+                        name="nullIf",  # Convert empty string to null to make coalesce work as expected
+                        args=[
+                            ast.Field(
+                                chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]
+                            ),
+                            ast.Constant(value=""),
+                        ],
+                    ),
                 ),
                 ast.Alias(
                     alias="group_identifier",
@@ -119,7 +123,19 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
                         name="coalesce",
                         args=[
                             ast.Field(chain=["subscription_id"]),
-                            ast.Field(chain=["revenue_item_id"]),
+                            # Convert empty string to null to make coalesce work as expected
+                            # NOTE: Don't turn into a field because it'll require grouping by it
+                            # but we wanna keep all of the revenue items from the same sub/day together
+                            #
+                            # It's fine to group by `group_identifier` though because it'll be the subscription
+                            # when we care about it
+                            ast.Call(
+                                name="nullIf",
+                                args=[
+                                    ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "id"]),
+                                    ast.Constant(value=""),
+                                ],
+                            ),
                         ],
                     ),
                 ),
@@ -138,10 +154,10 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
                     alias="period_start",
                     expr=ast.Call(
                         name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
+                        args=[ast.Field(chain=["day_start"])],
                     ),
                 ),
-                ast.Alias(alias="total_amount", expr=ast.Field(chain=["amount"])),
+                ast.Alias(alias="total_amount", expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])])),
                 ast.Alias(
                     alias="previous_amount",  # lagInFrame(total_amount) OVER (PARTITION BY group_identifier ORDER BY day_start ASC)
                     expr=ast.WindowFunction(
@@ -158,26 +174,31 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
                 ),
                 ast.Alias(
                     alias="new_amount",
-                    expr=parse_expr("if(isNull(previous_amount), amount, {zero})", placeholders=ZERO_PLACEHOLDERS),
+                    expr=parse_expr(
+                        "if(isNull(previous_amount), total_amount, {zero})", placeholders=ZERO_PLACEHOLDERS
+                    ),
                 ),
                 ast.Alias(
                     alias="expansion_amount",
                     expr=parse_expr(
-                        "if(isNotNull(previous_amount) AND amount > previous_amount, amount - previous_amount, {zero})",
+                        "if(isNotNull(previous_amount) AND total_amount > previous_amount, total_amount - previous_amount, {zero})",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),
                 ast.Alias(
                     alias="contraction_amount",
                     expr=parse_expr(
-                        "if(isNotNull(previous_amount) AND amount < previous_amount AND amount > 0, previous_amount - amount, {zero})",
+                        "if(isNotNull(previous_amount) AND total_amount < previous_amount AND total_amount > 0, previous_amount - total_amount, {zero})",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),
                 ast.Alias(
                     alias="churn_amount",
+                    # If no subscription_id, then just assume it's both new (above) and churned (below)
+                    # Else, if the amount went to zero, then assume the previous amount is the churned amount
+                    # Else, just use 0, it's an ongoing subscription
                     expr=parse_expr(
-                        "if(or(isNull(subscription_id), and(isNotNull(previous_amount), amount = 0)), coalesce(previous_amount, {zero}), {zero})",
+                        "multiIf(isNull(subscription_id), total_amount, total_amount = 0, coalesce(previous_amount, {zero}), {zero})",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),
@@ -198,7 +219,15 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
                     *self.where_property_exprs,
                 ]
             ),
+            group_by=[
+                ast.Field(chain=["breakdown_by"]),
+                ast.Field(chain=["is_recurring"]),
+                ast.Field(chain=["subscription_id"]),
+                ast.Field(chain=["group_identifier"]),
+                ast.Field(chain=["day_start"]),
+            ],
             order_by=[
+                ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),
                 ast.OrderExpr(expr=ast.Field(chain=["group_identifier"]), order="ASC"),
                 ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"),
             ],
@@ -239,10 +268,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
                     alias="timestamp",
                     expr=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "ended_at"]),
                 ),
-                ast.Alias(
-                    alias="created_at",
-                    expr=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "ended_at"]),
-                ),
+                ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
                 ast.Alias(alias="is_recurring", expr=ast.Constant(value=True)),
                 ast.Alias(
                     alias="product_id",
@@ -305,7 +331,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
         # This will allow us to easily query the results by breakdown_by and period_start
         # and then we can just add the data to the results
         # [0, 1, 2] -> [value, period_start, breakdown_by]
-        grouped_results: defaultdict[tuple[str, str, str], Decimal] = defaultdict(Decimal)
+        grouped_results: defaultdict[tuple[str, str], Decimal] = defaultdict(Decimal)
         breakdowns: list[str] = []
         for (
             breakdown_by,
@@ -313,38 +339,18 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
             period_start,
             _is_recurring,
             total_value,
-            new_value,
-            expansion_value,
-            contraction_value,
-            churn_value,
+            _new_value,
+            _expansion_value,
+            _contraction_value,
+            _churn_value,
         ) in response.results:
             # Use array to guarantee insertion order
             if breakdown_by not in breakdowns:
                 breakdowns.append(breakdown_by)
-            grouped_results[("total", breakdown_by, period_start.strftime("%Y-%m-%d"))] += total_value
-            grouped_results[("new", breakdown_by, period_start.strftime("%Y-%m-%d"))] += new_value
-            grouped_results[("expansion", breakdown_by, period_start.strftime("%Y-%m-%d"))] += expansion_value
-            grouped_results[("contraction", breakdown_by, period_start.strftime("%Y-%m-%d"))] += contraction_value
-            grouped_results[("churn", breakdown_by, period_start.strftime("%Y-%m-%d"))] += churn_value
+            grouped_results[(breakdown_by, period_start.strftime("%Y-%m-%d"))] += total_value
 
         gross_results = [
-            RevenueAnalyticsRevenueQueryResultItem(
-                total=_build_result(
-                    breakdown, [grouped_results.get(("total", breakdown, day), Decimal(0)) for day in days]
-                ),
-                new=_build_result(
-                    breakdown, [grouped_results.get(("new", breakdown, day), Decimal(0)) for day in days]
-                ),
-                expansion=_build_result(
-                    breakdown, [grouped_results.get(("expansion", breakdown, day), Decimal(0)) for day in days]
-                ),
-                contraction=_build_result(
-                    breakdown, [grouped_results.get(("contraction", breakdown, day), Decimal(0)) for day in days]
-                ),
-                churn=_build_result(
-                    breakdown, [grouped_results.get(("churn", breakdown, day), Decimal(0)) for day in days]
-                ),
-            )
+            _build_result(breakdown, [grouped_results.get((breakdown, day), Decimal(0)) for day in days])
             for breakdown in breakdowns
         ]
 

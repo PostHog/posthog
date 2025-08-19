@@ -67,6 +67,10 @@ ALL_MONTHS_LABELS = [
     "Nov 2025",
     "Dec 2025",
     "Jan 2026",
+    "Feb 2026",
+    "Mar 2026",
+    "Apr 2026",
+    "May 2026",
 ]
 ALL_MONTHS_DAYS = [
     "2024-11-01",
@@ -84,8 +88,12 @@ ALL_MONTHS_DAYS = [
     "2025-11-01",
     "2025-12-01",
     "2026-01-01",
+    "2026-02-01",
+    "2026-03-01",
+    "2026-04-01",
+    "2026-05-01",
 ]
-ALL_MONTHS_FAKEDATETIMES = [ANY] * 15
+ALL_MONTHS_FAKEDATETIMES = [ANY] * 19
 
 LAST_6_MONTHS_LABELS = ALL_MONTHS_LABELS[:7].copy()
 LAST_6_MONTHS_DAYS = ALL_MONTHS_DAYS[:7].copy()
@@ -255,6 +263,24 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.subscriptions_cleanup_filesystem()
         super().tearDown()
 
+    def _build_query(self, date_range, interval, group_by, properties):
+        if date_range is None:
+            date_range: DateRange = DateRange(date_from="-6m")
+        if interval is None:
+            interval = IntervalType.MONTH
+        if group_by is None:
+            group_by = []
+        if properties is None:
+            properties = []
+
+        return RevenueAnalyticsRevenueQuery(
+            dateRange=date_range,
+            interval=interval,
+            groupBy=group_by,
+            properties=properties,
+            modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+        )
+
     def _run_revenue_analytics_revenue_query(
         self,
         date_range: DateRange | None = None,
@@ -272,12 +298,11 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsRevenueQuery(
-                dateRange=date_range,
-                interval=interval,
-                groupBy=group_by,
-                properties=properties,
-                modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+            query = self._build_query(
+                date_range,
+                interval,
+                group_by,
+                properties,
             )
 
             runner = RevenueAnalyticsRevenueQueryRunner(
@@ -315,7 +340,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_with_data(self):
         # Use huge date range to collect all data
         results = self._run_revenue_analytics_revenue_query(
-            date_range=DateRange(date_from="2024-11-01", date_to="2026-01-01")
+            date_range=DateRange(date_from="2024-11-01", date_to="2026-05-01")
         ).results
 
         self.assertEqual(len(results.gross), 1)
@@ -325,7 +350,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         mrr = results.mrr[0]
 
         self.assertEqual(
-            gross.total,
+            gross,
             {
                 "label": "stripe.posthog_test",
                 "days": ALL_MONTHS_DAYS,
@@ -333,10 +358,10 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "data": [
                     0,
                     0,
-                    Decimal("8765.3236433332"),
-                    Decimal("10341.3433233332"),
-                    Decimal("9116.4659033332"),
-                    Decimal("9277.5376491465"),
+                    Decimal("4399.7680983332"),
+                    Decimal("9969.4591383332"),
+                    Decimal("9492.7415583332"),
+                    Decimal("13638.7017241465"),
                     Decimal("8900.0246133332"),
                     Decimal("34.2125533332"),
                     Decimal("34.2125533332"),
@@ -345,126 +370,6 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("34.2125533332"),
                     Decimal("34.2125533332"),
                     Decimal("34.2125533332"),
-                    0,
-                ],
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.new,
-            {
-                "label": "stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    Decimal("45.7292033332"),
-                    Decimal("755.28502"),
-                    0,
-                    Decimal("289.9386758133"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.expansion,
-            {
-                "label": "stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    Decimal("8707.39237"),
-                    Decimal("9504.2675066667"),
-                    Decimal("9041.8879566668"),
-                    Decimal("8788.1483950000"),
-                    Decimal("8820.1439600001"),
-                    Decimal("25.0297849999"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.contraction,
-            {
-                "label": "stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    Decimal("386.56094"),
-                    Decimal("386.56094"),
-                    Decimal("9538.7218166667"),
-                    Decimal("9392.6171050001"),
-                    Decimal("8779.01876"),
-                    Decimal("107.7610416667"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                "action": {
-                    "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.churn,
-            {
-                "label": "stripe.posthog_test",
-                "days": ALL_MONTHS_DAYS,
-                "labels": ALL_MONTHS_LABELS,
-                "data": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    Decimal("215.3494"),
-                    Decimal("8514.73356"),
-                    Decimal("8332.34808"),
-                    0,
-                    0,
                     0,
                     0,
                     0,
@@ -489,10 +394,10 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("8755.6188399999"),
-                    Decimal("9499.3872099999"),
-                    Decimal("9034.4731999999"),
-                    Decimal("8907.0568099999"),
+                    Decimal("4390.0632949999"),
+                    Decimal("9127.5030249999"),
+                    Decimal("9410.7488549999"),
+                    Decimal("13268.2208849999"),
                     Decimal("8889.3394999999"),
                     Decimal("24.5077499999"),
                     Decimal("24.5077499999"),
@@ -501,6 +406,10 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("24.5077499999"),
                     Decimal("24.5077499999"),
                     Decimal("24.5077499999"),
+                    0,
+                    0,
+                    0,
+                    0,
                 ],
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
@@ -520,8 +429,12 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("36.0243999999"),
-                    Decimal("755.2850200000"),
+                    Decimal("4390.0632949999"),
+                    Decimal("4737.4397300000"),
+                    0,
+                    0,
+                    0,
+                    0,
                     0,
                     0,
                     0,
@@ -551,12 +464,16 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("8707.39237"),
-                    Decimal("8681.72100"),
-                    Decimal("8979.3048600001"),
-                    Decimal("8727.0158383333"),
-                    Decimal("8820.1439600001"),
-                    Decimal("16.3052916666"),
+                    0,
+                    0,
+                    Decimal("287.6373"),
+                    Decimal("4341.29885"),
+                    Decimal("4503.667675"),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
                     0,
                     0,
                     0,
@@ -582,12 +499,16 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("386.56094"),
-                    Decimal("386.56094"),
-                    Decimal("8716.17531"),
-                    Decimal("9330.0340083334"),
-                    Decimal("8709.1617100000"),
-                    Decimal("107.7610416667"),
+                    0,
+                    0,
+                    Decimal("4.39147"),
+                    Decimal("483.82682"),
+                    0,
+                    Decimal("135.49000"),
+                    0,
+                    0,
+                    0,
+                    0,
                     0,
                     0,
                     0,
@@ -616,12 +537,16 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("215.3494"),
-                    Decimal("8514.73356"),
-                    Decimal("8332.34808"),
+                    0,
+                    Decimal("8882.54906"),
+                    Decimal("8729.34175"),
                     0,
                     0,
                     0,
+                    0,
+                    0,
+                    0,
+                    Decimal("24.5077499999"),
                     0,
                     0,
                     0,
@@ -633,6 +558,15 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
+
+        # Iterate over the values and check that the new/expansion/contraction/churn values
+        # properly add up to the change between the previous period and the current period
+        previous = Decimal(0)
+        for i in range(len(mrr.total["data"])):
+            change_to_previous = mrr.total["data"][i] - previous
+            change = mrr.new["data"][i] + mrr.expansion["data"][i] - mrr.contraction["data"][i] - mrr.churn["data"][i]
+            self.assertEqual(change_to_previous, change, f"MRR change at index {i} is incorrect")
+            previous = mrr.total["data"][i]
 
     def test_with_data_and_date_range(self):
         results = self._run_revenue_analytics_revenue_query(
@@ -647,16 +581,16 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Restricted to the date range
         self.assertEqual(
-            gross.total,
+            gross,
             {
                 "label": "stripe.posthog_test",
                 "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
                 "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
                 "data": [
-                    Decimal("10341.3433233332"),
-                    Decimal("9116.4659033332"),
-                    Decimal("9277.5376491465"),
-                    0,
+                    Decimal("9969.4591383332"),
+                    Decimal("9492.7415583332"),
+                    Decimal("13638.7017241465"),
+                    Decimal("0"),
                 ],
                 "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
             },
@@ -670,10 +604,10 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
                 # This is an important test, see how MRR is included for the first month, because there's previous data from January 30 days prior to February 1st
                 "data": [
-                    Decimal("8755.6188399999"),
-                    Decimal("9499.3872099999"),
-                    Decimal("9034.4731999999"),
-                    Decimal("8907.0568099999"),
+                    Decimal("4390.0632949999"),
+                    Decimal("9127.5030249999"),
+                    Decimal("9410.7488549999"),
+                    Decimal("13268.2208849999"),
                 ],
                 "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
             },
@@ -696,70 +630,69 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "stripe.posthog_test - Product F",
             "stripe.posthog_test - Product D",
             "stripe.posthog_test - Product B",
-            "stripe.posthog_test - Product C",
             "stripe.posthog_test - Product A",
+            "stripe.posthog_test - Product C",
             "stripe.posthog_test - Product E",
             "stripe.posthog_test - <none>",
         ]
-        self.assertEqual([result.total["label"] for result in results.gross], expected_products)
+        self.assertEqual([result["label"] for result in results.gross], expected_products)
         self.assertEqual([result.total["label"] for result in results.mrr], expected_products)
 
-        # Very long, but gross first, and then MRR
         self.assertEqual(
-            [result.total["data"] for result in results.gross],
+            [result["data"] for result in results.gross],
             [
                 [
                     0,
                     0,
+                    Decimal("4166.17404"),
                     Decimal("8332.34808"),
                     Decimal("8332.34808"),
-                    Decimal("8332.34808"),
-                    Decimal("8332.34808"),
+                    Decimal("12498.52212"),
                     Decimal("8332.34808"),
                 ],
                 [
                     0,
                     0,
+                    Decimal("193.451825"),
                     Decimal("386.90365"),
                     Decimal("386.90365"),
-                    Decimal("386.90365"),
-                    Decimal("386.90365"),
+                    Decimal("580.355475"),
                     Decimal("386.90365"),
                 ],
                 [
                     0,
                     0,
                     Decimal("26.0100949999"),
-                    Decimal("1405.4019049999"),
-                    Decimal("170.5858949999"),
+                    Decimal("1131.8316549999"),
+                    Decimal("444.1561449999"),
                     Decimal("176.5394849999"),
                     Decimal("46.5169049999"),
                 ],
                 [
                     0,
                     0,
-                    Decimal("11.51665"),
-                    Decimal("37.18802"),
-                    Decimal("2.73371"),
-                    Decimal("0.09564"),
-                    Decimal("9.74731"),
-                ],
-                [
-                    0,
-                    0,
                     Decimal("8.2024583333"),
-                    Decimal("179.1589583333"),
-                    Decimal("223.5518583333"),
+                    Decimal("93.6807083333"),
+                    Decimal("309.0301083333"),
                     Decimal("91.3694083333"),
                     Decimal("124.1659583333"),
                 ],
                 [
                     0,
                     0,
+                    Decimal("5.758325"),
+                    Decimal("24.352335"),
+                    Decimal("19.960865"),
+                    Decimal("1.462495"),
+                    Decimal("9.74731"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("0.171355"),
                     Decimal("0.34271"),
                     Decimal("0.34271"),
-                    Decimal("0.34271"),
-                    Decimal("0.34271"),
+                    Decimal("0.514065"),
                     Decimal("0.34271"),
                 ],
                 [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0],
@@ -769,60 +702,28 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [result.total["data"] for result in results.mrr],
             [
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("8332.34808"),
-                    Decimal("8332.34808"),
-                    Decimal("8332.34808"),
-                    Decimal("8332.34808"),
-                ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("386.90365"),
-                    Decimal("386.90365"),
-                    Decimal("386.90365"),
-                    Decimal("386.90365"),
-                ],
+                [0, 0, 0, Decimal("4166.17404"), Decimal("8332.34808"), Decimal("8332.34808"), Decimal("12498.52212")],
+                [0, 0, 0, Decimal("193.451825"), Decimal("386.903650"), Decimal("386.903650"), Decimal("580.355475")],
                 [
                     0,
                     0,
                     0,
                     Decimal("16.3052916666"),
-                    Decimal("563.4457916666"),
-                    Decimal("88.5931916666"),
+                    Decimal("289.8755416666"),
+                    Decimal("362.1634416666"),
                     Decimal("95.9973216666"),
                 ],
                 [
                     0,
                     0,
                     0,
-                    Decimal("11.51665"),
-                    Decimal("37.18802"),
-                    Decimal("2.73371"),
-                    Decimal("0.09564"),
-                ],
-                [
-                    0,
-                    0,
-                    0,
                     Decimal("8.2024583333"),
-                    Decimal("179.1589583333"),
-                    Decimal("223.5518583333"),
+                    Decimal("93.6807083333"),
+                    Decimal("309.0301083333"),
                     Decimal("91.3694083333"),
                 ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("0.34271"),
-                    Decimal("0.34271"),
-                    Decimal("0.34271"),
-                    Decimal("0.34271"),
-                ],
+                [0, 0, 0, Decimal("5.758325"), Decimal("24.352335"), Decimal("19.960865"), Decimal("1.462495")],
+                [0, 0, 0, Decimal("0.171355"), Decimal("0.342710"), Decimal("0.342710"), Decimal("0.514065")],
                 [0, 0, 0, 0, 0, 0, 0],
             ],
         )
@@ -840,8 +741,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "stripe.posthog_test - 2025-01 - Product F",
             "stripe.posthog_test - 2025-01 - Product D",
             "stripe.posthog_test - 2025-01 - Product B",
-            "stripe.posthog_test - 2025-01 - Product C",
             "stripe.posthog_test - 2025-01 - Product A",
+            "stripe.posthog_test - 2025-01 - Product C",
             "stripe.posthog_test - 2025-01 - Product E",
             "stripe.posthog_test - 2025-02 - Product F",
             "stripe.posthog_test - 2025-02 - Product B",
@@ -851,15 +752,31 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "stripe.posthog_test - 2025-02 - Product E",
             "stripe.posthog_test - 2025-01 - <none>",
         ]
-        self.assertEqual([result.total["label"] for result in results.gross], expected_breakdowns)
+        self.assertEqual([result["label"] for result in results.gross], expected_breakdowns)
         self.assertEqual([result.total["label"] for result in results.mrr], expected_breakdowns)
 
         # Very long, but gross first, and then MRR
         self.assertEqual(
-            [result.total["data"] for result in results.gross],
+            [result["data"] for result in results.gross],
             [
-                [0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0, Decimal("8332.34808")],
-                [0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0, Decimal("386.90365")],
+                [
+                    0,
+                    0,
+                    Decimal("4166.17404"),
+                    Decimal("4166.17404"),
+                    Decimal("4166.17404"),
+                    Decimal("4166.17404"),
+                    Decimal("8332.34808"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("193.451825"),
+                    Decimal("193.451825"),
+                    Decimal("193.451825"),
+                    Decimal("193.451825"),
+                    Decimal("386.90365"),
+                ],
                 [
                     0,
                     0,
@@ -869,7 +786,6 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("26.0100949999"),
                     Decimal("46.5169049999"),
                 ],
-                [0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0, Decimal("9.74731")],
                 [
                     0,
                     0,
@@ -879,13 +795,30 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("8.2024583333"),
                     Decimal("124.1659583333"),
                 ],
-                [0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0, Decimal("0.34271")],
-                [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
-                [0, 0, 0, Decimal("1379.39181"), 0, Decimal("150.52939"), 0],
-                [0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0],
-                [0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695"), 0],
-                [0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564"), 0],
-                [0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0],
+                [
+                    0,
+                    0,
+                    Decimal("5.758325"),
+                    Decimal("5.758325"),
+                    Decimal("1.366855"),
+                    Decimal("1.366855"),
+                    Decimal("9.74731"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("0.171355"),
+                    Decimal("0.171355"),
+                    Decimal("0.171355"),
+                    Decimal("0.171355"),
+                    Decimal("0.34271"),
+                ],
+                [0, 0, 0, Decimal("4166.17404"), Decimal("4166.17404"), Decimal("8332.34808"), 0],
+                [0, 0, 0, Decimal("1105.82156"), Decimal("273.57025"), Decimal("150.52939"), 0],
+                [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365"), 0],
+                [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), 0],
+                [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564"), 0],
+                [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271"), 0],
                 [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0],
             ],
         )
@@ -893,8 +826,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [result.total["data"] for result in results.mrr],
             [
-                [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
-                [0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0],
+                [0, 0, 0, Decimal("4166.17404"), Decimal("4166.17404"), Decimal("4166.17404"), Decimal("4166.17404")],
+                [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("193.451825"), Decimal("193.451825")],
                 [
                     0,
                     0,
@@ -904,7 +837,6 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("88.5931916666"),
                     Decimal("16.3052916666"),
                 ],
-                [0, 0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0],
                 [
                     0,
                     0,
@@ -914,20 +846,29 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("223.5518583333"),
                     Decimal("8.2024583333"),
                 ],
-                [0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0],
-                [0, 0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808")],
-                [0, 0, 0, 0, Decimal("547.1405"), 0, Decimal("79.69203")],
-                [0, 0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365")],
-                [0, 0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695")],
-                [0, 0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564")],
-                [0, 0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271")],
+                [0, 0, 0, Decimal("5.758325"), Decimal("5.758325"), Decimal("1.366855"), Decimal("1.366855")],
+                [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355")],
+                [0, 0, 0, 0, Decimal("4166.17404"), Decimal("4166.17404"), Decimal("8332.34808")],
+                [0, 0, 0, 0, Decimal("273.57025"), Decimal("273.57025"), Decimal("79.69203")],
+                [0, 0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.903650")],
+                [0, 0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695")],
+                [0, 0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564")],
+                [0, 0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.342710")],
                 [0, 0, 0, 0, 0, 0, 0],
             ],
         )
 
     def test_with_product_filter(self):
         expected_data = [
-            [0, 0, Decimal("11.51665"), Decimal("37.18802"), Decimal("2.73371"), Decimal("0.09564"), Decimal("9.74731")]
+            [
+                0,
+                0,
+                Decimal("5.758325"),
+                Decimal("24.352335"),
+                Decimal("19.960865"),
+                Decimal("1.462495"),
+                Decimal("9.74731"),
+            ]
         ]
 
         results = self._run_revenue_analytics_revenue_query(
@@ -942,9 +883,9 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results.gross), 1)
         self.assertEqual(len(results.mrr), 1)
-        self.assertEqual([result.total["label"] for result in results.gross], ["stripe.posthog_test"])
+        self.assertEqual([result["label"] for result in results.gross], ["stripe.posthog_test"])
         self.assertEqual([result.total["label"] for result in results.mrr], ["stripe.posthog_test"])
-        self.assertEqual([result.total["data"] for result in results.gross], expected_data)
+        self.assertEqual([result["data"] for result in results.gross], expected_data)
         self.assertEqual([result.total["data"] for result in results.mrr], [[0, *expected_data[0][:-1]]])
 
         # When grouping results should be exactly the same, just the label changes
@@ -961,9 +902,9 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results.gross), 1)
         self.assertEqual(len(results.mrr), 1)
-        self.assertEqual([result.total["label"] for result in results.gross], ["stripe.posthog_test - Product C"])
+        self.assertEqual([result["label"] for result in results.gross], ["stripe.posthog_test - Product C"])
         self.assertEqual([result.total["label"] for result in results.mrr], ["stripe.posthog_test - Product C"])
-        self.assertEqual([result.total["data"] for result in results.gross], expected_data)
+        self.assertEqual([result["data"] for result in results.gross], expected_data)
         self.assertEqual([result.total["data"] for result in results.mrr], [[0, *expected_data[0][:-1]]])
 
     def test_with_country_filter(self):
@@ -979,10 +920,10 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results.gross), 1)
         self.assertEqual(len(results.mrr), 1)
-        self.assertEqual([result.total["label"] for result in results.gross], ["stripe.posthog_test"])
+        self.assertEqual([result["label"] for result in results.gross], ["stripe.posthog_test"])
         self.assertEqual([result.total["label"] for result in results.mrr], ["stripe.posthog_test"])
         self.assertEqual(
-            [result.total["data"] for result in results.gross],
+            [result["data"] for result in results.gross],
             [
                 [
                     0,
@@ -1061,72 +1002,12 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         mrr = results.mrr[0]
 
         self.assertEqual(
-            gross.total,
+            gross,
             {
                 "label": "revenue_analytics.events.purchase",
                 "days": LAST_6_MONTHS_DAYS,
                 "labels": LAST_6_MONTHS_LABELS,
                 "data": [0, 0, Decimal("77.309"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.new,
-            {
-                "label": "revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("77.309"), Decimal("5.5629321819"), 0, 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.expansion,
-            {
-                "label": "revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.contraction,
-            {
-                "label": "revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, 0, Decimal("13.549"), 0, 0, 0],
-                "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
-                },
-            },
-        )
-
-        self.assertEqual(
-            gross.churn,
-            {
-                "label": "revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, Decimal("19.925"), Decimal("36.9999675355"), 0],
                 "action": {
                     "days": LAST_6_MONTHS_FAKEDATETIMES,
                     "id": "revenue_analytics.events.purchase",
@@ -1282,7 +1163,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         mrr = results.mrr[0]
 
         self.assertEqual(
-            gross.total,
+            gross,
             {
                 "label": "revenue_analytics.events.purchase",
                 "days": LAST_6_MONTHS_DAYS,
@@ -1344,7 +1225,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         self.assertEqual(
-            [gross.total for gross in results.gross],
+            results.gross,
             [
                 {
                     "label": "revenue_analytics.events.purchase - Prod A - coupon_x",

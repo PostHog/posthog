@@ -21838,9 +21838,7 @@
             "additionalProperties": false,
             "properties": {
                 "gross": {
-                    "items": {
-                        "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResultItem"
-                    },
+                    "items": {},
                     "type": "array"
                 },
                 "mrr": {

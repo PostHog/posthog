@@ -91,7 +91,7 @@ const GrossRevenueTile = ({
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-    const results = (response?.results?.gross.map((gross) => gross.total) as GraphDataset[]) ?? []
+    const results = (response?.results?.gross as GraphDataset[]) ?? []
     const { labels, datasets } = extractLabelAndDatasets(results)
 
     return (

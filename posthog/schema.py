@@ -4270,7 +4270,7 @@ class RevenueAnalyticsRevenueQueryResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    gross: list[RevenueAnalyticsRevenueQueryResultItem]
+    gross: list
     mrr: list[RevenueAnalyticsRevenueQueryResultItem]
 
 

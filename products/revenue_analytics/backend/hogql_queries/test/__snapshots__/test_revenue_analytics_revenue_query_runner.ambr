@@ -12,21 +12,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -86,7 +85,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -150,7 +149,12 @@
               ORDER BY started_at DESC) AS `revenue_analytics.events.purchase.subscription_events_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
      WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -184,21 +188,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -344,7 +347,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -423,7 +426,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -524,7 +527,12 @@
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
               GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
      WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'non-existent-source'), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -558,21 +566,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -718,7 +725,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -797,7 +804,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -898,7 +905,12 @@
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
               GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
      WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.country, 'US'), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -932,21 +944,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -1092,7 +1103,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -1171,12 +1182,17 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
-        WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2026-01-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-01-01 23:59:59', 'UTC'))), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+        WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -1210,21 +1226,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -1370,7 +1385,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -1449,12 +1464,17 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
      WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -1488,21 +1508,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT concat(ifNull(toString(concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_customer.cohort), empty(revenue_analytics_customer.cohort)), '<none>', revenue_analytics_customer.cohort)), ''))), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -1648,7 +1667,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -1727,7 +1746,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -1849,7 +1868,12 @@
                   posthog_test_stripe_product.name AS name
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -1883,21 +1907,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -2043,7 +2066,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -2122,7 +2145,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -2148,7 +2171,12 @@
                   posthog_test_stripe_product.name AS name
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -2182,21 +2210,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -2342,7 +2369,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -2421,12 +2448,17 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
      WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -2460,21 +2492,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -2620,7 +2651,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -2699,7 +2730,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -2800,7 +2831,12 @@
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
               GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
      WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'revenue_analytics.events.purchase'), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -2834,21 +2870,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -2995,7 +3030,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -3074,7 +3109,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -3175,7 +3210,12 @@
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
               GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
      WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'revenue_analytics.events.purchase'), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -3209,21 +3249,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT concat(ifNull(toString(concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), ''))), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_revenue_item.coupon), empty(revenue_analytics_revenue_item.coupon)), '<none>', revenue_analytics_revenue_item.coupon)), '')) AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -3369,7 +3408,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -3448,7 +3487,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -3570,7 +3609,12 @@
                   posthog_test_stripe_product.name AS name
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'revenue_analytics.events.purchase'), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -3604,21 +3648,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -3764,7 +3807,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -3843,7 +3886,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -3869,7 +3912,12 @@
                   posthog_test_stripe_product.name AS name
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,
@@ -3903,21 +3951,20 @@
          sum(churn_amount) AS churn_value
   FROM
     (SELECT concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
-            revenue_analytics_revenue_item.subscription_id AS subscription_id,
-            revenue_analytics_revenue_item.id AS revenue_item_id,
-            coalesce(subscription_id, revenue_item_id) AS group_identifier,
+            nullIf(revenue_analytics_revenue_item.subscription_id, '') AS subscription_id,
+            coalesce(subscription_id, nullIf(revenue_analytics_revenue_item.id, '')) AS group_identifier,
             revenue_analytics_revenue_item.is_recurring AS is_recurring,
             toStartOfDay(revenue_analytics_revenue_item.timestamp) AS day_start,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
-            revenue_analytics_revenue_item.amount AS total_amount,
+            toStartOfMonth(day_start) AS period_start,
+            sum(revenue_analytics_revenue_item.amount) AS total_amount,
             lagInFrame()(total_amount,
                          1,
                          NULL) OVER (PARTITION BY group_identifier
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                    if(isNull(previous_amount), revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(greater(revenue_analytics_revenue_item.amount, previous_amount), 0)), minus(revenue_analytics_revenue_item.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(revenue_analytics_revenue_item.amount, previous_amount), 0), ifNull(greater(revenue_analytics_revenue_item.amount, 0), 0)), minus(previous_amount, revenue_analytics_revenue_item.amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    if(or(isNull(subscription_id), and(isNotNull(previous_amount), ifNull(equals(revenue_analytics_revenue_item.amount, 0), 0))), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
+                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -4063,7 +4110,7 @@
                          NULL AS invoice_item_id,
                          revenue_analytics_subscription.source_label AS source_label,
                          revenue_analytics_subscription.ended_at AS timestamp,
-                         revenue_analytics_subscription.ended_at AS created_at,
+                         timestamp AS created_at,
                          1 AS is_recurring,
                          revenue_analytics_subscription.product_id AS product_id,
                          revenue_analytics_subscription.customer_id AS customer_id,
@@ -4142,7 +4189,7 @@
                      posthog_test_stripe_subscription.customer AS customer_id,
                      posthog_test_stripe_subscription.status AS status,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
-                     if(greater(parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC'), today()), NULL, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC')) AS ended_at,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                      posthog_test_stripe_subscription.metadata AS metadata
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_subscription.ended_at, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_subscription.ended_at, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
@@ -4168,7 +4215,12 @@
                   posthog_test_stripe_product.name AS name
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -30)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
-     ORDER BY group_identifier ASC, day_start ASC)
+     GROUP BY breakdown_by,
+              is_recurring,
+              subscription_id,
+              group_identifier,
+              day_start
+     ORDER BY breakdown_by ASC, group_identifier ASC, day_start ASC)
   GROUP BY day_start,
            period_start,
            breakdown_by,

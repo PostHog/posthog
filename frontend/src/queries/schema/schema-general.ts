@@ -2032,7 +2032,8 @@ export interface RevenueAnalyticsRevenueQueryResultItem {
 }
 
 export interface RevenueAnalyticsRevenueQueryResult {
-    gross: RevenueAnalyticsRevenueQueryResultItem[]
+    // This is just the total, while mrr is then split with all of the individual total/new/expansion/contraction/churn calculations
+    gross: unknown[]
     mrr: RevenueAnalyticsRevenueQueryResultItem[]
 }
 export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
