@@ -10,10 +10,10 @@
 - Uses GitHub API with 24-hour caching and semantic version parsing
 
 #### Detect Feature Flags Called Before Initialization
-- Catches feature flags being called before PostHog has finished loading by analyzing timing of `$feature_flag_called` events vs initialization events
+- Catches feature flags being called before PostHog has finished loading by analyzing timing of `$feature_flag_called` events vs the first event in the session.
 - Handles multiple flag event types and auto-clears after proper flag usage patterns
 
-**Implementation:** Frontend TypeScript logic that processes recent events within a 10-minute window, with persistent detection state.
+**Implementation:** Frontend TypeScript logic that processes recent events within a 10-minute window for SDK version, 30-minutes for feature flag timing, with persistent detection state.
 
 ---
 
@@ -29,6 +29,7 @@ Going to need to figure out how to either add a property to the next event being
 - Add big Max for add'l help
 - detect when a feature flag  uses a cohort which relies on another cohort which has since been deleted.
 - Use `Teams` activity history to look for issues, e.g. [this thread](https://posthog.slack.com/archives/C03PB072FMJ/p1754557639664509)
+- Add a backend tool behind a FF for CS folks to view a list of their accounts who have out-of date SDK versions
 
 **Maybe/misc list:**
 Add a misc info section, for non-warning info, e.g. [Capturing events more than one project at the same time](https://posthog.com/docs/libraries/js#running-more-than-one-instance-of-posthog-at-the-same-time)

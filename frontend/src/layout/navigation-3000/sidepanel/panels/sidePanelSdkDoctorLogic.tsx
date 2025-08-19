@@ -1,13 +1,21 @@
+/* oxlint-disable no-console */
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { isNotNil } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { diffVersions, parseVersion, tryParseVersion } from 'lib/utils/semver'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EventsListQueryParams, EventType } from '~/types'
 
 import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
+
+// Debug mode detection following PostHog's standard pattern
+const IS_DEBUG_MODE = (() => {
+    const appContext = getAppContext()
+    return appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
+})()
 
 // TODO: Multi-init detection temporarily disabled for post-MVP
 // Global cache for GitHub releases data
@@ -343,7 +351,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const cachedData = getGitHubCache()
                     if (cachedData && Date.now() - cachedData.timestamp < 5 * 60 * 1000) {
                         // 5 minute expiry for debugging
-                        console.info('[SDK Doctor] Using cached GitHub data (debug mode)')
+                        if (IS_DEBUG_MODE) {
+                            console.info('[SDK Doctor] Using cached GitHub data (debug mode)')
+                        }
                         return cachedData.data
                     }
 
@@ -402,13 +412,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -443,13 +455,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -484,13 +498,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -529,13 +545,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -570,13 +588,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -615,13 +635,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -660,13 +682,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -701,13 +725,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -742,13 +768,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -787,13 +815,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -830,13 +860,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found from History.md:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
+                                                    if (IS_DEBUG_MODE) {
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} versions found from History.md:`,
+                                                            versions.slice(0, 5)
+                                                        )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                        )
+                                                    }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
@@ -898,11 +930,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                 .filter(isNotNil)
 
                                             if (versions.length > 0) {
-                                                console.info(
-                                                    `[SDK Doctor] ${sdkType} versions found:`,
-                                                    versions.slice(0, 5)
-                                                )
-                                                console.info(`[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`)
+                                                if (IS_DEBUG_MODE) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                }
                                                 return {
                                                     sdkType,
                                                     versions: versions,
@@ -940,10 +976,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     // Save to cache if we have data
                     if (Object.keys(result).length > 0) {
-                        console.info(
-                            '[SDK Doctor] Final result summary:',
-                            Object.keys(result).map((key) => `${key}: ${result[key as SdkType]?.latestVersion}`)
-                        )
+                        if (IS_DEBUG_MODE) {
+                            console.info(
+                                '[SDK Doctor] Final result summary:',
+                                Object.keys(result).map((key) => `${key}: ${result[key as SdkType]?.latestVersion}`)
+                            )
+                        }
                         setGitHubCache(result)
                     }
 
@@ -1413,7 +1451,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             })
 
                             if (hasImprovedTiming && problematicFlags.size === 0) {
-                                console.info('[SDK Doctor] Flag timing has improved - clearing detection state')
+                                if (IS_DEBUG_MODE) {
+                                    console.info('[SDK Doctor] Flag timing has improved - clearing detection state')
+                                }
                                 return {
                                     detected: false,
                                     detectedAt: '',
@@ -1442,8 +1482,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const limitedEvents = recentEvents.slice(0, 15)
 
                     // Filter out PostHog's internal UI events (URLs containing /project/1/) when in development
+                    // Also filter out posthog-js-lite events as requested
                     const customerEvents = limitedEvents.filter(
-                        (event) => !event.properties?.$current_url?.includes('/project/1/')
+                        (event) =>
+                            !event.properties?.$current_url?.includes('/project/1/') &&
+                            event.properties?.$lib !== 'posthog-js-lite'
                     )
 
                     const webEvents = customerEvents.filter((e) => e.properties?.$lib === 'web')
@@ -1603,8 +1646,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 type = 'flutter'
                             } else if (lib === 'posthog-react-native') {
                                 type = 'react-native'
-                            } else if (lib === 'posthog-js-lite') {
-                                type = 'web' // js-lite is actually the web SDK
                             } else if (lib === 'posthog-dotnet') {
                                 type = 'dotnet'
                             } else if (lib === 'posthog-elixir') {
@@ -1886,22 +1927,26 @@ function checkVersionAgainstLatest(
     version: string,
     latestVersionsData: Record<SdkType, { latestVersion: string; versions: string[] }>
 ): { isOutdated: boolean; releasesAhead?: number; latestVersion?: string } {
-    console.info(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
-    console.info(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
-
-    // Log web SDK data specifically for debugging
-    if (type === 'web' && latestVersionsData.web) {
-        console.info(`[SDK Doctor] Web SDK latestVersion: "${latestVersionsData.web.latestVersion}"`)
-        console.info(`[SDK Doctor] Web SDK first 5 versions:`, latestVersionsData.web.versions.slice(0, 5))
+    if (IS_DEBUG_MODE) {
+        console.info(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
+        console.info(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
     }
 
-    // Log Node.js SDK data specifically for debugging
-    if (type === 'node' && latestVersionsData.node) {
-        console.info(`[SDK Doctor] Node.js SDK latestVersion: "${latestVersionsData.node.latestVersion}"`)
-        console.info(`[SDK Doctor] Node.js SDK first 5 versions:`, latestVersionsData.node.versions.slice(0, 5))
-    } else if (type === 'node') {
-        console.warn(`[SDK Doctor] No Node.js SDK data available in latestVersionsData!`)
-        console.info(`[SDK Doctor] Available types:`, Object.keys(latestVersionsData))
+    // Log web SDK data specifically for debugging
+    if (IS_DEBUG_MODE) {
+        if (type === 'web' && latestVersionsData.web) {
+            console.info(`[SDK Doctor] Web SDK latestVersion: "${latestVersionsData.web.latestVersion}"`)
+            console.info(`[SDK Doctor] Web SDK first 5 versions:`, latestVersionsData.web.versions.slice(0, 5))
+        }
+
+        // Log Node.js SDK data specifically for debugging
+        if (type === 'node' && latestVersionsData.node) {
+            console.info(`[SDK Doctor] Node.js SDK latestVersion: "${latestVersionsData.node.latestVersion}"`)
+            console.info(`[SDK Doctor] Node.js SDK first 5 versions:`, latestVersionsData.node.versions.slice(0, 5))
+        } else if (type === 'node') {
+            console.warn(`[SDK Doctor] No Node.js SDK data available in latestVersionsData!`)
+            console.info(`[SDK Doctor] Available types:`, Object.keys(latestVersionsData))
+        }
     }
 
     // Convert type to lib name for consistency
@@ -1953,8 +1998,10 @@ function checkVersionAgainstLatest(
     const latestVersion = latestVersionsData[type].latestVersion
     const allVersions = latestVersionsData[type].versions
 
-    console.info(`[SDK Doctor] Comparing ${version} against latest ${latestVersion}`)
-    console.info(`[SDK Doctor] All versions available:`, allVersions)
+    if (IS_DEBUG_MODE) {
+        console.info(`[SDK Doctor] Comparing ${version} against latest ${latestVersion}`)
+        console.info(`[SDK Doctor] All versions available:`, allVersions)
+    }
 
     try {
         // Parse versions for comparison
@@ -1968,9 +2015,11 @@ function checkVersionAgainstLatest(
         const versionIndex = allVersions.indexOf(version)
         let releasesBehind = versionIndex === -1 ? -1 : versionIndex
 
-        console.info(`[SDK Doctor] Version ${version} is at index ${versionIndex} in versions array`)
-        console.info(`[SDK Doctor] Releases behind: ${releasesBehind}`)
-        console.info(`[SDK Doctor] Version diff:`, diff)
+        if (IS_DEBUG_MODE) {
+            console.info(`[SDK Doctor] Version ${version} is at index ${versionIndex} in versions array`)
+            console.info(`[SDK Doctor] Releases behind: ${releasesBehind}`)
+            console.info(`[SDK Doctor] Version diff:`, diff)
+        }
 
         // Or estimate based on semantic version difference if we don't have the exact version
         if (releasesBehind === -1 && diff) {
@@ -1984,12 +2033,16 @@ function checkVersionAgainstLatest(
         }
 
         const isOutdated = releasesBehind >= 2
-        console.info(
-            `[SDK Doctor] Final result: isOutdated=${isOutdated}, releasesAhead=${releasesBehind}, latestVersion=${latestVersion}`
-        )
-        console.info(
-            `[SDK Doctor] String comparison: "${version}" === "${latestVersion}" = ${version === latestVersion}`
-        )
+        if (IS_DEBUG_MODE) {
+            console.info(
+                `[SDK Doctor] Final result: isOutdated=${isOutdated}, releasesAhead=${releasesBehind}, latestVersion=${latestVersion}`
+            )
+        }
+        if (IS_DEBUG_MODE) {
+            console.info(
+                `[SDK Doctor] String comparison: "${version}" === "${latestVersion}" = ${version === latestVersion}`
+            )
+        }
 
         // Consider outdated if 2+ versions behind (2 or more releases)
         return {
