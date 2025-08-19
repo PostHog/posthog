@@ -2,6 +2,10 @@
 
 set -e
 
+# Process JSON schema to preserve inheritance relationships
+echo "Processing schema inheritance..."
+node bin/process-schema-inheritance.js
+
 # Generate schema.py from schema.json
 datamodel-codegen \
     --class-name='SchemaRoot' --collapse-root-models --target-python-version 3.11 --disable-timestamp \
@@ -17,6 +21,10 @@ ruff format posthog/schema.py
 
 # Check schema.py and autofix
 ruff check --fix posthog/schema.py
+
+# Post-process Python schema to create proper inheritance relationships
+echo "Processing Python inheritance..."
+python bin/fix-python-inheritance.py posthog/schema.py
 
 # Replace class Foo(str, Enum) with class Foo(StrEnum) for proper handling in format strings in python 3.11
 # Remove this when https://github.com/koxudaxi/datamodel-code-generator/issues/1313 is resolved
