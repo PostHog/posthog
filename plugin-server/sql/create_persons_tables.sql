@@ -29,23 +29,41 @@ CREATE TABLE IF NOT EXISTS posthog_persondistinctid (
 
 -- Add both foreign key constraints to match production schema
 -- The deferred constraint needs CASCADE for delete operations to work
-ALTER TABLE posthog_persondistinctid 
-    ADD CONSTRAINT posthog_persondistin_person_id_5d655bba_fk_posthog_p 
-    FOREIGN KEY (person_id) 
-    REFERENCES posthog_person(id) 
-    ON DELETE CASCADE
-    DEFERRABLE INITIALLY DEFERRED;
+-- Drop constraints if they exist first to ensure clean state
+DO $$ 
+BEGIN
+    ALTER TABLE posthog_persondistinctid 
+        DROP CONSTRAINT IF EXISTS posthog_persondistin_person_id_5d655bba_fk_posthog_p;
+    ALTER TABLE posthog_persondistinctid 
+        DROP CONSTRAINT IF EXISTS posthog_persondistinctid_person_id_5d655bba_fk;
+    
+    ALTER TABLE posthog_persondistinctid 
+        ADD CONSTRAINT posthog_persondistin_person_id_5d655bba_fk_posthog_p 
+        FOREIGN KEY (person_id) 
+        REFERENCES posthog_person(id) 
+        ON DELETE CASCADE
+        DEFERRABLE INITIALLY DEFERRED;
 
-ALTER TABLE posthog_persondistinctid 
-    ADD CONSTRAINT posthog_persondistinctid_person_id_5d655bba_fk 
-    FOREIGN KEY (person_id) 
-    REFERENCES posthog_person(id)
-    ON DELETE CASCADE;
+    ALTER TABLE posthog_persondistinctid 
+        ADD CONSTRAINT posthog_persondistinctid_person_id_5d655bba_fk 
+        FOREIGN KEY (person_id) 
+        REFERENCES posthog_person(id)
+        ON DELETE CASCADE;
+END $$;
 
 -- Create the unique constraint (not just index) to match production
-ALTER TABLE posthog_persondistinctid
-    ADD CONSTRAINT "unique distinct_id for team"
-    UNIQUE (team_id, distinct_id);
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'unique distinct_id for team' 
+        AND conrelid = 'posthog_persondistinctid'::regclass
+    ) THEN
+        ALTER TABLE posthog_persondistinctid
+            ADD CONSTRAINT "unique distinct_id for team"
+            UNIQUE (team_id, distinct_id);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS posthog_persondistinctid_person_id_5d655bba
     ON posthog_persondistinctid (person_id);
