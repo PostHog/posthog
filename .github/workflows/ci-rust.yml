@@ -84,17 +84,27 @@ jobs:
                 package:
                     - batch-import-worker
                     - capture
+                    - common-alloc
+                    - common-cookieless
                     - common-database
+                    - common-geoip
+                    - common-metrics
+                    - common-kafka
                     - cyclotron-core
                     - cyclotron-node
                     - cyclotron-janitor
                     - cymbal
                     - feature-flags
+                    - health
+                    - hogvm
                     - hook-api
+                    - hook-common
                     - hook-janitor
                     - hook-worker
                     - kafka-deduplicator
+                    - limiters
                     - log-capture
+                    - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics
         needs: changes
@@ -181,7 +191,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test -s -p ${{ matrix.package}}
+                  RUST_BACKTRACE=1 cargo test -p ${{matrix.package}}
                   echo "Cargo test completed"
 
     linting:
