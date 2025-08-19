@@ -33,6 +33,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
@@ -643,6 +644,30 @@ class Fix204Middleware:
             response.content = b""
             for h in ["Content-Type", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
+
+        return response
+
+
+class ActivityLoggingMiddleware:
+    """
+    Middleware that sets the current user and impersonation status in activity storage
+    for use by the activity logging system.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # Set user in activity storage if authenticated
+        if request.user.is_authenticated:
+            activity_storage.set_user(request.user)
+            activity_storage.set_was_impersonated(is_impersonated_session(request))
+
+        try:
+            response = self.get_response(request)
+        finally:
+            # Clean up activity storage after request
+            activity_storage.clear_all()
 
         return response
 

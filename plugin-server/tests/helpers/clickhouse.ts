@@ -1,12 +1,12 @@
-import { ClickHouseClient, createClient as createClickhouseClient, ExecResult } from '@clickhouse/client'
+import { ClickHouseClient, ExecResult, createClient as createClickhouseClient } from '@clickhouse/client'
 import { performance } from 'perf_hooks'
 import { Readable } from 'stream'
 
 import {
     ClickHouseEvent,
-    ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
+    ClickhouseGroup,
     DeadLetterQueueEvent,
     InternalPerson,
     RawClickHouseEvent,
@@ -32,7 +32,7 @@ export class Clickhouse {
     static createClient(): ClickHouseClient {
         // NOTE: We never query CH in production so we just load these from the env directly
         const CLICKHOUSE_HOST = process.env.CLICKHOUSE_HOST ?? 'localhost'
-        const CLICKHOUSE_DATABASE = process.env.CLICKHOUSE_DATABASE ?? isTestEnv() ? 'posthog_test' : 'default'
+        const CLICKHOUSE_DATABASE = process.env.CLICKHOUSE_DATABASE ?? (isTestEnv() ? 'posthog_test' : 'default')
         const CLICKHOUSE_USER = process.env.CLICKHOUSE_USER ?? 'default'
         const CLICKHOUSE_PASSWORD = process.env.CLICKHOUSE_PASSWORD ?? null
 
@@ -122,7 +122,7 @@ export class Clickhouse {
         fetchData: () => T | Promise<T>,
         minLength = 1,
         delayMs = 100,
-        maxDelayCount = 100
+        maxDelayCount = 1000
     ): Promise<T> {
         const timer = performance.now()
         let data: T | null = null

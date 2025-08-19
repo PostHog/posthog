@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -8,10 +10,10 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { formatUnitByQuantity } from '../utils'
-import { EllipsisAnimation } from './components'
-import { DataCollectionCalculator } from './DataCollectionCalculator'
 import { modalsLogic } from '../modalsLogic'
+import { formatUnitByQuantity } from '../utils'
+import { DataCollectionCalculator } from './DataCollectionCalculator'
+import { EllipsisAnimation } from './components'
 
 export function DataCollection(): JSX.Element {
     const {
@@ -80,7 +82,7 @@ export function DataCollection(): JSX.Element {
                     }% complete`}</div>
                     <LemonProgress
                         className="w-full border"
-                        bgColor="var(--bg-table)"
+                        bgColor="var(--color-bg-table)"
                         size="medium"
                         percent={experimentProgressPercent}
                     />

@@ -1,7 +1,7 @@
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 
 import { InspectorListItemDoctor } from '../playerInspectorLogic'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 export interface ItemDoctorProps {
     item: InspectorListItemDoctor

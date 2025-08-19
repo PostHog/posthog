@@ -187,6 +187,12 @@ class TeamMarketingAnalyticsConfig(models.Model):
         except ValidationError as e:
             raise ValidationError(f"Invalid conversion goals: {str(e)}")
 
+    def to_cache_key_dict(self) -> dict:
+        return {
+            "base_currency": self.team.base_currency,
+            "sources_map": self.sources_map,
+        }
+
 
 # This is best effort, we always attempt to create the config manually
 # when accessing it via `Team.marketing_analytics_config`.

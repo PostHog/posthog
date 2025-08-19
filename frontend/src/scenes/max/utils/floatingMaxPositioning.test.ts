@@ -1,8 +1,8 @@
 import {
-    getPanelDimensions,
     calculateCSSPosition,
-    getFloatingMaxDimensions,
     calculateSnapPosition,
+    getFloatingMaxDimensions,
+    getPanelDimensions,
 } from './floatingMaxPositioning'
 
 // Mock DOM elements and methods
@@ -27,7 +27,7 @@ beforeEach(() => {
         () =>
             ({
                 style: { marginBottom: '6px', paddingBottom: '0px', borderBottomWidth: '0px' },
-            } as any)
+            }) as any
     )
 
     // Mock getElementsByClassName for getCSSVariableValue

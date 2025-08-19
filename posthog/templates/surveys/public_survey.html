@@ -909,7 +909,8 @@
             capture_heatmaps: false,
             capture_dead_clicks: false,
             capture_exceptions: false,
-            advanced_disable_feature_flags: true,
+            advanced_disable_flags: true,
+            advanced_enable_surveys: true,
             persistence: 'sessionStorage'
         };
 
@@ -926,11 +927,13 @@
             config.ui_host = projectConfig.ui_host;
         }
 
-        posthog.init(projectConfig.token, config);
-
-        posthog.onSurveysLoaded(() => {
-            posthog.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
+        posthog.init(projectConfig.token, {
+            ...config,
+            loaded: (instance) => {
+                instance.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
+            }
         });
+
     </script>
 </body>
 

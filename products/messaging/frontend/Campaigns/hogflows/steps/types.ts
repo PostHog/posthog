@@ -1,8 +1,8 @@
 import { Handle, Node, NodeProps } from '@xyflow/react'
+import { z } from 'zod'
 
 import { Optional } from '~/types'
 
-import { z } from 'zod'
 import { HogFlowAction } from '../types'
 
 export type HogFlowStepNodeProps = NodeProps & {
@@ -16,7 +16,8 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     type: T
     name: string
     description: string
-    icon?: JSX.Element
+    icon: JSX.Element
+    color: string
     renderNode: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
     create: () => {
@@ -125,7 +126,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category: z.string().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
-            template_id: z.literal('template-email-native'),
+            template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
         }),
     }),

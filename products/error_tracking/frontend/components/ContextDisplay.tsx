@@ -1,10 +1,12 @@
+import { match } from 'ts-pattern'
+
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
+
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
 import { identifierToHuman } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { match } from 'ts-pattern'
 
 export type ContextDisplayProps = {
     loading: boolean

@@ -1,13 +1,14 @@
 import { Meta } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
-import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { mswDecorator } from '~/mocks/browser'
 
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
+
 const meta: Meta<typeof PlayerSidebarOverviewOtherWatchers> = {
-    title: 'Scenes/Session Recordings/Player/Sidebar/PlayerSidebarOverviewOtherWatchers',
+    title: 'Replay/Overview Tab/Other Watchers',
     component: PlayerSidebarOverviewOtherWatchers,
     parameters: {
         testOptions: {
@@ -154,20 +155,6 @@ WithMultipleViewers.decorators = [
                         email: 'current@posthog.com',
                     },
                 },
-            },
-        },
-    }),
-]
-
-export function Loading(): JSX.Element {
-    return <MockedPlayerSidebarOverviewOtherWatchers />
-}
-Loading.decorators = [
-    mswDecorator({
-        get: {
-            '/api/environments/:team_id/session_recordings/:id': () => {
-                // Simulate loading by not returning immediately
-                return new Promise(() => {})
             },
         },
     }),

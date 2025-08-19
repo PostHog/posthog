@@ -1,7 +1,9 @@
-import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
+import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -17,7 +19,7 @@ import { urls } from 'scenes/urls'
 import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
-import { startupProgramLogic } from './startupProgramLogic'
+import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
@@ -42,12 +44,10 @@ const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingPro
     )
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<StartupProgramLogicProps> = {
     component: StartupProgram,
     logic: startupProgramLogic,
-    paramsToProps: ({ params: { referrer } }): { referrer?: string } => ({
-        referrer: referrer || undefined,
-    }),
+    paramsToProps: ({ params: { referrer } }) => ({ referrer: referrer || undefined }),
 }
 
 export function StartupProgram(): JSX.Element {

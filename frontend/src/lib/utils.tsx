@@ -1,9 +1,10 @@
 import equal from 'fast-deep-equal'
+import posthog from 'posthog-js'
+import { CSSProperties } from 'react'
+
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import posthog from 'posthog-js'
-import { CSSProperties } from 'react'
 
 import {
     ActionType,
@@ -81,22 +82,25 @@ export function toParams(obj: Record<string, any>, explodeArrays: boolean = fals
 
     return Object.entries(obj)
         .filter((item) => item[1] != undefined && item[1] != null)
-        .reduce((acc, [key, val]) => {
-            /**
-             *  query parameter arrays can be handled in two ways
-             *  either they are encoded as a single query parameter
-             *    a=[1, 2] => a=%5B1%2C2%5D
-             *  or they are "exploded" so each item in the array is sent separately
-             *    a=[1, 2] => a=1&a=2
-             **/
-            if (explodeArrays && Array.isArray(val)) {
-                val.forEach((v) => acc.push([key, v]))
-            } else {
-                acc.push([key, val])
-            }
+        .reduce(
+            (acc, [key, val]) => {
+                /**
+                 *  query parameter arrays can be handled in two ways
+                 *  either they are encoded as a single query parameter
+                 *    a=[1, 2] => a=%5B1%2C2%5D
+                 *  or they are "exploded" so each item in the array is sent separately
+                 *    a=[1, 2] => a=1&a=2
+                 **/
+                if (explodeArrays && Array.isArray(val)) {
+                    val.forEach((v) => acc.push([key, v]))
+                } else {
+                    acc.push([key, val])
+                }
 
-            return acc
-        }, [] as [string, any][])
+                return acc
+            },
+            [] as [string, any][]
+        )
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -107,11 +111,14 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
         : url
               .replace(/^\?/, '')
               .split('&')
-              .reduce((paramsObject, paramString) => {
-                  const [key, value] = paramString.split('=')
-                  paramsObject[key] = decodeURIComponent(value)
-                  return paramsObject
-              }, {} as Record<string, any>)
+              .reduce(
+                  (paramsObject, paramString) => {
+                      const [key, value] = paramString.split('=')
+                      paramsObject[key] = decodeURIComponent(value)
+                      return paramsObject
+                  },
+                  {} as Record<string, any>
+              )
 }
 
 export function fromParams(): Record<string, any> {
@@ -264,6 +271,10 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const featureFlagOperatorMap: Record<string, string> = {
+    flag_evaluates_to: '= evaluates to',
+}
+
 export const stickinessOperatorMap: Record<string, string> = {
     exact: '= Exactly',
     gte: '≥ At least',
@@ -292,6 +303,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
@@ -305,6 +317,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Flag: featureFlagOperatorMap,
     Assignee: assigneeOperatorMap,
     StringArray: stringArrayOperatorMap,
 }
@@ -422,12 +435,15 @@ export const removeUndefinedAndNull = (obj: any): any => {
     if (Array.isArray(obj)) {
         return obj.map(removeUndefinedAndNull)
     } else if (obj && typeof obj === 'object') {
-        return Object.entries(obj).reduce((acc, [key, value]) => {
-            if (value !== undefined && value !== null) {
-                acc[key] = removeUndefinedAndNull(value)
-            }
-            return acc
-        }, {} as Record<string, any>)
+        return Object.entries(obj).reduce(
+            (acc, [key, value]) => {
+                if (value !== undefined && value !== null) {
+                    acc[key] = removeUndefinedAndNull(value)
+                }
+                return acc
+            },
+            {} as Record<string, any>
+        )
     }
     return obj
 }

@@ -44,10 +44,10 @@ def convert_currency_call(
 
 
 # Given an event config and the base config, figure out what the currency should look like
-def currency_expression_for_events(config: Team, event_config: RevenueAnalyticsEventItem) -> ast.Expr:
+def currency_expression_for_events(team: Team, event_config: RevenueAnalyticsEventItem) -> ast.Expr:
     # Shouldn't happen but we need it here to make the type checker happy
     if not event_config.revenueCurrencyProperty:
-        return ast.Constant(value=config.base_currency)
+        return ast.Constant(value=team.base_currency)
 
     if event_config.revenueCurrencyProperty.property:
         return ast.Call(
@@ -58,14 +58,14 @@ def currency_expression_for_events(config: Team, event_config: RevenueAnalyticsE
     if event_config.revenueCurrencyProperty.static:
         return ast.Constant(value=event_config.revenueCurrencyProperty.static.value)
 
-    return ast.Constant(value=config.base_currency)
+    return ast.Constant(value=team.base_currency)
 
 
 # Tuple of (comparison_expr, value_expr) that can be used to:
 # - Check whether the event is the one we're looking for
 # - Convert the revenue to the base currency if needed
 def revenue_comparison_and_value_exprs_for_events(
-    config: Team,
+    team: Team,
     event_config: RevenueAnalyticsEventItem,
     do_currency_conversion: bool = True,
     amount_expr: ast.Expr | None = None,
@@ -87,7 +87,7 @@ def revenue_comparison_and_value_exprs_for_events(
         value_expr = ast.Call(
             name="if",
             args=[
-                ast.Call(name="isNull", args=[currency_expression_for_events(config, event_config)]),
+                ast.Call(name="isNull", args=[currency_expression_for_events(team, event_config)]),
                 ast.Call(
                     name="toDecimal",
                     args=[
@@ -97,8 +97,8 @@ def revenue_comparison_and_value_exprs_for_events(
                 ),
                 convert_currency_call(
                     amount_expr,
-                    currency_expression_for_events(config, event_config),
-                    ast.Constant(value=config.base_currency),
+                    currency_expression_for_events(team, event_config),
+                    ast.Constant(value=team.base_currency),
                     ast.Call(name="_toDate", args=[ast.Field(chain=["events", "timestamp"])]),
                 ),
             ],

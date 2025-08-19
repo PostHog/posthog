@@ -1,21 +1,25 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import difference from 'lodash.difference'
+import sortBy from 'lodash.sortby'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import difference from 'lodash.difference'
-import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
-import { BillingType, DateMappingOption, OrganizationType } from '~/types'
+import { DateMappingOption, OrganizationType } from '~/types'
 
+import type { BillingPeriodMarker } from './BillingLineGraph'
 import {
     buildTrackingProperties,
+    calculateBillingPeriodMarkers,
     canAccessBilling,
     syncBillingSearchParams,
     updateBillingSearchParams,
@@ -64,6 +68,7 @@ export interface BillingUsageLogicProps {
     initialFilters?: BillingFilters
     dateFrom?: string
     dateTo?: string
+    syncWithUrl?: boolean // Default false - only intended on usage and spend pages
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
@@ -71,7 +76,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     props({} as BillingUsageLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
     connect({
-        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     }),
     actions({
@@ -166,10 +171,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     })),
     selectors({
         dateOptions: [
-            (s) => [s.billing],
-            (billing: BillingType | null): DateMappingOption[] => {
-                const currentBillingPeriodStart = billing?.billing_period?.current_period_start
-                const currentBillingPeriodEnd = billing?.billing_period?.current_period_end
+            (s) => [s.billingPeriodUTC],
+            (currentPeriod): DateMappingOption[] => {
+                const currentBillingPeriodStart = currentPeriod.start
+                const currentBillingPeriodEnd = currentPeriod.end
                 const currentBillingPeriodOption: DateMappingOption = {
                     key: 'Current billing period',
                     values: [
@@ -189,6 +194,12 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     (o) => o.defaultInterval !== 'hour' && !TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS.includes(o.key)
                 )
                 return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
+            },
+        ],
+        billingPeriodMarkers: [
+            (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
+            (currentPeriod, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
+                return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
             },
         ],
         series: [
@@ -287,8 +298,19 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
     }),
 
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
         const buildURL = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            const keepCurrentUrl: [string, Params, Record<string, any>, { replace: boolean }] = [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
+
+            if (props.syncWithUrl !== true) {
+                return keepCurrentUrl
+            }
+
             return syncBillingSearchParams(router, (params: Params) => {
                 updateBillingSearchParams(
                     params,
@@ -340,8 +362,12 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params): void => {
+            if (props.syncWithUrl !== true) {
+                return
+            }
+
             const filtersFromUrl: Partial<BillingFilters> = {}
 
             if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {

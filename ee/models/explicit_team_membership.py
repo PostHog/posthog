@@ -1,11 +1,11 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel, sane_repr
+from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.models.organization import OrganizationMembership
 
 
 # DEPRECATED - do not use
-class ExplicitTeamMembership(UUIDModel):
+class ExplicitTeamMembership(UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with OrganizationMembership.Level (only difference being organizations having an Owner)."""
 

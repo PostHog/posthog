@@ -1,18 +1,20 @@
+import { useActions, useValues } from 'kea'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+
 import { IconPencil, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { getSeriesColorPalette } from 'lib/colors'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { downloadFile } from 'lib/utils'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FilmCameraHog } from '../hedgehogs'
 import {
     type DrawingItem,
     type HistoryItem,
     type Point,
-    takeScreenshotLogic,
     type TextItem,
+    takeScreenshotLogic,
 } from './takeScreenshotLogic'
 
 export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): JSX.Element {
@@ -475,8 +477,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                             mode === 'moveText' && selectedTextIndex !== null
                                 ? 'cursor-move'
                                 : mode === 'draw'
-                                ? 'cursor-crosshair'
-                                : 'cursor-text'
+                                  ? 'cursor-crosshair'
+                                  : 'cursor-text'
                         }`}
                     >
                         <canvas

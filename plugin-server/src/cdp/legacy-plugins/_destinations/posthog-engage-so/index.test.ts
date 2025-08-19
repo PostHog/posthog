@@ -1,6 +1,7 @@
 import { getMeta, resetMeta } from '@posthog/plugin-scaffold/test/utils'
 
 import { EngagePluginEvent, onEvent } from './index'
+
 describe('sendgrid', () => {
     const mockFetch = jest.fn()
 

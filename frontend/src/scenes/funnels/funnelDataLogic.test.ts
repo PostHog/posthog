@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
-import { teamLogic } from 'scenes/teamLogic'
 import timekeeper from 'timekeeper'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'

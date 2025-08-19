@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { now } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
@@ -35,7 +36,7 @@ function makeItem(
         id: '',
         playerTime: 0,
 
-        timestamp: '',
+        timestamp: now().toISOString(),
         ...dataOverrides,
         // this is last so that it overrides data overrides sensibly 🙃
         properties: {

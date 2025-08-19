@@ -121,6 +121,7 @@ export const createClickhousePerson = (teamId: number, data: Partial<ClickHouseP
         is_identified: 1,
         is_deleted: 0,
         timestamp: new Date().toISOString(),
+        version: 1,
         ...data,
     }
 }

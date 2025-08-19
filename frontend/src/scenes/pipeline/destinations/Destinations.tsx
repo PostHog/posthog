@@ -1,19 +1,21 @@
 import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useEffect, useState } from 'react'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { RenderBatchExportIcon } from 'scenes/data-pipelines/batch-exports/BatchExportIcon'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
@@ -28,11 +30,11 @@ import { FrontendApps } from '../FrontendApps'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
-import { usePipelineNodeMenuCommonItems, RenderApp } from '../utils'
+import { RenderApp, usePipelineNodeMenuCommonItems } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
+import { DestinationOptionsTable } from './NewDestinations'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
-import { DestinationOptionsTable } from './NewDestinations'
 
 export interface DestinationsProps {
     types: HogFunctionTypeType[]
@@ -78,10 +80,10 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 {types.includes('destination')
                     ? 'New destinations'
                     : types.includes('site_app')
-                    ? 'New site app'
-                    : types.includes('transformation')
-                    ? 'New transformation'
-                    : 'New'}
+                      ? 'New site app'
+                      : types.includes('transformation')
+                        ? 'New transformation'
+                        : 'New'}
             </h2>
             <DestinationOptionsTable types={types} />
             {/* Old site-apps until we migrate everyone onto the new ones */}
@@ -118,8 +120,8 @@ export function DestinationsTable({
         types.includes('destination') || types.includes('site_destination')
             ? 'destination'
             : types.includes('site_app')
-            ? 'site app'
-            : 'Hog function'
+              ? 'site app'
+              : 'Hog function'
 
     const enabledTransformations = destinations.filter(
         (d): d is FunctionDestination => d.stage === PipelineStage.Transformation && d.enabled
@@ -309,8 +311,8 @@ export function DestinationsTable({
                                                     disabledReason: !canConfigurePlugins
                                                         ? `You do not have permission to toggle ${simpleName}s.`
                                                         : !canEnableDestination(destination) && !destination.enabled
-                                                        ? `Data pipelines add-on is required for enabling new ${simpleName}s`
-                                                        : undefined,
+                                                          ? `Data pipelines add-on is required for enabling new ${simpleName}s`
+                                                          : undefined,
                                                 },
                                                 ...usePipelineNodeMenuCommonItems(destination),
                                                 {
@@ -348,7 +350,7 @@ export function DestinationsTable({
                         'No destinations found'
                     ) : (
                         <>
-                            No destinations matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
+                            No destinations matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>
                         </>
                     )
                 }
@@ -379,10 +381,13 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
     // Store initial orders when modal opens
     useEffect(() => {
         if (reorderTransformationsModalOpen) {
-            const orders = enabledTransformations.reduce((acc, transformation) => {
-                acc[transformation.hog_function.id] = transformation.hog_function.execution_order || 0
-                return acc
-            }, {} as Record<string, number>)
+            const orders = enabledTransformations.reduce(
+                (acc, transformation) => {
+                    acc[transformation.hog_function.id] = transformation.hog_function.execution_order || 0
+                    return acc
+                },
+                {} as Record<string, number>
+            )
             setInitialOrders(orders)
         }
     }, [reorderTransformationsModalOpen, enabledTransformations])
@@ -404,12 +409,15 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
             const to = sortedTransformations.findIndex((d) => d.id === over.id)
             const newSortedDestinations = arrayMove(sortedTransformations, from, to)
 
-            const newTemporaryOrder = newSortedDestinations.reduce((acc, destination, index) => {
-                if (destination.hog_function?.id) {
-                    acc[destination.hog_function.id] = index + 1
-                }
-                return acc
-            }, {} as Record<string, number>)
+            const newTemporaryOrder = newSortedDestinations.reduce(
+                (acc, destination, index) => {
+                    if (destination.hog_function?.id) {
+                        acc[destination.hog_function.id] = index + 1
+                    }
+                    return acc
+                },
+                {} as Record<string, number>
+            )
 
             setTemporaryTransformationOrder(newTemporaryOrder)
         }
@@ -417,13 +425,16 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
 
     const handleSaveOrder = (): void => {
         // Compare and only include changed orders
-        const changedOrders = Object.entries(temporaryTransformationOrder).reduce((acc, [id, newOrder]) => {
-            const originalOrder = initialOrders[id]
-            if (originalOrder !== newOrder) {
-                acc[id] = newOrder
-            }
-            return acc
-        }, {} as Record<string, number>)
+        const changedOrders = Object.entries(temporaryTransformationOrder).reduce(
+            (acc, [id, newOrder]) => {
+                const originalOrder = initialOrders[id]
+                if (originalOrder !== newOrder) {
+                    acc[id] = newOrder
+                }
+                return acc
+            },
+            {} as Record<string, number>
+        )
 
         // Only send if there are changes
         if (Object.keys(changedOrders).length > 0) {

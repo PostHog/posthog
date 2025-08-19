@@ -1,4 +1,3 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
@@ -6,13 +5,16 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { LiquidRenderer } from 'lib/utils/liquid'
-import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -44,6 +46,7 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
+    HogWatcherState,
     PersonType,
     PipelineNodeTab,
     PipelineStage,
@@ -121,7 +124,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
             sanitizedInputs[inputSchema.key] = {
                 value: value,
-                templating: templatingEnabled ? input?.templating ?? 'hog' : undefined,
+                templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
             }
         })
 
@@ -170,10 +173,13 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
             .filter((t) => t.include_by_default)
             .map((template) => ({
                 ...template,
-                inputs: template.inputs_schema?.reduce((acc, input) => {
-                    acc[input.key] = { value: input.default }
-                    return acc
-                }, {} as Record<string, CyclotronJobInputType>),
+                inputs: template.inputs_schema?.reduce(
+                    (acc, input) => {
+                        acc[input.key] = { value: input.default }
+                        return acc
+                    },
+                    {} as Record<string, CyclotronJobInputType>
+                ),
             }))
     }
 
@@ -302,7 +308,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
@@ -654,10 +660,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         type === 'site_app'
                             ? 'Site apps'
                             : type === 'transformation'
-                            ? 'Transformations'
-                            : type === 'source_webhook'
-                            ? 'Sources'
-                            : 'Destinations'
+                              ? 'Transformations'
+                              : type === 'source_webhook'
+                                ? 'Sources'
+                                : 'Destinations'
                     payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
@@ -665,7 +671,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
-        logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
+        logicProps: [() => [(_, props) => props], (props: HogFunctionConfigurationLogicProps) => props],
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
@@ -810,7 +816,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         willReEnableOnSave: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
-                return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
+                const hogState = hogFunction?.status?.state ?? 0
+                return configuration?.enabled && hogState === HogWatcherState.disabled
             },
         ],
 
@@ -841,22 +848,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               },
                           }
                         : contextId === 'activity-log'
-                        ? {
-                              event: '$activity_log_entry_created',
-                              properties: {
-                                  activity: 'created',
-                                  scope: 'Insight',
-                                  item_id: 'abcdef',
-                              },
-                          }
-                        : {
-                              event: '$pageview',
-                              properties: {
-                                  $current_url: currentUrl,
-                                  $browser: 'Chrome',
-                                  this_is_an_example_event: true,
-                              },
-                          }),
+                          ? {
+                                event: '$activity_log_entry_created',
+                                properties: {
+                                    activity: 'created',
+                                    scope: 'Insight',
+                                    item_id: 'abcdef',
+                                },
+                            }
+                          : {
+                                event: '$pageview',
+                                properties: {
+                                    $current_url: currentUrl,
+                                    $browser: 'Chrome',
+                                    $ip: '89.160.20.129',
+                                    this_is_an_example_event: true,
+                                },
+                            }),
                 }
                 const globals: CyclotronJobInvocationGlobals = {
                     event,
@@ -1195,6 +1203,38 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {
                 return !!lastEventQuery
+            },
+        ],
+
+        showFilters: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        showExpectedVolume: [
+            (s) => [s.type, s.sourceUsesEvents],
+            (type, sourceUsesEvents) => {
+                return sourceUsesEvents && ['destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        canEditSource: [
+            (s) => [s.type, s.template, s.hogFunction],
+            (type, template, hogFunction) => {
+                return (
+                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
+                    (type === 'destination' &&
+                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
+                )
+            },
+        ],
+
+        showTesting: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'transformation'].includes(type)
             },
         ],
     })),

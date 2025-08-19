@@ -32,9 +32,12 @@ pub fn decode_request(
             FlagRequest::from_bytes(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
-        _ => Err(FlagError::RequestDecodingError(format!(
-            "unsupported content type: {content_type}"
-        ))),
+        _ => {
+            tracing::warn!("unsupported content type: {}", content_type);
+            Err(FlagError::RequestDecodingError(format!(
+                "unsupported content type: {content_type}"
+            )))
+        }
     }
 }
 
@@ -48,9 +51,12 @@ fn decode_body(
         return match compression {
             Compression::Gzip => decompress_gzip(body),
             Compression::Base64 => decode_base64(body),
-            Compression::Unsupported => Err(FlagError::RequestDecodingError(
-                "Unsupported compression type".to_string(),
-            )),
+            Compression::Unsupported => {
+                tracing::warn!("unsupported compression type");
+                Err(FlagError::RequestDecodingError(
+                    "Unsupported compression type".to_string(),
+                ))
+            }
         };
     }
 
@@ -87,16 +93,33 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     let mut decoder = GzDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed).map_err(|e| {
-        tracing::debug!("gzip decompression failed: {}", e);
-        FlagError::RequestDecodingError(format!("gzip decompression failed: {}", e))
+        tracing::warn!("gzip decompression failed: {}", e);
+        FlagError::RequestDecodingError(format!("gzip decompression failed: {e}"))
     })?;
     Ok(Bytes::from(decompressed))
 }
 
 fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
-    let decoded = general_purpose::STANDARD
-        .decode(body)
-        .map_err(|e| FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e)))?;
+    // Convert to string and apply URL decoding like base64_decode in Python decide
+    let body_str = String::from_utf8_lossy(&body);
+    let url_decoded = percent_decode(body_str.as_bytes())
+        .decode_utf8()
+        .map_err(|e| {
+            tracing::warn!("Failed to URL decode base64 data: {}", e);
+            FlagError::RequestDecodingError(format!("Failed to URL decode: {e}"))
+        })?;
+
+    // Remove whitespace and add padding if necessary
+    let mut cleaned = url_decoded.replace(" ", "");
+    let padding_needed = cleaned.len() % 4;
+    if padding_needed > 0 {
+        cleaned.push_str(&"=".repeat(4 - padding_needed));
+    }
+
+    let decoded = general_purpose::STANDARD.decode(cleaned).map_err(|e| {
+        tracing::warn!("Base64 decoding error: {}", e);
+        FlagError::RequestDecodingError(format!("Base64 decoding error: {e}"))
+    })?;
     Ok(Bytes::from(decoded))
 }
 
@@ -106,7 +129,7 @@ pub fn decode_form_data(
 ) -> Result<FlagRequest, FlagError> {
     // Convert bytes to string first so we can manipulate it
     let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
-        tracing::debug!("Invalid UTF-8 in form data: {}", e);
+        tracing::warn!("Invalid UTF-8 in form data: {}", e);
         FlagError::RequestDecodingError("Invalid UTF-8 in form data".into())
     })?;
 
@@ -114,7 +137,7 @@ pub fn decode_form_data(
     let decoded_form = percent_decode(form_data.as_bytes())
         .decode_utf8()
         .map_err(|e| {
-            tracing::debug!("Failed to URL decode form data: {}", e);
+            tracing::warn!("Failed to URL decode form data: {}", e);
             FlagError::RequestDecodingError("Failed to URL decode form data".into())
         })?;
 
@@ -148,15 +171,17 @@ pub fn decode_form_data(
     // Handle compression if specified (we don't support gzip for form-urlencoded data)
     let decoded = match compression {
         Some(Compression::Gzip) => {
+            tracing::warn!("Gzip compression not supported for form-urlencoded data");
             return Err(FlagError::RequestDecodingError(
                 "Gzip compression not supported for form-urlencoded data".into(),
-            ))
+            ));
         }
         Some(Compression::Base64) | None => decode_base64(Bytes::from(cleaned_base64))?,
         Some(Compression::Unsupported) => {
+            tracing::warn!("Unsupported compression type for form-urlencoded data");
             return Err(FlagError::RequestDecodingError(
                 "Unsupported compression type".into(),
-            ))
+            ));
         }
     };
 
@@ -179,7 +204,7 @@ pub fn decode_form_data(
 
     // Parse JSON into FlagRequest
     serde_json::from_str(&json_str).map_err(|e| {
-        tracing::debug!("failed to parse JSON: {}", e);
+        tracing::warn!("failed to parse JSON: {}", e);
         FlagError::RequestDecodingError("invalid JSON structure".into())
     })
 }
@@ -271,5 +296,27 @@ mod tests {
         let request = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_base64_with_url_encoding() {
+        // This test verifies the fix for URL-encoded base64 data
+        // Base64 with padding: eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo=
+        // URL-encoded (= becomes %3D): eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo%3D
+        let url_encoded_base64 = "eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo%3D";
+        let body = Bytes::from(url_encoded_base64);
+
+        let headers = HeaderMap::new();
+        let query = FlagsQueryParams {
+            compression: Some(Compression::Base64),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, body, &query);
+        assert!(result.is_ok());
+
+        let request = result.unwrap();
+        assert_eq!(request.distinct_id, Some("user".to_string()));
+        assert_eq!(request.token, Some("test".to_string()));
     }
 }

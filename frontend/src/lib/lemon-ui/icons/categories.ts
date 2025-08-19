@@ -170,6 +170,27 @@ export const TECHNOLOGY = {
         'IconPointer',
         'IconImage',
     ],
+    LANGUAGES: [
+        'IconJavascript',
+        'IconReact',
+        'IconGo',
+        'IconNode',
+        'IconPython',
+        'IconRust',
+        'IconAndroid',
+        'IconApple',
+        'IconJava',
+        'IconPHP',
+        'IconKotlin',
+        'IconDart',
+        'IconFlutter',
+        'IconCSharp',
+        'IconC',
+        'IconCPlusPlus',
+        'IconRuby',
+        'IconSwift',
+        'IconElixir',
+    ],
 }
 
 export const ELEMENTS = {

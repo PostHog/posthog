@@ -1,8 +1,9 @@
-import { SceneExport } from 'scenes/sceneTypes'
+import { useValues } from 'kea'
+
+import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useValues } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,

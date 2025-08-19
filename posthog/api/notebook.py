@@ -260,7 +260,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False, visibility=Notebook.Visibility.DEFAULT)
             queryset = self._filter_list_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)
