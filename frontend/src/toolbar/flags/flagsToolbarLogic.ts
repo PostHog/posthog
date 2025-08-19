@@ -180,82 +180,83 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         ],
         countFlagsOverridden: [(s) => [s.localOverrides], (localOverrides) => Object.keys(localOverrides).length],
     }),
-    listeners(({ actions, values }) => ({
-        checkLocalOverrides: () => {
+    listeners(({ actions, values }) => {
+        const clearFeatureFlagOverrides = (): void => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
-                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
-                actions.storeLocalOverrides(locallyOverrideFeatureFlags)
-            }
-        },
-        setOverriddenUserFlag: ({ flagKey, overrideValue, payloadOverride }) => {
-            const clientPostHog = values.posthog
-            if (clientPostHog) {
-                const payloads = payloadOverride ? { [flagKey]: payloadOverride } : undefined
-                clientPostHog.featureFlags.overrideFeatureFlags({
-                    flags: { ...values.localOverrides, [flagKey]: overrideValue },
-                    payloads: payloads,
-                })
-                toolbarPosthogJS.capture('toolbar feature flag overridden')
-                actions.checkLocalOverrides()
-                if (payloadOverride) {
-                    actions.setPayloadOverride(flagKey, payloadOverride)
-                }
+                clientPostHog.featureFlags.overrideFeatureFlags(false)
                 clientPostHog.featureFlags.reloadFeatureFlags()
+                actions.storeLocalOverrides({})
             }
-        },
-        deleteOverriddenUserFlag: ({ flagKey }) => {
-            const clientPostHog = values.posthog
-            if (clientPostHog) {
-                const updatedFlags = { ...values.localOverrides }
-                delete updatedFlags[flagKey]
-                if (Object.keys(updatedFlags).length > 0) {
-                    clientPostHog.featureFlags.overrideFeatureFlags({ flags: updatedFlags })
-                } else {
-                    clientPostHog.featureFlags.overrideFeatureFlags(false)
-                }
-                toolbarPosthogJS.capture('toolbar feature flag override removed')
-                actions.checkLocalOverrides()
-                clientPostHog.featureFlags.reloadFeatureFlags()
-            }
-        },
-        savePayloadOverride: ({ flagKey }) => {
-            try {
-                const draftPayload = values.draftPayloads[flagKey]
-                if (!draftPayload || draftPayload.trim() === '') {
-                    actions.setPayloadError(flagKey, null)
-                    actions.setPayloadOverride(flagKey, null)
-                    actions.setOverriddenUserFlag(flagKey, true)
-                    actions.setPayloadEditorOpen(flagKey, false)
-                    return
-                }
+        }
 
-                const payload = JSON.parse(draftPayload)
-                actions.setPayloadError(flagKey, null)
-                actions.setOverriddenUserFlag(flagKey, true, payload)
-                actions.setPayloadEditorOpen(flagKey, false)
-            } catch (e) {
-                actions.setPayloadError(flagKey, 'Invalid JSON')
-                console.error('Invalid JSON:', e)
-            }
-        },
-        logout: () => {
-            const clientPostHog = values.posthog
-            if (clientPostHog) {
-                clientPostHog.featureFlags.overrideFeatureFlags(false)
-                clientPostHog.featureFlags.reloadFeatureFlags()
-                actions.storeLocalOverrides({})
-            }
-        },
-        tokenExpired: () => {
-            const clientPostHog = values.posthog
-            if (clientPostHog) {
-                clientPostHog.featureFlags.overrideFeatureFlags(false)
-                clientPostHog.featureFlags.reloadFeatureFlags()
-                actions.storeLocalOverrides({})
-            }
-        },
-    })),
+        return {
+            checkLocalOverrides: () => {
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
+                    actions.storeLocalOverrides(locallyOverrideFeatureFlags)
+                }
+            },
+            setOverriddenUserFlag: ({ flagKey, overrideValue, payloadOverride }) => {
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    const payloads = payloadOverride ? { [flagKey]: payloadOverride } : undefined
+                    clientPostHog.featureFlags.overrideFeatureFlags({
+                        flags: { ...values.localOverrides, [flagKey]: overrideValue },
+                        payloads: payloads,
+                    })
+                    toolbarPosthogJS.capture('toolbar feature flag overridden')
+                    actions.checkLocalOverrides()
+                    if (payloadOverride) {
+                        actions.setPayloadOverride(flagKey, payloadOverride)
+                    }
+                    clientPostHog.featureFlags.reloadFeatureFlags()
+                }
+            },
+            deleteOverriddenUserFlag: ({ flagKey }) => {
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    const updatedFlags = { ...values.localOverrides }
+                    delete updatedFlags[flagKey]
+                    if (Object.keys(updatedFlags).length > 0) {
+                        clientPostHog.featureFlags.overrideFeatureFlags({ flags: updatedFlags })
+                    } else {
+                        clientPostHog.featureFlags.overrideFeatureFlags(false)
+                    }
+                    toolbarPosthogJS.capture('toolbar feature flag override removed')
+                    actions.checkLocalOverrides()
+                    clientPostHog.featureFlags.reloadFeatureFlags()
+                }
+            },
+            savePayloadOverride: ({ flagKey }) => {
+                try {
+                    const draftPayload = values.draftPayloads[flagKey]
+                    if (!draftPayload || draftPayload.trim() === '') {
+                        actions.setPayloadError(flagKey, null)
+                        actions.setPayloadOverride(flagKey, null)
+                        actions.setOverriddenUserFlag(flagKey, true)
+                        actions.setPayloadEditorOpen(flagKey, false)
+                        return
+                    }
+
+                    const payload = JSON.parse(draftPayload)
+                    actions.setPayloadError(flagKey, null)
+                    actions.setOverriddenUserFlag(flagKey, true, payload)
+                    actions.setPayloadEditorOpen(flagKey, false)
+                } catch (e) {
+                    actions.setPayloadError(flagKey, 'Invalid JSON')
+                    console.error('Invalid JSON:', e)
+                }
+            },
+            logout: () => {
+                clearFeatureFlagOverrides()
+            },
+            tokenExpired: () => {
+                clearFeatureFlagOverrides()
+            },
+        }
+    }),
     permanentlyMount(),
 ])
 
