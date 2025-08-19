@@ -31,9 +31,9 @@ export class RecipientPreferencesService {
         let identifier
 
         if (action.type === 'function_sms') {
-            identifier = invocation.state.globals.inputs?.to_number?.value
+            identifier = invocation.state.globals.inputs?.to_number
         } else if (action.type === 'function_email') {
-            identifier = invocation.state.globals.inputs?.email?.value?.to
+            identifier = invocation.state.globals.inputs?.email?.to?.email
         }
 
         if (!identifier) {
