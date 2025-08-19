@@ -1085,7 +1085,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         <>
                             <div className="mb-8">
                                 <div className="inline-flex items-center gap-2 mb-3">
-                                    <h3 className="l3 mb-0">Evaluation runtime</h3>
+                                    <h3 className="l4 mb-0">Evaluation runtime</h3>
                                     <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in a runtime where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
                                         <IconInfo className="text-secondary text-lg" />
                                     </Tooltip>
@@ -1154,7 +1154,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     )}
 
                     <div className="mb-8">
-                        <h3 className="l3">Served value</h3>
+                        <h3 className="l4">Served value</h3>
                         <div className="mb-2" data-attr="feature-flag-served-value-segmented-button">
                             <LemonSegmentedButton
                                 size="small"
@@ -1220,7 +1220,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {!multivariateEnabled && (
                         <div className="mb-6 flex flex-col gap-y-4">
                             <div>
-                                <h3 className="l3">Payload</h3>
+                                <h3 className="l4">Payload</h3>
                                 {readOnly ? (
                                     featureFlag.filters.payloads?.['true'] ? (
                                         <JSONEditorInput
