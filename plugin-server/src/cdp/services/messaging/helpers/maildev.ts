@@ -16,7 +16,7 @@ export const mailDevTransport =
           })
         : null
 
-export const mailDevWebUrl = `http://${process.env.MAILDEV_HOST || 'localhost'}:${process.env.MAILDEV_WEB_PORT || 1080}`
+export const mailDevWebUrl = `http://${process.env.MAILDEV_HOST || '127.0.0.1'}:${process.env.MAILDEV_WEB_PORT || 1080}`
 
 registerShutdownHandler(() => {
     return Promise.resolve(mailDevTransport?.close())
