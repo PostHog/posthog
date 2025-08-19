@@ -39,4 +39,3 @@ def run_evaluation():
     project_ids = export_projects()
     project_ids.map(snapshot_postgres_project_data)
     project_ids.map(snapshot_clickhouse_project_data)
-    project_ids.map(snapshot_clickhouse_project_data)
