@@ -25,6 +25,7 @@ import {
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
+import { onShutdown } from './lifecycle'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
@@ -349,7 +350,12 @@ export class PluginServer {
         })
 
         logger.info('💤', ' Shutting down services...')
-        await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
+        await Promise.allSettled([
+            this.pubsub?.stop(),
+            ...this.services.map((s) => s.onShutdown()),
+            posthogShutdown(),
+            onShutdown(),
+        ])
 
         if (this.hub) {
             logger.info('💤', ' Shutting down plugins...')
