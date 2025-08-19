@@ -381,14 +381,14 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         raise serializers.ValidationError({"hog": "Hog code has errors."})
 
 
-def has_data_pipelines_addon(self, user: User, team: Team) -> bool:
+def has_data_pipelines_addon(user: User, team: Team) -> bool:
     if team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES):
         return True
 
     return posthoganalytics.feature_enabled(
         "cdp-new-pricing",
         str(user.distinct_id),
-        groups={"organization": str(self.team.organization.id)},
-        group_properties={"organization": {"id": str(self.team.organization.id)}},
+        groups={"organization": str(team.organization.id)},
+        group_properties={"organization": {"id": str(team.organization.id)}},
         send_feature_flag_events=False,
     )
