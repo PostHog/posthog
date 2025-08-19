@@ -132,29 +132,15 @@ def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
     if is_cache_warming():
         return
 
-    if _is_short_lived_context():
-        # Use pushed registry for short-lived contexts (Celery/Temporal)
-        with pushed_metrics_registry("query_cache_hits") as registry:
-            metrics = _get_cache_metrics(registry)
-            metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
-    else:
-        # Use default metrics for long-running processes
-        metrics = _get_cache_metrics()
+    with pushed_metrics_registry("query_cache_writes") if _is_short_lived_context() else None as registry:
+        metrics = _get_cache_metrics(registry)
         metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
 
 
 def count_cache_write_data(team_id: int, data_size: int) -> None:
     """Count cache write operations and data size metrics."""
-    if _is_short_lived_context():
-        # Use pushed registry for short-lived contexts (Celery/Temporal)
-        with pushed_metrics_registry("query_cache_writes") as registry:
-            metrics = _get_cache_metrics(registry)
-            metrics.write_counter.labels(team_id=team_id).inc()
-            metrics.bytes_counter.labels(team_id=team_id).inc(data_size)
-            metrics.size_histogram.labels(team_id=team_id).observe(data_size)
-    else:
-        # Use default metrics for long-running processes
-        metrics = _get_cache_metrics()
+    with pushed_metrics_registry("query_cache_writes") if _is_short_lived_context() else None as registry:
+        metrics = _get_cache_metrics(registry)
         metrics.write_counter.labels(team_id=team_id).inc()
         metrics.bytes_counter.labels(team_id=team_id).inc(data_size)
         metrics.size_histogram.labels(team_id=team_id).observe(data_size)
