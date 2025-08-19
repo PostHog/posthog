@@ -3,7 +3,7 @@ from typing import NamedTuple, Optional
 
 from django.conf import settings
 from django.core.cache import cache
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Histogram, CollectorRegistry
 
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.utils import get_safe_cache
@@ -14,8 +14,6 @@ from posthog.exceptions_capture import capture_exception
 
 
 class CacheMetrics(NamedTuple):
-    """Container for all cache-related Prometheus metrics."""
-
     hit_counter: Counter
     write_counter: Counter
     bytes_counter: Counter
@@ -69,105 +67,59 @@ def _is_short_lived_context() -> bool:
     return _is_celery_context() or _is_temporal_context()
 
 
-def _get_cache_hit_counter(registry=None):
-    """Get cache hit counter, using provided registry or lazy-initialized default."""
+def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMetrics:
+    """Create all cache metrics with optional registry."""
+    # Create metrics with conditional registry
+    hit_counter = Counter(
+        name="posthog_query_cache_hit_total",
+        documentation="Whether we could fetch the query from the cache or not.",
+        labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
+        registry=registry,
+    )
+
+    write_counter = Counter(
+        name="posthog_query_cache_write_total",
+        documentation="When a query result was persisted in the cache.",
+        labelnames=[LABEL_TEAM_ID],
+        registry=registry,
+    )
+
+    bytes_counter = Counter(
+        name="posthog_query_cache_write_bytes_total",
+        documentation="Total bytes written to cache (uncompressed JSON)",
+        labelnames=[LABEL_TEAM_ID],
+        registry=registry,
+    )
+
+    size_histogram = Histogram(
+        name="posthog_query_cache_write_size_bytes",
+        documentation="Distribution of cache write data sizes in bytes (uncompressed JSON)",
+        labelnames=[LABEL_TEAM_ID],
+        buckets=[
+            100,  # Small responses < 100B
+            1000,  # 100B - 1KB
+            10000,  # 1KB - 10KB
+            100000,  # 10KB - 100KB
+            1000000,  # 100KB - 1MB
+            10000000,  # 1MB - 10MB
+            100000000,  # 10MB - 100MB
+            float("inf"),
+        ],
+        registry=registry,
+    )
+
+    return CacheMetrics(hit_counter, write_counter, bytes_counter, size_histogram)
+
+
+def _get_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMetrics:
+    """Get all cache metrics, using provided registry or lazy-initialized defaults."""
     if registry is not None:
-        # Create new counter for pushed registry
-        return Counter(
-            "posthog_query_cache_hit_total",
-            "Whether we could fetch the query from the cache or not.",
-            labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
-            registry=registry,
-        )
+        return _create_cache_metrics(registry)
     else:
-        # Lazy-initialize all default metrics if needed
-        _ensure_default_metrics()
-        return _default_metrics.hit_counter
-
-
-def _ensure_default_metrics():
-    """Lazy-initialize all default metrics in one go."""
-    global _default_metrics
-
-    if _default_metrics is None:
-        hit_counter = Counter(
-            "posthog_query_cache_hit_total",
-            "Whether we could fetch the query from the cache or not.",
-            labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
-        )
-
-        write_counter = Counter(
-            "posthog_query_cache_write_total",
-            "When a query result was persisted in the cache.",
-            labelnames=[LABEL_TEAM_ID],
-        )
-
-        bytes_counter = Counter(
-            "posthog_query_cache_write_bytes_total",
-            "Total bytes written to cache (uncompressed JSON)",
-            labelnames=[LABEL_TEAM_ID],
-        )
-
-        size_histogram = Histogram(
-            "posthog_query_cache_write_size_bytes",
-            "Distribution of cache write data sizes in bytes (uncompressed JSON)",
-            labelnames=[LABEL_TEAM_ID],
-            buckets=[
-                100,  # Small responses < 100B
-                1000,  # 100B - 1KB
-                10000,  # 1KB - 10KB
-                100000,  # 10KB - 100KB
-                1000000,  # 100KB - 1MB
-                10000000,  # 1MB - 10MB
-                100000000,  # 10MB - 100MB
-                float("inf"),
-            ],
-        )
-
-        _default_metrics = CacheMetrics(hit_counter, write_counter, bytes_counter, size_histogram)
-
-
-def _get_cache_write_metrics(registry=None):
-    """Get cache write metrics, using provided registry or lazy-initialized defaults."""
-    if registry is not None:
-        # Create new metrics for pushed registry
-        write_counter = Counter(
-            "posthog_query_cache_write_total",
-            "When a query result was persisted in the cache.",
-            labelnames=[LABEL_TEAM_ID],
-            registry=registry,
-        )
-
-        bytes_counter = Counter(
-            "posthog_query_cache_write_bytes_total",
-            "Total bytes written to cache (uncompressed JSON)",
-            labelnames=[LABEL_TEAM_ID],
-            registry=registry,
-        )
-
-        size_histogram = Histogram(
-            "posthog_query_cache_write_size_bytes",
-            "Distribution of cache write data sizes in bytes (uncompressed JSON)",
-            labelnames=[LABEL_TEAM_ID],
-            buckets=[
-                100,  # Small responses < 100B
-                1000,  # 100B - 1KB
-                10000,  # 1KB - 10KB
-                100000,  # 10KB - 100KB
-                1000000,  # 100KB - 1MB
-                10000000,  # 1MB - 10MB
-                100000000,  # 10MB - 100MB
-                float("inf"),
-            ],
-            registry=registry,
-        )
-
-        return write_counter, bytes_counter, size_histogram
-    else:
-        # Lazy-initialize all default metrics if needed
-        _ensure_default_metrics()
-        # Return write metrics from the named tuple
-        return _default_metrics.write_counter, _default_metrics.bytes_counter, _default_metrics.size_histogram
+        global _default_metrics
+        if _default_metrics is None:
+            _default_metrics = _create_cache_metrics()
+        return _default_metrics
 
 
 def is_cache_warming() -> bool:
@@ -183,12 +135,12 @@ def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
     if _is_short_lived_context():
         # Use pushed registry for short-lived contexts (Celery/Temporal)
         with pushed_metrics_registry("query_cache_hits") as registry:
-            counter = _get_cache_hit_counter(registry)
-            counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
+            metrics = _get_cache_metrics(registry)
+            metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
     else:
         # Use default metrics for long-running processes
-        counter = _get_cache_hit_counter()
-        counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
+        metrics = _get_cache_metrics()
+        metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
 
 
 def count_cache_write_data(team_id: int, data_size: int) -> None:
@@ -196,18 +148,16 @@ def count_cache_write_data(team_id: int, data_size: int) -> None:
     if _is_short_lived_context():
         # Use pushed registry for short-lived contexts (Celery/Temporal)
         with pushed_metrics_registry("query_cache_writes") as registry:
-            write_counter, bytes_counter, size_histogram = _get_cache_write_metrics(registry)
-
-            write_counter.labels(team_id=team_id).inc()
-            bytes_counter.labels(team_id=team_id).inc(data_size)
-            size_histogram.labels(team_id=team_id).observe(data_size)
+            metrics = _get_cache_metrics(registry)
+            metrics.write_counter.labels(team_id=team_id).inc()
+            metrics.bytes_counter.labels(team_id=team_id).inc(data_size)
+            metrics.size_histogram.labels(team_id=team_id).observe(data_size)
     else:
         # Use default metrics for long-running processes
-        write_counter, bytes_counter, size_histogram = _get_cache_write_metrics()
-
-        write_counter.labels(team_id=team_id).inc()
-        bytes_counter.labels(team_id=team_id).inc(data_size)
-        size_histogram.labels(team_id=team_id).observe(data_size)
+        metrics = _get_cache_metrics()
+        metrics.write_counter.labels(team_id=team_id).inc()
+        metrics.bytes_counter.labels(team_id=team_id).inc(data_size)
+        metrics.size_histogram.labels(team_id=team_id).observe(data_size)
 
 
 class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
