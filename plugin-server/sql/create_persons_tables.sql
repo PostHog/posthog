@@ -110,7 +110,7 @@ CREATE INDEX IF NOT EXISTS posthog_cohortpeople_cohort_person_idx
 CREATE TABLE IF NOT EXISTS posthog_featureflaghashkeyoverride (
     id BIGSERIAL PRIMARY KEY,
     team_id INTEGER NOT NULL,
-    person_id BIGINT NOT NULL,
+    person_id BIGINT NOT NULL REFERENCES posthog_person(id) ON DELETE CASCADE,
     feature_flag_key TEXT NOT NULL,
     hash_key TEXT NOT NULL
 );
