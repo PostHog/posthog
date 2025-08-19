@@ -18,6 +18,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
     path(['toolbar', 'flags', 'flagsToolbarLogic']),
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
+        actions: [toolbarConfigLogic, ['logout', 'tokenExpired']],
     })),
     actions({
         getUserFlags: true,
@@ -236,6 +237,22 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             } catch (e) {
                 actions.setPayloadError(flagKey, 'Invalid JSON')
                 console.error('Invalid JSON:', e)
+            }
+        },
+        logout: () => {
+            const clientPostHog = values.posthog
+            if (clientPostHog) {
+                clientPostHog.featureFlags.overrideFeatureFlags(false)
+                clientPostHog.featureFlags.reloadFeatureFlags()
+                actions.storeLocalOverrides({})
+            }
+        },
+        tokenExpired: () => {
+            const clientPostHog = values.posthog
+            if (clientPostHog) {
+                clientPostHog.featureFlags.overrideFeatureFlags(false)
+                clientPostHog.featureFlags.reloadFeatureFlags()
+                actions.storeLocalOverrides({})
             }
         },
     })),
