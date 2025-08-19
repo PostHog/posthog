@@ -46,8 +46,10 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         // `source` is updating via a poll, and so we dont't want this updating when the object reference updates but not the actual data
         // It's also the reason why it can't live in the kea logic - the selector will update on object reference changes
     }, [
+        // oxlint-disable-next-line exhaustive-deps
         JSON.stringify(source?.job_inputs ?? {}),
-        JSON.stringify(sourceFieldConfig)
+        // oxlint-disable-next-line exhaustive-deps
+        JSON.stringify(sourceFieldConfig),
     ])
 
     if (!sourceFieldConfig || !source) {
