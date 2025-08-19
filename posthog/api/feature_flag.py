@@ -72,6 +72,7 @@ from posthog.models.feature_flag import (
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.local_evaluation import _get_flag_properties_from_filters
+from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.surveys.survey import Survey
 from posthog.models.property import Property
 from posthog.schema import PropertyOperator
@@ -445,7 +446,7 @@ class FeatureFlagSerializer(
         except FeatureFlag.DoesNotExist:
             raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
 
-    def _get_properties_from_filters(self, filters: dict, property_type: str | None = None):
+    def _get_properties_from_filters(self, filters: dict, property_type: PropertyFilterType | None = None):
         """
         Extract properties from filters by iterating through groups.
 
@@ -463,7 +464,7 @@ class FeatureFlagSerializer(
 
     def _get_cohort_properties_from_filters(self, filters: dict):
         """Extract cohort properties from filters."""
-        return list(self._get_properties_from_filters(filters, "cohort"))
+        return list(self._get_properties_from_filters(filters, PropertyFilterType.COHORT))
 
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""

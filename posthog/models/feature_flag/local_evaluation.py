@@ -5,7 +5,7 @@ import structlog
 from typing import Any, cast, Union
 from collections.abc import Generator
 
-from posthog.models.feature_flag.types import FlagProperty, FlagFilters
+from posthog.models.feature_flag.types import FlagProperty, FlagFilters, PropertyFilterType
 
 from django.db.models import Q
 from django.db import transaction
@@ -40,7 +40,7 @@ def _get_properties_from_filters(
 
 def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty, None, None]:
     """Extract flag properties from filters."""
-    return _get_properties_from_filters(filters, "flag")
+    return _get_properties_from_filters(filters, PropertyFilterType.FLAG)
 
 
 def _resolve_flag_dependency_key(flag_prop: FlagProperty, flag_id_to_key: dict[str, str]) -> str:

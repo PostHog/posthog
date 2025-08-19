@@ -1,6 +1,16 @@
 """Type definitions for feature flag data structures."""
 
+from enum import StrEnum
 from typing import Any, TypedDict
+
+
+class PropertyFilterType(StrEnum):
+    """Enum for property filter types used in feature flag filtering."""
+
+    FLAG = "flag"
+    COHORT = "cohort"
+    PERSON = "person"
+    GROUP = "group"
 
 
 class FlagProperty(TypedDict, total=False):
