@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
 
+import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import { UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
@@ -79,6 +81,7 @@ const Value = ({
     initiallyOpen = false,
     metadataSource,
     className,
+    operatorAllowlist,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -87,6 +90,7 @@ const Value = ({
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
     className?: string
+    operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
@@ -124,6 +128,7 @@ const Value = ({
                         setFilter={(_, property) => onChange(property)}
                         disablePopover={false}
                         taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
+                        operatorAllowlist={operatorAllowlist}
                     />
                 ) : null
             }
