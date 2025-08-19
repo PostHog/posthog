@@ -260,9 +260,7 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     const encodedFilters: Record<string, string> = {}
 
     if (Object.keys(filters).length > 0) {
-        encodedFilters[SEARCH_PARAM_FILTERS_KEY] = JSON.stringify(
-            objectClean(filters as Record<string, unknown>, { removeNulls: true })
-        )
+        encodedFilters[SEARCH_PARAM_FILTERS_KEY] = JSON.stringify(objectClean(filters as Record<string, unknown>))
     }
 
     return encodedFilters
@@ -272,7 +270,7 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
     return filters.reduce((combined, filter) => {
         Object.keys(filter).forEach((key) => {
             const value = (filter as Record<string, any>)[key]
-            if (value !== null && value !== undefined) {
+            if (value !== undefined) {
                 ;(combined as Record<string, any>)[key] = value
             }
         })

@@ -3,7 +3,7 @@ import './Dashboard.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -23,6 +23,7 @@ import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, 
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
+import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
@@ -121,6 +122,8 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
+                    <DashboardOverridesBanner />
+
                     <div className="Dashboard_filters">
                         <div className="flex gap-2 justify-between">
                             {![

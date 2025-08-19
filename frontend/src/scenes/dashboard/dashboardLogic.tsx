@@ -67,6 +67,7 @@ import {
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     MAX_TILES_FOR_AUTOPREVIEW,
+    SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
     encodeURLFilters,
@@ -810,30 +811,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         intermittentFilters: [
             {
-                date_from: null,
-                date_to: null,
-                properties: null,
-                breakdown_filter: null,
+                date_from: undefined,
+                date_to: undefined,
+                properties: undefined,
+                breakdown_filter: undefined,
             } as DashboardFilter,
             {
                 setDates: (state, { date_from, date_to }) => ({
                     ...state,
-                    date_from: date_from || null,
-                    date_to: date_to || null,
+                    date_from,
+                    date_to,
                 }),
                 setProperties: (state, { properties }) => ({
                     ...state,
-                    properties: properties || null,
+                    properties,
                 }),
                 setBreakdownFilter: (state, { breakdown_filter }) => ({
                     ...state,
-                    breakdown_filter: breakdown_filter || null,
+                    breakdown_filter,
                 }),
                 resetIntermittentFilters: () => ({
-                    date_from: null,
-                    date_to: null,
-                    properties: null,
-                    breakdown_filter: null,
+                    date_from: undefined,
+                    date_to: undefined,
+                    properties: undefined,
+                    breakdown_filter: undefined,
                 }),
             },
         ],
@@ -845,7 +846,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         hasIntermittentFilters: [
             (s) => [s.intermittentFilters],
-            (intermittentFilters) => !isDashboardFilterEmpty(intermittentFilters),
+            (intermittentFilters) => {
+                return Object.values(intermittentFilters).some((filter) => filter !== undefined)
+            },
         ],
         showEditBarApplyPopover: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
@@ -861,7 +864,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         effectiveEditBarFilters: [
             (s) => [s.dashboard, s.temporaryFilters, s.intermittentFilters],
             (dashboard, temporaryFilters, intermittentFilters) => {
-                return combineDashboardFilters(dashboard?.filters || {}, temporaryFilters, intermittentFilters)
+                const effectiveEditBarFilters = combineDashboardFilters(
+                    dashboard?.filters || {},
+                    temporaryFilters,
+                    intermittentFilters
+                )
+                return effectiveEditBarFilters
             },
         ],
         effectiveVariablesAndAssociatedInsights: [
@@ -1237,11 +1245,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
-        resetDashboardFilters: () => {
-            actions.setDates(values.dashboard?.filters.date_from ?? null, values.dashboard?.filters.date_to ?? null)
-            actions.setProperties(values.dashboard?.filters.properties ?? null)
-            actions.setBreakdownFilter(values.dashboard?.filters.breakdown_filter ?? null)
-        },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
@@ -1753,6 +1756,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const { currentLocation } = router.values
             const newSearchParams = { ...currentLocation.searchParams }
             delete newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
+            return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
+        },
+        resetDashboardFilters: () => {
+            const { currentLocation } = router.values
+            const newSearchParams = { ...currentLocation.searchParams }
+            delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
     })),
