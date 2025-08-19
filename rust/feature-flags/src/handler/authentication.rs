@@ -12,13 +12,13 @@ pub async fn parse_and_authenticate(
     let request = decoding::decode_request(&context.headers, context.body.clone(), &context.meta)?;
     let token = request.extract_token()?;
     let verified_token = flag_service.verify_token(&token).await?;
-    
+
     // Only validate distinct_id if flags are NOT disabled
     let distinct_id = if request.is_flags_disabled() {
-        None 
+        None
     } else {
         Some(request.extract_distinct_id()?)
     };
-    
+
     Ok((distinct_id, verified_token, request))
 }

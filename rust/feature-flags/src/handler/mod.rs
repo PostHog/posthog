@@ -41,7 +41,9 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         let (original_distinct_id, verified_token, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
 
-        let distinct_id_for_logging = original_distinct_id.clone().unwrap_or_else(|| "disabled".to_string());
+        let distinct_id_for_logging = original_distinct_id
+            .clone()
+            .unwrap_or_else(|| "disabled".to_string());
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
@@ -71,7 +73,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 &context,
                 &request,
                 &team,
-                original_distinct_id.expect("distinct_id should be present when flags are not disabled"),
+                original_distinct_id
+                    .expect("distinct_id should be present when flags are not disabled"),
             )
             .await?;
 
