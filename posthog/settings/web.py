@@ -93,6 +93,8 @@ MIDDLEWARE = [
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
+    "posthog.middleware.ImpersonateMiddleware",
+    "posthog.middleware.MFAEnforcementMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",

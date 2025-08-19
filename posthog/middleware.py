@@ -32,7 +32,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.mfa_session import is_mfa_verified_in_session
+from posthog.mfa_session import is_mfa_verified_in_session, set_mfa_verified_in_session
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Organization, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
@@ -628,6 +628,18 @@ class AutoLogoutImpersonateMiddleware:
             else:
                 restore_original_login(request)
                 return redirect("/admin/")
+
+        return self.get_response(request)
+
+
+class ImpersonateMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if is_impersonated_session(request):
+            if request.user and request.user.is_authenticated and not is_mfa_verified_in_session(request):
+                set_mfa_verified_in_session(request)
 
         return self.get_response(request)
 
