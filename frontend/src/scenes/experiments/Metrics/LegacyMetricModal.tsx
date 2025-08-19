@@ -1,14 +1,15 @@
-import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
-import { modalsLogic } from '../modalsLogic'
 
 export function LegacyMetricModal({
     experimentId,

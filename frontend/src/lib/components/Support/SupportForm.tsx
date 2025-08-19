@@ -1,31 +1,33 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useRef } from 'react'
+
 import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
-    lemonToast,
     Link,
     Tooltip,
+    lemonToast,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useRef } from 'react'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_TICKET_TEMPLATES,
-    supportLogic,
     SupportTicketKind,
     TARGET_AREA_TO_NAME,
+    supportLogic,
 } from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [

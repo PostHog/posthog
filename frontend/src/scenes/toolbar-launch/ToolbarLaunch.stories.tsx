@@ -1,6 +1,9 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -8,8 +11,6 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { TeamPublicType } from '~/types'
 
 import { ToolbarLaunch } from './ToolbarLaunch'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/ToolbarLaunch',

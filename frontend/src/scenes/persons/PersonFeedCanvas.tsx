@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+
 import { uuid } from 'lib/utils'
-import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 
 import { PersonType } from '~/types'
 

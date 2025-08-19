@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function PreAggregatedTablesSetting(): JSX.Element {

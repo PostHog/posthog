@@ -1,6 +1,9 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -10,11 +13,9 @@ import { ActionStepType, ActionType, ActivityScope, Breadcrumb, HogFunctionType,
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface ActionLogicProps {
-    id?: ActionType['id']
+    id: ActionType['id']
 }
 
 export const actionLogic = kea<actionLogicType>([
@@ -76,6 +77,14 @@ export const actionLogic = kea<actionLogicType>([
         ],
     })),
     selectors({
+        projectTreeRef: [(_, p) => [p.id], (id): ProjectTreeRef => ({ type: 'action', ref: String(id) })],
+        hasCohortFilters: [
+            (s) => [s.action],
+            (action) =>
+                action?.steps?.some((step: ActionStepType) => step.properties?.find((p: any) => p.type === 'cohort')) ??
+                false,
+        ],
+
         breadcrumbs: [
             (s) => [
                 s.action,
@@ -111,16 +120,6 @@ export const actionLogic = kea<actionLogicType>([
                     forceEditMode: !action?.id,
                 },
             ],
-        ],
-        projectTreeRef: [
-            () => [(_, props: ActionLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'action', ref: String(id) }),
-        ],
-        hasCohortFilters: [
-            (s) => [s.action],
-            (action) =>
-                action?.steps?.some((step: ActionStepType) => step.properties?.find((p: any) => p.type === 'cohort')) ??
-                false,
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [

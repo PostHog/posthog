@@ -57,6 +57,7 @@ from .surveys.survey import Survey
 from .file_system.file_system import FileSystem
 from .filters import Filter, RetentionFilter
 from .group import Group
+from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
@@ -154,6 +155,7 @@ __all__ = [
     "FileSystem",
     "Filter",
     "Group",
+    "GroupUsageMetric",
     "GroupTypeMapping",
     "HogFlow",
     "HogFunction",
