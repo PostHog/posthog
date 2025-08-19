@@ -35,7 +35,7 @@ const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
-    const { id, noInspector } = attributes
+    const { id, noInspector, timestampMs } = attributes
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
@@ -107,6 +107,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
         })
     })
 
+    // Seek to timestamp when widget is expanded and has a timestamp
+    useEffect(() => {
+        if (expanded && timestampMs && sessionPlayerMetaData) {
+            seekToTime(timestampMs / 1000) // Convert ms to seconds
+        }
+    }, [expanded, timestampMs, sessionPlayerMetaData]) // oxlint-disable-line exhaustive-deps
+
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />
     }
@@ -143,6 +150,7 @@ export const Settings = ({
 type NotebookNodeRecordingAttributes = {
     id: string
     noInspector: boolean
+    timestampMs?: number
 }
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
@@ -159,6 +167,9 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         },
         noInspector: {
             default: false,
+        },
+        timestampMs: {
+            default: undefined,
         },
     },
     pasteOptions: {
