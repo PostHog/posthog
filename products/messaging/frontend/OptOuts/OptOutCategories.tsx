@@ -7,7 +7,6 @@ import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { NewCategoryModal } from './NewCategoryModal'
 import { OptOutList } from './OptOutList'
@@ -53,7 +52,7 @@ export function OptOutCategories(): JSX.Element {
                                 <div className="text-xs text-muted">{category.description}</div>
                             </div>
                             <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
-                                {capitalizeFirstLetter(category.category_type)}
+                                {category.category_type.toUpperCase()}
                             </LemonTag>
                         </div>
                         <More
