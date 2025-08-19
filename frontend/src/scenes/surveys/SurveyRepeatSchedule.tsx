@@ -30,14 +30,18 @@ function AlwaysScheduleBanner({
     survey: Pick<Survey, 'type' | 'schedule' | 'conditions'>
 }): JSX.Element | null {
     const { setSelectedSection, setSurveyValue } = useActions(surveyLogic)
+    const { hasTargetingSet } = useValues(surveyLogic)
     const doesSurveyHaveWaitPeriod = (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0
 
     const handleWaitPeriodClick = (): void => {
         setSelectedSection(SurveyEditSection.DisplayConditions)
-        setSurveyValue('conditions', {
-            ...survey.conditions,
-            seenSurveyWaitPeriodInDays: 30,
-        })
+        // if the survey has no targeting set, set the url to an empty string so the full section is rendered
+        if (!hasTargetingSet) {
+            setSurveyValue('conditions', {
+                ...survey.conditions,
+                url: '',
+            })
+        }
         // timeout necessary so the section is rendered
         setTimeout(() => {
             document.getElementById('survey-wait-period-input')?.focus()
