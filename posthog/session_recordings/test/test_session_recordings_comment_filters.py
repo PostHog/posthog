@@ -109,8 +109,19 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
     @parameterized.expand(
         [
             ("no_match", "xyz123", PropertyOperator.ICONTAINS, []),
-            ("exact_match", ["needle"], PropertyOperator.ICONTAINS, ["session_with_needle"]),
-            ("partial_match", "need", PropertyOperator.ICONTAINS, ["session_with_needle", "session_with_need"]),
+            ("contains whole word matching", "needle", PropertyOperator.ICONTAINS, ["session_with_needle"]),
+            (
+                "equals - exact match",
+                ["Fixed the bug fix issue in the login form"],
+                PropertyOperator.EXACT,
+                ["session_with_bug"],
+            ),
+            (
+                "contains partial word matching",
+                "need",
+                PropertyOperator.ICONTAINS,
+                ["session_with_needle", "session_with_need"],
+            ),
             ("case_insensitive", "NEEDLE", PropertyOperator.ICONTAINS, ["session_with_needle"]),
             ("phrase_match", "bug fix", PropertyOperator.ICONTAINS, ["session_with_bug"]),
             ("emoji_match", "💖", PropertyOperator.ICONTAINS, ["session_with_emoji"]),
@@ -120,12 +131,6 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
                 "",
                 PropertyOperator.IS_SET,
                 ["session_with_needle", "session_with_bug", "session_with_emoji", "session_with_need"],
-            ),
-            (
-                "comments equal",
-                ["Fixed the bug fix issue in the login form"],
-                PropertyOperator.EXACT,
-                ["session_with_bug"],
             ),
         ]
     )
