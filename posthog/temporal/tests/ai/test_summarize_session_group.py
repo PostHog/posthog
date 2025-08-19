@@ -685,7 +685,7 @@ class TestSummarizeSessionGroupWorkflow:
             mock_session_id, mock_session_group_summary_inputs, "progress"
         )
         # Track status updates during workflow execution
-        status_updates: list[tuple[str, int]] = []
+        status_updates: list[tuple[tuple[str, str], int]] = []
         async with self.temporal_workflow_test_environment(
             session_ids,
             mock_call_llm,
@@ -711,7 +711,7 @@ class TestSummarizeSessionGroupWorkflow:
             while poll_count < max_polls and not workflow_completed:
                 try:
                     # Query current status
-                    current_status: str = await workflow_handle.query("get_current_status")
+                    current_status: tuple[str, str] = await workflow_handle.query("get_current_status")
                     if current_status and current_status not in [s for s, _ in status_updates]:
                         status_updates.append((current_status, poll_count))
                     # Check if workflow is complete
@@ -732,7 +732,7 @@ class TestSummarizeSessionGroupWorkflow:
             # Verify we captured some status updates
             assert len(status_updates) > 0
             # Verify the types of status messages we received
-            status_messages = [status for status, _ in status_updates]
+            status_messages = [status[1] for status, _ in status_updates]  # Extract message from (step, message) tuple
             expected_status_patterns = [
                 "Fetching session data",
                 "Watching sessions",
@@ -742,7 +742,7 @@ class TestSummarizeSessionGroupWorkflow:
             # At least one of the expected status patterns should be in the status updates
             found_status_patterns = []
             for status_pattern in expected_status_patterns:
-                if any(status_pattern in status for status in status_messages):
+                if any(status_pattern in message for message in status_messages):
                     found_status_patterns.append(status_pattern)
             assert len(found_status_patterns) > 0
 
