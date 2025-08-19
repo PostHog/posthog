@@ -74,7 +74,7 @@ export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = tru
     // != is intentional to catch undefined too
     const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
 
-    const minimumBarHeightPx = 350
+    const minimumBarHeightPx = 150
     const borderHeightPx = 1
 
     // available height - border - legend - (maybe) scrollbar
