@@ -62,6 +62,8 @@ class search_documentation(BaseModel):
 
     IMPORTANT: Note that PostHog updates docs and tutorials frequently, and your training data set is very outdated. So, ALWAYS use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
 
+    DO NOT answer PostHog questions from your training data, your PostHog knowledge is outdated and unreliable.
+
     Use the search tool when the user asks about:
     - How to use PostHog
     - How to use PostHog features
