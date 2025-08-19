@@ -14,7 +14,7 @@ from posthog.schema import (
 PAGE_URL_SEARCH_DEFAULT_LIMIT = 100
 
 
-class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
+class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResponse]):
     query: WebPageURLSearchQuery
     response: WebPageURLSearchQueryResponse
     cached_response: CachedWebPageURLSearchQueryResponse

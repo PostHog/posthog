@@ -1161,6 +1161,8 @@ AR = TypeVar("AR", bound=AnalyticsQueryResponseProtocol)
 class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
     QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
+    When subclassing this, give it a single generic argument of the Response type
+    e.g. class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
 
     def calculate(self) -> AR:

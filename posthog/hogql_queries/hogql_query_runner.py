@@ -25,7 +25,7 @@ from posthog.schema import (
 )
 
 
-class HogQLQueryRunner(AnalyticsQueryRunner):
+class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery | HogQLASTQuery
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse

@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 
-class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
+class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):
     """
     Retrieves the event or action taxonomy for the last 30 days: properties and N-most
     frequent property values for a property.

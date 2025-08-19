@@ -31,7 +31,7 @@ from posthog.schema import (
 )
 
 
-class LifecycleQueryRunner(AnalyticsQueryRunner):
+class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     query: LifecycleQuery
     response: LifecycleQueryResponse
     cached_response: CachedLifecycleQueryResponse

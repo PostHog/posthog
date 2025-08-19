@@ -27,7 +27,7 @@ class VolumeOptions:
     resolution: int
 
 
-class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner):
+class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner[ErrorTrackingIssueCorrelationQueryResponse]):
     query: ErrorTrackingIssueCorrelationQuery
     response: ErrorTrackingIssueCorrelationQueryResponse
     cached_response: CachedErrorTrackingIssueCorrelationQueryResponse

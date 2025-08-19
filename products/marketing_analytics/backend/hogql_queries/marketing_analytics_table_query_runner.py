@@ -42,7 +42,7 @@ from .adapters.base import QueryContext, MarketingSourceAdapter
 logger = structlog.get_logger(__name__)
 
 
-class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner):
+class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsTableQueryResponse]):
     query: MarketingAnalyticsTableQuery
     response: MarketingAnalyticsTableQueryResponse
     cached_response: CachedMarketingAnalyticsTableQueryResponse

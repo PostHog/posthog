@@ -48,7 +48,7 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TracesQueryRunner(AnalyticsQueryRunner):
+class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     query: TracesQuery
     response: TracesQueryResponse
     cached_response: CachedTracesQueryResponse

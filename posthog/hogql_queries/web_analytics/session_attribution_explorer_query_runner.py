@@ -47,7 +47,7 @@ AD_IDS_PREFIXES_SESSIONS_V2 = [
 ]
 
 
-class SessionAttributionExplorerQueryRunner(AnalyticsQueryRunner):
+class SessionAttributionExplorerQueryRunner(AnalyticsQueryRunner[SessionAttributionExplorerQueryResponse]):
     query: SessionAttributionExplorerQuery
     response: SessionAttributionExplorerQueryResponse
     cached_response: CachedSessionAttributionExplorerQueryResponse

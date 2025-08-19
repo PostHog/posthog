@@ -18,7 +18,7 @@ from posthog.schema import (
 from posthog.utils import relative_date_parse
 
 
-class SessionsTimelineQueryRunner(AnalyticsQueryRunner):
+class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResponse]):
     """
     ## How does the sessions timeline work?
 

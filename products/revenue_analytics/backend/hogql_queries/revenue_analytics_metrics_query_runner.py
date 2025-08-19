@@ -29,7 +29,7 @@ KINDS = [
 ]
 
 
-class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsMetricsQueryResponse]):
     query: RevenueAnalyticsMetricsQuery
     response: RevenueAnalyticsMetricsQueryResponse
     cached_response: CachedRevenueAnalyticsMetricsQueryResponse

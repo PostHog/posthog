@@ -17,7 +17,7 @@ from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItem
 CONSTANT_ZERO = ast.Constant(value=0)
 
 
-class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsOverviewQueryResponse]):
     query: RevenueAnalyticsOverviewQuery
     response: RevenueAnalyticsOverviewQueryResponse
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse

@@ -78,7 +78,7 @@ from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
-class TrendsQueryRunner(AnalyticsQueryRunner):
+class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     response: TrendsQueryResponse
     cached_response: CachedTrendsQueryResponse
