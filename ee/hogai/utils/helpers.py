@@ -118,6 +118,7 @@ def find_last_ui_context(messages: Sequence[AssistantMessageUnion]) -> MaxUICont
 
 
 def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:
+    """Common logic for processing events and building event data."""
     response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
     )
@@ -137,7 +138,6 @@ def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -
                 continue  # Skip system or ignored events
         events.append(item.event)
 
-    """Common logic for processing events and building event data."""
     event_to_description: dict[str, str] = {}
     for event in events_in_context:
         if event.name and event.name not in events:
