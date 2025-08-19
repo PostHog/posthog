@@ -1276,7 +1276,7 @@ async def test_create_table_activity_invalid_uuid_fails(activity_environment, at
 
     mock_create_table.assert_not_called()
 
-    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in cap_logs[0]["msg"]
+    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in cap_logs[0]["event"]
 
 
 async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client):
