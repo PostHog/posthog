@@ -7,9 +7,9 @@ from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
-    DAGSTER_DAILY_JOB_TIMEOUT,
+    DAGSTER_WEB_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
-    CLICKHOUSE_SETTINGS,
+    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
@@ -63,7 +63,7 @@ def pre_aggregate_web_analytics_data(
     team_ids = config.get("team_ids")  # None = use dictionary, list = use IN clause
 
     extra_settings = config.get("extra_clickhouse_settings", "")
-    ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, extra_settings)
+    ch_settings = merge_clickhouse_settings(WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS, extra_settings)
 
     if not context.partition_time_window:
         raise dagster.Failure("This asset should only be run with a partition_time_window")
@@ -183,7 +183,9 @@ def export_web_analytics_data_by_team(
     # Use dictionary lookup by default, fallback to config if provided
     team_ids = config.get("team_ids")  # None = use dictionary, list = use IN clause
 
-    ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
+    ch_settings = merge_clickhouse_settings(
+        WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", "")
+    )
 
     if not team_ids:
         dict_query = f"SELECT team_id FROM {WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME} FINAL"
@@ -288,7 +290,7 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
     selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
+        "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
     },
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
