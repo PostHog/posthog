@@ -145,7 +145,7 @@ def event_loop():
     loop.close()
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True, scope="module")
 async def configure_logger_auto() -> None:
     """Configure logger when running in a Temporal activity environment."""
     configure_logger(cache_logger_on_first_use=False)

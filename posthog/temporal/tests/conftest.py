@@ -13,6 +13,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Organization, Team
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
+from posthog.temporal.common.logger import configure_logger
 
 
 @pytest.fixture
@@ -150,6 +151,12 @@ def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest_asyncio.fixture(autouse=True, scope="module")
+async def configure_logger_auto() -> None:
+    """Configure logger for running temporal tests."""
+    configure_logger(cache_logger_on_first_use=False)
 
 
 @pytest_asyncio.fixture
