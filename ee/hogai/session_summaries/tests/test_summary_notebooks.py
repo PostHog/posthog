@@ -840,46 +840,46 @@ class TestNotebookIntermediateState(APIBaseTest):
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Add content for the first step
-        content1: dict[str, Any] = {
+        content_step_one: dict[str, Any] = {
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Watching sessions..."}]}],
         }
-        state.update_step_progress(content1, SessionSummaryStep.WATCHING_SESSIONS)
+        state.update_step_progress(content_step_one, SessionSummaryStep.WATCHING_SESSIONS)
 
         # Verify initial state
         assert state.current_step == SessionSummaryStep.WATCHING_SESSIONS
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", False)
-        assert state.current_step_content == content1
+        assert state.current_step_content == content_step_one
 
         # Transition to the next step
-        content2: dict[str, Any] = {
+        content_step_two: dict[str, Any] = {
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Finding patterns..."}]}],
         }
-        state.update_step_progress(content2, SessionSummaryStep.FINDING_PATTERNS)
+        state.update_step_progress(content_step_two, SessionSummaryStep.FINDING_PATTERNS)
 
         # Verify the transition
         assert state.current_step == SessionSummaryStep.FINDING_PATTERNS
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
         assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", False)
-        assert state.current_step_content == content2
+        assert state.current_step_content == content_step_two
 
         # Verify the completed step was preserved
         completed = state.completed_steps
         assert len(completed) == 1
-        assert completed["Watch sessions"] == content1
+        assert completed["Watch sessions"] == content_step_one
 
     def test_complete_multiple_steps(self) -> None:
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Complete first step
-        content1: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Sessions watched"}]}
-        state.update_step_progress(content1, SessionSummaryStep.WATCHING_SESSIONS)
+        content_step_one: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Sessions watched"}]}
+        state.update_step_progress(content_step_one, SessionSummaryStep.WATCHING_SESSIONS)
         state.update_step_progress(None, SessionSummaryStep.FINDING_PATTERNS)  # Transition
 
         # Complete second step
-        content2: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Patterns found"}]}
-        state.update_step_progress(content2, SessionSummaryStep.FINDING_PATTERNS)
+        content_step_two: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Patterns found"}]}
+        state.update_step_progress(content_step_two, SessionSummaryStep.FINDING_PATTERNS)
         state.update_step_progress(None, SessionSummaryStep.GENERATING_REPORT)  # Transition
 
         # Check state
@@ -890,8 +890,8 @@ class TestNotebookIntermediateState(APIBaseTest):
 
         completed = state.completed_steps
         assert len(completed) == 2
-        assert completed["Watch sessions"] == content1
-        assert completed["Find patterns"] == content2
+        assert completed["Watch sessions"] == content_step_one
+        assert completed["Find patterns"] == content_step_two
 
     def test_format_initial_state(self) -> None:
         state = NotebookIntermediateState(team_name="Test Team")
@@ -957,24 +957,24 @@ class TestNotebookIntermediateState(APIBaseTest):
         state = NotebookIntermediateState(team_name="Test Team")
 
         # Complete first step
-        content1: dict[str, Any] = {
+        content_step_one: dict[str, Any] = {
             "type": "doc",
             "content": [
                 {"type": "heading", "content": [{"type": "text", "text": "Sessions Watched"}]},
                 {"type": "paragraph", "content": [{"type": "text", "text": "All sessions processed"}]},
             ],
         }
-        state.update_step_progress(content1, SessionSummaryStep.WATCHING_SESSIONS)
+        state.update_step_progress(content_step_one, SessionSummaryStep.WATCHING_SESSIONS)
 
         # Move to second step
-        content2: dict[str, Any] = {
+        content_step_two: dict[str, Any] = {
             "type": "doc",
             "content": [
                 {"type": "heading", "content": [{"type": "text", "text": "Finding Patterns"}]},
                 {"type": "paragraph", "content": [{"type": "text", "text": "Analyzing behaviors"}]},
             ],
         }
-        state.update_step_progress(content2, SessionSummaryStep.FINDING_PATTERNS)
+        state.update_step_progress(content_step_two, SessionSummaryStep.FINDING_PATTERNS)
 
         formatted: dict[str, Any] = state.format_intermediate_state()
         content_str: str = json.dumps(formatted)
