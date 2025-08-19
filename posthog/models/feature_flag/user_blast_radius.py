@@ -45,7 +45,11 @@ def get_user_blast_radius(
             filter = cleaned_filter
 
             for property in filter.property_groups.flat:
-                if property.group_type_index is None or (property.group_type_index != group_type_index):
+                # Special case: $group_key doesn't need a group_type_index as it refers to the key itself
+                if property.key == "$group_key":
+                    # Set the group_type_index to match the aggregation group type
+                    property.group_type_index = group_type_index
+                elif property.group_type_index is None or (property.group_type_index != group_type_index):
                     raise ValidationError("Invalid group type index for feature flag condition.")
 
             groups_query, groups_query_params = GroupsJoinQuery(filter, team.id).get_filter_query(
