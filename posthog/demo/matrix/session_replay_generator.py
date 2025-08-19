@@ -240,9 +240,9 @@ class SessionReplayGenerator:
             page = await context.new_page()
 
             # Set up time control - start at the session's actual start time
-            session_start_ms = int(session.start_time.timestamp() * 1000)
-            await page.clock.install(time=session_start_ms)
-            await page.clock.pause_at(session_start_ms)
+            session_start_s = int(session.start_time.timestamp())
+            await page.clock.install(time=session_start_s)
+            await page.clock.pause_at(session_start_s)
 
             # Track session state for more realistic behavior
             session_state = {
@@ -259,17 +259,17 @@ class SessionReplayGenerator:
             mouse_task = asyncio.create_task(self._continuous_mouse_movement(page, session_state))
 
             try:
-                current_time_ms = session_start_ms
+                current_time_s = session_start_s
 
                 for i, event in enumerate(session.events):
                     # Jump to the event's timestamp instantly using Clock API
-                    event_timestamp_ms = int(event.timestamp.timestamp() * 1000)
+                    event_timestamp_s = int(event.timestamp.timestamp())
 
                     # Only fast-forward if we're moving forward in time
-                    if event_timestamp_ms > current_time_ms:
-                        time_diff_ms = event_timestamp_ms - current_time_ms
-                        await page.clock.fast_forward(time_diff_ms)
-                        current_time_ms = event_timestamp_ms
+                    if event_timestamp_s > current_time_s:
+                        time_diff_s = event_timestamp_s - current_time_s
+                        await page.clock.fast_forward(time_diff_s)
+                        current_time_s = event_timestamp_s
 
                     # Add a small realistic delay for mouse movements between events
                     if i > 0:
@@ -292,10 +292,10 @@ class SessionReplayGenerator:
                     pass
 
             # Final timestamp jump to session end and allow PostHog to flush
-            session_end_ms = int(session.end_time.timestamp() * 1000)
+            session_end_s = int(session.end_time.timestamp())
             current_page_time = await page.evaluate("Date.now()")
-            if session_end_ms > current_page_time:
-                await page.clock.fast_forward(session_end_ms - current_page_time)
+            if session_end_s > current_page_time:
+                await page.clock.fast_forward(session_end_s - current_page_time)
             await asyncio.sleep(2)  # Brief real-time pause for PostHog flush
         except:
             raise
