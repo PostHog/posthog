@@ -28,6 +28,9 @@ from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     StatisticError,
 )
+from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments.error_handling import handle_experiment_error, experiment_error_handler
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
@@ -42,6 +45,7 @@ def get_experiment_stats_method(experiment) -> str:
         return stats_method
 
 
+@experiment_error_handler
 def split_baseline_and_test_variants(
     variants: list[V],
 ) -> tuple[V, list[V]]:
@@ -175,7 +179,11 @@ def get_frequentist_experiment_result(
             else None
         )
     except StatisticError as e:
-        raise ExposedCHQueryError(str(e), code=None) from e
+        handle_experiment_error(
+            e,
+            metric_type=metric.__class__.__name__,
+            context={"control_variant_key": control_variant.key, "stats_method": "frequentist"},
+        )
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
@@ -203,7 +211,11 @@ def get_frequentist_experiment_result(
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
                 result = method.run_test(test_stat, control_stat)
             except StatisticError as e:
-                raise ExposedCHQueryError(str(e), code=None) from e
+                handle_experiment_error(
+                    e,
+                    metric_type=metric.__class__.__name__,
+                    context={"test_variant_key": test_variant_validated.key, "stats_method": "frequentist"},
+                )
 
             confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
@@ -248,7 +260,11 @@ def get_bayesian_experiment_result(
             else None
         )
     except StatisticError as e:
-        raise ExposedCHQueryError(str(e), code=None) from e
+        handle_experiment_error(
+            e,
+            metric_type=metric.__class__.__name__,
+            context={"control_variant_key": control_variant.key, "stats_method": "bayesian"},
+        )
 
     variants: list[ExperimentVariantResultBayesian] = []
 
@@ -276,7 +292,11 @@ def get_bayesian_experiment_result(
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
                 result = method.run_test(test_stat, control_stat)
             except StatisticError as e:
-                raise ExposedCHQueryError(str(e), code=None) from e
+                handle_experiment_error(
+                    e,
+                    metric_type=metric.__class__.__name__,
+                    context={"test_variant_key": test_variant_validated.key, "stats_method": "bayesian"},
+                )
 
             # Convert credible interval to percentage
             credible_interval = [result.credible_interval[0], result.credible_interval[1]]
