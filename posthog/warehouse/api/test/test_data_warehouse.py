@@ -80,7 +80,7 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         types = [activity["type"] for activity in data["results"]]
         self.assertIn("Stripe", types)
-        self.assertIn("materialized_view", types)
+        self.assertIn("Materialized view", types)
 
     def test_recent_activity_pagination(self):
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/recent_activity"
