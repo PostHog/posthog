@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconInfo, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -27,12 +27,23 @@ const LIST_SIZE = 5
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { totalRowsProcessed, recentActivity } = useValues(externalDataSourcesLogic)
+    const { totalRowsProcessed, activityPaginationState } = useValues(externalDataSourcesLogic)
+    const { setActivityCurrentPage } = useActions(externalDataSourcesLogic)
     const { computedAllSources } = useValues(dataWarehouseSettingsLogic)
 
-    const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
     const sourcesPagination = usePagination(computedAllSources, { pageSize: LIST_SIZE }, 'sources')
     const viewsPagination = usePagination(materializedViews || [], { pageSize: LIST_SIZE }, 'views')
+
+    const activityPagination = {
+        currentPage: activityPaginationState.currentPage,
+        pageCount: activityPaginationState.pageCount,
+        dataSourcePage: activityPaginationState.dataSourcePage,
+        currentStartIndex: activityPaginationState.currentStartIndex,
+        currentEndIndex: activityPaginationState.currentEndIndex,
+        entryCount: activityPaginationState.entryCount,
+        setCurrentPage: setActivityCurrentPage,
+        pagination: { pageSize: LIST_SIZE },
+    }
 
     const sourceColumns: LemonTableColumns<DashboardDataSource> = [
         {

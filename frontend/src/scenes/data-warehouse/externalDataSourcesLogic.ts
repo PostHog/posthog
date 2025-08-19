@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -37,6 +37,10 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
         abortAnyRunningQuery: true,
         loadTotalRowsProcessed: true,
         loadRecentActivity: true,
+        loadMoreRecentActivity: true,
+        setRecentActivityData: (data: UnifiedRecentActivity[], hasMore: boolean) => ({ data, hasMore }),
+        setActivityCurrentPage: (page: number) => ({ page }),
+        checkAutoLoadMore: true,
     }),
     loaders(({ cache, values, actions }) => ({
         dataWarehouseSources: [
@@ -83,20 +87,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                 },
             },
         ],
-        recentActivity: [
-            [] as UnifiedRecentActivity[],
-            {
-                loadRecentActivity: async () => {
-                    try {
-                        const response = await api.dataWarehouse.recentActivity()
-                        return response.results || []
-                    } catch (error) {
-                        posthog.captureException(error)
-                        return []
-                    }
-                },
-            },
-        ],
     })),
     reducers(({ cache }) => ({
         dataWarehouseSourcesLoading: [
@@ -107,12 +97,107 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                 loadSourcesSuccess: () => cache.abortController !== null,
             },
         ],
+        recentActivityHasMore: [
+            true as boolean,
+            {
+                setRecentActivityData: (_, { hasMore }) => hasMore,
+                loadRecentActivity: () => true,
+            },
+        ],
+        activityCurrentPage: [
+            1 as number,
+            {
+                setActivityCurrentPage: (_, { page }) => page,
+                loadRecentActivity: () => 1, // Reset to first page when loading fresh data
+            },
+        ],
+        recentActivity: [
+            [] as UnifiedRecentActivity[],
+            {
+                setRecentActivityData: (_, { data }) => data,
+            },
+        ],
+        recentActivityLoading: [
+            false as boolean,
+            {
+                loadRecentActivity: () => true,
+                setRecentActivityData: () => false,
+                loadMoreRecentActivity: () => true,
+            },
+        ],
     })),
-    listeners(({ cache }) => ({
+    selectors(() => ({
+        activityPaginationState: [
+            (s) => [s.recentActivity, s.activityCurrentPage],
+            (recentActivity: UnifiedRecentActivity[], activityCurrentPage: number) => {
+                const pageSize = 5
+                const totalData = recentActivity.length
+                const pageCount = Math.ceil(totalData / pageSize)
+                const startIndex = (activityCurrentPage - 1) * pageSize
+                const endIndex = Math.min(startIndex + pageSize, totalData)
+                const dataSourcePage = recentActivity.slice(startIndex, endIndex)
+
+                return {
+                    currentPage: activityCurrentPage,
+                    pageCount,
+                    dataSourcePage,
+                    currentStartIndex: startIndex,
+                    currentEndIndex: endIndex,
+                    entryCount: totalData,
+                    isOnLastPage: activityCurrentPage === pageCount,
+                    hasDataOnCurrentPage: dataSourcePage.length > 0,
+                }
+            },
+        ],
+    })),
+    listeners(({ cache, values, actions }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
+            }
+        },
+        setActivityCurrentPage: () => {
+            // Trigger auto-load check when page changes
+            actions.checkAutoLoadMore()
+        },
+        checkAutoLoadMore: () => {
+            const paginationState = values.activityPaginationState
+            const { isOnLastPage, hasDataOnCurrentPage } = paginationState
+            const { recentActivityHasMore, recentActivityLoading } = values
+
+            // Auto-load more activities when user reaches the last page and there's more data available
+            if (isOnLastPage && hasDataOnCurrentPage && recentActivityHasMore && !recentActivityLoading) {
+                actions.loadMoreRecentActivity()
+            }
+        },
+        loadRecentActivitySuccess: () => {
+            // Check if we need to auto-load more after loading data
+            actions.checkAutoLoadMore()
+        },
+        loadMoreRecentActivitySuccess: () => {
+            // Check if we need to auto-load more after loading more data
+            actions.checkAutoLoadMore()
+        },
+        loadRecentActivity: async () => {
+            try {
+                const response = await api.dataWarehouse.recentActivity({ limit: 20, offset: 0 })
+                actions.setRecentActivityData(response.results || [], !!response.next)
+            } catch (error) {
+                posthog.captureException(error)
+            }
+        },
+        loadMoreRecentActivity: async () => {
+            try {
+                const currentData = values.recentActivity
+                const response = await api.dataWarehouse.recentActivity({
+                    limit: 20,
+                    offset: currentData.length,
+                })
+                const newData = [...currentData, ...(response.results || [])]
+                actions.setRecentActivityData(newData, !!response.next)
+            } catch (error) {
+                posthog.captureException(error)
             }
         },
     })),
