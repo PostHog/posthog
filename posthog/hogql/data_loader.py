@@ -139,6 +139,7 @@ def load_saved_queries(team_id: int) -> list[DataWarehouseSavedQueryData]:
                 query=query.query,
                 team_id=query.team_id,
                 deleted=query.deleted,
+                columns=query.columns or {},
                 table=table,
             )
         )

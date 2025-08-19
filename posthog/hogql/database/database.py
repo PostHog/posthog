@@ -417,6 +417,133 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 TableStore = dict[str, Table | TableGroup]
 
 
+def _create_s3_table_from_data(table_data, modifiers):
+    """
+    Create an S3Table from DataWarehouseTableData using the same logic as table.hogql_definition()
+    """
+    from posthog.hogql.database.s3_table import S3Table
+    from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, STR_TO_HOGQL_MAPPING
+    from posthog.hogql.database.models import StringDatabaseField
+
+    columns = table_data.columns or {}
+    fields: dict[str, FieldOrTable] = {}
+    structure = []
+
+    for column, type_info in columns.items():
+        # Support for 'old' style columns
+        if isinstance(type_info, str):
+            clickhouse_type = type_info
+        else:
+            clickhouse_type = type_info["clickhouse"]
+
+        is_nullable = False
+        if clickhouse_type.startswith("Nullable("):
+            clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+            is_nullable = True
+
+        # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
+        if clickhouse_type.startswith("Array("):
+            from posthog.warehouse.models.util import remove_named_tuples
+
+            clickhouse_type = remove_named_tuples(clickhouse_type)
+
+        if isinstance(type_info, dict):
+            column_invalid = not type_info.get("valid", True)
+        else:
+            column_invalid = False
+
+        if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            if is_nullable:
+                structure.append(f"`{column}` Nullable({clickhouse_type})")
+            else:
+                structure.append(f"`{column}` {clickhouse_type}")
+
+        # Support for 'old' style columns
+        if isinstance(type_info, str):
+            hogql_type_str = clickhouse_type.partition("(")[0]
+            hogql_type = CLICKHOUSE_HOGQL_MAPPING.get(hogql_type_str, StringDatabaseField)
+        else:
+            hogql_type = STR_TO_HOGQL_MAPPING.get(type_info["hogql"], StringDatabaseField)
+
+        fields[column] = hogql_type(name=column, nullable=is_nullable)
+
+    # Get access credentials
+    access_key: str | None = None
+    access_secret: str | None = None
+    if table_data.credential:
+        access_key = table_data.credential.get("access_key")
+        access_secret = table_data.credential.get("access_secret")
+
+    return S3Table(
+        name=table_data.name,
+        url=table_data.url_pattern or "",
+        format=table_data.format or "CSVWithNames",
+        access_key=access_key,
+        access_secret=access_secret,
+        fields=fields,
+        structure=", ".join(structure),
+    )
+
+
+def _create_saved_query_from_data(saved_query_data, modifiers):
+    """
+    Create a SavedQuery from DataWarehouseSavedQueryData using the same logic as saved_query.hogql_definition()
+    """
+    from posthog.hogql.database.models import SavedQuery
+    from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, STR_TO_HOGQL_MAPPING
+
+    # Check if this should use materialized view (table) instead
+    if saved_query_data.table is not None and modifiers is not None and modifiers.get("useMaterializedViews", False):
+        # Would create S3Table from table data, but for now use the regular saved query
+        pass
+
+    # Get columns - first check if there are columns defined separately (like in the test)
+    # Otherwise extract from query structure
+    columns = {}
+
+    # Look for columns in the DataWarehouseSavedQueryData structure
+    # This would come from the load_saved_queries function loading saved query columns
+    if hasattr(saved_query_data, "columns") and saved_query_data.columns:
+        columns = saved_query_data.columns
+    elif isinstance(saved_query_data.query, dict) and saved_query_data.query.get("columns"):
+        columns = saved_query_data.query.get("columns", {})
+
+    fields: dict[str, FieldOrTable] = {}
+
+    for column, type_info in columns.items():
+        # Support for 'old' style columns
+        if isinstance(type_info, str):
+            clickhouse_type = type_info
+            hogql_type_str = clickhouse_type.partition("(")[0]
+            hogql_type = CLICKHOUSE_HOGQL_MAPPING.get(hogql_type_str, StringDatabaseField)
+        elif isinstance(type_info, dict):
+            clickhouse_type = type_info["clickhouse"]
+            hogql_type = STR_TO_HOGQL_MAPPING.get(type_info["hogql"], StringDatabaseField)
+        else:
+            continue  # Skip invalid column types
+
+        if clickhouse_type.startswith("Nullable("):
+            clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+            is_nullable = True
+        else:
+            is_nullable = False
+
+        fields[column] = hogql_type(name=column, nullable=is_nullable)
+
+    # Extract query string
+    if isinstance(saved_query_data.query, dict):
+        query_str = saved_query_data.query.get("query", "")
+    else:
+        query_str = str(saved_query_data.query)
+
+    return SavedQuery(
+        id=str(saved_query_data.pk),
+        name=saved_query_data.name,
+        query=query_str,
+        fields=fields,
+    )
+
+
 def create_hogql_database_from_dependencies(
     dependencies: "HogQLDependencies",
     modifiers: Optional[HogQLQueryModifiers] = None,
@@ -526,23 +653,9 @@ def create_hogql_database_from_dependencies(
     with timings.measure("data_warehouse_saved_query"):
         for saved_query in dependencies.saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
-                # Create saved query definition - this will need to be adapted
-                # For now, we'll need to create a mock saved query object
-                class MockSavedQuery:
-                    def __init__(self, query_data):
-                        self.name = query_data.name
-                        self.query = query_data.query
-                        self.pk = query_data.pk
-
-                    def hogql_definition(self, modifiers):
-                        # This would need to be implemented based on the actual saved query logic
-                        # For now, return a basic saved query representation
-                        from posthog.hogql.database.models import SavedQuery
-
-                        return SavedQuery(name=self.name, query=self.query["query"] if "query" in self.query else "")
-
-                mock_saved_query = MockSavedQuery(saved_query)
-                views[saved_query.name] = mock_saved_query.hogql_definition(modifiers)
+                # Create saved query using the same logic as saved_query.hogql_definition()
+                saved_query_obj = _create_saved_query_from_data(saved_query, modifiers)
+                views[saved_query.name] = saved_query_obj
 
     # Add revenue analytics views from dependencies
     with timings.measure("revenue_analytics_views"):
@@ -566,15 +679,28 @@ def create_hogql_database_from_dependencies(
     with timings.measure("data_warehouse_tables"):
         for table_data in dependencies.warehouse_tables:
             with timings.measure(f"table_{table_data.name}"):
-                # Create S3 table representation from warehouse table data
-                # This needs to be adapted based on the actual S3Table creation logic
-                class MockS3Table:
-                    def __init__(self, table_data):
-                        self.name = table_data.name
-                        self.fields = {}  # Would need to populate based on table_data.columns
-                        # Add other necessary attributes
+                # Create S3 table using the same logic as table.hogql_definition()
+                s3_table = _create_s3_table_from_data(table_data, modifiers)
 
-                s3_table = MockS3Table(table_data)
+                # Skip adding data warehouse tables that are materialized from views
+                # We can detect that because they have the exact same name as the view
+                if views.get(table_data.name, None) is not None:
+                    continue
+
+                # If the warehouse table has no _properties_ field, then set it as a virtual table
+                if s3_table.fields.get("properties") is None:
+
+                    class WarehouseProperties(VirtualTable):
+                        fields: dict[str, FieldOrTable] = s3_table.fields
+                        parent_table: FieldOrTable = s3_table
+
+                        def to_printed_hogql(self):
+                            return self.parent_table.to_printed_hogql()
+
+                        def to_printed_clickhouse(self, context):
+                            return self.parent_table.to_printed_clickhouse(context)
+
+                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
                 # Add warehouse table using dot notation (adapted from original logic)
                 if table_data.external_data_source:

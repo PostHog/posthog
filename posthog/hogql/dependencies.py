@@ -53,6 +53,7 @@ class DataWarehouseSavedQueryData:
     query: dict[str, Any]
     team_id: int
     deleted: bool
+    columns: Optional[dict[str, Any]]  # Column definitions
     # Related data
     table: Optional[dict[str, Any]]  # Serialized table data
 
