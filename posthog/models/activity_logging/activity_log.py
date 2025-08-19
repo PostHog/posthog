@@ -17,7 +17,7 @@ from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
-from posthog.models.utils import UUIDT, UUIDModel
+from posthog.models.utils import UUIDT, UUIDTModel
 
 from typing import TYPE_CHECKING
 
@@ -158,7 +158,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-class ActivityLog(UUIDModel):
+class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
@@ -233,6 +233,9 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
+    },
+    "BatchExport": {
+        "paused": "enabled",
     },
 }
 
@@ -379,12 +382,20 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "BatchExport": [
         "latest_runs",
+        "last_updated_at",
+        "last_paused_at",
+        "batchexportrun_set",
+        "batchexportbackfill_set",
     ],
     "BatchImport": [
+        "lease_id",
         "leased_until",
         "status_message",
         "state",
         "secrets",
+        "lease_id",
+        "backoff_attempt",
+        "backoff_until",
     ],
     "Integration": [
         "sensitive_config",

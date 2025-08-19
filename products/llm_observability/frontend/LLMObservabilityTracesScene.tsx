@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -10,8 +12,9 @@ import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmObservabilityLogic } from './llmObservabilityLogic'
-import { formatLLMCost, formatLLMUsage, removeMilliseconds } from './utils'
+import { formatLLMCost, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } =
@@ -36,6 +39,14 @@ export function LLMObservabilityTraces(): JSX.Element {
                     id: {
                         title: 'ID',
                         render: IDColumn,
+                    },
+                    inputState: {
+                        title: 'Input message',
+                        render: InputMessageColumn,
+                    },
+                    outputState: {
+                        title: 'Output message',
+                        render: OutputMessageColumn,
                     },
                     timestamp: {
                         title: 'Time',
@@ -127,3 +138,33 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
+
+const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const inputNormalized = normalizeMessages(row.inputState?.messages, 'user')
+    if (!inputNormalized.length) {
+        return <>–</>
+    }
+    return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+}
+InputMessageColumn.displayName = 'InputMessageColumn'
+
+const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const errorEventFound = Array.isArray(row.events)
+        ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
+        : false
+    if (errorEventFound) {
+        return (
+            <LemonTag type="danger" className="font-mono max-w-50 truncate">
+                {errorEventFound.properties?.$ai_error || 'Unknown error'}
+            </LemonTag>
+        )
+    }
+    const outputNormalized = normalizeMessages(row.outputState?.messages, 'assistant')
+    if (!outputNormalized.length) {
+        return <>–</>
+    }
+    return <LLMMessageDisplay message={outputNormalized.at(-1)!} isOutput={true} minimal />
+}
+OutputMessageColumn.displayName = 'OutputMessageColumn'

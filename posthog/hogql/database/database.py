@@ -125,10 +125,13 @@ from posthog.schema import (
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from opentelemetry import trace
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+tracer = trace.get_tracer(__name__)
 
 
 class Database(BaseModel):
@@ -416,6 +419,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 TableStore = dict[str, Table | TableGroup]
 
 
+@tracer.start_as_current_span("create_hogql_database")
 def create_hogql_database(
     team_id: Optional[int] = None,
     *,
@@ -443,6 +447,10 @@ def create_hogql_database(
 
         # Team is definitely not None at this point, make mypy believe that
         team = cast("Team", team)
+
+        # Set team_id for the create_hogql_database tracing span
+        span = trace.get_current_span()
+        span.set_attribute("team_id", team.pk)
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -518,7 +526,12 @@ def create_hogql_database(
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
-            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True))
+            saved_queries = list(
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .select_related("table", "table__credential")
+            )
+
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)

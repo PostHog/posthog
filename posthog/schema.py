@@ -93,6 +93,8 @@ class AssistantContextualTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     SEARCH_DOCS = "search_docs"
+    SEARCH_INSIGHTS = "search_insights"
+    SESSION_SUMMARIZATION = "session_summarization"
 
 
 class AssistantDateRange(BaseModel):
@@ -124,6 +126,7 @@ class AssistantDurationRange(BaseModel):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
+    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
@@ -1827,6 +1830,7 @@ class MinimalHedgehogConfig(BaseModel):
 
 
 class MultipleBreakdownType(StrEnum):
+    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
@@ -3308,7 +3312,7 @@ class Breakdown(BaseModel):
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: str
+    property: Union[str, int]
     type: Optional[MultipleBreakdownType] = None
 
 
@@ -10434,6 +10438,7 @@ class SurveyCreationSchema(BaseModel):
     end_date: Optional[str] = None
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
+    linked_flag_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
