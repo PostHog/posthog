@@ -337,7 +337,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
             },
             {
-                id: 'web-analytics-opt-int-pre-aggregated-tables-and-api',
+                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
                 title: 'New query engine',
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',

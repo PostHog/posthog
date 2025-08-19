@@ -143,7 +143,7 @@ export type SettingId =
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
-    | 'web-analytics-opt-int-pre-aggregated-tables-and-api'
+    | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
