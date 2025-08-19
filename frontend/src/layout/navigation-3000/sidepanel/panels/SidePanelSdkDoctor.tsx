@@ -74,7 +74,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
-    const { sdkHealth, featureFlagMisconfiguration, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
+    const { menuIconStatus, featureFlagMisconfiguration, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
 
     // TODO: Multi-init detection temporarily disabled for post-MVP
     // const { multipleInitSdks } = useValues(sidePanelSdkDoctorLogic)
@@ -88,19 +88,27 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
           ? 'SDK initialization issue detected!'
           : outdatedSdkCount > 0
             ? 'Outdated SDKs found'
-            : 'SDK health is good'
+            : menuIconStatus === 'warning'
+              ? 'Some SDKs have newer versions available'
+              : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
             <span {...props}>
                 <IconWithBadge
-                    content={hasFlagMisconfiguration || hasMultipleInits ? '!!' : sdkHealth !== 'healthy' ? '!' : '✓'}
+                    content={
+                        hasFlagMisconfiguration || hasMultipleInits
+                            ? '!!'
+                            : menuIconStatus !== 'healthy' && outdatedSdkCount > 0
+                              ? '!'
+                              : '✓'
+                    }
                     status={
                         hasFlagMisconfiguration || hasMultipleInits
                             ? 'danger'
-                            : sdkHealth === 'critical'
+                            : menuIconStatus === 'critical'
                               ? 'danger'
-                              : sdkHealth === 'warning'
+                              : menuIconStatus === 'warning'
                                 ? 'warning'
                                 : 'success'
                     }
@@ -582,9 +590,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
                     if (categorySDKs.length === 0) {
                         return null
                     }
-
-                    // Check if any SDKs in this category are outdated
-                    const outdatedSDKs = categorySDKs.filter((sdk) => sdk.isOutdated)
 
                     return (
                         <div key={category} className="mb-6">

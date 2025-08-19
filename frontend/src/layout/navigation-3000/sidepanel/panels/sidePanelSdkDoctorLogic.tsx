@@ -1352,6 +1352,28 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 return sdkHealth !== 'healthy'
             },
         ],
+
+        // Separate status for menu icon that includes "Close enough" SDKs
+        menuIconStatus: [
+            (s) => [s.sdkHealth, s.sdkVersions],
+            (sdkHealth: SdkHealthStatus, sdkVersions: SdkVersionInfo[]): SdkHealthStatus => {
+                // If we already have critical or warning status from sdkHealth, use that
+                if (sdkHealth !== 'healthy') {
+                    return sdkHealth
+                }
+
+                // Check for "Close enough" SDKs (not outdated, but not current either)
+                const hasCloseEnoughSdks = sdkVersions.some(
+                    (sdk) => !sdk.isOutdated && sdk.latestVersion && sdk.version !== sdk.latestVersion
+                )
+
+                if (hasCloseEnoughSdks) {
+                    return 'warning' // This will show yellow circle with checkmark
+                }
+
+                return 'healthy' // Green circle with checkmark
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
