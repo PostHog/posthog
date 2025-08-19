@@ -439,26 +439,27 @@ def configure_logger(
 
     is_test_or_tty = sys.stderr.isatty() or settings.TEST
 
-    try:
-        log_producer = KafkaLogProducerFromQueueAsync(
-            queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
-        )
-    except Exception as e:
-        # Skip putting logs in queue if we don't have a producer that can consume the queue.
-        # We save the error to log it later as the logger hasn't yet been configured at this time.
-        log_producer_error = e
-        logger_factory = LoggerFactory(file=file, is_test_or_tty=is_test_or_tty)
-    else:
-        logger_factory = LoggerFactory(
-            loop=loop or asyncio.get_running_loop(), queue=log_queue, file=file, is_test_or_tty=is_test_or_tty
-        )
-
     if is_test_or_tty:
+        logger_factory = LoggerFactory(file=file, is_test_or_tty=is_test_or_tty)
         base_processors += [
             EventRenamer("msg"),
             structlog.dev.ConsoleRenderer(event_key="msg"),
         ]
     else:
+        try:
+            log_producer = KafkaLogProducerFromQueueAsync(
+                queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
+            )
+        except Exception as e:
+            # Skip putting logs in queue if we don't have a producer that can consume the queue.
+            # We save the error to log it later as the logger hasn't yet been configured at this time.
+            log_producer_error = e
+            logger_factory = LoggerFactory(file=file, is_test_or_tty=is_test_or_tty)
+        else:
+            logger_factory = LoggerFactory(
+                loop=loop or asyncio.get_running_loop(), queue=log_queue, file=file, is_test_or_tty=is_test_or_tty
+            )
+
         base_processors += [
             structlog.processors.dict_tracebacks,
             EventRenamer("msg"),
