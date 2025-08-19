@@ -95,9 +95,11 @@ export class CdpApi {
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
-        router.post('/public/messaging/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
+        router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
+        router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
+        router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
     }
@@ -531,10 +533,22 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                const { status, message } = await this.emailTrackingService.handleWebhook(req)
+                const { status, message } = await this.emailTrackingService.handleMailjetWebhook(req)
                 return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
             }
+        }
+
+    private getEmailTrackingPixel =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            await this.emailTrackingService.handleEmailTrackingPixel(req, res)
+        }
+
+    private getEmailTrackingRedirect =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            await this.emailTrackingService.handleEmailTrackingRedirect(req, res)
         }
 }

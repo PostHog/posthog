@@ -17,6 +17,8 @@ PERSISTED_FEATURE_FLAGS = [
     "session-table-property-filters",
     "query-async",
     "artificial-hog",
+    "recordings-blobby-v2-replay",
+    "use-blob-v2-lts",
 ]
 
 # Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
