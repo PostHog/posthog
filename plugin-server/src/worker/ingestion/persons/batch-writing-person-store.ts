@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { NoRowsUpdatedError } from '~/utils/utils'
 
@@ -32,7 +33,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
+import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'

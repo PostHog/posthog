@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { DB } from '../../../../utils/db/db'
 import { PostgresUse } from '../../../../utils/db/postgres'
 import { timeoutGuard } from '../../../../utils/db/utils'
-import { generateRandomToken, UUIDT } from '../../../../utils/utils'
+import { UUIDT, generateRandomToken } from '../../../../utils/utils'
 import { OrganizationMembershipLevel, RawOrganization } from './../../../../types'
 
 const POSTHOG_BOT_USER_EMAIL_DOMAIN = 'posthogbot.user'

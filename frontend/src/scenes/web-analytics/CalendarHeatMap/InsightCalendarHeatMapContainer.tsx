@@ -1,13 +1,15 @@
 import './CalendarHeatMap.scss'
 
 import { useValues } from 'kea'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { CalendarHeatmapQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { WebActiveHoursHeatmap } from '../WebActiveHoursHeatmap/WebActiveHoursHeatmap'
-import { LemonBanner } from '@posthog/lemon-ui'
 
 interface CalendarHeatMapProps {
     context?: QueryContext<InsightVizNode>

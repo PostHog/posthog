@@ -1,26 +1,30 @@
+import { useActions, useValues } from 'kea'
+import { Form, capitalizeFirstLetter } from 'kea-forms'
+
 import { IconEllipsis, IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
     LemonInput,
+    LemonMenu,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
-    LemonMenu,
 } from '@posthog/lemon-ui'
-import { capitalizeFirstLetter, Form } from 'kea-forms'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { EntityTypes } from '~/types'
-import { crmUsageMetricsConfigLogic, UsageMetric } from './crmUsageMetricsConfigLogic'
-import { useActions, useValues } from 'kea'
+
 import { groupsModel } from '~/models/groupsModel'
+import { EntityTypes } from '~/types'
+
+import { UsageMetric, crmUsageMetricsConfigLogic } from './crmUsageMetricsConfigLogic'
 
 function CRMUsageMetricsTable(): JSX.Element {
-    const { currentGroupTypeUsageMetrics, usageMetricsLoading } = useValues(crmUsageMetricsConfigLogic)
+    const { usageMetrics, usageMetricsLoading } = useValues(crmUsageMetricsConfigLogic)
     const { removeUsageMetric } = useActions(crmUsageMetricsConfigLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
@@ -103,7 +107,7 @@ function CRMUsageMetricsTable(): JSX.Element {
         },
     ]
 
-    return <LemonTable columns={columns} dataSource={currentGroupTypeUsageMetrics} loading={usageMetricsLoading} />
+    return <LemonTable columns={columns} dataSource={usageMetrics} loading={usageMetricsLoading} />
 }
 
 interface CRMUsageMetricsFormProps {
@@ -133,9 +137,9 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
                     <LemonField name="interval" label="Interval">
                         <LemonSelect
                             options={[
-                                { value: '7d', label: '7d' },
-                                { value: '30d', label: '30d' },
-                                { value: '90d', label: '90d' },
+                                { value: 7, label: '7d' },
+                                { value: 30, label: '30d' },
+                                { value: 90, label: '90d' },
                             ]}
                         />
                     </LemonField>

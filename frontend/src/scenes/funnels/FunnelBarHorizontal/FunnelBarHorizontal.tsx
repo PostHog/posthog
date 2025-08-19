@@ -2,6 +2,7 @@ import './FunnelBarHorizontal.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
@@ -11,11 +12,11 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 
+import { FunnelStepMore } from '../FunnelStepMore'
+import { ValueInspectorButton } from '../ValueInspectorButton'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { FunnelStepMore } from '../FunnelStepMore'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
-import { ValueInspectorButton } from '../ValueInspectorButton'
 import { Bar } from './Bar'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 

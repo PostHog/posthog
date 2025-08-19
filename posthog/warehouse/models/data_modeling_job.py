@@ -1,9 +1,9 @@
 from django.db import models
 from django.utils import timezone
-from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields
+from posthog.models.utils import CreatedMetaFields, UUIDTModel, UpdatedMetaFields
 
 
-class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         COMPLETED = "Completed", "Completed"

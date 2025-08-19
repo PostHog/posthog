@@ -1,4 +1,4 @@
-import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
+import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { InternalPerson } from '~/types'
 

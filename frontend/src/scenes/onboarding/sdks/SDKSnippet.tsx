@@ -1,6 +1,8 @@
 import { Link } from 'lib/lemon-ui/Link'
-import { SDKFeatureAnnouncementBanner } from './sdk-install-instructions/components/SDKFeatureAnnouncementBanner'
+
 import { ProductKey, SDK, SDKKey } from '~/types'
+
+import { SDKFeatureAnnouncementBanner } from './sdk-install-instructions/components/SDKFeatureAnnouncementBanner'
 
 export const SDKSnippet = ({
     sdk,

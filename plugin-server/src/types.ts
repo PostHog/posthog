@@ -1,3 +1,11 @@
+import { Pool as GenericPool } from 'generic-pool'
+import { Redis } from 'ioredis'
+import { Kafka } from 'kafkajs'
+import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
+import { VM } from 'vm2'
+import { z } from 'zod'
+
 import {
     Element,
     PluginAttachment,
@@ -9,13 +17,6 @@ import {
     Properties,
     Webhook,
 } from '@posthog/plugin-scaffold'
-import { Pool as GenericPool } from 'generic-pool'
-import { Redis } from 'ioredis'
-import { Kafka } from 'kafkajs'
-import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
-import { VM } from 'vm2'
-import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
@@ -151,6 +152,8 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
     HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
+
+    CDP_EMAIL_TRACKING_URL: string
 }
 
 export type IngestionConsumerConfig = {

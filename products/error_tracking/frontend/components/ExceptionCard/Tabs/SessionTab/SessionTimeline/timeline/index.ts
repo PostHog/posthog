@@ -1,7 +1,8 @@
 import { Dayjs } from 'lib/dayjs'
+
+import { customItemLoader, customItemRenderer } from './items/custom'
 import { exceptionLoader, exceptionRenderer } from './items/exceptions'
 import { pageLoader, pageRenderer } from './items/page'
-import { customItemLoader, customItemRenderer } from './items/custom'
 
 export enum ItemCategory {
     ERROR_TRACKING = 'error-tracking',

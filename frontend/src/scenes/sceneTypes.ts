@@ -118,24 +118,26 @@ export enum Scene {
     Wizard = 'Wizard',
 }
 
-export type SceneProps = Record<string, any>
+export type SceneComponent<T> = (props: T) => JSX.Element | null
 
-export type SceneComponent = (params?: SceneProps) => JSX.Element | null
-
-export interface SceneExport {
+export interface SceneExport<T = {}> {
     /** component to render for this scene */
-    component: SceneComponent
+    component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
     /** setting section id to open when clicking the settings button */
     settingSectionId?: SettingSectionId
     /** convert URL parameters from scenes.ts into logic props */
-    paramsToProps?: (params: SceneParams) => SceneProps
+    paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
 
-export interface LoadedScene extends SceneExport {
+type SceneProps = Record<string, any>
+
+// KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
+// we use an untyped SceneProps to satisfy the types
+export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
     tabId?: string
     sceneParams: SceneParams

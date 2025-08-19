@@ -17,7 +17,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel, execute_with_timeout
+from posthog.models.utils import UUIDTModel, execute_with_timeout
 
 from django.core.cache import cache
 from django.db import transaction
@@ -94,7 +94,7 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
     return config
 
 
-class RemoteConfig(UUIDModel):
+class RemoteConfig(UUIDTModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
     as well as JS code for the frontend. It's main function is to react to changes that would affect it,

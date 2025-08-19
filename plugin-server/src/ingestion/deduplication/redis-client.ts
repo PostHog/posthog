@@ -3,8 +3,8 @@ import Redis from 'ioredis'
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { recordDeduplicationOperation } from './metrics'
-import deduplicationScript from './scripts/deduplication.lua'
 import deduplicationIdsScript from './scripts/deduplication-ids.lua'
+import deduplicationScript from './scripts/deduplication.lua'
 
 export type DeduplicationCountResult = {
     duplicates: number

@@ -1,8 +1,10 @@
-import { LemonModal, LemonButton } from '@posthog/lemon-ui'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { useActions, useValues } from 'kea'
 
-import { llmObservabilityTraceLogic, DisplayOption } from '../llmObservabilityTraceLogic'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
+import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
+
+import { DisplayOption, llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
 
 export function DisplayOptionsModal(): JSX.Element {
     const { displayOptionsModalVisible, displayOption } = useValues(llmObservabilityTraceLogic)

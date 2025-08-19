@@ -1,14 +1,16 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { dayjs } from 'lib/dayjs'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
+import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import {
     NPS_DETRACTOR_LABEL,
     NPS_DETRACTOR_VALUES,
@@ -18,7 +20,7 @@ import {
     NPS_PROMOTER_VALUES,
 } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { calculateNpsBreakdownFromProcessedData, NPSBreakdown } from 'scenes/surveys/utils'
+import { NPSBreakdown, calculateNpsBreakdownFromProcessedData } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'

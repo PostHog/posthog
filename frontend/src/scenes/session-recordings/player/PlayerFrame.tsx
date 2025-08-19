@@ -1,10 +1,12 @@
 import './PlayerFrame.scss'
 
-import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
+
+import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
+
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export const PlayerFrame = (): JSX.Element => {

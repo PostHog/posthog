@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useMemo, useState } from 'react'
+
 import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,13 +14,11 @@ import {
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils'
-import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { RoleType } from '~/types'
