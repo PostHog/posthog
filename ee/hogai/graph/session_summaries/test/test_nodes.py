@@ -9,6 +9,7 @@ from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import SessionRecording
+from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
 from posthog.schema import (
     AssistantToolCallMessage,
     HumanMessage,
@@ -94,7 +95,7 @@ class TestSessionSummarizationNode(BaseTest):
         return mock_sync_to_async
 
     def _create_test_state(
-        self, query: str | None = None, root_tool_call_id: str = "test_tool_call_id"
+        self, query: str | None = None, root_tool_call_id: str | None = "test_tool_call_id"
     ) -> AssistantState:
         """Helper to create a test AssistantState."""
         return AssistantState(
@@ -105,7 +106,8 @@ class TestSessionSummarizationNode(BaseTest):
 
     def test_create_error_response(self) -> None:
         """Test creating error response with proper structure."""
-        result = self.node._create_error_response("Test error", "test_tool_call_id")
+        state = self._create_test_state(root_tool_call_id="test_tool_call_id")
+        result = self.node._create_error_response("Test error", state)
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
@@ -119,7 +121,8 @@ class TestSessionSummarizationNode(BaseTest):
 
     def test_create_error_response_none_tool_call_id(self) -> None:
         """Test error response defaults to 'unknown' when tool_call_id is None."""
-        result = self.node._create_error_response("Test error", None)
+        state = self._create_test_state(root_tool_call_id=None)
+        result = self.node._create_error_response("Test error", state)
 
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
@@ -229,14 +232,15 @@ class TestSessionSummarizationNode(BaseTest):
         session_ids = ["session-1"]
         mock_find_timestamps.return_value = (1000, 2000)
 
-        async def async_gen() -> AsyncGenerator[str, None]:
-            yield "Processing..."
+        async def async_gen() -> AsyncGenerator[tuple[Any, Any, Any], None]:
+            yield (SessionSummaryStreamUpdate.UI_STATUS, None, "Processing...")
             # No summary yielded - simulates error condition
 
         mock_execute_group.return_value = async_gen()
 
+        state = self._create_test_state()
         with self.assertRaises(ValueError) as context:
-            async_to_sync(self.node._summarize_sessions_as_group)(session_ids, None)
+            async_to_sync(self.node._summarize_sessions_as_group)(session_ids, state, None)
 
         self.assertIn("No summary was generated", str(context.exception))
 

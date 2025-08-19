@@ -263,15 +263,15 @@ class SessionSummarizationNode(AssistantNode):
                 return self._create_error_response(self._base_error_instructions, state)
             # Query the filters to get session ids
             # TODO: Uncomment after testing
-            await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
-            session_ids = [
-                "01985f9e-05f6-788d-a6c4-8271afcfc4c3",
-                "01985f9e-a603-7c4a-a403-4a978d5164eb",
-                "01985f9e-d284-75cd-b5f2-3390a58aa086",
-                "01985f9f-5c73-7c45-8d01-afebbbfd172e",
-                "01985f9f-b8f6-7ba5-bc44-45152e5d623a",
-                "01985fa1-3e63-748c-9f3b-654528108c56",
-            ]
+            session_ids = await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
+            # session_ids = [
+            #     "01985f9e-05f6-788d-a6c4-8271afcfc4c3",
+            #     "01985f9e-a603-7c4a-a403-4a978d5164eb",
+            #     "01985f9e-d284-75cd-b5f2-3390a58aa086",
+            #     "01985f9f-5c73-7c45-8d01-afebbbfd172e",
+            #     "01985f9f-b8f6-7ba5-bc44-45152e5d623a",
+            #     "01985fa1-3e63-748c-9f3b-654528108c56",
+            # ]
             if not session_ids:
                 return PartialAssistantState(
                     messages=[
