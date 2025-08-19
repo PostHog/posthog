@@ -1,7 +1,11 @@
-from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+from posthog.models.message_preferences import (
+    MessageRecipientPreference,
+    PreferenceStatus,
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+)
 from posthog.models.message_category import MessageCategory
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, APIBaseTest
 from django.test import Client
 from django.urls import reverse
 import json
@@ -76,4 +80,144 @@ class TestMessagePreferencesViews(BaseTest):
         data = {"token": self.token, "preferences[]": ["invalid:format"]}
         response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(json.loads(response.content), {"error": "Failed to update preferences"})
+        self.assertEqual(json.loads(response.content), {"error": "Preference values must be 'true' or 'false'"})
+
+
+class TestMessagePreferencesAPIViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.category = MessageCategory.objects.create(
+            team=self.team, key="newsletter", name="Newsletter Updates", description="Weekly product updates"
+        )
+        self.category2 = MessageCategory.objects.create(
+            team=self.team, key="product_updates", name="Product Updates", description="Product release notes"
+        )
+
+    def test_opt_outs_no_category_no_opt_outs(self):
+        """Test opt_outs endpoint with no category and no recipients opted out"""
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 0)
+
+    def test_opt_outs_no_category_with_global_opt_outs(self):
+        """Test opt_outs endpoint with no category and recipients opted out globally"""
+        # Create recipients with global opt-out (using ALL_MESSAGE_PREFERENCE_CATEGORY_ID)
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user1@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user2@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+        # Create a recipient who hasn't opted out globally
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user3@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 2)
+
+        # Check that the correct recipients are returned
+        identifiers = [item["identifier"] for item in data]
+        self.assertIn("user1@example.com", identifiers)
+        self.assertIn("user2@example.com", identifiers)
+        self.assertNotIn("user3@example.com", identifiers)
+
+    def test_opt_outs_with_specific_category(self):
+        """Test opt_outs endpoint with a specific category"""
+        # Create recipients with various opt-out preferences
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user1@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user2@example.com",
+            preferences={str(self.category2.id): PreferenceStatus.OPTED_OUT.value},
+        )
+        # Create a recipient who is opted out from the target category
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user3@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/", {"category_key": self.category.key}
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 2)
+
+        # Check that only recipients opted out from the specific category are returned
+        identifiers = [item["identifier"] for item in data]
+        self.assertIn("user1@example.com", identifiers)
+        self.assertIn("user3@example.com", identifiers)
+        self.assertNotIn("user2@example.com", identifiers)
+
+    def test_opt_outs_with_nonexistent_category(self):
+        """Test opt_outs endpoint with a category that doesn't exist"""
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"category_key": "nonexistent_category"},
+        )
+        self.assertEqual(response.status_code, 404)
+        data = response.json()
+        self.assertEqual(data["error"], "Category not found")
+
+    def test_opt_outs_serializer_fields(self):
+        """Test that the opt_outs endpoint returns the expected fields"""
+        recipient = MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+
+        # Check that all expected fields are present
+        item = data[0]
+        expected_fields = ["id", "identifier", "updated_at", "preferences"]
+        for field in expected_fields:
+            self.assertIn(field, item)
+
+        # Check field values
+        self.assertEqual(item["id"], str(recipient.id))
+        self.assertEqual(item["identifier"], "user@example.com")
+        self.assertIsNotNone(item["updated_at"])
+        self.assertEqual(item["preferences"], {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value})
+
+    def test_opt_outs_team_isolation(self):
+        """Test that opt_outs only returns recipients from the current team"""
+        # Create a recipient in the current team
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user1@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+
+        # Create another team and recipient
+        other_team = self.organization.teams.create(name="Other Team")
+        MessageRecipientPreference.objects.create(
+            team=other_team,
+            identifier="user2@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["identifier"], "user1@example.com")

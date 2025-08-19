@@ -1,13 +1,15 @@
-import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
 
-import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+import { IconBell, IconCheck } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+
 import { BasicCard } from 'lib/components/Cards/BasicCard'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
+
+import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-observability
@@ -79,7 +81,7 @@ function PreviewCard({ feature, title, description, actions, children }: Preview
         <BasicCard
             className="pl-4 pr-2 pt-2 pb-3 gap-1 @container"
             id={`${feature.flagKey}`}
-            backgroundColor="var(--bg-surface-primary)"
+            backgroundColor="var(--color-bg-surface-primary)"
         >
             <div className="flex flex-col justify-between gap-2">
                 <div className="flex flex-col gap-1">

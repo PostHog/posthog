@@ -1,15 +1,17 @@
-import { canvasMutation, Replayer } from '@posthog/rrweb'
+import posthog from 'posthog-js'
+
+import { Replayer, canvasMutation } from '@posthog/rrweb'
 import { ReplayPlugin } from '@posthog/rrweb'
 import {
     CanvasArg,
+    EventType,
+    IncrementalSource,
     canvasMutationData,
     canvasMutationParam,
-    EventType,
     eventWithTime,
-    IncrementalSource,
 } from '@posthog/rrweb-types'
+
 import { debounce } from 'lib/utils'
-import posthog from 'posthog-js'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
@@ -170,15 +172,34 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         if (img) {
             target.toBlob(
                 (blob) => {
-                    if (blob) {
-                        img.style.width = 'initial'
-                        img.style.height = 'initial'
-
-                        const url = URL.createObjectURL(blob)
-                        // no longer need to read the blob so it's revoked
-                        img.onload = () => URL.revokeObjectURL(url)
-                        img.src = url
+                    if (!blob) {
+                        return
                     }
+
+                    img.style.width = 'initial'
+                    img.style.height = 'initial'
+
+                    const url = URL.createObjectURL(blob)
+
+                    /**
+                     * Tracks all active ObjectURLs per rrweb node id (canvas/image container).
+                     * Rationale:
+                     * - URL.createObjectURL allocates; relying only on img.onload to revoke leaks if src is replaced before load fires.
+                     * Strategy:
+                     * - When generating a new frame, track its URL, set img.src to it, then revoke all other URLs for that id.
+                     * - On load/error of the current frame, revoke that URL and remove it from the set.
+                     * - When a set becomes empty, remove the id entry.
+                     * Effect: prevents ObjectURL leaks and keeps memory bounded during fast updates/skip-inactivity bursts.
+                     */
+                    trackUrl(data.id, url)
+
+                    img.onload = () => finalizeUrl(data.id, url)
+                    img.onerror = () => finalizeUrl(data.id, url)
+
+                    img.src = url
+
+                    // Now that the new src is applied, revoke everything else
+                    revokeAllForIdExcept(data.id, url)
                 },
                 // ensures transparency is possible
                 'image/webp',
@@ -215,7 +236,13 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
                 const el = containers.get(id) || document.createElement('img')
-                ;(node as HTMLCanvasElement).appendChild(el)
+                const canvasElement = node as HTMLCanvasElement
+                for (let i = 0; i < canvasElement.attributes.length; i++) {
+                    const attr = canvasElement.attributes[i]
+                    el.setAttribute(attr.name, attr.value)
+                }
+                const parent = node.parentNode as Node
+                parent?.replaceChild?.(el, node as Node)
                 containers.set(id, el)
             }
         },
@@ -244,4 +271,44 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
 const handleMutationError = (error: unknown): void => {
     posthog.captureException(error)
+}
+
+const objectUrlsById = new Map<number, Set<string>>()
+
+const trackUrl = (id: number, url: string): void => {
+    let set = objectUrlsById.get(id)
+    if (!set) {
+        set = new Set()
+        objectUrlsById.set(id, set)
+    }
+    set.add(url)
+}
+
+const revokeAllForIdExcept = (id: number, keep?: string): void => {
+    const set = objectUrlsById.get(id)
+    if (!set) {
+        return
+    }
+    for (const u of set) {
+        if (keep && u === keep) {
+            continue
+        }
+        URL.revokeObjectURL(u)
+        set.delete(u)
+    }
+    if (set.size === 0) {
+        objectUrlsById.delete(id)
+    }
+}
+
+const finalizeUrl = (id: number, url: string): void => {
+    // This runs on load/error. Revoke the url we just used and drop it from the set.
+    URL.revokeObjectURL(url)
+    const set = objectUrlsById.get(id)
+    if (set) {
+        set.delete(url)
+        if (set.size === 0) {
+            objectUrlsById.delete(id)
+        }
+    }
 }

@@ -153,10 +153,12 @@ class PersonsThrottle(ClickHouseSustainedRateThrottle):
 
 class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
     scope = "persons"
+    rate = "60/minute"
 
 
 class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
     scope = "persons"
+    rate = "300/hour"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):

@@ -1,6 +1,12 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { ReactNode } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonSwitch } from '@posthog/lemon-ui'
+
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -9,37 +15,34 @@ import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
-import posthog from 'posthog-js'
-import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
+import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
+import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
+import { MovingAverageIntervalsInput } from 'scenes/insights/views/LineGraph/MovingAverageIntervalsInput'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
-import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
-import { MovingAverageIntervalsInput } from 'scenes/insights/views/LineGraph/MovingAverageIntervalsInput'
-import { LemonSwitch } from '@posthog/lemon-ui'
 import { isTrendsQuery } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
@@ -86,16 +89,12 @@ export function InsightDisplayConfig(): JSX.Element {
     const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const {
-        showValuesOnSeries,
-        mightContainFractionalNumbers,
-        showConfidenceIntervals,
-        showTrendLines,
-        showMovingAverage,
-    } = useValues(trendsDataLogic(insightProps))
+    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     const advancedOptions: LemonMenuItems = [
-        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsResultCustomizationBy
+        ...(isTrends || isRetention
             ? [
                   {
                       title: 'Display',
@@ -107,6 +106,7 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+                          ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
                       ],
                   },
               ]
@@ -179,33 +179,6 @@ export function InsightDisplayConfig(): JSX.Element {
                                     },
                                 ]
                               : []),
-                          {
-                              label: () => (
-                                  <LemonSwitch
-                                      label="Show trend lines"
-                                      className="pb-2"
-                                      fullWidth
-                                      disabledReason={
-                                          !isLineGraph
-                                              ? 'Trend lines are only available for line graphs'
-                                              : !isLinearScale
-                                                ? 'Trend lines are only supported for linear scale.'
-                                                : undefined
-                                      }
-                                      checked={showTrendLines}
-                                      onChange={(checked) => {
-                                          if (isTrendsQuery(querySource)) {
-                                              const newQuery = { ...querySource }
-                                              newQuery.trendsFilter = {
-                                                  ...trendsFilter,
-                                                  showTrendLines: checked,
-                                              }
-                                              updateQuerySource(newQuery)
-                                          }
-                                      }}
-                                  />
-                              ),
-                          },
                           {
                               label: () => (
                                   <LemonSwitch

@@ -6,7 +6,7 @@ from django.db import models
 from django.db.models import QuerySet
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import UUIDModel, RootTeamMixin
+from posthog.models.utils import UUIDTModel, RootTeamMixin
 from posthog.utils import generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
+class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"

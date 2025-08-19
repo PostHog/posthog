@@ -52,11 +52,25 @@ class MatrixManager:
         *,
         password: Optional[str] = None,
         is_staff: bool = False,
-        disallow_collision: bool = False,
+        email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
-        if existing_user is None:
+        if existing_user is None or email_collision_handling == "disambiguate":
+            if existing_user is not None:
+                print(f"User {email} already exists, trying to find a unique email...")
+                original_user, domain = email.split("@")
+                for i in range(1, 1000):
+                    email = f"{original_user}+{i}@{domain}"
+                    if User.objects.filter(email=email).exists():
+                        continue
+                    break
+                else:
+                    raise exceptions.ValidationError(
+                        f"Cannot find a unique email for {original_user}@{domain} - unbelievable!"
+                    )
+                print(f"Collision resolved, using {email} for our demo user!")
+
             if self.print_steps:
                 print(f"Creating demo organization, project, and user...")
             organization_kwargs: dict[str, Any] = {"name": organization_name}
@@ -77,10 +91,6 @@ class MatrixManager:
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
-        elif disallow_collision:
-            raise exceptions.ValidationError(
-                f"Cannot save simulated data - email collision disallowed but there already is an account for {email}."
-            )
         else:
             assert existing_user.organization is not None
             assert existing_user.team is not None

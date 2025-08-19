@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
@@ -497,6 +498,10 @@ export function criteriaToHumanSentence(
         }
     })
     return <>{words}</>
+}
+
+export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
+    return `cohort_${cohortId}_persons`
 }
 
 export const COHORT_MATCHING_DAYS = {

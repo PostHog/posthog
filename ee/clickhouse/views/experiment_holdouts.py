@@ -4,12 +4,15 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from django.db import transaction
-
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.experiment import ExperimentHoldout
+from posthog.models.signals import model_activity_signal
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):
@@ -55,7 +58,7 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
 
         instance = super().create(validated_data)
         instance.filters = self._get_filters_with_holdout_id(instance.id, instance.filters)
-        instance.save()
+        instance.save(skip_activity_log=True)  # Skip activity logging for filters update
         return instance
 
     def update(self, instance: ExperimentHoldout, validated_data):
@@ -108,3 +111,70 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 existing_flag_serializer.save()
 
         return super().destroy(request, *args, **kwargs)
+
+
+@receiver(model_activity_signal, sender=ExperimentHoldout)
+def handle_experiment_holdout_change(
+    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
+):
+    # Log activity for the holdout itself
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user or after_update.created_by,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+        ),
+    )
+
+    # Also log activity for each experiment that uses this holdout
+    for experiment in after_update.experiment_set.all():
+        log_activity(
+            organization_id=after_update.team.organization_id,
+            team_id=after_update.team_id,
+            user=user or after_update.created_by,
+            was_impersonated=was_impersonated,
+            item_id=experiment.id,
+            scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+            activity=activity,
+            detail=Detail(
+                changes=changes_between("ExperimentHoldout", previous=before_update, current=after_update),
+                name=after_update.name,
+                type="holdout",
+            ),
+        )
+
+
+@receiver(pre_delete, sender=ExperimentHoldout)
+def handle_experiment_holdout_delete(sender, instance, **kwargs):
+    from posthog.models.activity_logging.utils import activity_storage
+
+    # Log activity for the holdout itself
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+        was_impersonated=activity_storage.get_was_impersonated(),
+        item_id=instance.id,
+        scope="ExperimentHoldout",
+        activity="deleted",
+        detail=Detail(name=instance.name),
+    )
+
+    # Also log activity for each experiment that uses this holdout
+    for experiment in instance.experiment_set.all():
+        log_activity(
+            organization_id=instance.team.organization_id,
+            team_id=instance.team_id,
+            user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+            was_impersonated=activity_storage.get_was_impersonated(),
+            item_id=experiment.id,
+            scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+            activity="deleted",
+            detail=Detail(name=instance.name, type="holdout"),
+        )

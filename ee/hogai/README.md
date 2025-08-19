@@ -58,11 +58,25 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
+4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
+
+    ```tsx
+    export const TOOL_DEFINITIONS: ... = {
+        // ... existing tools ...
+        your_tool_name: {
+            name: 'Do something',
+            description: 'Do something to blah blah',
+            product: Scene.YourProduct, // or null for the rare global tool
+            flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+        },
+    }
+    ```
+
 For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
 
 ### Mounting
 
-1. Use the `MaxTool` component to wrap UI elements that can benefit from AI assistance:
+Use the `MaxTool` component to wrap UI elements that can benefit from AI assistance:
 
 ```tsx
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -91,6 +105,8 @@ function YourComponent() {
     )
 }
 ```
+
+When a tool is mounted, it automatically gets shown as available in the scene UI and Max itself, using `TOOL_DEFINITIONS` metadata to help the user understand the capability.
 
 For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx`, which mounts the `search_session_recordings` tool.
 
@@ -183,6 +199,133 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
     - Add test cases in `test/test_query_executor.py` for your new query type
     - Add test cases in `test/test_format.py` for your new formatter
     - Ensure tests cover both successful execution and error handling
+
+### Taxonomy Agent
+
+Build small, focused agentic RAG-style agents that browse the team's taxonomy (events, entity properties, event properties) and produce a structured answer.
+
+#### Quickstart
+
+1. Define your structured output (what the agent must return):
+
+```python
+from pydantic import BaseModel
+
+class MaxToolTaxonomyOutput(BaseModel):
+    # The schema that the agent should return as a response
+    # See an example: from posthog.schema import MaxRecordingUniversalFilters
+```
+
+2. Create a toolkit and add a typed `final_answer` tool (optional: change output formatting to YAML) and any custom tool you might have, in this example `hello_world`:
+
+```python
+from pydantic import BaseModel, Field
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.taxonomy.tools import base_final_answer
+from posthog.models import Team
+
+
+class final_answer(base_final_answer[MaxToolTaxonomyOutput]):
+    # Usually the final answer tool will be different for each max_tool based on the expected output.
+    __doc__ = base_final_answer.__doc__ # Inherit from the base final answer or create your own.
+
+class hello_world(BaseModel):
+    """Tool for saying hello to the user, should be used in the very beginning of the conversation. Use it before you use any other tool."""
+    name: str = Field(description="The name of the person to say hello to.")
+
+def hello_world_tool(name: str) -> str:
+    return f"Hello, {name}!"
+
+class YourToolkit(TaxonomyAgentToolkit):
+    def __init__(self, team: Team):
+        super().__init__(team)
+
+    # You must override this method if you are adding a custom tool that is only applicable to your usecase
+    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+        """Override the handle_tools method to add custom tools."""
+        if tool_name == "hello_world":
+            result = hello_world_tool(tool_input.arguments.name)
+            return tool_name, result
+        return super().handle_tools(tool_name, tool_input)
+
+    def _get_custom_tools(self) -> list:
+        return [final_answer, hello_world]
+
+    # Optional: prefer YAML over XML for property lists, but not a must to override
+    # If not overriden XML will be used
+    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        return self._format_properties_yaml(props)
+```
+
+3. Define the loop and tools nodes, then bind them in a graph:
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+from posthog.models import Team, User
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+
+class LoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
+    def __init__(self, team: Team, user: User, toolkit_class: type[YourToolkit]):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+    def _get_system_prompt(self) -> ChatPromptTemplate:
+        """
+        To allow for maximum flexibility you override the system prompt to tailor the taxonomy search agent to your needs.
+        The taxonomy agent comes with some prepackaged default prompts. Check them here ee/hogai/graph/taxonomy/prompts.py
+        """
+        system = [
+            "Here you add your custom prompt, you can define things like taxonomy operators, filter logic, or any other instruction you need for your usecase.",
+            *super()._get_default_system_prompts(), # You can reuse the default prompts we provide if they match your criteria
+        ]
+        return ChatPromptTemplate([("system", m) for m in system], template_format="mustache")
+
+
+class ToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
+    """
+    This is the tool node where the tool call flow and the tool execution is handled.
+    You can override the methods to your needs, although in most cases you shall not need to do so.
+    """
+    def __init__(self, team: Team, user: User, toolkit_class: type[YourToolkit]):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+
+class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(
+            team,
+            user,
+            loop_node_class=LoopNode,
+            tools_node_class=ToolsNode,
+            toolkit_class=YourToolkit,
+        )
+```
+
+4. Invoke it (typically from a `MaxTool`), mirroring `products/replay/backend/max_tools.py`:
+
+```python
+graph = YourTaxonomyGraph(team=self._team, user=self._user)
+
+graph_context = {
+    "change": "Show me recordings of users in Germany that used a mobile device while performing a payment",
+    "output": None,
+    "tool_progress_messages": [],
+    **self.context,
+}
+
+result = await graph.compile_full_graph().ainvoke(graph_context)
+
+# Currently we support Pydantic objects or str as an output type
+if isinstance(result["output"], MaxToolTaxonomyOutput):
+    content = "✅ Updated taxonomy selection"
+    payload = result["output"]
+else:
+    content = "❌ Need more info to proceed"
+    payload = MaxToolTaxonomyOutput.model_validate(result["output"])
+```
+
+See `products/replay/backend/max_tools.py` for a full real-world example wiring a taxonomy agent into a `MaxTool`.
 
 ### Key considerations
 

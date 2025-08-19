@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from django.db import transaction, models
+from django.db import models, IntegrityError
 from django.db.models import Count
 from posthog.models import EventDefinition, PropertyDefinition, GroupTypeMapping
 from posthog.storage.environments_rollback_storage import get_all_rollback_organization_ids
@@ -19,6 +19,12 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.dry_run = options["dry_run"]
         self.batch_size = options["batch_size"]
+
+        self.failed_records: dict[str, list[int]] = {
+            "EventDefinition": [],
+            "PropertyDefinition": [],
+            "GroupTypeMapping": [],
+        }
 
         self.stdout.write(self.style.SUCCESS("Starting definition project_id alignment process"))
 
@@ -106,11 +112,13 @@ class Command(BaseCommand):
             batch_ids = all_misaligned_ids[i : i + self.batch_size]
             batch_records = EventDefinition.objects.filter(id__in=batch_ids).select_related("team")
 
-            with transaction.atomic():
-                for event_def in batch_records:
-                    event_def.project_id = event_def.team.project_id
+            for event_def in batch_records:
+                event_def.project_id = event_def.team.project_id
+                try:
                     event_def.save(update_fields=["project_id"])
                     updated_count += 1
+                except IntegrityError:
+                    self.failed_records["EventDefinition"].append(event_def.id)
 
             if i + self.batch_size < len(all_misaligned_ids):
                 self.stdout.write(
@@ -119,7 +127,13 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"✓ Updated {updated_count} EventDefinitions"))
 
-        return {"total": misaligned_count, "updated": updated_count}
+        failed_count = len(self.failed_records["EventDefinition"])
+        if failed_count > 0:
+            self.stdout.write(
+                self.style.WARNING(f"⚠ Failed to update {failed_count} EventDefinitions due to integrity errors")
+            )
+
+        return {"total": misaligned_count, "updated": updated_count, "failed": failed_count}
 
     def process_property_definitions(self):
         """Process PropertyDefinition records that need project_id alignment."""
@@ -170,11 +184,13 @@ class Command(BaseCommand):
             batch_ids = all_misaligned_ids[i : i + self.batch_size]
             batch_records = PropertyDefinition.objects.filter(id__in=batch_ids).select_related("team")
 
-            with transaction.atomic():
-                for property_def in batch_records:
-                    property_def.project_id = property_def.team.project_id
+            for property_def in batch_records:
+                property_def.project_id = property_def.team.project_id
+                try:
                     property_def.save(update_fields=["project_id"])
                     updated_count += 1
+                except IntegrityError:
+                    self.failed_records["PropertyDefinition"].append(property_def.id)
 
             if i + self.batch_size < len(all_misaligned_ids):
                 self.stdout.write(
@@ -183,7 +199,13 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"✓ Updated {updated_count} PropertyDefinitions"))
 
-        return {"total": misaligned_count, "updated": updated_count}
+        failed_count = len(self.failed_records["PropertyDefinition"])
+        if failed_count > 0:
+            self.stdout.write(
+                self.style.WARNING(f"⚠ Failed to update {failed_count} PropertyDefinitions due to integrity errors")
+            )
+
+        return {"total": misaligned_count, "updated": updated_count, "failed": failed_count}
 
     def process_group_type_mappings(self):
         """Process GroupTypeMapping records that need project_id alignment."""
@@ -234,11 +256,13 @@ class Command(BaseCommand):
             batch_ids = all_misaligned_ids[i : i + self.batch_size]
             batch_records = GroupTypeMapping.objects.filter(id__in=batch_ids).select_related("team")
 
-            with transaction.atomic():
-                for group_type_mapping in batch_records:
-                    group_type_mapping.project_id = group_type_mapping.team.project_id
+            for group_type_mapping in batch_records:
+                group_type_mapping.project_id = group_type_mapping.team.project_id
+                try:
                     group_type_mapping.save(update_fields=["project_id"])
                     updated_count += 1
+                except IntegrityError:
+                    self.failed_records["GroupTypeMapping"].append(group_type_mapping.id)
 
             if i + self.batch_size < len(all_misaligned_ids):
                 self.stdout.write(
@@ -247,13 +271,24 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"✓ Updated {updated_count} GroupTypeMappings"))
 
-        return {"total": misaligned_count, "updated": updated_count}
+        failed_count = len(self.failed_records["GroupTypeMapping"])
+        if failed_count > 0:
+            self.stdout.write(
+                self.style.WARNING(f"⚠ Failed to update {failed_count} GroupTypeMappings due to integrity errors")
+            )
+
+        return {"total": misaligned_count, "updated": updated_count, "failed": failed_count}
 
     def print_summary(self, event_def_stats, property_def_stats, group_type_mapping_stats):
         """Print summary of changes made or that would be made."""
 
         total_found = event_def_stats["total"] + property_def_stats["total"] + group_type_mapping_stats["total"]
         total_updated = event_def_stats["updated"] + property_def_stats["updated"] + group_type_mapping_stats["updated"]
+        total_failed = (
+            event_def_stats.get("failed", 0)
+            + property_def_stats.get("failed", 0)
+            + group_type_mapping_stats.get("failed", 0)
+        )
 
         self.stdout.write("\n" + "=" * 50)
         self.stdout.write("SUMMARY")
@@ -273,6 +308,20 @@ class Command(BaseCommand):
             self.stdout.write(f"  - EventDefinitions: {event_def_stats['updated']}")
             self.stdout.write(f"  - PropertyDefinitions: {property_def_stats['updated']}")
             self.stdout.write(f"  - GroupTypeMappings: {group_type_mapping_stats['updated']}")
+
+            if total_failed > 0:
+                self.stdout.write(self.style.WARNING(f"\nTotal definitions failed: {total_failed}"))
+                self.stdout.write(f"  - EventDefinitions: {event_def_stats.get('failed', 0)}")
+                self.stdout.write(f"  - PropertyDefinitions: {property_def_stats.get('failed', 0)}")
+                self.stdout.write(f"  - GroupTypeMappings: {group_type_mapping_stats.get('failed', 0)}")
+
+                # Print failed record IDs
+                if self.failed_records["EventDefinition"]:
+                    self.stdout.write(f"\nFailed EventDefinition IDs: {self.failed_records['EventDefinition']}")
+                if self.failed_records["PropertyDefinition"]:
+                    self.stdout.write(f"Failed PropertyDefinition IDs: {self.failed_records['PropertyDefinition']}")
+                if self.failed_records["GroupTypeMapping"]:
+                    self.stdout.write(f"Failed GroupTypeMapping IDs: {self.failed_records['GroupTypeMapping']}")
 
             if total_updated > 0:
                 self.stdout.write(self.style.SUCCESS(f"\n✓ Successfully aligned {total_updated} definition records"))

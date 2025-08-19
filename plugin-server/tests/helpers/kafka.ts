@@ -5,6 +5,7 @@ import {
     KAFKA_APP_METRICS,
     KAFKA_APP_METRICS_2,
     KAFKA_BUFFER,
+    KAFKA_CDP_AGGREGATION_WRITER_EVENTS,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
@@ -55,6 +56,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_LOG_ENTRIES,
         KAFKA_EVENTS_RECENT_JSON,
         KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+        KAFKA_CDP_AGGREGATION_WRITER_EVENTS,
     ])
 }
 
@@ -78,7 +80,6 @@ export async function createTopics(kafkaConfig: any, topics: string[]): Promise<
                             reject(error)
                         }
                     } else {
-                        console.log(`Created topic: ${topic}`)
                         resolve()
                     }
                 }
@@ -125,8 +126,6 @@ export async function deleteAllTopics(kafkaConfig: any): Promise<void> {
         return
     }
 
-    console.log('Deleting topics:', topicsToDelete)
-
     // Use AdminClient to delete topics
     const adminClient = AdminClient.create(kafkaConfig)
     const timeout = 10000
@@ -139,7 +138,6 @@ export async function deleteAllTopics(kafkaConfig: any): Promise<void> {
                     console.error(`Failed to delete topic ${topic}:`, error)
                     reject(error)
                 } else {
-                    console.log(`Deleted topic: ${topic}`)
                     resolve()
                 }
             })

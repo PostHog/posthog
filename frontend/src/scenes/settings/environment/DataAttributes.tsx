@@ -1,7 +1,9 @@
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { useEffect, useState } from 'react'
+
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function DataAttributes(): JSX.Element {

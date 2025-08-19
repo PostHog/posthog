@@ -1,5 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -8,7 +10,6 @@ import preflightJson from '../../mocks/fixtures/_preflight.json'
 import { Login } from './Login'
 import { Login2FA } from './Login2FA'
 import { loginLogic } from './loginLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Login',
@@ -77,7 +78,7 @@ export const CloudWithGoogleLoginEnforcement: StoryFn = () => {
     })
 
     // Trigger pre-check
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         loginLogic.actions.setLoginValue('email', 'test@posthog.com')
         loginLogic.actions.precheck({ email: 'test@posthog.com' })
     })
@@ -130,12 +131,12 @@ export const SSOError: StoryFn = () => {
         },
     })
 
-    useOnMountEffect(() => router.actions.push(`${urls.login()}?error_code=improperly_configured_sso`))
+    useDelayedOnMountEffect(() => router.actions.push(`${urls.login()}?error_code=improperly_configured_sso`))
 
     return <Login />
 }
 
 export const SecondFactor: StoryFn = () => {
-    useOnMountEffect(() => router.actions.push(urls.login2FA()))
+    useDelayedOnMountEffect(() => router.actions.push(urls.login2FA()))
     return <Login2FA />
 }

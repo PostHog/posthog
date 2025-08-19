@@ -157,6 +157,7 @@ class UsageReportCounters:
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
+    cdp_billable_invocations_in_period: int
     # SDK usage
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
@@ -993,6 +994,27 @@ def get_teams_with_hog_function_fetch_calls_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_cdp_billable_invocations_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_function' AND metric_name IN ('billable_invocation') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_bytes_in_period(
     begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> list[tuple[int, int]]:
@@ -1312,6 +1334,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
+        "teams_with_cdp_billable_invocations_in_period": get_teams_with_cdp_billable_invocations_in_period(
+            period_start, period_end
+        ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
@@ -1403,6 +1428,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         resolved_symbol_sets_count=all_data["teams_with_resolved_symbol_sets_count"].get(team.id, 0),
         hog_function_calls_in_period=all_data["teams_with_hog_function_calls_in_period"].get(team.id, 0),
         hog_function_fetch_calls_in_period=all_data["teams_with_hog_function_fetch_calls_in_period"].get(team.id, 0),
+        cdp_billable_invocations_in_period=all_data["teams_with_cdp_billable_invocations_in_period"].get(team.id, 0),
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
         web_lite_events_count_in_period=all_data["teams_with_web_lite_events_count_in_period"].get(team.id, 0),
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),

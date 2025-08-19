@@ -7,11 +7,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { AvailableFeature, PipelineStage } from '~/types'
 
-import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
-import { NewDestinations } from './destinations/NewDestinations'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
-import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
+import { NewDestinations } from './destinations/NewDestinations'
+import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
+import { PipelineNodeNewLogicProps, pipelineNodeNewLogic } from './pipelineNodeNewLogic'
 
 const paramsToProps = ({
     params: { stage, id } = {},

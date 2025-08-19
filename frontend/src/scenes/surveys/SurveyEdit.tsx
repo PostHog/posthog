@@ -2,6 +2,9 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -11,32 +14,34 @@ import {
     LemonDialog,
     LemonDivider,
     LemonInput,
+    LemonSegmentedButton,
     LemonSelect,
     LemonTag,
     LemonTextArea,
     Link,
     Popover,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+
+import api from 'lib/api'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
-import { useState } from 'react'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { ANY_VARIANT, variantOptions } from 'scenes/settings/environment/ReplayTriggers'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
+import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -54,12 +59,12 @@ import {
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
@@ -234,6 +239,7 @@ export default function SurveyEdit(): JSX.Element {
         deviceTypesMatchTypeValidationError,
         surveyErrors,
         isExternalSurveyFFEnabled,
+        user,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -302,7 +308,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 setSurveyValue('schedule', SurveySchedule.Once)
                                                             }
                                                         }}
-                                                        title="Popover"
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.Popover]}
                                                         description="Automatically appears when PostHog JS is installed"
                                                         value={SurveyType.Popover}
                                                     >
@@ -321,7 +327,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 setSurveyValue('schedule', SurveySchedule.Once)
                                                             }
                                                         }}
-                                                        title="API"
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.API]}
                                                         description="Use the PostHog API to show/hide your survey programmatically"
                                                         value={SurveyType.API}
                                                     >
@@ -332,7 +338,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     <PresentationTypeCard
                                                         active={value === SurveyType.Widget}
                                                         onClick={() => onChange(SurveyType.Widget)}
-                                                        title="Feedback button"
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.Widget]}
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
@@ -343,8 +349,8 @@ export default function SurveyEdit(): JSX.Element {
                                                     <PresentationTypeCard
                                                         active={value === SurveyType.ExternalSurvey}
                                                         onClick={() => onChange(SurveyType.ExternalSurvey)}
-                                                        title="External survey"
-                                                        description="Collect responses via an external link, hosted on PostHog. Make sure you update the posthog-js SDK if you are currently using surveys in your app."
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.ExternalSurvey]}
+                                                        description="Collect responses via an external link, hosted on PostHog. If you are already using surveys, make sure to upgrade posthog-js to at least v1.258.1."
                                                         value={SurveyType.ExternalSurvey}
                                                         disabled={!isExternalSurveyFFEnabled}
                                                     >
@@ -354,6 +360,38 @@ export default function SurveyEdit(): JSX.Element {
                                                     </PresentationTypeCard>
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
+                                                {survey.type === SurveyType.ExternalSurvey && (
+                                                    <>
+                                                        <div className="font-semibold">How hosted surveys work:</div>
+                                                        <ul className="space-y-2 text-sm">
+                                                            <li>
+                                                                • The survey will be hosted by PostHog and you can share
+                                                                the URL with your customers
+                                                            </li>
+                                                            <li>
+                                                                • To identify respondents, add the{' '}
+                                                                <code className="bg-surface-tertiary px-1 rounded">
+                                                                    distinct_id
+                                                                </code>{' '}
+                                                                query parameter to the URL. Here's an example:{'\n'}
+                                                                <Link
+                                                                    to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}
+                                                                    target="_blank"
+                                                                >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}</Link>
+                                                            </li>
+                                                            <li>
+                                                                • Check more details about identifying respondents in
+                                                                the{' '}
+                                                                <Link
+                                                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                                                    target="_blank"
+                                                                >
+                                                                    documentation
+                                                                </Link>
+                                                            </li>
+                                                        </ul>
+                                                    </>
+                                                )}
                                             </div>
                                         )
                                     }}
@@ -724,19 +762,110 @@ export default function SurveyEdit(): JSX.Element {
                                                                   className="flex"
                                                                   data-attr="survey-display-conditions-linked-flag"
                                                               >
-                                                                  <FlagSelector value={value} onChange={onChange} />
+                                                                  <FlagSelector
+                                                                      value={value}
+                                                                      onChange={(id, _key, flag) => {
+                                                                          onChange(id)
+                                                                          if (
+                                                                              survey.linked_flag_id &&
+                                                                              !survey.linked_flag
+                                                                          ) {
+                                                                              api.featureFlags
+                                                                                  .get(survey.linked_flag_id)
+                                                                                  .then((flag) => {
+                                                                                      setSurveyValue(
+                                                                                          'linked_flag',
+                                                                                          flag
+                                                                                      )
+                                                                                  })
+                                                                                  .catch(() => {
+                                                                                      // If flag doesn't exist anymore, clear the linked_flag_id
+                                                                                      setSurveyValue(
+                                                                                          'linked_flag_id',
+                                                                                          null
+                                                                                      )
+                                                                                      // Reset variant selection when flag changes
+                                                                                      const {
+                                                                                          linkedFlagVariant,
+                                                                                          ...conditions
+                                                                                      } = survey.conditions || {}
+                                                                                      setSurveyValue('conditions', {
+                                                                                          ...conditions,
+                                                                                      })
+                                                                                  })
+                                                                          } else {
+                                                                              setSurveyValue('linked_flag', flag)
+                                                                              // Reset variant selection when flag changes
+                                                                              const {
+                                                                                  linkedFlagVariant,
+                                                                                  ...conditions
+                                                                              } = survey.conditions || {}
+                                                                              setSurveyValue('conditions', {
+                                                                                  ...conditions,
+                                                                              })
+                                                                          }
+                                                                      }}
+                                                                  />
                                                                   {value && (
                                                                       <LemonButton
                                                                           className="ml-2"
                                                                           icon={<IconCancel />}
                                                                           size="small"
-                                                                          onClick={() => onChange(null)}
+                                                                          onClick={() => {
+                                                                              onChange(null)
+                                                                              setSurveyValue('linked_flag', null)
+                                                                              const {
+                                                                                  linkedFlagVariant,
+                                                                                  ...conditions
+                                                                              } = survey.conditions || {}
+                                                                              setSurveyValue('conditions', {
+                                                                                  ...conditions,
+                                                                              })
+                                                                          }}
                                                                           aria-label="close"
                                                                       />
                                                                   )}
                                                               </div>
                                                           )}
                                                       </LemonField>
+                                                      {survey.linked_flag?.filters.multivariate && (
+                                                          <LemonField.Pure
+                                                              label="Link to a specific flag variant"
+                                                              info="Choose which variant of the feature flag to link to this survey.
+                                                              Requires posthog-js v1.259.0 or greater or posthog-react-native v4.4.0 or greater"
+                                                          >
+                                                              <div className="flex flex-col gap-2">
+                                                                  <LemonSegmentedButton
+                                                                      className="min-w-1/3"
+                                                                      value={
+                                                                          survey.conditions?.linkedFlagVariant ??
+                                                                          ANY_VARIANT
+                                                                      }
+                                                                      options={variantOptions(
+                                                                          survey.linked_flag?.filters.multivariate ||
+                                                                              undefined
+                                                                      )}
+                                                                      onChange={(variant) => {
+                                                                          setSurveyValue('conditions', {
+                                                                              ...survey.conditions,
+                                                                              linkedFlagVariant:
+                                                                                  variant === ANY_VARIANT
+                                                                                      ? null
+                                                                                      : variant,
+                                                                          })
+                                                                      }}
+                                                                  />
+                                                                  <p className="text-sm text-secondary">
+                                                                      This is a multi-variant flag. You can link to
+                                                                      "any" variant of the flag, and the survey will be
+                                                                      shown whenever the flag is enabled for a user.
+                                                                      Alternatively, you can link to a specific variant
+                                                                      of the flag, and the survey will only be shown
+                                                                      when the user has that specific variant enabled.
+                                                                  </p>
+                                                              </div>
+                                                          </LemonField.Pure>
+                                                      )}
                                                       <LemonField name="conditions">
                                                           {({ value, onChange }) => (
                                                               <>
@@ -923,6 +1052,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   }
                                                                               }}
                                                                               className="w-12"
+                                                                              id="survey-wait-period-input"
                                                                           />{' '}
                                                                           {value?.seenSurveyWaitPeriodInDays === 1 ? (
                                                                               <span>day.</span>

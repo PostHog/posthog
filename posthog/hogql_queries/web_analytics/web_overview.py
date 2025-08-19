@@ -30,8 +30,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     cached_response: CachedWebOverviewQueryResponse
     preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.use_v2_tables = use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
@@ -74,7 +75,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
-    def calculate(self) -> WebOverviewQueryResponse:
+    def _calculate(self) -> WebOverviewQueryResponse:
         pre_aggregated_response = self.get_pre_aggregated_response()
 
         response = (

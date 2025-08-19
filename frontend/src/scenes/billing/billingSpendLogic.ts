@@ -1,21 +1,25 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import difference from 'lodash.difference'
+import sortBy from 'lodash.sortby'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import difference from 'lodash.difference'
-import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
-import { BillingType, DateMappingOption, OrganizationType } from '~/types'
+import { DateMappingOption, OrganizationType } from '~/types'
 
+import type { BillingPeriodMarker } from './BillingLineGraph'
 import {
     buildTrackingProperties,
+    calculateBillingPeriodMarkers,
     canAccessBilling,
     syncBillingSearchParams,
     updateBillingSearchParams,
@@ -69,7 +73,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     props({} as BillingSpendLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
     connect({
-        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
         actions: [eventUsageLogic, ['reportBillingSpendInteraction']],
     }),
     actions({
@@ -177,10 +181,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (response: BillingSpendResponse | null) => response?.results?.[0]?.dates || [],
         ],
         dateOptions: [
-            (s) => [s.billing],
-            (billing: BillingType | null): DateMappingOption[] => {
-                const currentBillingPeriodStart = billing?.billing_period?.current_period_start
-                const currentBillingPeriodEnd = billing?.billing_period?.current_period_end
+            (s) => [s.billingPeriodUTC],
+            (currentPeriod): DateMappingOption[] => {
+                const currentBillingPeriodStart = currentPeriod.start
+                const currentBillingPeriodEnd = currentPeriod.end
                 const currentBillingPeriodOption: DateMappingOption = {
                     key: 'Current billing period',
                     values: [
@@ -198,6 +202,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 }
                 const dayAndMonthOptions = dateMapping.filter((o) => o.defaultInterval !== 'hour')
                 return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
+            },
+        ],
+        billingPeriodMarkers: [
+            (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
+            (currentPeriod, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
+                return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
             },
         ],
         emptySeriesIDs: [

@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter, Histogram } from 'prom-client'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
@@ -346,7 +347,7 @@ export class HogTransformerService {
 
     public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
         const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
-        const states = await this.hogWatcher.getPersistedStates(functionIds)
+        const states = await this.hogWatcher.getEffectiveStates(functionIds)
         timer()
 
         // Save only the state enum value to cache

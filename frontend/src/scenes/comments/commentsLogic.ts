@@ -1,14 +1,15 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
+import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
+import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
-import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
-import { isEmptyObject } from 'lib/utils'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']

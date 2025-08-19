@@ -33,6 +33,12 @@ export const counterMissingAddon = new Counter({
     labelNames: ['team_id'],
 })
 
+export const counterHogFunctionStateOnEvent = new Counter({
+    name: 'cdp_hog_function_state_on_event',
+    help: 'Metric the state of a hog function that matched an event',
+    labelNames: ['state', 'kind'],
+})
+
 export class CdpEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
@@ -111,7 +117,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFunction.id))
+            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
             // Iterate over adding them to the list and updating their priority
@@ -139,6 +145,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 }
 
                 const state = states[item.hogFunction.id].state
+
+                counterHogFunctionStateOnEvent
+                    .labels({
+                        state: HogWatcherState[state],
+                        kind: item.hogFunction.type,
+                    })
+                    .inc()
 
                 if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
@@ -178,59 +191,19 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-            const eventsTriggeredDestinationById: Record<string, { team_id: number; event_uuid: string }> = {}
-            const uniqueDestinationsById: Record<
-                string,
-                { team_id: number; template_id: string; invocation_id: string }
-            > = {}
-
-            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
-                const eventKey = `${state.globals.project.id}:${state.globals.event.uuid}`
-                if (!eventsTriggeredDestinationById[eventKey] && hogFunction.type === 'destination') {
-                    eventsTriggeredDestinationById[eventKey] = {
-                        team_id: state.globals.project.id,
-                        event_uuid: state.globals.event.uuid,
-                    }
-                }
-
-                const destinationKey = `${state.globals.project.id}:${id}`
-                if (!uniqueDestinationsById[destinationKey] && hogFunction.type === 'destination') {
-                    uniqueDestinationsById[destinationKey] = {
-                        team_id: state.globals.project.id,
-                        template_id: hogFunction.template_id ?? 'custom',
-                        invocation_id: id,
-                    }
-                }
-            })
-
-            const uniqueEventMetrics: MinimalAppMetric[] = Object.values(eventsTriggeredDestinationById).map(
-                ({ team_id, event_uuid }) => {
+            const billingMetrics = Object.values(notMaskedInvocations)
+                .filter((inv) => inv.hogFunction.type === 'destination')
+                .map((inv): MinimalAppMetric => {
                     return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'event_triggered_destination',
-                        team_id,
-                        app_source_id: event_uuid,
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                        team_id: inv.teamId,
+                        app_source_id: inv.hogFunction.id,
                         count: 1,
                     }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
+                })
 
-            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.values(uniqueDestinationsById).map(
-                ({ team_id, template_id, invocation_id }) => {
-                    return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'destination_invoked',
-                        team_id,
-                        app_source_id: template_id,
-                        instance_id: invocation_id,
-                        count: 1,
-                    }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
+            this.hogFunctionMonitoringService.queueAppMetrics(billingMetrics, 'hog_function')
 
             return notMaskedInvocations
         })
@@ -269,7 +242,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFlow.id))
+            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
             const validInvocations: CyclotronJobInvocation[] = []
 
             // Iterate over adding them to the list and updating their priority
@@ -315,16 +288,19 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                             try {
                                 const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                const [teamHogFunctions, team] = await Promise.all([
-                                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, [
-                                        'destination',
-                                    ]),
+                                const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+                                    this.hogFunctionManager.getHogFunctionsForTeam(
+                                        clickHouseEvent.team_id,
+                                        this.hogTypes
+                                    ),
+                                    this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
                                     this.hub.teamManager.getTeam(clickHouseEvent.team_id),
                                 ])
 
-                                if (!teamHogFunctions.length || !team) {
+                                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
                                     return
                                 }
+
                                 events.push(
                                     convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL)
                                 )

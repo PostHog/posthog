@@ -24,7 +24,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import Notebook
+from posthog.models import Notebook, GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
@@ -32,6 +32,12 @@ from posthog.models.group import Group
 from posthog.models.group.util import raw_create_group_ch, create_group
 from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from posthog.models.notebook import ResourceNotebook
+from posthog.models.notebook.util import (
+    create_bullet_list,
+    create_heading_with_text,
+    create_text_content,
+    create_empty_paragraph,
+)
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -44,12 +50,15 @@ class GroupTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ["group_type", "group_type_index"]
 
 
-class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class GroupsTypesViewSet(
+    TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
+):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
     sharing_enabled_actions = ["list"]
+    lookup_field = "group_type_index"
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
@@ -638,9 +647,55 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @transaction.atomic
     def _create_notebook_for_group(self, group: Group):
         group_name = group.group_properties.get("name", "")
+        notebook_title = f"{group_name} Notes" if group_name else "Notes"
+        notebook_content = [
+            create_heading_with_text(text=notebook_title, level=1),
+            create_text_content(
+                text="This is a place for you and your team to write collaborative notes about this group"
+            ),
+            create_empty_paragraph(),
+            create_text_content(text="Here's a template to get you started", is_italic=True),
+            create_heading_with_text(text="Quick context", level=2),
+            create_bullet_list(items=["Industry: ", "Key contacts: ", "Tech stack: "]),
+            create_heading_with_text(text="Usage patterns", level=2),
+            create_bullet_list(items=["Main use cases: ", "Power features: ", "Blockers: "]),
+            create_heading_with_text(text="Last interaction", level=2),
+            create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
+        ]
         notebook = Notebook.objects.create(
             team=self.team,
-            title=f"{group_name} Notes" if group_name else "Notes",
+            title=notebook_title,
+            content=notebook_content,
             visibility=Notebook.Visibility.INTERNAL,
         )
         ResourceNotebook.objects.create(notebook=notebook, group=group)
+
+
+class GroupUsageMetricSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GroupUsageMetric
+        fields = ("id", "name", "format", "interval", "display")
+
+
+class GroupUsageMetricDetailCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GroupUsageMetric
+        fields = ("id", "name", "format", "interval", "display", "filters")
+
+
+class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "group"
+    queryset = GroupUsageMetric.objects.all()
+    serializer_classes = {
+        "list": GroupUsageMetricSerializer,
+        "retrieve": GroupUsageMetricDetailCreateSerializer,
+        "create": GroupUsageMetricDetailCreateSerializer,
+        "update": GroupUsageMetricDetailCreateSerializer,
+        "default": GroupUsageMetricSerializer,
+    }
+
+    def get_serializer_class(self):
+        return self.serializer_classes.get(self.action, self.serializer_classes["default"])
+
+    def perform_create(self, serializer):
+        serializer.save(team=self.team, group_type_index=self.parents_query_dict["group_type_index"])

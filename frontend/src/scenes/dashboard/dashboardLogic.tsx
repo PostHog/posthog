@@ -1,8 +1,12 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import uniqBy from 'lodash.uniqby'
+import { Layout, Layouts } from 'react-grid-layout'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
@@ -12,11 +16,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import uniqBy from 'lodash.uniqby'
-import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { createMaxContextHelpers, MaxContextInput } from 'scenes/max/maxTypes'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -62,13 +64,13 @@ import {
     AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
+    IS_TEST_MODE,
+    MAX_TILES_FOR_AUTOPREVIEW,
+    QUERY_VARIABLES_KEY,
     encodeURLVariables,
     getInsightWithRetry,
-    IS_TEST_MODE,
     layoutsByTile,
-    MAX_TILES_FOR_AUTOPREVIEW,
     parseURLVariables,
-    QUERY_VARIABLES_KEY,
     runWithLimit,
 } from './dashboardUtils'
 
@@ -263,6 +265,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
             loadLayoutFromServerOnPreview,
         }),
+        dashboardNotFound: true,
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -896,6 +899,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updateDashboardLastRefresh: (_, { lastDashboardRefresh }) => lastDashboardRefresh,
             },
         ],
+        error404: [
+            false,
+            {
+                dashboardNotFound: () => true,
+                loadDashboardSuccess: () => false,
+                loadDashboardFailure: () => false,
+            },
+        ],
     })),
     selectors(() => ({
         canAutoPreview: [
@@ -1025,7 +1036,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
         apiUrl: [
-            () => [(_, props) => props.id],
+            (_, p) => [p.id],
             (id) => {
                 return (
                     refresh?: RefreshType,
@@ -1166,8 +1177,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad, s.canEditDashboard],
-            (dashboard, dashboardLoading, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard],
+            (dashboard, error404, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
                 {
                     key: Scene.Dashboards,
                     name: 'Dashboards',
@@ -1179,9 +1190,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ? dashboard.name
                         : dashboardFailedToLoad
                           ? 'Could not load'
-                          : !dashboardLoading
+                          : error404
                             ? 'Not found'
-                            : null,
+                            : '...',
                     onRename: canEditDashboard
                         ? async (name) => {
                               if (dashboard) {
@@ -1558,6 +1569,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             void sharedListeners.reportLoadTiming(...args)
 
             if (!values.dashboard) {
+                actions.dashboardNotFound()
                 return // We hit a 404
             }
 
@@ -1578,6 +1590,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // and "values.dashboard" will then fail
             const { dashboard, lastDashboardRefresh } = values
             if (dashboard) {
+                void api.create(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${dashboard.id}/viewed`)
                 eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (

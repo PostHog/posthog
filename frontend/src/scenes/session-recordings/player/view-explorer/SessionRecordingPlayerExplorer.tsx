@@ -1,7 +1,9 @@
+import { useState } from 'react'
+
 import { IconRevert, IconX } from '@posthog/icons'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useState } from 'react'
 import { SettingsBar, SettingsButton } from 'scenes/session-recordings/components/PanelSettings'
 import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
 

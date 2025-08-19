@@ -1,5 +1,7 @@
-import { IconHome, IconPerson } from '@posthog/icons'
 import clsx from 'clsx'
+
+import { IconHome, IconPerson } from '@posthog/icons'
+
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { Scene } from 'scenes/sceneTypes'
 

@@ -1,19 +1,19 @@
 /**
  * @fileoverview A component that displays an interactive survey within a session recording. It handles survey display, user responses, and submission
  */
-import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
+import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
+import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
+
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { SidePanelTab, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
-import MaxTool from 'scenes/max/MaxTool'
-import { maxLogic } from 'scenes/max/maxLogic'
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface InternalSurveyProps {
     surveyId: string
@@ -237,33 +237,22 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                             {question.buttonText ?? 'Submit'}
                                         </LemonButton>
                                         {isHelpEnabled && (
-                                            <MaxTool
-                                                name="session_recording_settings_help"
-                                                displayName="Session recording settings help"
-                                                description="Max can help you with your session recording issues"
-                                                context={{}}
-                                                callback={() => {
-                                                    // No need to handle structured output for this tool
+                                            <LemonButton
+                                                disabledReason={
+                                                    !openChoice || openChoice.length < 5
+                                                        ? 'Message must be at least 5 characters'
+                                                        : false
+                                                }
+                                                type="secondary"
+                                                onClick={() => {
+                                                    openSidePanel(SidePanelTab.Max)
+                                                    askMax(
+                                                        `I am disabling session replay because of "${openChoice}". Go through PostHog documentation and find a solution to fix this.`
+                                                    )
                                                 }}
-                                                onMaxOpen={() => {}}
                                             >
-                                                <LemonButton
-                                                    disabledReason={
-                                                        !openChoice || openChoice.length < 5
-                                                            ? 'Message must be at least 5 characters'
-                                                            : false
-                                                    }
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        openSidePanel(SidePanelTab.Max)
-                                                        askMax(
-                                                            `I am turning off session replay because of "${openChoice}". Is there a way to fix this?`
-                                                        )
-                                                    }}
-                                                >
-                                                    Ask Max for help
-                                                </LemonButton>
-                                            </MaxTool>
+                                                Ask Max for help
+                                            </LemonButton>
                                         )}
                                     </div>
                                 </>

@@ -1,8 +1,9 @@
 import os
 from datetime import datetime
 from typing import Any, Optional
-from unittest.mock import patch, MagicMock, Mock
-
+from collections.abc import AsyncIterator
+from unittest.mock import patch, Mock
+from rest_framework import exceptions
 from django.http import HttpResponse
 from posthog.test.base import APIBaseTest
 from ee.hogai.session_summaries.session_group.patterns import (
@@ -16,21 +17,12 @@ class TestSessionSummariesAPI(APIBaseTest):
     url: str
     environment_patches: list[Any]
 
-    def _create_mock_replay_events(
-        self,
-        sessions_found: set[str],
-        min_timestamp: Optional[datetime] = None,
-        max_timestamp: Optional[datetime] = None,
-    ) -> MagicMock:
-        """Helper to create a mock SessionReplayEvents instance with standard behavior."""
-        mock_instance = MagicMock()
-        return_value: tuple[set[str], Optional[datetime], Optional[datetime]] = (
-            sessions_found,
-            min_timestamp,
-            max_timestamp,
-        )
-        mock_instance.sessions_found_with_timestamps.return_value = return_value
-        return mock_instance
+    async def _create_async_generator(self, result: Any) -> AsyncIterator[Any]:
+        """Helper to create an async generator that yields a result."""
+        # Yield some progress updates (strings) and then the final result
+        yield "Starting session group summarization..."
+        yield "Processing sessions..."
+        yield result
 
     def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> HttpResponse:
         """Helper to make API requests with consistent formatting."""
@@ -78,23 +70,22 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.SessionReplayEvents")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
     @patch("ee.api.session_summaries.create_summary_notebook")
     def test_create_summaries_success(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_replay_events: Mock, mock_feature_enabled: Mock
+        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
         """Test successful creation of session summaries"""
         # Setup mocks
         mock_feature_enabled.return_value = True
-        mock_replay_events.return_value = self._create_mock_replay_events(
-            sessions_found={"session1", "session2"},
-            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
-            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
         )
 
         mock_result = self.create_mock_result()
-        mock_execute.return_value = mock_result
+        mock_execute.return_value = self._create_async_generator(mock_result)
 
         # Make request
         response = self._make_api_request(session_ids=["session1", "session2"], focus_area="login process")
@@ -120,29 +111,27 @@ class TestSessionSummariesAPI(APIBaseTest):
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=mock_execute.call_args[1]["extra_summary_context"],
-            local_reads_prod=False,
         )
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.SessionReplayEvents")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
     @patch("ee.api.session_summaries.create_summary_notebook")
     def test_create_summaries_without_focus_area(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_replay_events: Mock, mock_feature_enabled: Mock
+        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
         """Test successful creation without focus area"""
         # Setup mocks
         mock_feature_enabled.return_value = True
-        mock_replay_events.return_value = self._create_mock_replay_events(
-            sessions_found={"session1", "session2"},
-            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
-            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
         )
 
         mock_result = self.create_mock_result()
-        mock_execute.return_value = mock_result
+        mock_execute.return_value = self._create_async_generator(mock_result)
 
         # Make request without focus_area
         response = self._make_api_request(session_ids=["session1", "session2"])
@@ -158,7 +147,6 @@ class TestSessionSummariesAPI(APIBaseTest):
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=None,
-            local_reads_prod=False,
         )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -173,7 +161,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
+        error: dict[str, Any] = response.json()
         self.assertEqual(error["attr"], "session_ids")
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -251,13 +239,14 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.SessionReplayEvents")
-    def test_create_summaries_session_not_found(self, mock_replay_events: Mock, mock_feature_enabled: Mock) -> None:
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    def test_create_summaries_session_not_found(self, mock_find_sessions: Mock, mock_feature_enabled: Mock) -> None:
         """Test error when session doesn't exist or doesn't belong to team"""
         # Setup mocks
         mock_feature_enabled.return_value = True
-        mock_replay_events.return_value = self._create_mock_replay_events(
-            sessions_found=set()  # Empty set means no sessions found
+        # Mock find_sessions_timestamps to raise validation error for not found sessions
+        mock_find_sessions.side_effect = exceptions.ValidationError(
+            "Sessions not found or do not belong to this team: nonexistent_session"
         )
 
         response = self._make_api_request(session_ids=["nonexistent_session"])
@@ -267,17 +256,16 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertIn("Sessions not found or do not belong to this team: nonexistent_session", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.SessionReplayEvents")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
     def test_create_summaries_mixed_session_existence(
-        self, mock_replay_events: Mock, mock_feature_enabled: Mock
+        self, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
         """Test error when some sessions exist and some don't"""
         # Setup mocks
         mock_feature_enabled.return_value = True
-        mock_replay_events.return_value = self._create_mock_replay_events(
-            sessions_found={"session1"},  # Only session1 found
-            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
-            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
+        # Mock find_sessions_timestamps to raise validation error for missing session2
+        mock_find_sessions.side_effect = exceptions.ValidationError(
+            "Sessions not found or do not belong to this team: session2"
         )
 
         response = self._make_api_request(session_ids=["session1", "session2"])
@@ -287,23 +275,26 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertIn("Sessions not found or do not belong to this team: session2", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.SessionReplayEvents")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
     @patch("ee.api.session_summaries.create_summary_notebook")
     def test_create_summaries_execution_failure(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_replay_events: Mock, mock_feature_enabled: Mock
+        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
         """Test handling of execution failures"""
         # Setup mocks
         mock_feature_enabled.return_value = True
-        mock_replay_events.return_value = self._create_mock_replay_events(
-            sessions_found={"session1"},
-            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
-            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
         )
 
-        # Mock execution failure
-        mock_execute.side_effect = Exception("Workflow execution failed")
+        # Mock execution failure - create async generator that raises exception
+        async def failing_generator():
+            yield "Starting..."
+            raise Exception("Workflow execution failed")
+
+        mock_execute.return_value = failing_generator()
 
         response = self._make_api_request(session_ids=["session1"])
 
@@ -312,18 +303,17 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertIn("Failed to generate session summaries", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.SessionReplayEvents")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
     def test_create_summaries_validates_all_sessions_before_execution(
-        self, mock_execute: Mock, mock_replay_events: Mock, mock_feature_enabled: Mock
+        self, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
         """Test that all sessions are validated before execution starts"""
         # Setup mocks
         mock_feature_enabled.return_value = True
-        mock_replay_events.return_value = self._create_mock_replay_events(
-            sessions_found={"session1", "session2"},  # session3 not found
-            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
-            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
+        # Mock find_sessions_timestamps to raise validation error for missing session3
+        mock_find_sessions.side_effect = exceptions.ValidationError(
+            "Sessions not found or do not belong to this team: session3"
         )
 
         response = self._make_api_request(session_ids=["session1", "session2", "session3"])
@@ -344,29 +334,26 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(response.status_code, 405)
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.SessionReplayEvents")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
     @patch("ee.api.session_summaries.create_summary_notebook")
     def test_create_summaries_single_session(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_replay_events: Mock, mock_feature_enabled: Mock
+        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
         """Test that single session works correctly"""
         # Setup mocks
         mock_feature_enabled.return_value = True
-        mock_replay_events.return_value = self._create_mock_replay_events(
-            sessions_found={"single_session"},
-            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
-            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
         )
 
         mock_result = self.create_mock_result()
-        mock_execute.return_value = mock_result
+        mock_execute.return_value = self._create_async_generator(mock_result)
 
         response = self._make_api_request(session_ids=["single_session"])
 
         self.assertEqual(response.status_code, 200)
 
         # Verify session validation was called once
-        mock_replay_events.return_value.sessions_found_with_timestamps.assert_called_once_with(
-            ["single_session"], self.team
-        )
+        mock_find_sessions.assert_called_once_with(session_ids=["single_session"], team=self.team)

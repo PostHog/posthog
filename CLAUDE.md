@@ -19,7 +19,7 @@
 
 - Python: Use type hints, follow mypy strict rules
 - Frontend: TypeScript required, explicit return types
-- Imports: Use simple-import-sort, avoid direct dayjs imports (use lib/dayjs)
+- Imports: Use prettier-plugin-sort-imports (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python

@@ -25,7 +25,7 @@ impl FeatureFlagList {
         );
 
         let serialized_flags = client
-            .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id))
+            .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"))
             .await?;
 
         let flags_list: Vec<FeatureFlag> =
@@ -89,7 +89,7 @@ impl FeatureFlagList {
                     project_id,
                     e
                 );
-                FlagError::Internal(format!("Database query error: {}", e))
+                FlagError::Internal(format!("Database query error: {e}"))
             })?;
 
         let mut had_deserialization_errors = false;
@@ -159,7 +159,7 @@ impl FeatureFlagList {
         );
 
         client
-            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id), payload)
+            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
             .await
             .map_err(|e| {
                 tracing::error!(
@@ -270,7 +270,7 @@ mod tests {
 
         match FeatureFlagList::from_pg(reader.clone(), -1).await {
             Ok((flags, _)) => assert_eq!(flags.flags.len(), 0),
-            Err(err) => panic!("Expected empty result, got error: {:?}", err),
+            Err(err) => panic!("Expected empty result, got error: {err:?}"),
         }
     }
 
@@ -283,7 +283,7 @@ mod tests {
             Err(FlagError::DatabaseUnavailable) => {
                 // Expected error
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 

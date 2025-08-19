@@ -20,6 +20,7 @@ class DataWarehouseTableAdmin(admin.ModelAdmin):
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by")
+    readonly_fields = ("credential", "external_data_source")
     ordering = ("-created_at",)
 
     @admin.display(description="Team")

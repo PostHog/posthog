@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl } from 'kea-router'
+
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'

@@ -1,17 +1,19 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
+import { encodeParams } from 'kea-router'
+import posthog from 'posthog-js'
+
 import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from '@posthog/products-error-tracking/frontend/configuration/rules/types'
-import { encodeParams } from 'kea-router'
+
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
-import posthog from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -77,9 +79,10 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EventDefinition,
+    EventDefinitionMetrics,
     EventDefinitionType,
-    EventsListQueryParams,
     EventType,
+    EventsListQueryParams,
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
@@ -102,9 +105,9 @@ import {
     IntegrationType,
     LineageGraph,
     LinearTeamType,
+    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
-    LinkType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
@@ -117,9 +120,9 @@ import {
     OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
-    PersonalAPIKeyType,
     PersonListParams,
     PersonType,
+    PersonalAPIKeyType,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
@@ -132,8 +135,8 @@ import {
     RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
-    RolesListParams,
     RoleType,
+    RolesListParams,
     ScheduledChangeType,
     SchemaIncrementalFieldsResponse,
     SearchListParams,
@@ -155,6 +158,10 @@ import {
     UserType,
 } from '~/types'
 
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
+import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
@@ -171,9 +178,6 @@ import {
     LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
-import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
-import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -1116,6 +1120,28 @@ export class ApiRequest {
             .withQueryString({ accountId })
     }
 
+    public integrationClickUpSpaces(
+        id: IntegrationType['id'],
+        workspaceId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('clickup_spaces')
+            .withQueryString({ workspaceId })
+    }
+
+    public integrationClickUpLists(id: IntegrationType['id'], spaceId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('clickup_lists')
+            .withQueryString({ spaceId })
+    }
+
+    public integrationClickUpWorkspaces(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('clickup_workspaces')
+    }
+
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
     }
@@ -1232,6 +1258,10 @@ export class ApiRequest {
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
+    }
+
+    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
@@ -1696,7 +1726,12 @@ const api = {
 
             // Opt into the new /activity_log API
             if (
-                [ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION, ActivityScope.EXPERIMENT].includes(scopes[0]) ||
+                [
+                    ActivityScope.PLUGIN,
+                    ActivityScope.HOG_FUNCTION,
+                    ActivityScope.EXPERIMENT,
+                    ActivityScope.TAG,
+                ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
                 return api.activity
@@ -1914,6 +1949,13 @@ const api = {
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
+        },
+        async getMetrics({
+            eventDefinitionId,
+        }: {
+            eventDefinitionId: EventDefinition['id']
+        }): Promise<EventDefinitionMetrics> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
@@ -2675,9 +2717,10 @@ const api = {
         },
         async get(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {}
+            params: Record<string, any> = {},
+            headers: Record<string, string> = {}
         ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
+            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get({ headers })
         },
         async update(
             recordingId: SessionRecordingType['id'],
@@ -2711,23 +2754,29 @@ const api = {
 
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {}
+            params: Record<string, any> = {},
+            headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
             if (params.source) {
                 throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
             }
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+            return await new ApiRequest()
+                .recording(recordingId)
+                .withAction('snapshots')
+                .withQueryString(params)
+                .get({ headers })
         },
 
         async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: SessionRecordingSnapshotParams
+            params: SessionRecordingSnapshotParams,
+            headers: Record<string, string> = {}
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
                 .withQueryString(params)
-                .getResponse()
+                .getResponse({ headers })
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             try {
@@ -3297,6 +3346,21 @@ const api = {
         },
     },
 
+    dataWarehouse: {
+        async total_rows_stats(options?: ApiMethodOptions): Promise<{
+            billingAvailable: boolean
+            billingInterval: string
+            billingPeriodEnd: string
+            billingPeriodStart: string
+            materializedRowsInBillingPeriod: number
+            totalRows: number
+            trackedBillingRows: number
+            pendingBillingRows: number
+        }> {
+            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
+        },
+    },
+
     externalDataSchemas: {
         async update(
             schemaId: ExternalDataSourceSchema['id'],
@@ -3491,6 +3555,26 @@ const api = {
             accountId: string
         ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
             return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
+        },
+        async clickUpSpaces(
+            id: IntegrationType['id'],
+            workspaceId: string,
+            teamId?: TeamType['id']
+        ): Promise<{ spaces: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationClickUpSpaces(id, workspaceId, teamId).get()
+        },
+        async clickUpLists(
+            id: IntegrationType['id'],
+            spaceId: string,
+            teamId?: TeamType['id']
+        ): Promise<{ lists: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationClickUpLists(id, spaceId, teamId).get()
+        },
+        async clickUpWorkspaces(
+            id: IntegrationType['id'],
+            teamId?: TeamType['id']
+        ): Promise<{ workspaces: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationClickUpWorkspaces(id, teamId).get()
         },
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()

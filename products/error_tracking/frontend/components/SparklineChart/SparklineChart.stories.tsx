@@ -1,6 +1,7 @@
 import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
 import * as d3 from 'd3'
+
 import { dayjs } from 'lib/dayjs'
 
 import { SparklineChart, SparklineEvent, SparklineOptions } from './SparklineChart'
@@ -89,9 +90,9 @@ function buildSparklineOptions(): SparklineOptions {
     return {
         ...datumInteractions,
         ...eventsInteractions,
-        backgroundColor: 'var(--primitive-neutral-200)',
-        hoverBackgroundColor: 'var(--primitive-neutral-700)',
-        axisColor: 'var(--primitive-neutral-300)',
+        backgroundColor: 'var(--color-neutral-200)',
+        hoverBackgroundColor: 'var(--color-neutral-700)',
+        axisColor: 'var(--color-neutral-300)',
         eventLabelHeight: 20,
         eventMinSpace: 2,
         eventLabelPaddingX: 5,

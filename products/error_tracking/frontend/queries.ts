@@ -1,6 +1,7 @@
 import {
     DataTableNode,
     DateRange,
+    ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsQuery,
     InsightVizNode,
@@ -192,4 +193,18 @@ export const errorTrackingIssueBreakdownQuery = ({
             filterTestAccounts,
         },
     }
+}
+
+export const errorTrackingIssueCorrelationQuery = ({
+    event,
+}: {
+    event: string
+}): ErrorTrackingIssueCorrelationQuery => {
+    return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
+        kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
+        events: [event],
+        tags: {
+            productKey: ProductKey.ERROR_TRACKING,
+        },
+    })
 }

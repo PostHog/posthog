@@ -1,10 +1,15 @@
 import '../../lemon-ui/Popover/Popover.scss'
 import './InfiniteList.scss'
 
-import { IconArchive, IconPlus } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+
+import { IconArchive, IconPlus } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -21,13 +26,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
 import { EventDefinition, PropertyDefinition } from '~/types'
 
-import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
+import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -240,7 +242,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         const item = results[rowIndex]
         const itemGroup = getItemGroup(item, taxonomicGroups, group)
         const itemValue = item ? itemGroup?.getValue?.(item) : null
-        const isSelected = listGroupType === groupType && itemValue === value
+
+        // Normalize value to match itemValue type before comparison
+        const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
+
+        const isSelected = listGroupType === groupType && itemValue === normalizedValue
+
         const isHighlighted = rowIndex === index && isActiveTab
 
         // Show create custom event option when there are no results

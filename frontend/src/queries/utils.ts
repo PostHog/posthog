@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import {
     ActionsNode,
@@ -8,11 +9,12 @@ import {
     BreakdownFilter,
     CalendarHeatmapQuery,
     CompareFilter,
-    DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DatabaseSchemaQuery,
     DateRange,
+    ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
@@ -62,7 +64,6 @@ import {
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -235,6 +236,12 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isErrorTrackingIssueCorrelationQuery(
+    node?: Record<string, any> | null
+): node is ErrorTrackingIssueCorrelationQuery {
+    return node?.kind === NodeKind.ErrorTrackingIssueCorrelationQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

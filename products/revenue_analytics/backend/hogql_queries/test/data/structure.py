@@ -5,6 +5,9 @@ REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT = RevenueAnalyticsEventItem(
     revenueProperty="revenue",
     productProperty="product",
     couponProperty="coupon",
+    subscriptionProperty="subscription",
+    subscriptionDropoffDays=45,
+    subscriptionDropoffMode="last_event",
     revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
 )
 
@@ -139,8 +142,6 @@ STRIPE_SUBSCRIPTION_COLUMNS = {
     "plan": "String",
     "created": "DateTime",
     "ended_at": "DateTime",
-    "current_period_start": "DateTime",
-    "current_period_end": "DateTime",
     "status": "String",
     "metadata": "String",
 }

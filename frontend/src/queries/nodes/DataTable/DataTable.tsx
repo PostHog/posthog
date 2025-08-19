@@ -1,34 +1,38 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { useCallback, useState } from 'react'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
+import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
-import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
@@ -75,8 +79,6 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
-import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
-import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -102,6 +104,8 @@ interface DataTableProps {
      Set a data-attr on the LemonTable component
     */
     dataAttr?: string
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 const eventGroupTypes = [
@@ -122,6 +126,7 @@ export function DataTable({
     cachedResults,
     readOnly,
     dataAttr,
+    attachTo,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -140,13 +145,11 @@ export function DataTable({
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: vizKey,
+        key: context?.dataNodeLogicKey ?? vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
     }
-    const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
-
     const {
         response,
         responseLoading,
@@ -156,7 +159,7 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
-    } = useValues(builtDataNodeLogic)
+    } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { setSaveGroupViewModalOpen } = useActions(groupViewLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
@@ -178,6 +181,9 @@ export function DataTable({
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
 
     const {
         showActions,
@@ -274,10 +280,10 @@ export function DataTable({
             more:
                 !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                     <>
-                        <div className="px-2 py-1">
-                            <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
+                        <div className="px-2 py-1 max-w-md">
+                            <div className="font-mono font-bold truncate">{extractExpressionComment(key)}</div>
                             {extractExpressionComment(key) !== removeExpressionComment(key) && (
-                                <div className="font-mono">{removeExpressionComment(key)}</div>
+                                <div className="font-mono truncate">{removeExpressionComment(key)}</div>
                             )}
                         </div>
                         {columnFeatures.includes(ColumnFeature.canEdit) && (
@@ -359,7 +365,7 @@ export function DataTable({
                                         const orderBy =
                                             query.source.kind === NodeKind.MarketingAnalyticsTableQuery
                                                 ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                : [`${key} DESC`]
+                                                : [`${key}\n DESC`]
                                         setQuery?.({
                                             ...query,
                                             source: {

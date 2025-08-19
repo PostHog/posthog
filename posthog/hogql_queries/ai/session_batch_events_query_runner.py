@@ -77,7 +77,7 @@ class SessionBatchEventsQueryRunner(QueryRunner):
         """Delegate to EventsQueryRunner."""
         return self._events_runner.columns(result_columns)
 
-    def calculate(self) -> SessionBatchEventsQueryResponse:
+    def _calculate(self) -> SessionBatchEventsQueryResponse:
         """
         Execute the session batch query and organize results by session.
 

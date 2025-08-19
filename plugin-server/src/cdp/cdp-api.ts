@@ -1,12 +1,13 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
-import { delay, UUID, UUIDT } from '../utils/utils'
+import { UUID, UUIDT, delay } from '../utils/utils'
 import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
@@ -84,8 +85,8 @@ export class CdpApi {
         const router = express.Router()
 
         const asyncHandler =
-            (fn: (req: express.Request, res: express.Response) => Promise<void>) =>
-            (req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> =>
+            (fn: (req: ModifiedRequest, res: express.Response) => Promise<void>) =>
+            (req: ModifiedRequest, res: express.Response, next: express.NextFunction): Promise<void> =>
                 fn(req, res).catch(next)
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
@@ -94,20 +95,22 @@ export class CdpApi {
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
-        router.post('/public/messaging/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
+        router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
+        router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
+        router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
     }
 
-    private getHogFunctionTemplates = (req: express.Request, res: express.Response): void => {
+    private getHogFunctionTemplates = (req: ModifiedRequest, res: express.Response): void => {
         res.json(HOG_FUNCTION_TEMPLATES)
     }
 
     private getFunctionStatus =
         () =>
-        async (req: express.Request, res: express.Response): Promise<void> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
             const summary = await this.hogWatcher.getPersistedState(id)
 
@@ -116,7 +119,7 @@ export class CdpApi {
 
     private patchFunctionStatus =
         () =>
-        async (req: express.Request, res: express.Response): Promise<void> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
             const { state } = req.body
 
@@ -148,7 +151,7 @@ export class CdpApi {
 
     private getFunctionStates =
         () =>
-        async (req: express.Request, res: express.Response): Promise<void> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
                 const allStates = await this.hogWatcher.getAllFunctionStates()
 
@@ -184,7 +187,7 @@ export class CdpApi {
             }
         }
 
-    private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
+    private postFunctionInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
@@ -383,7 +386,7 @@ export class CdpApi {
         }
     }
 
-    private postHogflowInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
+    private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id } = req.body
@@ -468,7 +471,7 @@ export class CdpApi {
 
     private postWebhook =
         () =>
-        async (req: express.Request, res: express.Response): Promise<any> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             // TODO: Source handler service that takes care of finding the relevant function,
             // running it (maybe) and scheduling the job if it gets suspended
 
@@ -512,7 +515,7 @@ export class CdpApi {
 
     private getWebhook =
         () =>
-        async (req: express.Request, res: express.Response): Promise<any> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
 
             const webhook = await this.cdpSourceWebhooksConsumer.getWebhook(webhook_id)
@@ -530,10 +533,22 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                const { status, message } = await this.emailTrackingService.handleWebhook(req)
+                const { status, message } = await this.emailTrackingService.handleMailjetWebhook(req)
                 return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
             }
+        }
+
+    private getEmailTrackingPixel =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            await this.emailTrackingService.handleEmailTrackingPixel(req, res)
+        }
+
+    private getEmailTrackingRedirect =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            await this.emailTrackingService.handleEmailTrackingRedirect(req, res)
         }
 }

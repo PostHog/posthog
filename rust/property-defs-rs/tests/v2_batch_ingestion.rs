@@ -203,22 +203,22 @@ fn gen_test_prop_key_value(ndx: usize) -> (String, Value) {
     match [0, 1, 2, 3].choose(&mut rand::thread_rng()) {
         // String
         Some(&0) => (
-            format!("str_prop_{}", ndx),
-            Value::String(format!("value_{}", ndx)),
+            format!("str_prop_{ndx}"),
+            Value::String(format!("value_{ndx}")),
         ),
 
         // Boolean
-        Some(&1) => (format!("bool_prop_{}", ndx), Value::Bool(true)),
+        Some(&1) => (format!("bool_prop_{ndx}"), Value::Bool(true)),
 
         // Numeric
         Some(&2) => (
-            format!("numeric_prop_{}", ndx),
+            format!("numeric_prop_{ndx}"),
             json!(rand::thread_rng().gen_range(0..1000)),
         ),
 
         // DateTime
         Some(&3) => (
-            format!("datetime_prop_{}", ndx),
+            format!("datetime_prop_{ndx}"),
             Value::String(Utc::now().to_rfc3339()),
         ),
 

@@ -1,24 +1,24 @@
-// eslint-disable-next-line simple-import-sort/imports
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { Server } from 'http'
+import { DateTime, Settings } from 'luxon'
+import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { closeHub, createHub } from '~/utils/db/hub'
-
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { CdpApi } from '~/cdp/cdp-api'
-import supertest from 'supertest'
 import { setupExpressApp } from '~/api/router'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
-import { HogFunctionType } from '~/cdp/types'
-import { Server } from 'http'
+import { CdpApi } from '~/cdp/cdp-api'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
+import { HogFunctionType } from '~/cdp/types'
+import { forSnapshot } from '~/tests/helpers/snapshots'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { Hub, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
-import { Team, Hub } from '~/types'
-import { DateTime, Settings } from 'luxon'
-import { forSnapshot } from '~/tests/helpers/snapshots'
 
 describe('SourceWebhooksConsumer', () => {
     let hub: Hub
@@ -44,10 +44,16 @@ describe('SourceWebhooksConsumer', () => {
         let server: Server
 
         let mockExecuteSpy: jest.SpyInstance
+        let mockQueueInvocationsSpy: jest.SpyInstance
 
         beforeEach(async () => {
+            hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
             api = new CdpApi(hub)
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
+            mockQueueInvocationsSpy = jest.spyOn(
+                api['cdpSourceWebhooksConsumer']['cyclotronJobQueue'],
+                'queueInvocations'
+            )
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -63,6 +69,8 @@ describe('SourceWebhooksConsumer', () => {
 
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
             jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+            await api.start()
         })
 
         afterEach(async () => {
@@ -172,6 +180,7 @@ describe('SourceWebhooksConsumer', () => {
                 const call = mockExecuteSpy.mock.calls[0][0]
                 expect(call.state.globals.request).toEqual({
                     body: {},
+                    stringBody: '',
                     headers: {
                         'accept-encoding': 'gzip, deflate',
                         connection: 'close',
@@ -181,6 +190,40 @@ describe('SourceWebhooksConsumer', () => {
                     },
                     ip: '127.0.0.1',
                 })
+            })
+        })
+
+        describe('hogwatcher', () => {
+            it('should return a degraded response if the function is degraded', async () => {
+                await api['cdpSourceWebhooksConsumer']['hogWatcher'].forceStateChange(
+                    hogFunction,
+                    HogWatcherState.degraded
+                )
+                const res = await doRequest({
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.body).toMatchInlineSnapshot(`{}`)
+                expect(mockExecuteSpy).not.toHaveBeenCalled()
+                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
+                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(call.queue).toEqual('hog_overflow')
+            })
+
+            it('should return a disabled response if the function is disabled', async () => {
+                await api['cdpSourceWebhooksConsumer']['hogWatcher'].forceStateChange(
+                    hogFunction,
+                    HogWatcherState.disabled
+                )
+                const res = await doRequest({})
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({
+                    error: 'Disabled',
+                })
+                expect(mockExecuteSpy).not.toHaveBeenCalled()
+                expect(mockQueueInvocationsSpy).not.toHaveBeenCalled()
             })
         })
     })

@@ -1,9 +1,10 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
 import {
     LemonTextAreaMarkdown,
     LemonTextAreaMarkdown as _LemonTextMarkdown,
 } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
-import { useState } from 'react'
 
 import { LemonTextAreaProps } from './LemonTextArea'
 

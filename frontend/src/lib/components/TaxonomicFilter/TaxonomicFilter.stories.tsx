@@ -1,15 +1,16 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
+
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
 import { AvailableFeature } from '~/types'
 
-import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { infiniteListLogic } from './infiniteListLogic'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -41,7 +42,7 @@ export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
 
     // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
     // - we do want to show the definition popover here too
-    useOnMountEffect(() => setIndex(1))
+    useDelayedOnMountEffect(() => setIndex(1))
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -90,7 +91,7 @@ export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
 
     // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
     // - we do want to show the definition popover here too
-    useOnMountEffect(() => setIndex(0))
+    useDelayedOnMountEffect(() => setIndex(0))
 
     return (
         <div className="w-fit border rounded p-2">
@@ -144,7 +145,7 @@ export const Columnar: StoryFn<typeof TaxonomicFilter> = (args) => {
         })
     )
 
-    useOnMountEffect(() => setIndex(1))
+    useDelayedOnMountEffect(() => setIndex(1))
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -185,7 +186,7 @@ export const ForceColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
         })
     )
 
-    useOnMountEffect(() => setIndex(1))
+    useDelayedOnMountEffect(() => setIndex(1))
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -225,7 +226,7 @@ export const ForceNonColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
         })
     )
 
-    useOnMountEffect(() => setIndex(1))
+    useDelayedOnMountEffect(() => setIndex(1))
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">

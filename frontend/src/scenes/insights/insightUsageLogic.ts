@@ -1,11 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Node } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -52,7 +53,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             // We only want to report direct views on the insights page.
             if (
                 !insightSceneLogic.isMounted() ||
-                insightSceneLogic.values.activeScene !== 'Insight' ||
+                insightSceneLogic.values.activeSceneId !== 'Insight' ||
                 insightSceneLogic.values.insight?.short_id !== values.insight?.short_id
             ) {
                 return
