@@ -71,6 +71,7 @@ export function TaxonomicPropertyFilter({
     hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
+    operatorAllowlist,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -184,6 +185,7 @@ export function TaxonomicPropertyFilter({
                     ? (filter?.group_type_index as GroupTypeIndex)
                     : undefined
             }
+            operatorAllowlist={operatorAllowlist}
         />
     )
 
