@@ -13,7 +13,6 @@ from products.data_warehouse.backend.prompts import (
     HOGQL_GENERATOR_USER_PROMPT,
     SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
-from ee.hogai.graph.query_planner.prompts import PROPERTY_FILTERS_EXPLANATION_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
@@ -82,8 +81,8 @@ class HogQLGeneratorNode(
 
         combined_messages = [
             *system_prompt.messages,
-            ("system", PROPERTY_FILTERS_EXPLANATION_PROMPT),
             *taxonomy_system_messages,
+            # ("system", PROPERTY_FILTERS_EXPLANATION_PROMPT),
             ("human", state.change or ""),
             *(state.tool_progress_messages or []),
         ]
