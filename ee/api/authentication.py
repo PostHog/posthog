@@ -1,11 +1,8 @@
-from typing import Any, Union, Literal
+from typing import Any, Union, Literal, TypedDict, NotRequired
 import re
-from django.core.cache import cache
 
 import jwt
 from jwt.algorithms import RSAAlgorithm
-import requests
-from requests.models import Response
 
 import posthoganalytics
 import structlog
@@ -31,6 +28,7 @@ from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.utils import load_backend, load_strategy
 
 from ee import settings
+from ee.api.vercel.utils import get_vercel_jwks
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -256,35 +254,37 @@ class CustomGoogleOAuth2(GoogleOAuth2):
             return sub
 
 
-VERCEL_JWKS_URL: str = "https://marketplace.vercel.com/.well-known/jwks.json"
-VERCEL_ISSUER = "https://marketplace.vercel.com"
-VERCEL_JWKS_CACHE_KEY = "vercel_jwks"
-VERCEL_JWKS_CACHE_TIMEOUT = 600
-
 logger = structlog.get_logger(__name__)
 
 
-def get_vercel_jwks() -> dict[str, Any]:
-    jwks = cache.get(VERCEL_JWKS_CACHE_KEY)
-    if jwks is None:
-        for attempt in range(3):
-            try:
-                response: Response = requests.get(VERCEL_JWKS_URL, timeout=10)
-                response.raise_for_status()
-                jwks = response.json()
-                cache.set(VERCEL_JWKS_CACHE_KEY, jwks, timeout=VERCEL_JWKS_CACHE_TIMEOUT)
-                logger.debug("JWKS fetched successfully")
-                break
-            except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
-                if attempt == 2:
-                    logger.exception("JWKS fetch failed after all retries", attempts=3, error=str(e))
-                    raise
-                logger.warning("JWKS fetch failed, retrying", attempt=attempt + 1, error=str(e))
-    return jwks
+class VercelBaseClaims(TypedDict):
+    iss: str
+    sub: str
+    aud: str
+    account_id: str
+    installation_id: str
+    type: NotRequired[Literal["access_token", "id_token"]]
 
 
-VercelAuthType = Literal["user", "system"]
-VERCEL_AUTH_TYPES: tuple[VercelAuthType, ...] = ("user", "system")
+class VercelUserClaims(VercelBaseClaims):
+    user_id: str
+    user_role: Literal["ADMIN", "USER"]
+    user_avatar_url: NotRequired[str]
+    user_email: NotRequired[str]  # Only available if integration is opted in (Which it is in our case)
+    user_name: NotRequired[str]
+
+
+class VercelSystemClaims(VercelBaseClaims):
+    pass
+
+
+VercelClaims = Union[VercelUserClaims, VercelSystemClaims]
+
+
+class VercelUser(AnonymousUser):
+    def __init__(self, claims: VercelClaims):
+        super().__init__()
+        self.claims = claims
 
 
 class VercelAuthentication(authentication.BaseAuthentication):
@@ -298,8 +298,14 @@ class VercelAuthentication(authentication.BaseAuthentication):
     https://vercel.com/docs/integrations/create-integration/marketplace-api#marketplace-partner-api-authentication
     """
 
-    def authenticate(self, request: Request) -> tuple[AnonymousUser, dict[str, Any]] | None:
-        """Uses X-Vercel-Auth header to determine validation type"""
+    VercelAuthType = Literal["user", "system"]
+
+    VERCEL_AUTH_TYPES: tuple[VercelAuthType, ...] = ("user", "system")
+    USER_SUB_RE = re.compile(r"^account:[0-9a-fA-F]+:user:[0-9a-fA-F]+$")
+    SYSTEM_SUB_RE = re.compile(r"^account:[0-9a-fA-F]+$")
+    VERCEL_ISSUER = "https://marketplace.vercel.com"
+
+    def authenticate(self, request: Request) -> tuple[VercelUser, None] | None:
         token = self._get_bearer_token(request)
         if not token:
             return None
@@ -309,16 +315,17 @@ class VercelAuthentication(authentication.BaseAuthentication):
         try:
             payload = self._validate_jwt_token(token, auth_type)
             logger.info("Vercel auth successful", auth_type=auth_type, account_id=payload.get("account_id"))
-            return AnonymousUser(), payload
+            return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
             logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e))
-            raise AuthenticationFailed(f"Invalid {auth_type} JWT token: {str(e)}")
+            raise AuthenticationFailed(f"Invalid {auth_type} authentication token")
+        except Exception as e:
+            logger.exception("Vercel auth error", auth_type=auth_type, error=str(e))
+            raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
 
     def _get_bearer_token(self, request: Request) -> str | None:
-        auth_header = request.META.get("HTTP_AUTHORIZATION")
-
-        if auth_header:
-            parts = auth_header.split(" ")
+        if auth_header := request.META.get("HTTP_AUTHORIZATION"):
+            parts = auth_header.split()
             if len(parts) == 2 and parts[0].lower() == "bearer":
                 return parts[1]
 
@@ -327,96 +334,103 @@ class VercelAuthentication(authentication.BaseAuthentication):
     def _get_vercel_auth_type(self, request: Request) -> VercelAuthType:
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
 
-        if auth_type not in VERCEL_AUTH_TYPES:
+        if auth_type not in self.VERCEL_AUTH_TYPES:
             raise AuthenticationFailed("Missing or invalid X-Vercel-Auth header")
 
         return auth_type
 
-    def _validate_jwt_token(self, token: str, auth_type: VercelAuthType) -> dict[str, Any]:
-        """Validate JWT token using Vercel's JWKS"""
-        # Get the token header to find the key ID
-        unverified_header = jwt.get_unverified_header(token)
-        kid = unverified_header.get("kid")
+    def _validate_jwt_token(self, token: str, auth_type: VercelAuthType) -> VercelClaims:
+        payload = self._decode_token(token)
+        return self._validate_claims(payload, auth_type)
 
-        if not kid:
-            raise jwt.InvalidTokenError("Token missing key ID")
-
-        # Get JWKS and find the matching key
-        jwks = get_vercel_jwks()
-        public_key = self._get_public_key_from_jwks(jwks, kid)
-
-        # Verify and decode the token
-        if not settings.VERCEL_CLIENT_INTEGRATION_ID:
-            raise jwt.InvalidTokenError("VERCEL_CLIENT_INTEGRATION_ID not configured")
-
-        payload = jwt.decode(
-            token,
-            public_key,
-            algorithms=["RS256"],
-            issuer=VERCEL_ISSUER,
-            options={},
-            audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
-        )
-
-        # Validate claims based on auth type
-        self._validate_claims(payload, auth_type)
-
-        return payload
-
-    def _get_public_key_from_jwks(self, jwks: dict[str, Any], kid: str):
-        """Extract the public key for the given key ID from JWKS"""
-        for key in jwks.get("keys", []):
-            if key.get("kid") == kid:
-                return RSAAlgorithm.from_jwk(key)
-
-        raise jwt.InvalidTokenError(f"Unable to find key with ID: {kid}")
-
-    def _validate_claims(self, payload: dict[str, Any], auth_type: VercelAuthType) -> None:
-        """Validate Vercel JWT claims based on auth type"""
-        # Base required claims
+    def _validate_claims(self, payload: dict[str, Any], auth_type: VercelAuthType) -> VercelClaims:
         required_claims = ["iss", "sub", "aud"]
 
         for claim in required_claims:
             if claim not in payload:
                 raise jwt.InvalidTokenError(f"Missing required claim: {claim}")
 
-        if payload["iss"] != VERCEL_ISSUER:
+        if payload["iss"] != self.VERCEL_ISSUER:
             raise jwt.InvalidTokenError(f"Invalid issuer: {payload['iss']}")
 
-        # Validate claims specific to auth type
         if auth_type == "user":
             self._validate_user_claims(payload)
+
+            user_claims: VercelUserClaims = {
+                "iss": payload["iss"],
+                "sub": payload["sub"],
+                "aud": payload["aud"],
+                "account_id": payload["account_id"],
+                "installation_id": payload["installation_id"],
+                "user_id": payload["user_id"],
+                "user_role": payload["user_role"],
+            }
+            if "type" in payload:
+                user_claims["type"] = payload["type"]
+            if "user_avatar_url" in payload:
+                user_claims["user_avatar_url"] = payload["user_avatar_url"]
+            if "user_name" in payload:
+                user_claims["user_name"] = payload["user_name"]
+            if "user_email" in payload:
+                user_claims["user_email"] = payload["user_email"]
+            return user_claims
         elif auth_type == "system":
             self._validate_system_claims(payload)
 
+            system_claims: VercelSystemClaims = {
+                "iss": payload["iss"],
+                "sub": payload["sub"],
+                "aud": payload["aud"],
+                "account_id": payload["account_id"],
+                "installation_id": payload["installation_id"],
+            }
+
+            if "type" in payload:
+                system_claims["type"] = payload["type"]
+
+            return system_claims
+
     def _validate_user_claims(self, payload: dict[str, Any]) -> None:
-        user_required_claims = ["account_id", "installation_id", "user_id", "user_role"]
+        self._require_claims(payload, ["account_id", "installation_id", "user_id", "user_role"], "User")
 
-        for claim in user_required_claims:
-            if claim not in payload:
-                raise jwt.InvalidTokenError(f"Missing required User auth claim: {claim}")
+        if not self.USER_SUB_RE.match(payload["sub"]):
+            raise jwt.InvalidTokenError(f"Invalid User auth sub format: {payload['sub']}")
 
-        # Validate sub format for user (matches /^account:[0-9a-fA-F]+:user:[0-9a-fA-F]+$/)
-        sub = payload.get("sub", "")
-        if not re.match(r"^account:[0-9a-fA-F]+:user:[0-9a-fA-F]+$", sub):
-            raise jwt.InvalidTokenError(f"Invalid User auth sub format: {sub}")
-
-        # Validate user_role
         if payload.get("user_role") not in ["ADMIN", "USER"]:
             raise jwt.InvalidTokenError(f"Invalid user_role: {payload.get('user_role')}")
 
     def _validate_system_claims(self, payload: dict[str, Any]) -> None:
-        system_required_claims = ["account_id", "installation_id"]
+        self._require_claims(payload, ["account_id", "installation_id"], "System auth")
 
-        for claim in system_required_claims:
-            if claim not in payload:
-                raise jwt.InvalidTokenError(f"Missing required System auth claim: {claim}")
-
-        # Validate sub format for system (matches /^account:[0-9a-fA-F]+$/)
         sub = payload.get("sub", "")
-        if sub and not re.match(r"^account:[0-9a-fA-F]+$", sub):
+        if sub and not self.SYSTEM_SUB_RE.match(sub):
             raise jwt.InvalidTokenError(f"Invalid System auth sub format: {sub}")
 
-        # installation_id can be null for system auth - just validate it exists
-        if "installation_id" not in payload:
-            raise jwt.InvalidTokenError("Missing installation_id claim")
+    def _require_claims(self, payload: dict[str, Any], claims: list[str], auth_type: str = "") -> None:
+        missing_claims = set(claims) - set(payload.keys())
+        if missing_claims:
+            claim_name = next(iter(missing_claims))
+            msg = f"Missing required {auth_type + ' ' if auth_type else ''}claim: {claim_name}"
+            raise jwt.InvalidTokenError(msg)
+
+    def _decode_token(self, token: str) -> dict[str, Any]:
+        jwks = get_vercel_jwks()
+        kid = jwt.get_unverified_header(token).get("kid")
+        if not kid:
+            raise jwt.InvalidTokenError("Token missing key ID")
+
+        try:
+            key = RSAAlgorithm.from_jwk(next(k for k in jwks["keys"] if k.get("kid") == kid))
+        except StopIteration:
+            raise jwt.InvalidTokenError(f"Unable to find key with ID: {kid}")
+
+        if not settings.VERCEL_CLIENT_INTEGRATION_ID:
+            raise jwt.InvalidTokenError("VERCEL_CLIENT_INTEGRATION_ID not configured")
+
+        return jwt.decode(
+            token,
+            key,
+            algorithms=["RS256"],
+            issuer=self.VERCEL_ISSUER,
+            audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
+        )
