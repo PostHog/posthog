@@ -50,25 +50,22 @@ def format_extracted_patterns_status(patterns: list[RawSessionGroupSummaryPatter
         # Create a list of patterns with their details
         pattern_items = []
         for pattern in patterns:
-            # Create pattern header with name and severity
+            # Create pattern header with name and severity using TipTap bold
             pattern_name = pattern.pattern_name
-            severity = pattern.severity
-            pattern_header = f"**{pattern_name}** (Severity: {severity})"
 
-            # Create pattern description
-            pattern_desc = pattern.pattern_description
+            # Build pattern content with proper TipTap formatting
+            pattern_content = []
 
-            # Create indicators list if available
-            indicators = pattern.indicators
-            if indicators:
-                indicators_text = "Indicators: " + ", ".join(indicators)
-                pattern_content = [
-                    create_paragraph_with_text(pattern_header),
-                    create_paragraph_with_text(pattern_desc),
-                    create_paragraph_with_text(indicators_text),
-                ]
-            else:
-                pattern_content = [create_paragraph_with_text(pattern_header), create_paragraph_with_text(pattern_desc)]
+            # Add pattern name in bold with severity
+            pattern_header_content = [
+                create_text_content(pattern_name, is_bold=True),
+                create_text_content(f" ({pattern.severity.value.title()})"),
+            ]
+            pattern_content.append(create_paragraph_with_content(pattern_header_content))
+
+            # Add description
+            desc_content = [create_text_content(pattern.pattern_description)]
+            pattern_content.append(create_paragraph_with_content(desc_content))
 
             # Add as a list item with nested content
             pattern_items.append({"type": "listItem", "content": pattern_content})
