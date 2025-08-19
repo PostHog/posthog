@@ -450,6 +450,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 asset_title = "Session Recording"
                 asset_description = f"Recording {session_recording_id}"
 
+                mode = resource.export_context.get("mode")
+                if mode not in ("screenshot", "video"):
+                    mode = "screenshot"
+
                 recording_data = SessionRecordingSerializer(recording, context=context).data
 
                 exported_data.update(
@@ -461,7 +465,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "autoplay": True,
-                        "mode": "screenshot",
+                        "mode": mode,
                     }
                 )
 

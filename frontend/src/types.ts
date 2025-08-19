@@ -4364,6 +4364,7 @@ export interface ReplayExportContext {
     width?: number
     height?: number
     filename?: string
+    duration?: number
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
