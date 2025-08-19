@@ -141,11 +141,6 @@ def _get_session_ids_from_comment_search(
     if not comment_filter:
         return None
 
-    if comment_filter.operator is not PropertyOperator.IS_SET and (
-        comment_filter.value is None or comment_filter.value == ""
-    ):
-        return None
-
     base_query = Comment.objects.filter(
         team=team,
         # TODO: discussions created `Replay` and comments create `recording`
@@ -159,10 +154,18 @@ def _get_session_ids_from_comment_search(
     if operator == PropertyOperator.IS_SET:
         base_query = base_query.filter(content__isnull=False).exclude(content="")
     elif operator == PropertyOperator.EXACT:
+        # do the check here to help mypy
+        if comment_filter.value is None or comment_filter.value == "":
+            return None
+
         # the exact matching query accepts an array of values
         for v in value if isinstance(value, list) else [value]:
             base_query = base_query.filter(content=v)
     elif operator == PropertyOperator.ICONTAINS:
+        # do the check here to help mypy
+        if comment_filter.value is None or comment_filter.value == "":
+            return None
+
         base_query = base_query.filter(content__icontains=value)
     else:
         raise ValidationError("Unsupported operator for comment search: " + str(operator))
