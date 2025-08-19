@@ -128,7 +128,7 @@ describe('LazyLoader', () => {
             const customLoader = new LazyLoader({
                 name: 'test',
                 loader,
-                refreshAge: 1000 * 60 * 2, // 2 minutes
+                refreshAgeMs: 1000 * 60 * 2, // 2 minutes
             })
 
             loader.mockResolvedValueOnce({ key1: 'value1' }).mockResolvedValueOnce({ key1: 'value2' })
@@ -239,6 +239,72 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(2)
             expect(loader).toHaveBeenNthCalledWith(1, ['key1', 'key2'])
             expect(loader).toHaveBeenNthCalledWith(2, ['key3'])
+        })
+    })
+
+    describe('background refreshing', () => {
+        let loadSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            lazyLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                refreshAgeMs: 1000 * 60 * 2, // 2 minutes
+                refreshBackgroundAgeMs: 1000 * 60 * 1, // 1 minute
+                refreshJitterMs: 0, // Simplify the tests
+            })
+
+            loadSpy = jest.spyOn(lazyLoader as any, 'load')
+        })
+
+        it('should throw if badly configured', () => {
+            expect(
+                () =>
+                    new LazyLoader({
+                        name: 'test',
+                        loader,
+                        refreshAgeMs: 1000 * 60 * 2,
+                        refreshBackgroundAgeMs: 1000 * 60 * 3,
+                    })
+            ).toThrow('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
+        })
+
+        it('should refresh in the background if between ages', async () => {
+            let count = 0
+            loader.mockImplementation(() => {
+                count++
+                return { key1: 'value' + count }
+            })
+
+            const result = await lazyLoader.get('key1')
+            expect(loadSpy).toHaveBeenCalledTimes(1)
+            expect(loader).toHaveBeenCalledTimes(1)
+            expect(result).toBe('value1')
+            loadSpy.mockClear()
+            loader.mockClear()
+
+            // Fast forward past refresh background age
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 1.5)
+            const result2 = await lazyLoader.get('key1')
+            expect(result2).toBe('value1') // Value should immediately be returned
+            expect(loadSpy).toHaveBeenCalledTimes(1) // Load was called
+            expect(loader).toHaveBeenCalledTimes(0) // But it didnt block
+            loadSpy.mockClear()
+            loader.mockClear()
+
+            // Check in flight cache
+            const result3 = await lazyLoader.get('key1')
+            expect(result3).toBe('value1')
+            expect(loadSpy).toHaveBeenCalledTimes(1)
+            expect(loader).toHaveBeenCalledTimes(0)
+            loadSpy.mockClear()
+            loader.mockClear()
+            // Let the background refresh complete
+            await delay(100)
+            const result4 = await lazyLoader.get('key1')
+            expect(result4).toBe('value2')
+            expect(loadSpy).toHaveBeenCalledTimes(0)
+            expect(loader).toHaveBeenCalledTimes(1)
         })
     })
 })

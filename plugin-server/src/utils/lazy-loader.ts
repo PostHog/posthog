@@ -49,9 +49,11 @@ export type LazyLoaderOptions<T> = {
     /** Function to load the values */
     loader: (key: string[]) => Promise<Record<string, T | null | undefined>>
     /** How long to cache the value */
-    refreshAge?: number
+    refreshAgeMs?: number
     /** How long to cache null values */
-    refreshNullAge?: number
+    refreshNullAgeMs?: number
+    /** How long to cache the value before refreshing in the background - must be smaller than refreshAgeMs */
+    refreshBackgroundAgeMs?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
     /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
@@ -64,6 +66,7 @@ export class LazyLoader<T> {
     private cache: LazyLoaderMap<T>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
+    private backgroundRefreshAfter: Record<string, number | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
 
     private buffer:
@@ -77,7 +80,14 @@ export class LazyLoader<T> {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
+        this.backgroundRefreshAfter = {}
         this.pendingLoads = {}
+
+        const { refreshAgeMs = REFRESH_AGE, refreshBackgroundAgeMs } = this.options
+
+        if (refreshBackgroundAgeMs && refreshBackgroundAgeMs >= refreshAgeMs) {
+            throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
+        }
     }
 
     public getCache(): LazyLoaderMap<T> {
@@ -103,13 +113,15 @@ export class LazyLoader<T> {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
+        this.backgroundRefreshAfter = {}
         // this.pendingLoads = {} // NOTE: We don't clear this
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
         const {
-            refreshAge = REFRESH_AGE,
-            refreshNullAge = REFRESH_AGE,
+            refreshAgeMs = REFRESH_AGE,
+            refreshBackgroundAgeMs = REFRESH_AGE,
+            refreshNullAgeMs = REFRESH_AGE,
             refreshJitterMs = REFRESH_JITTER_MS,
         } = this.options
         for (const [key, value] of Object.entries(map)) {
@@ -117,10 +129,13 @@ export class LazyLoader<T> {
             // Always update the lastUsed time
             this.lastUsed[key] = Date.now()
             const valueOrNull = value ?? null
-            this.cacheUntil[key] =
-                Date.now() +
-                (valueOrNull === null ? refreshNullAge : refreshAge) +
-                Math.floor(Math.random() * refreshJitterMs)
+            const jitter = Math.floor(Math.random() * refreshJitterMs)
+            this.cacheUntil[key] = Date.now() + (valueOrNull === null ? refreshNullAgeMs : refreshAgeMs) + jitter
+
+            if (refreshBackgroundAgeMs) {
+                this.backgroundRefreshAfter[key] =
+                    Date.now() + (valueOrNull === null ? refreshNullAgeMs : refreshBackgroundAgeMs) + jitter
+            }
         }
     }
 
@@ -148,10 +163,18 @@ export class LazyLoader<T> {
                         this.lastUsed[key] = Date.now()
 
                         const cacheUntil = this.cacheUntil[key] ?? 0
+                        const backgroundRefreshAfter = this.backgroundRefreshAfter[key]
 
                         if (Date.now() > cacheUntil) {
                             keysToLoad.add(key)
                             lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                            continue
+                        }
+
+                        // If we haven't triggered a hard refresh, we check for a background refresh
+                        if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
+                            void this.load([key])
+                            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
                             continue
                         }
                     } else {
