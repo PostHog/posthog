@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import re
 import time
@@ -69,6 +71,8 @@ from posthog.models.feature_flag import (
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
+from posthog.models.feature_flag.local_evaluation import _get_flag_properties_from_filters
+from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.surveys.survey import Survey
 from posthog.models.property import Property
 from posthog.schema import PropertyOperator
@@ -442,16 +446,34 @@ class FeatureFlagSerializer(
         except FeatureFlag.DoesNotExist:
             raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
 
+    def _get_properties_from_filters(self, filters: dict, property_type: PropertyFilterType | None = None):
+        """
+        Extract properties from filters by iterating through groups.
+
+        Args:
+            filters: The filters dictionary containing groups
+            property_type: Optional filter by property type (e.g., 'flag', 'cohort')
+
+        Yields:
+            Property dictionaries matching the criteria
+        """
+        for group in filters.get("groups", []):
+            for prop in group.get("properties", []):
+                if property_type is None or prop.get("type") == property_type:
+                    yield prop
+
+    def _get_cohort_properties_from_filters(self, filters: dict):
+        """Extract cohort properties from filters."""
+        return list(self._get_properties_from_filters(filters, PropertyFilterType.COHORT))
+
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
         dependencies = set()
-        for group in filters.get("groups", []):
-            for property_filter in group.get("properties", []):
-                if property_filter.get("type") == "flag":
-                    flag_reference = property_filter.get("key")
-                    if flag_reference:
-                        flag_key = self._validate_flag_reference(flag_reference)
-                        dependencies.add(flag_key)
+        for flag_prop in _get_flag_properties_from_filters(filters):
+            flag_reference = flag_prop.get("key")
+            if flag_reference:
+                flag_key = self._validate_flag_reference(flag_reference)
+                dependencies.add(flag_key)
         return dependencies
 
     def _check_flag_circular_dependencies(self, filters):
@@ -741,14 +763,11 @@ class FeatureFlagSerializer(
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         filters = representation.get("filters", {})
-        groups = filters.get("groups", [])
 
         # Get all cohort IDs used in the feature flag
         cohort_ids = set()
-        for group in groups:
-            for property in group.get("properties", []):
-                if property.get("type") == "cohort":
-                    cohort_ids.add(property.get("value"))
+        for cohort_prop in self._get_cohort_properties_from_filters(filters):
+            cohort_ids.add(cohort_prop.get("value"))
 
         # Use prefetched cohorts if available
         if hasattr(instance.team, "available_cohorts"):
@@ -765,10 +784,8 @@ class FeatureFlagSerializer(
             }
 
         # Add cohort names to the response
-        for group in groups:
-            for property in group.get("properties", []):
-                if property.get("type") == "cohort":
-                    property["cohort_name"] = cohorts.get(str(property.get("value")))
+        for cohort_prop in self._get_cohort_properties_from_filters(filters):
+            cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
 
         representation["filters"] = filters
         return representation
