@@ -14,7 +14,7 @@ from pydantic import Field, ValidationError, create_model
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import dereference_schema, format_events_prompt
+from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
@@ -105,7 +105,7 @@ class QueryPlannerNode(AssistantNode):
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
-                "events": format_events_prompt(events_in_context, self._team),
+                "events": format_events_yaml(events_in_context, self._team),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
