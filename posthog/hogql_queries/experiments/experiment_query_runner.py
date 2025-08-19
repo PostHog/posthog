@@ -443,7 +443,7 @@ class ExperimentQueryRunner(QueryRunner):
         sorted_results = self._evaluate_experiment_query()
 
         variant_results = get_new_variant_results(sorted_results)
-        self._validate_and_add_missing_variants(variant_results)
+        variant_results = self._validate_and_add_missing_variants(variant_results)
 
         control_variant, test_variants = split_baseline_and_test_variants(variant_results)
 
