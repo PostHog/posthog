@@ -247,13 +247,13 @@ impl Config {
                 self.kafka_producer_linger_ms.to_string(),
             )
             .set("compression.type", &self.kafka_compression_codec);
-        
+
         if self.kafka_tls {
             config
                 .set("security.protocol", "ssl")
                 .set("enable.ssl.certificate.verification", "false");
         }
-        
+
         config
     }
 }
