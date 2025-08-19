@@ -35,7 +35,8 @@ export class QuotaLimiting {
             loader: async (resources: string[]) => {
                 return await this.loadLimitedTokensFromRedis(resources)
             },
-            refreshAge: 1000 * 30,
+            refreshAgeMs: 1000 * 60 * 60, // 1 hour cache here - we never need to hard refresh
+            refreshBackgroundAgeMs: 1000 * 60, // 1 minute age is more than good enough
         })
     }
 
