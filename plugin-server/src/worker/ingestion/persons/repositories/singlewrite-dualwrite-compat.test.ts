@@ -1025,8 +1025,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
-                'SELECT COUNT(*) as count FROM posthog_cohortpeople WHERE team_id = $1',
-                [team.id],
+                'SELECT COUNT(*) as count FROM posthog_cohortpeople',
+                [],
                 'verify-primary-cohort',
                 'verify-secondary-cohort'
             )
