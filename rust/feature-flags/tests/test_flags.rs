@@ -4993,3 +4993,130 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert multiple flags for the team
+    let flags = json!([
+        {
+            "id": 1,
+            "key": "flag1",
+            "name": "Flag 1",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": 2,
+            "key": "flag2",
+            "name": "Flag 2",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": 3,
+            "key": "flag3",
+            "name": "Flag 3",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags.to_string()),
+    )
+    .await
+    .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: Using flag_keys parameter (currently works)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "flag_keys": ["flag1", "flag3"]
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_json: LegacyFlagsResponse = response.json().await?;
+
+    assert_eq!(response_json.feature_flags.len(), 2);
+    assert!(response_json.feature_flags.contains_key("flag1"));
+    assert!(response_json.feature_flags.contains_key("flag3"));
+    assert!(!response_json.feature_flags.contains_key("flag2"));
+
+    // Test 2: Using flag_keys_to_evaluate parameter (should work after fix)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "flag_keys_to_evaluate": ["flag2", "flag3"]
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_json: LegacyFlagsResponse = response.json().await?;
+
+    // This test should fail until we add the alias
+    assert_eq!(
+        response_json.feature_flags.len(),
+        2,
+        "flag_keys_to_evaluate should filter flags"
+    );
+    assert!(response_json.feature_flags.contains_key("flag2"));
+    assert!(response_json.feature_flags.contains_key("flag3"));
+    assert!(!response_json.feature_flags.contains_key("flag1"));
+
+    Ok(())
+}

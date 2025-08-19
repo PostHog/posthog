@@ -94,18 +94,22 @@ export function SceneSection({
 type ResourceType = {
     to?: string
     tooltip?: string
-    // example: 'action'
+    /** example: 'action' */
     type: keyof typeof fileSystemTypes | string
-    // example: 'actions'
+    /** example: 'actions' */
     typePlural: string
-    // If your resource type matches a product in fileSystemTypes, you can use this to override the icon
+    /** If your resource type matches a product in fileSystemTypes, you can use this to override the icon */
     forceIcon?: JSX.Element
-    // If your resource type matches a product in fileSystemTypes, you can use this to override the product's icon color
+    /** If your resource type matches a product in fileSystemTypes, you can use this to override the product's icon color */
     forceIconColorOverride?: FileSystemIconColor
 }
 
 type SceneMainTitleProps = {
-    name?: string | null
+    name?: string
+    /**
+     * null to hide the description,
+     * undefined to show the default description
+     */
     description?: string | null
     resourceType: ResourceType
     markdown?: boolean
@@ -155,7 +159,7 @@ export function SceneTitleSection({
                     </span>
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
-                {description && (
+                {description !== null && (
                     <div className="flex gap-3 [&_svg]:size-6 items-center">
                         <span
                             className={buttonPrimitiveVariants({
@@ -188,7 +192,7 @@ export function SceneTitleSection({
 }
 
 type SceneNameProps = {
-    name?: string | null
+    name?: string
     isLoading?: boolean
     onBlur?: (value: string) => void
 }

@@ -35,8 +35,9 @@ interface BaseTooltipProps {
     delayMs?: number
     closeDelayMs?: number
     offset?: number
-    arrowOffset?: number
+    arrowOffset?: number | ((placement: Placement) => number)
     placement?: Placement
+    fallbackPlacements?: Placement[]
     className?: string
     visible?: boolean
     /**
@@ -57,6 +58,7 @@ export function Tooltip({
     title,
     className = '',
     placement = 'top',
+    fallbackPlacements,
     offset = 8,
     arrowOffset,
     delayMs = 500,
@@ -80,8 +82,8 @@ export function Tooltip({
         whileElementsMounted: autoUpdate,
         middleware: [
             offsetFunc(offset),
-            flip({ fallbackAxisSideDirection: 'start' }),
-            shift(),
+            flip({ fallbackPlacements, fallbackAxisSideDirection: 'start' }),
+            shift({ padding: 4 }),
             arrow({ element: caretRef }),
         ],
     })
@@ -184,7 +186,9 @@ export function Tooltip({
                                 context={context}
                                 width={8}
                                 height={4}
-                                staticOffset={arrowOffset}
+                                staticOffset={
+                                    typeof arrowOffset === 'function' ? arrowOffset(context.placement) : arrowOffset
+                                }
                                 fill="var(--color-bg-surface-tooltip)"
                             />
                         </div>
