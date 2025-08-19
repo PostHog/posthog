@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
@@ -23,11 +22,9 @@ from ee.hogai.session_summaries.session_group.patterns import (
 )
 from structlog import get_logger
 
-logger = get_logger(__name__)
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
-if TYPE_CHECKING:
-    # TODO: Move enum to "types" and cleanup a bit to avoid circular imports
-    from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
+logger = get_logger(__name__)
 
 
 def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNode:
@@ -100,8 +97,6 @@ class NotebookIntermediateState:
 
     def __init__(self, team_name: str):
         """Initialize the intermediate state with a plan."""
-        from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStep
-
         self.team_name = team_name
         # Using dict to maintain order (Python 3.7+ guarantees order)
         self.plan_items: dict[SessionSummaryStep, tuple[str, bool]] = {
@@ -129,7 +124,7 @@ class NotebookIntermediateState:
                 completed[step_name] = self.steps_content[step]
         return completed
 
-    def update_step_progress(self, content: TipTapNode | None, step: "SessionSummaryStep") -> None:
+    def update_step_progress(self, content: TipTapNode | None, step: SessionSummaryStep) -> None:
         """Update the step's content and handle step transitions if needed."""
         # Update content for the specific step if provided
         if content:
@@ -139,7 +134,7 @@ class NotebookIntermediateState:
         if step != self.current_step and self._is_forward_transition(step):
             self._complete_and_transition(step)
 
-    def _is_forward_transition(self, new_step: "SessionSummaryStep") -> bool:
+    def _is_forward_transition(self, new_step: SessionSummaryStep) -> bool:
         """Check if transitioning to new_step would be a forward transition."""
         if self.current_step is None:
             return True
@@ -154,7 +149,7 @@ class NotebookIntermediateState:
             # If step not found in plan, don't transition
             return False
 
-    def _complete_and_transition(self, new_step: "SessionSummaryStep") -> None:
+    def _complete_and_transition(self, new_step: SessionSummaryStep) -> None:
         """Complete current step and transition to the new step."""
         # If no current step - set the new step as current
         if self.current_step is None:

@@ -1,7 +1,6 @@
 import asyncio
 import dataclasses
 from datetime import datetime, timedelta
-from enum import Enum
 import hashlib
 import json
 import uuid
@@ -62,6 +61,8 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
+    SessionSummaryStep,
+    SessionSummaryStreamUpdate,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
@@ -69,23 +70,6 @@ from posthog.temporal.common.client import async_connect
 from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
-
-
-class SessionSummaryStreamUpdate(Enum):
-    """Types of updates that can be streamed during session group summarization."""
-
-    UI_STATUS = "ui_status"  # Status messages for UI progress display
-    NOTEBOOK_UPDATE = "notebook_update"  # Intermediate state for notebook display
-    FINAL_RESULT = "final_result"  # Final summarization result
-
-
-class SessionSummaryStep(Enum):
-    """Steps in the session group summarization process."""
-
-    WATCHING_SESSIONS = "watching_sessions"
-    FINDING_PATTERNS = "finding_patterns"
-    GENERATING_REPORT = "generating_report"
-
 
 UPDATE_TYPE_TO_OUTPUT_MAPPING = {
     SessionSummaryStreamUpdate.UI_STATUS: str,
