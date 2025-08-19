@@ -7,11 +7,11 @@ from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
+from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.tasks.tasks import sync_insight_caching_state
 
 
-class InsightCachingState(UUIDModel):
+class InsightCachingState(UUIDTModel):
     class Meta:
         indexes = [models.Index(fields=["cache_key"], name="filter_by_cache_key_idx")]
         constraints = [

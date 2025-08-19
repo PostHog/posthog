@@ -32,17 +32,17 @@ interface DashboardProps {
     themes?: DataColorThemeModel[]
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }) => ({
         id: parseInt(id as string),
         placement,
     }),
     settingSectionId: 'environment-product-analytics',
 }
 
-export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (

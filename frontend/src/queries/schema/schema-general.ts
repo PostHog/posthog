@@ -1142,7 +1142,8 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export type ResultCustomizationBase = {
-    color: DataColorToken
+    color?: DataColorToken
+    hidden?: boolean
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -2935,12 +2936,12 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort'
 >
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    property: string
+    property: string | integer
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin

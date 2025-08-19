@@ -24,7 +24,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import Notebook
+from posthog.models import Notebook, GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
@@ -669,3 +669,33 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             visibility=Notebook.Visibility.INTERNAL,
         )
         ResourceNotebook.objects.create(notebook=notebook, group=group)
+
+
+class GroupUsageMetricSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GroupUsageMetric
+        fields = ("id", "name", "format", "interval", "display")
+
+
+class GroupUsageMetricDetailCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GroupUsageMetric
+        fields = ("id", "name", "format", "interval", "display", "filters")
+
+
+class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "group"
+    queryset = GroupUsageMetric.objects.all()
+    serializer_classes = {
+        "list": GroupUsageMetricSerializer,
+        "retrieve": GroupUsageMetricDetailCreateSerializer,
+        "create": GroupUsageMetricDetailCreateSerializer,
+        "update": GroupUsageMetricDetailCreateSerializer,
+        "default": GroupUsageMetricSerializer,
+    }
+
+    def get_serializer_class(self):
+        return self.serializer_classes.get(self.action, self.serializer_classes["default"])
+
+    def perform_create(self, serializer):
+        serializer.save(team=self.team, group_type_index=self.parents_query_dict["group_type_index"])

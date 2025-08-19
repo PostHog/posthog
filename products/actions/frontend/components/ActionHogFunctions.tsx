@@ -8,21 +8,22 @@ import { cn } from 'lib/utils/css-classes'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 import { SceneSection } from '~/layout/scenes/SceneContent'
+import { ActionType } from '~/types'
 
 import { actionEditLogic } from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
 
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
+    return !action ? null : <Functions action={action} />
+}
+
+const Functions = ({ action }: { action: ActionType }): JSX.Element => {
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
         actionEditLogic({ id: action?.id, action })
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-
-    if (!action) {
-        return null
-    }
 
     return (
         <SceneSection

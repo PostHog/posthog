@@ -27,7 +27,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         actions: [notebookLogic(props), ['loadNotebook'], notebooksModel, ['createNotebook']],
     })),
     selectors(() => ({
-        notebookId: [() => [(_, props) => props], (props): string => props.shortId],
+        notebookId: [(_, p) => [p.shortId], (shortId) => shortId],
 
         loading: [
             (s) => [s.notebookLoading, s.notebooksLoading],

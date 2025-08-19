@@ -35,12 +35,12 @@ import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
-import { personsLogic } from './personsLogic'
+import { PersonsLogicProps, personsLogic } from './personsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),

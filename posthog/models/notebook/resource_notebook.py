@@ -1,11 +1,11 @@
 from django.core.exceptions import ValidationError
 from django.db import models
-from posthog.models.utils import UUIDModel, build_unique_relationship_check, build_partial_uniqueness_constraint
+from posthog.models.utils import UUIDTModel, build_unique_relationship_check, build_partial_uniqueness_constraint
 
 RELATED_OBJECTS = ("group",)
 
 
-class ResourceNotebook(UUIDModel):
+class ResourceNotebook(UUIDTModel):
     """
     Generic relationship table linking notebooks to various resources.
     This allows notebooks to be associated with multiple models.

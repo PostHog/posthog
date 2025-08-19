@@ -32,15 +32,16 @@ import {
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
-import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
+import {
+    SessionRecordingsPlaylistLogicProps,
+    sessionRecordingsPlaylistSceneLogic,
+} from './sessionRecordingsPlaylistSceneLogic'
 
 const RESOURCE_TYPE = 'replay-collection'
-export const scene: SceneExport = {
+export const scene: SceneExport<SessionRecordingsPlaylistLogicProps> = {
     component: SessionRecordingsPlaylistScene,
     logic: sessionRecordingsPlaylistSceneLogic,
-    paramsToProps: ({ params: { id } }) => {
-        return { shortId: id as string }
-    },
+    paramsToProps: ({ params: { id } }) => ({ shortId: id }),
     settingSectionId: 'environment-replay',
 }
 

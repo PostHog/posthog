@@ -50,7 +50,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
@@ -491,7 +490,10 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
             : dataset.seriesIndex > 0
               ? `formula${dataset.seriesIndex + 1}`
               : 'formula',
-        breakdown_value: dataset.breakdown_value,
+        breakdown_value:
+            dataset.breakdown_value !== undefined && !Array.isArray(dataset.breakdown_value)
+                ? [dataset.breakdown_value]
+                : dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }
 
@@ -499,7 +501,7 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
 }
 
 export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
-    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
+    return dataset.seriesIndex ?? dataset.colorIndex ?? ((dataset as any).index as number)
 }
 
 /** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
@@ -526,7 +528,7 @@ export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: IndexedTrendResult
 ): string {
-    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === ResultCustomizationBy.Value
     return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
 }
 

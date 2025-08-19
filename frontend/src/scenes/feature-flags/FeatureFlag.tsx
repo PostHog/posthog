@@ -90,13 +90,13 @@ import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }): (typeof featureFlagLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
     settingSectionId: 'environment-feature-flags',
@@ -109,7 +109,7 @@ function focusVariantKeyField(index: number): void {
     )
 }
 
-export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
@@ -218,7 +218,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         tabs.push({
             label: 'Usage',
             key: FeatureFlagsTab.USAGE,
-            content: <UsageTab id={id} featureFlag={featureFlag} />,
+            content: <UsageTab featureFlag={featureFlag} />,
         })
 
         tabs.push({
@@ -248,7 +248,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.Analysis,
             content: (
                 <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                    <AnalysisTab id={id} featureFlag={featureFlag} />
+                    <AnalysisTab featureFlag={featureFlag} />
                 </PostHogFeature>
             ),
         })
@@ -683,7 +683,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const {
         key: featureFlagKey,
         usage_dashboard: dashboardId,
@@ -1456,7 +1456,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     (featureFlag.has_encrypted_payloads &&
                                                         Boolean(featureFlag.filters?.payloads?.['true']))
                                                 }
-                                                placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                                placeholder='Examples: "A string", 2500, {"key": "value"}'
                                             />
                                         </LemonField>
                                     </Group>
