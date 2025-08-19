@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
+import { SURVEY_FORM_INPUT_IDS } from 'scenes/surveys/constants'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -44,7 +45,7 @@ function AlwaysScheduleBanner({
         }
         // timeout necessary so the section is rendered
         setTimeout(() => {
-            document.getElementById('survey-wait-period-input')?.focus()
+            document.getElementById(SURVEY_FORM_INPUT_IDS.WAIT_PERIOD_INPUT)?.focus()
         }, 200)
     }
 
