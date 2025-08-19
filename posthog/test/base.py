@@ -1061,6 +1061,37 @@ def _create_person(*args, **kwargs):
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
 
 
+def _create_group(*args, **kwargs):
+    """
+    Create a group in tests. NOTE: all groups get batched and only created when sync_execute is called
+    Pass immediate=True to create immediately and get a pk back
+    """
+    global persons_ordering_int
+    if not (kwargs.get("uuid")):
+        kwargs["uuid"] = uuid.UUID(
+            int=persons_ordering_int, version=4
+        )  # make sure the ordering of uuids is always consistent
+    persons_ordering_int += 1
+    # If we've done freeze_time just create straight away
+    if kwargs.get("immediate") or (
+        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
+    ):
+        if kwargs.get("immediate"):
+            del kwargs["immediate"]
+        create_person(
+            team_id=kwargs.get("team_id") or kwargs["team"].pk,
+            properties=kwargs.get("properties"),
+            uuid=kwargs["uuid"],
+            version=kwargs.get("version", 0),
+        )
+        return Person.objects.create(**kwargs)
+    if len(args) > 0:
+        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
+
+    persons_cache_tests.append(kwargs)
+    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+
+
 class ClickhouseTestMixin(QueryMatchingTest):
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
