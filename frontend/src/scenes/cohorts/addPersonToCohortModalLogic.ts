@@ -1,15 +1,16 @@
 import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
-
-import type { addPersonToCohortModalLogicType } from './addPersonToCohortModalLogicType'
 import { loaders } from 'kea-loaders'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { CohortType, PersonType } from '~/types'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
+import { CohortType, PersonType } from '~/types'
+
+import type { addPersonToCohortModalLogicType } from './addPersonToCohortModalLogicType'
 import { cohortEditLogic } from './cohortEditLogic'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 export type AddPersonToCohortModalProps = {
@@ -25,6 +26,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
         hideAddPersonToCohortModal: true,
         setQuery: (query: Node) => ({ query }),
         addPersonToCohort: (id: string) => ({ id }),
+        setCohortUpdateLoading: (personId: string, loading: boolean) => ({ personId, loading }),
     }),
     reducers({
         query: [
@@ -54,6 +56,15 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 hideAddPersonToCohortModal: () => false,
             },
         ],
+        cohortUpdatesInProgress: [
+            {} as Record<string, boolean>,
+            {
+                setCohortUpdateLoading: (state, { personId, loading }) => ({
+                    ...state,
+                    [personId]: loading,
+                }),
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         cohortPersons: [
@@ -72,22 +83,27 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
     })),
     listeners(({ props, actions }) => ({
         addPersonToCohort: async ({ id }) => {
+            actions.setCohortUpdateLoading(id, true)
             const cohortId = props.id
             if (cohortId == null || cohortId === 'new') {
                 return
             }
-            const response = await api.cohorts.addPersonsToStaticCohort(cohortId, [id])
-            await actions.loadCohortPersons()
-            if (response) {
-                lemonToast.success('Person added to cohort')
-            }
-            const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId })
-            await mountedCohortEditLogic?.actions.updateCohortCount()
+            try {
+                const response = await api.cohorts.addPersonsToStaticCohort(cohortId, [id])
+                await actions.loadCohortPersons()
+                if (response) {
+                    lemonToast.success('Person added to cohort')
+                    const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId })
+                    await mountedCohortEditLogic?.actions.updateCohortCount()
 
-            const mountedDataNodeLogic = dataNodeLogic.findMounted({
-                key: createCohortDataNodeLogicKey(cohortId),
-            })
-            mountedDataNodeLogic?.actions.loadData('force_blocking')
+                    const mountedDataNodeLogic = dataNodeLogic.findMounted({
+                        key: createCohortDataNodeLogicKey(cohortId),
+                    })
+                    mountedDataNodeLogic?.actions.loadData('force_blocking')
+                }
+            } finally {
+                actions.setCohortUpdateLoading(id, false)
+            }
         },
     })),
     events(({ actions }) => ({
