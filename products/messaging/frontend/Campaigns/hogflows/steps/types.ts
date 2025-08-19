@@ -124,7 +124,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
-            message_category: z.string().optional(),
+            message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
@@ -145,6 +145,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
+            message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),
@@ -178,3 +179,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 ])
+
+export const isOptOutEligibleAction = (
+    action: HogFlowAction
+): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
+    return ['function_email', 'function_sms'].includes(action.type)
+}
