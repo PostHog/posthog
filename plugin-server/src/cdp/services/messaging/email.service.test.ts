@@ -3,6 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { parseJSON } from '~/utils/json-parse'
@@ -169,6 +170,8 @@ describe('EmailService', () => {
         it('should send an email', async () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
+
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
             expect(emails[0]).toMatchObject({
@@ -195,7 +198,9 @@ describe('EmailService', () => {
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
             })
             await service.executeSendEmail(invocation)
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
+            expect(emails).toHaveLength(1)
             expect(emails[0].html).toEqual(
                 `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_fn_id=function-1&ph_inv_id=invocation-1&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_fn_id=function-1&ph_inv_id=invocation-1" style="display: none;" /></body>`
             )
