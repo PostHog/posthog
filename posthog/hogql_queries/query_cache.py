@@ -75,9 +75,10 @@ def count_cache_data_size(team_id: int, data_size: int, operation: str) -> None:
     if operation == "read" and is_cache_warming():
         return
 
-    CACHE_READ_BYTES_COUNTER.labels(team_id=team_id).inc(
-        data_size
-    ) if operation == "read" else CACHE_WRITE_BYTES_COUNTER.labels(team_id=team_id).inc(data_size)
+    if operation == "read":
+        CACHE_READ_BYTES_COUNTER.labels(team_id=team_id).inc(data_size)
+    else:
+        CACHE_WRITE_BYTES_COUNTER.labels(team_id=team_id).inc(data_size)
     CACHE_DATA_SIZE_HISTOGRAM.labels(team_id=team_id, operation=operation).observe(data_size)
 
 
