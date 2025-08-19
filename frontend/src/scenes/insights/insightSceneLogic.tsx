@@ -41,7 +41,7 @@ import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
-export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
+function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
     return (
         !filter ||
         (filter.date_from == null &&
