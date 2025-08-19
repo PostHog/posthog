@@ -91,19 +91,31 @@ async def _get_session_summaries_str_from_inputs(
     redis_client: aioredis.Redis, inputs: SessionGroupSummaryOfSummariesInputs
 ) -> list[str]:
     """Fetch stringified session summaries for all input sessions from Redis."""
-    # TODO: Optimize as task group
-    return [
-        await get_data_str_from_redis(
-            redis_client=redis_client,
-            redis_key=generate_state_key(
-                key_base=single_session_input.redis_key_base,
-                label=StateActivitiesEnum.SESSION_SUMMARY,
-                state_id=single_session_input.session_id,
-            ),
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-        )
-        for single_session_input in inputs.single_session_summaries_inputs
-    ]
+    async with asyncio.TaskGroup() as tg:
+        tasks = [
+            tg.create_task(
+                get_data_str_from_redis(
+                    redis_client=redis_client,
+                    redis_key=generate_state_key(
+                        key_base=single_session_input.redis_key_base,
+                        label=StateActivitiesEnum.SESSION_SUMMARY,
+                        state_id=single_session_input.session_id,
+                    ),
+                    label=StateActivitiesEnum.SESSION_SUMMARY,
+                )
+            )
+            for single_session_input in inputs.single_session_summaries_inputs
+        ]
+    results = []
+    for i, task in enumerate(tasks):
+        result = task.result()
+        if result is None:
+            single_session_input = inputs.single_session_summaries_inputs[i]
+            raise ValueError(
+                f"Stingified session summary not found in Redis for session {single_session_input.session_id}"
+            )
+        results.append(result)
+    return results
 
 
 def get_patterns_from_redis_outside_workflow(
@@ -220,6 +232,10 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=",".join(session_ids),
     )
+    if redis_output_key is None:
+        raise ValueError(
+            f"Failed to generate Redis output key for extracted patterns for sessions: {','.join(session_ids)}"
+        )
     # Check if patterns extracted are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
     success = await get_data_class_from_redis(
         redis_client=redis_client,
