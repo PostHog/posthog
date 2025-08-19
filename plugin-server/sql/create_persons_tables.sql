@@ -21,16 +21,33 @@ CREATE INDEX IF NOT EXISTS posthog_person_team_uuid_idx
 -- Distinct IDs
 CREATE TABLE IF NOT EXISTS posthog_persondistinctid (
     id BIGSERIAL PRIMARY KEY,
-    distinct_id TEXT NOT NULL,
-    person_id BIGINT NOT NULL REFERENCES posthog_person(id) ON DELETE CASCADE,
+    distinct_id VARCHAR(400) NOT NULL,
+    person_id BIGINT NOT NULL,
     team_id INTEGER NOT NULL,
     version BIGINT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_persondistinctid_team_distinct_idx
-    ON posthog_persondistinctid (team_id, distinct_id);
+-- Add both foreign key constraints to match production schema
+-- The deferred constraint needs CASCADE for delete operations to work
+ALTER TABLE posthog_persondistinctid 
+    ADD CONSTRAINT posthog_persondistin_person_id_5d655bba_fk_posthog_p 
+    FOREIGN KEY (person_id) 
+    REFERENCES posthog_person(id) 
+    ON DELETE CASCADE
+    DEFERRABLE INITIALLY DEFERRED;
 
-CREATE INDEX IF NOT EXISTS posthog_persondistinctid_person_idx
+ALTER TABLE posthog_persondistinctid 
+    ADD CONSTRAINT posthog_persondistinctid_person_id_5d655bba_fk 
+    FOREIGN KEY (person_id) 
+    REFERENCES posthog_person(id)
+    ON DELETE CASCADE;
+
+-- Create the unique constraint (not just index) to match production
+ALTER TABLE posthog_persondistinctid
+    ADD CONSTRAINT "unique distinct_id for team"
+    UNIQUE (team_id, distinct_id);
+
+CREATE INDEX IF NOT EXISTS posthog_persondistinctid_person_id_5d655bba
     ON posthog_persondistinctid (person_id);
 
 -- Personless distinct IDs (merge queue helpers)
@@ -46,11 +63,25 @@ CREATE TABLE IF NOT EXISTS posthog_personlessdistinctid (
 CREATE TABLE IF NOT EXISTS posthog_cohortpeople (
     id BIGSERIAL PRIMARY KEY,
     cohort_id INTEGER NOT NULL,
-    person_id BIGINT NOT NULL REFERENCES posthog_person(id) ON DELETE CASCADE,
+    person_id BIGINT NOT NULL,
     version INTEGER NULL
 );
 
-CREATE INDEX IF NOT EXISTS posthog_cohortpeople_person_idx
+-- Add both foreign key constraints to match production schema
+ALTER TABLE posthog_cohortpeople
+    ADD CONSTRAINT posthog_cohortpeople_person_id_33da7d3f_fk_posthog_person_id
+    FOREIGN KEY (person_id)
+    REFERENCES posthog_person(id)
+    ON DELETE CASCADE
+    DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE posthog_cohortpeople
+    ADD CONSTRAINT posthog_cohortpeople_person_id_33da7d3f_fk
+    FOREIGN KEY (person_id)
+    REFERENCES posthog_person(id)
+    ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS posthog_cohortpeople_person_id_33da7d3f
     ON posthog_cohortpeople (person_id);
 
 -- Index from Django model Meta class
@@ -61,10 +92,24 @@ CREATE INDEX IF NOT EXISTS posthog_cohortpeople_cohort_person_idx
 CREATE TABLE IF NOT EXISTS posthog_featureflaghashkeyoverride (
     id BIGSERIAL PRIMARY KEY,
     team_id INTEGER NOT NULL,
-    person_id BIGINT NOT NULL REFERENCES posthog_person(id) ON DELETE CASCADE,
+    person_id BIGINT NOT NULL,
     feature_flag_key TEXT NOT NULL,
     hash_key TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS posthog_featureflaghashkeyoverride_person_idx
+-- Add both foreign key constraints to match production schema
+ALTER TABLE posthog_featureflaghashkeyoverride
+    ADD CONSTRAINT posthog_featureflagh_person_id_7e517f7c_fk_posthog_p
+    FOREIGN KEY (person_id)
+    REFERENCES posthog_person(id)
+    ON DELETE CASCADE
+    DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE posthog_featureflaghashkeyoverride
+    ADD CONSTRAINT posthog_featureflaghashkeyoverride_person_id_7e517f7c_fk
+    FOREIGN KEY (person_id)
+    REFERENCES posthog_person(id)
+    ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS posthog_featureflaghashkeyoverride_person_id_7e517f7c
     ON posthog_featureflaghashkeyoverride (person_id);
