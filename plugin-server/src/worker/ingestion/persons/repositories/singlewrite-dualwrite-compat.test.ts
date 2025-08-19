@@ -479,8 +479,36 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         }
         it('happy path deletePerson()', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
-                await createPersonsInBothRepos(team)
+            // Create persons without distinct IDs to match actual usage
+            // In production, deletePerson is only called after moveDistinctIds has moved all distinct IDs away
+            const [singleCreatePersonResult, dualCreatePersonResult] = await Promise.all([
+                singleWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    TEST_UUIDS.single,
+                    []
+                ),
+                dualWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    TEST_UUIDS.dual,
+                    []
+                ),
+            ])
+
+            if (!singleCreatePersonResult.success || !dualCreatePersonResult.success) {
+                throw new Error('Failed to create test persons')
+            }
 
             const singleDeleteResult = await singleWriteRepository.deletePerson(singleCreatePersonResult.person)
             const dualDeleteResult = await dualWriteRepository.deletePerson(dualCreatePersonResult.person)
@@ -498,8 +526,34 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         })
         it('deletePerson() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
-                await createPersonsInBothRepos(team)
+            const [singleCreatePersonResult, dualCreatePersonResult] = await Promise.all([
+                singleWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    '33333333-3333-3333-3333-333333333333',
+                    []
+                ),
+                dualWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    '44444444-4444-4444-4444-444444444444',
+                    []
+                ),
+            ])
+
+            if (!singleCreatePersonResult.success || !dualCreatePersonResult.success) {
+                throw new Error('Failed to create test persons')
+            }
 
             await assertConsistentDatabaseErrorHandling(
                 postgres,
@@ -520,8 +574,34 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         })
         it('deletePerson() deadlock detected', async () => {
             const team = await getFirstTeam(postgres)
-            const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
-                await createPersonsInBothRepos(team)
+            const [singleCreatePersonResult, dualCreatePersonResult] = await Promise.all([
+                singleWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    '55555555-5555-5555-5555-555555555555',
+                    []
+                ),
+                dualWriteRepository.createPerson(
+                    TEST_TIMESTAMP,
+                    { name: 'A' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    '66666666-6666-6666-6666-666666666666',
+                    []
+                ),
+            ])
+
+            if (!singleCreatePersonResult.success || !dualCreatePersonResult.success) {
+                throw new Error('Failed to create test persons')
+            }
 
             // Test that both repositories handle deadlock errors consistently
             // PostgreSQL error code '40P01' is for deadlock detected
@@ -539,7 +619,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 postgres,
                 migrationPostgres,
                 'SELECT * FROM posthog_person WHERE uuid = $1',
-                [TEST_UUIDS.dual],
+                ['66666666-6666-6666-6666-666666666666'],
                 'verify-primary-delete',
                 'verify-secondary-delete'
             )
