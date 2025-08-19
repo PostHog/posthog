@@ -1,4 +1,5 @@
 import { IconGithub } from '@posthog/icons'
+
 import { IconGitlab, IconGoogle, IconKey } from 'lib/lemon-ui/icons'
 
 import { SSOProvider } from '~/types'

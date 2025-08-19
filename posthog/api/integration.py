@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     Integration,
     OauthIntegration,
@@ -24,10 +25,16 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
+    ClickUpIntegration,
     EmailIntegration,
     GitHubIntegration,
     TwilioIntegration,
 )
+
+
+class NativeEmailIntegrationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    name = serializers.CharField()
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -57,21 +64,11 @@ class IntegrationSerializer(serializers.ModelSerializer):
         elif validated_data["kind"] == "email":
             config = validated_data.get("config", {})
 
-            if config.get("api_key") is not None:
-                if not (config.get("api_key") and config.get("secret_key")):
-                    raise ValidationError("Both api_key and secret_key are required for Mail integration")
-                instance = EmailIntegration.integration_from_keys(
-                    config["api_key"],
-                    config["secret_key"],
-                    team_id,
-                    request.user,
-                )
-                return instance
+            serializer = NativeEmailIntegrationSerializer(data=config)
+            serializer.is_valid(raise_exception=True)
 
-            if not (config.get("domain")):
-                raise ValidationError("Domain is required for email integration")
-            instance = EmailIntegration.integration_from_domain(
-                config["domain"],
+            instance = EmailIntegration.create_native_integration(
+                serializer.validated_data,
                 team_id,
                 request.user,
             )
@@ -154,7 +151,8 @@ class IntegrationViewSet(
                 raise ValidationError("Kind not configured")
         elif kind == "github":
             query_params = urlencode({"state": token})
-            installation_url = f"https://github.com/apps/{'posthog-error-tracking'}/installations/new?{query_params}"
+            app_slug = get_instance_setting("GITHUB_APP_SLUG")
+            installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
             response = redirect(installation_url)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
 
@@ -314,6 +312,68 @@ class IntegrationViewSet(
         ]
 
         return Response({"adAccounts": accounts})
+
+    @action(methods=["GET"], detail=True, url_path="clickup_spaces")
+    def clickup_spaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        clickup = ClickUpIntegration(instance)
+        workspace_id = request.query_params.get("workspaceId")
+
+        spaces = [
+            {
+                "id": space["id"],
+                "name": space["name"],
+            }
+            for space in clickup.list_clickup_spaces(workspace_id)["spaces"]
+        ]
+
+        return Response({"spaces": spaces})
+
+    @action(methods=["GET"], detail=True, url_path="clickup_lists")
+    def clickup_lists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        clickup = ClickUpIntegration(instance)
+        space_id = request.query_params.get("spaceId")
+
+        all_lists = []
+
+        raw_folders = clickup.list_clickup_folders(space_id)
+        for folder in raw_folders.get("folders", []):
+            for list_item in folder.get("lists", []):
+                all_lists.append(
+                    {
+                        "id": list_item["id"],
+                        "name": list_item["name"],
+                        "folder_id": folder["id"],
+                        "folder_name": folder["name"],
+                    }
+                )
+
+        raw_folderless_lists = clickup.list_clickup_folderless_lists(space_id)
+        for list_item in raw_folderless_lists.get("lists", []):
+            all_lists.append(
+                {
+                    "id": list_item["id"],
+                    "name": list_item["name"],
+                }
+            )
+
+        return Response({"lists": all_lists})
+
+    @action(methods=["GET"], detail=True, url_path="clickup_workspaces")
+    def clickup_workspaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        clickup = ClickUpIntegration(instance)
+
+        workspaces = [
+            {
+                "id": workspace["id"],
+                "name": workspace["name"],
+            }
+            for workspace in clickup.list_clickup_workspaces()["teams"]
+        ]
+
+        return Response({"workspaces": workspaces})
 
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:

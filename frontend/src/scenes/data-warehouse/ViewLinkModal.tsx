@@ -1,5 +1,9 @@
 import './ViewLinkModal.scss'
 
+import { useActions, useValues } from 'kea'
+import { Field, Form } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,12 +14,10 @@ import {
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -102,7 +104,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                         <span className="l4">Source Table</span>
                         <div className="text-wrap break-all">
                             {mode === 'revenue_analytics' || !isNewJoin ? (
-                                selectedSourceTableName ?? ''
+                                (selectedSourceTableName ?? '')
                             ) : (
                                 <Field name="source_table_name">
                                     <LemonSelect
@@ -119,7 +121,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                         <span className="l4">Joining Table</span>
                         <div className="text-wrap break-all">
                             {mode === 'revenue_analytics' ? (
-                                selectedJoiningTableName ?? ''
+                                (selectedJoiningTableName ?? '')
                             ) : (
                                 <Field name="joining_table_name">
                                     <LemonSelect
@@ -142,7 +144,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                                     <LemonSelect
                                         fullWidth
                                         onSelect={selectSourceKey}
-                                        value={sourceIsUsingHogQLExpression ? '' : selectedSourceKey ?? undefined}
+                                        value={sourceIsUsingHogQLExpression ? '' : (selectedSourceKey ?? undefined)}
                                         disabledReason={
                                             selectedSourceTableName ? '' : 'Select a table to choose join key'
                                         }
@@ -176,14 +178,16 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                         <span className="l4">Joining Table Key</span>
                         <div className="text-wrap break-all">
                             {mode === 'revenue_analytics' ? (
-                                selectedJoiningKey ?? ''
+                                (selectedJoiningKey ?? '')
                             ) : (
                                 <Field name="joining_table_key">
                                     <>
                                         <LemonSelect
                                             fullWidth
                                             onSelect={selectJoiningKey}
-                                            value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
+                                            value={
+                                                joiningIsUsingHogQLExpression ? '' : (selectedJoiningKey ?? undefined)
+                                            }
                                             disabledReason={
                                                 selectedJoiningTableName ? '' : 'Select a table to choose join key'
                                             }

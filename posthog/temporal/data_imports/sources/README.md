@@ -2,7 +2,7 @@
 
 Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a minimal amount of other files. Below is a step-by-step guide:
 
-1. Add a new enum value to `ExternalDataSource.Type` (posthog/warehouse/models/external_data_source.py). The key should be fully capitalized and the value should be in pascal case.
+1. Add a new enum value to `ExternalDataSourceType` (posthog/warehouse/types.py). The key should be fully capitalized and the value should be in pascal case.
 2. Run django migrations - `DEBUG=1 ./bin/migrate`
 3. Add a new folder in `posthog/temporal/data_imports/sources` for your source, add a new file within this folder called `source.py` using the template below
 4. Define the fields you'd like to collect via the `get_source_config()` method. Look at the other sources in `posthog/temporal/data_imports/sources` for examples. More info on the type of fields available is below
@@ -15,7 +15,7 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
 ```python
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
@@ -23,19 +23,19 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class TemplateSource(BaseSource[Config]): # Replace this after config generation
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.SOURCE_TYPE # Replace this
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SOURCE_TYPE # Replace this
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.SOURCE_TYPE, # Replace this
+            name=SchemaExternalDataSourceType.SOURCE_TYPE, # Replace this
             label="Template", # Replace this
             caption="",
             fields=cast(list[FieldType], []), # Add source fields here
@@ -96,9 +96,9 @@ We have a bunch of examples already in the sources directory of how we build up 
 
 `items`: This is what the pipeline iterates over to pull items from your source. Some rules for the iterator:
 
--   It should return items as either `dict`, `list[dict]`, or a `pyarrow.Table` object. For sources with a defined schema that we can pull, such as a database table, we prefer the source returned a `pyarrow.Table` object with a well defined schema
--   It's okay to yield items one at a time if that's how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
--   If you are returning a `pyarrow.Table` object, then please make sure that there is a reasonable limit on how many rows that get held in memory. For most of our sources, we limit this to either 200 MiB or 5,000 rows.
+- It should return items as either `dict`, `list[dict]`, or a `pyarrow.Table` object. For sources with a defined schema that we can pull, such as a database table, we prefer the source returned a `pyarrow.Table` object with a well defined schema
+- It's okay to yield items one at a time if that's how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
+- If you are returning a `pyarrow.Table` object, then please make sure that there is a reasonable limit on how many rows that get held in memory. For most of our sources, we limit this to either 200 MiB or 5,000 rows.
 
 We have some helper methods for returning a `pyarrow.Table` from the source, such as `table_from_iterator()` and `table_from_py_list()` from `posthog/temporal/data_imports/pipelines/pipeline/utils.py`. The pipeline will ultimately convert everything to a `pyarrow.Table` using these methods
 
@@ -134,8 +134,8 @@ We have several partitioning modes - `md5`, `numerical`, and `datetime`:
 
 For database sources, we recommend setting `partition_count` and `partition_size`. For API backed sources, we recommend setting `partition_keys`, `partition_mode`, and `partition_format`.
 
--   `partition_count` refers to how many partitions there should exist for the `md5` mode
--   `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
+- `partition_count` refers to how many partitions there should exist for the `md5` mode
+- `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
 
 ## Mixins
 

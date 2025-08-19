@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Union, Any
 from unittest.mock import Mock
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import pytest
@@ -49,7 +50,7 @@ class TableInfo:
     credential: DataWarehouseCredential
     platform: str
     source_type: str
-    cleanup_fn: callable
+    cleanup_fn: Callable
 
 
 @dataclass

@@ -1,22 +1,23 @@
 import { combineUrl } from 'kea-router'
+
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { productUrls } from '~/products'
+import { ExternalDataSourceType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import {
     ActivityTab,
     AnnotationType,
+    CommentType,
+    OnboardingStepKey,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
     SDKKey,
-    OnboardingStepKey,
-    CommentType,
 } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { ExternalDataSourceType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 
 /**
  * To add a new URL to the front end:
@@ -35,6 +36,7 @@ export const urls = {
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
+    newTab: () => '/new',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
@@ -78,7 +80,7 @@ export const urls = {
             nodeTab ? `/${nodeTab}` : ''
         }`,
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
         if (query) {
             return `/sql?open_query=${encodeURIComponent(query)}`
         }
@@ -89,6 +91,10 @@ export const urls = {
 
         if (insightShortId) {
             return `/sql?open_insight=${insightShortId}`
+        }
+
+        if (draftId) {
+            return `/sql?open_draft=${draftId}`
         }
 
         return '/sql'

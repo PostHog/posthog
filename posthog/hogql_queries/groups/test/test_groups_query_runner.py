@@ -109,7 +109,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
-    def test_groups_query_runner_with_search(self):
+    def test_search(self):
         self.create_standard_test_groups()
         query = GroupsQuery(
             group_type_index=0,
@@ -117,13 +117,132 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             offset=0,
             search="org2",
         )
-
         query_runner = GroupsQueryRunner(query=query, team=self.team)
+
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 1)
         self.assertEqual(result.columns, ["group_name", "key"])
         self.assertEqual(result.results[0][0], "org2.inc")
+
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    def test_search_ranking(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        test_groups = [
+            {"key": "prefix2", "name": "testable"},
+            {"key": "contains", "name": "my_test_group"},
+            {"key": "prefix", "name": "testing"},
+            {"key": "exact", "name": "test"},
+            {"key": "contains2", "name": "best_test_ever"},
+        ]
+        for group in test_groups:
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=group["key"],
+                properties={"name": group["name"]},
+            )
+
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            search="test",
+        )
+
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
+        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.results[0][0], "test")
+        self.assertEqual(result.results[0][1], "exact")
+        self.assertEqual(result.results[1][0], "testable")
+        self.assertEqual(result.results[1][1], "prefix2")
+        self.assertEqual(result.results[2][0], "testing")
+        self.assertEqual(result.results[2][1], "prefix")
+        self.assertEqual(result.results[3][0], "best_test_ever")
+        self.assertEqual(result.results[3][1], "contains2")
+        self.assertEqual(result.results[4][0], "my_test_group")
+        self.assertEqual(result.results[4][1], "contains")
+
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    def test_search_ranking_with_key_fallback(self):
+        """Test search ranking when groups don't have name property and fall back to key"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        test_groups = [
+            {"key": "api_v2", "name": None},
+            {"key": "api", "name": None},
+            {"key": "legacy_api", "name": None},
+        ]
+        for group in test_groups:
+            props = {"name": group["name"]} if group["name"] else {}
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=str(group["key"]),
+                properties=props,
+            )
+
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            search="api",
+        )
+
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
+        self.assertEqual(result.results[0][1], "api", "Exact match ranked first")
+        self.assertEqual(result.results[1][1], "api_v2", "Prefix match ranked second")
+        self.assertEqual(result.results[2][1], "legacy_api", "Contains match ranked last")
+
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    def test_search_ordering_with_user_orderby(self):
+        """Test that similarity ordering comes after user-specified orderBy, not after default created_at DESC"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        test_groups = [
+            {"key": "exact", "name": "test", "arr": 200},
+            {"key": "prefix", "name": "testing", "arr": 100},
+            {"key": "contains", "name": "my_test_group", "arr": 300},
+        ]
+        for group in test_groups:
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=str(group["key"]),
+                properties={"name": group["name"], "arr": group["arr"]},
+            )
+
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            search="test",
+            select=["properties.arr"],
+            orderBy=["properties.arr DESC"],  # User-specified ordering
+        )
+
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+        self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
+        self.assertEqual(result.results[0][0], "my_test_group", "Contains match ranked first, highest arr")
+        self.assertEqual(result.results[0][2], "300")
+        self.assertEqual(result.results[1][0], "test", "Exact match ranked second, mid arr")
+        self.assertEqual(result.results[1][2], "200")
+        self.assertEqual(result.results[2][0], "testing", "Prefix match ranked last, lowest arr")
+        self.assertEqual(result.results[2][2], "100")
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries

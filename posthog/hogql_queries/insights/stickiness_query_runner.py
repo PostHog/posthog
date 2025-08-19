@@ -15,7 +15,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -51,7 +51,7 @@ class SeriesWithExtras:
         self.is_previous_period_series = is_previous_period_series
 
 
-class StickinessQueryRunner(QueryRunner):
+class StickinessQueryRunner(AnalyticsQueryRunner):
     query: StickinessQuery
     response: StickinessQueryResponse
     cached_response: CachedStickinessQueryResponse
@@ -253,7 +253,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
-    def calculate(self):
+    def _calculate(self):
         queries = self.to_queries()
 
         res = []

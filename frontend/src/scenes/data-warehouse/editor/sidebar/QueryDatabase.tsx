@@ -1,26 +1,27 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
+import { IconPlusSmall } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef } from 'react'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import api from 'lib/api'
-import { draftsLogic } from '../draftsLogic'
 
 export const QueryDatabase = (): JSX.Element => {
     const {
@@ -46,12 +47,6 @@ export const QueryDatabase = (): JSX.Element => {
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
-    const multitabLogic = multitabEditorLogic({
-        key: `hogQLQueryEditor/${router.values.location.pathname}`,
-    })
-    const { allTabs } = useValues(multitabLogic)
-    const { createTab, selectTab, setTabDraftId } = useActions(multitabLogic)
-    const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
     const { deleteDraft } = useActions(draftsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
@@ -83,27 +78,7 @@ export const QueryDatabase = (): JSX.Element => {
             onItemClick={(item) => {
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
-                    const draft = item.record.draft
-
-                    const existingTab = allTabs.find((tab) => {
-                        return tab.draft?.id === draft.id
-                    })
-
-                    if (existingTab) {
-                        selectTab(existingTab)
-                    } else {
-                        const associatedView = draft.saved_query_id
-                            ? dataWarehouseSavedQueryMapById[draft.saved_query_id]
-                            : undefined
-
-                        createTab(draft.query.query, associatedView, undefined, draft)
-
-                        const newTab = allTabs[allTabs.length - 1]
-                        if (newTab) {
-                            setTabDraftId(newTab.uri.toString(), draft.id)
-                        }
-                    }
-                    return
+                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, item.record.draft.id))
                 }
 
                 // Copy column name when clicking on a column

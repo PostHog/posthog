@@ -8,7 +8,7 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { GroupStoreForBatch } from '../groups/group-store-for-batch'
+import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
@@ -28,7 +28,6 @@ import {
 import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
@@ -85,6 +84,13 @@ export class EventPipelineRunner {
         if (!key) {
             return false // for safety don't drop events here, they are later dropped in teamDataPopulation
         }
+
+        if (event.event === '$exception') {
+            // Exception events were fully moved to rust processing on its own topic. As a defensive measure,
+            // we'll drop them here
+            return true
+        }
+
         const dropIds = this.hub.eventsToDropByToken?.get(key)
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
     }
@@ -328,19 +334,9 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        if (event.event === '$exception') {
-            const [exceptionAck] = await this.runStep(
-                produceExceptionSymbolificationEventStep,
-                [this, rawEvent],
-                event.team_id
-            )
-            kafkaAcks.push(exceptionAck)
-            return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawEvent], kafkaAcks)
-        } else {
-            const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent], event.team_id)
-            kafkaAcks.push(clickhouseAck)
-            return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks)
-        }
+        const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent], event.team_id)
+        kafkaAcks.push(clickhouseAck)
+        return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks)
     }
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {

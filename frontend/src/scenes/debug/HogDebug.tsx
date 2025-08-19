@@ -1,16 +1,18 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import type { IDisposable } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import type { IDisposable } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery
@@ -23,15 +25,17 @@ let uniqueNode = 0
 export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
+
     const [queryInput, setQueryInput] = useState(props.query.code)
     useEffect(() => {
         setQueryInput(props.query?.code)
     }, [props.query?.code])
+
     const [realKey] = useState(() => uniqueNode++)
 
     function saveQuery(): void {
@@ -105,10 +109,16 @@ interface HogDebugProps {
     query: HogQuery
     setQuery: (query: HogQuery) => void
     debug?: boolean
+    modifiers?: HogQLQueryModifiers
 }
 
-export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): JSX.Element {
-    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
+export function HogDebug({ query, setQuery, queryKey, debug, modifiers }: HogDebugProps): JSX.Element {
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query,
+        key: queryKey,
+        dataNodeCollectionId: queryKey,
+        modifiers,
+    }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
     const response = _response as HogQueryResponse | null
     const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'coloredBytecode' | 'stdout')
