@@ -53,8 +53,14 @@ export function formatLLMUsage(
     return null
 }
 
-export function formatLLMLatency(latency: number): string {
-    return `${Math.round(latency * 100) / 100} s`
+export const LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS = 90
+
+export function formatLLMLatency(latency: number, showMinutes?: boolean): string {
+    if (showMinutes && latency > LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS) {
+        const minutes = (latency / 60).toFixed(2)
+        return `${Math.round(latency * 100) / 100} s (${minutes} m)`
+    }
+    return `${Math.round(latency * 100) / 100} s`
 }
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
