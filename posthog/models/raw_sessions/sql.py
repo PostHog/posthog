@@ -10,16 +10,20 @@ from posthog.clickhouse.table_engines import (
 TABLE_BASE_NAME = "raw_sessions"
 
 
-def RAW_SESSIONS_DATA_TABLE():
+def SHARDED_RAW_SESSIONS_DATA_TABLE():
     return f"sharded_{TABLE_BASE_NAME}"
 
 
+def WRITABLE_RAW_SESSIONS_DATA_TABLE():
+    return f"writable_{TABLE_BASE_NAME}"
+
+
 def TRUNCATE_RAW_SESSIONS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
 def DROP_RAW_SESSION_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
 def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL():
@@ -155,7 +159,7 @@ ORDER BY (
 SAMPLE BY cityHash64(session_id_v7)
 """
     ).format(
-        table_name=RAW_SESSIONS_DATA_TABLE(),
+        table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=RAW_SESSIONS_DATA_TABLE_ENGINE(),
     )
@@ -464,10 +468,10 @@ MODIFY QUERY
 
 def WRITABLE_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
     return RAW_SESSIONS_TABLE_BASE_SQL.format(
-        table_name=f"writable_{TABLE_BASE_NAME}",
+        table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
-            data_table=RAW_SESSIONS_DATA_TABLE(),
+            data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             # shard via session_id so that all events for a session are on the same shard
             sharding_key="cityHash64(session_id_v7)",
         ),
@@ -482,7 +486,7 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
         table_name=TABLE_BASE_NAME,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
-            data_table=RAW_SESSIONS_DATA_TABLE(),
+            data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             sharding_key="cityHash64(session_id_v7)",
         ),
     )
