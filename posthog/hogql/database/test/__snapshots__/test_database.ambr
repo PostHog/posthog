@@ -1362,6 +1362,7 @@
                       "distinct_id",
                       "$start_timestamp",
                       "$end_timestamp",
+                      "max_inserted_at",
                       "$urls",
                       "$num_uniq_urls",
                       "$entry_current_url",
@@ -1755,6 +1756,16 @@
                   "hogql_value": "`$end_timestamp`",
                   "id": null,
                   "name": "$end_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "max_inserted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "max_inserted_at",
+                  "id": null,
+                  "name": "max_inserted_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
@@ -2752,6 +2763,7 @@
                       "distinct_id",
                       "$start_timestamp",
                       "$end_timestamp",
+                      "max_inserted_at",
                       "$urls",
                       "$num_uniq_urls",
                       "$entry_current_url",
@@ -3120,6 +3132,16 @@
                   "hogql_value": "`$end_timestamp`",
                   "id": null,
                   "name": "$end_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "max_inserted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "max_inserted_at",
+                  "id": null,
+                  "name": "max_inserted_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
