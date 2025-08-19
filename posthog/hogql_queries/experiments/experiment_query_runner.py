@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -6,7 +5,6 @@ from rest_framework.exceptions import ValidationError
 import structlog
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -47,8 +45,6 @@ from posthog.schema import (
     ExperimentQueryResponse,
     ExperimentRatioMetric,
     ExperimentStatsBase,
-    ExperimentVariantFunnelsBaseStats,
-    ExperimentVariantTrendsBaseStats,
     IntervalType,
     MultipleVariantHandling,
 )
@@ -447,13 +443,12 @@ class ExperimentQueryRunner(QueryRunner):
     def _calculate(self) -> ExperimentQueryResponse:
         sorted_results = self._evaluate_experiment_query()
 
+        variant_results = get_new_variant_results(sorted_results)
+        self._validate_and_add_missing_variants(variant_results)
+
+        control_variant, test_variants = split_baseline_and_test_variants(variant_results)
+
         if self.stats_method == "frequentist":
-            frequentist_variants = get_new_variant_results(sorted_results)
-
-            self._validate_event_variants(frequentist_variants)
-
-            control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
-
             return get_frequentist_experiment_result(
                 metric=self.metric,
                 control_variant=control_variant,
@@ -461,42 +456,40 @@ class ExperimentQueryRunner(QueryRunner):
             )
         else:
             # We default to bayesian
-            bayesian_variants = get_new_variant_results(sorted_results)
-
-            control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
-
             return get_bayesian_experiment_result(
                 metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
             )
 
-    def _validate_event_variants(
-        self,
-        variants: list[ExperimentVariantTrendsBaseStats]
-        | list[ExperimentVariantFunnelsBaseStats]
-        | list[ExperimentStatsBase],
-    ):
-        errors = {
-            ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-            ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-            ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-        }
+    def _validate_and_add_missing_variants(self, variants: list[ExperimentStatsBase]):
+        """
+        Validates that results contains _some_ data, so we can proceed with the calculations.
 
+        If no exposures is seen at all, or control is missing, a ValidationError is raised.
+
+        Otherwise, a list of all variants including control is returned. Test variants without data are included with
+        zero values. That way, we can still display results for variants with data.
+        """
         if not variants:
-            raise ValidationError(code="no-results", detail=json.dumps(errors))
+            raise ValidationError(
+                "No experiment exposures found. Please ensure users are being exposed to your experiment variants."
+            )
 
-        errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
+        variants_seen = [v.key for v in variants]
 
-        for variant in variants:
-            if variant.key == CONTROL_VARIANT_KEY:
-                errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
-            else:
-                errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+        if CONTROL_VARIANT_KEY not in variants_seen:
+            raise ValidationError(
+                "No control variant found. Please ensure your experiment has a 'control' variant and that users are being exposed to it."
+            )
 
-        has_errors = any(errors.values())
-        if has_errors:
-            raise ValidationError(detail=json.dumps(errors))
+        variants_missing = []
+        for key in self.variants:
+            if key not in variants_seen:
+                empty_variant = ExperimentStatsBase(key=key, number_of_samples=0, sum=0, sum_squares=0)
+                variants_missing.append(empty_variant)
+
+        return variants + variants_missing
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")
