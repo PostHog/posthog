@@ -19,6 +19,7 @@ from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
+from posthog.hogql import ast
 
 if TYPE_CHECKING:
     from random import Random
@@ -199,6 +200,35 @@ class UUIDTClassicModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class BytecodeModelMixin(models.Model):
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        self._refresh_bytecode()
+        super().save(*args, **kwargs)
+
+    def _refresh_bytecode(self):
+        from posthog.hogql.compiler.bytecode import create_bytecode
+        from posthog.hogql.errors import BaseHogQLError
+
+        try:
+            expr = self.get_expr()
+            new_bytecode = create_bytecode(expr).bytecode
+            if new_bytecode != self.bytecode or self.bytecode_error is None:
+                self.bytecode = new_bytecode
+                self.bytecode_error = ""
+        except BaseHogQLError as e:
+            # There are several known cases when bytecode generation can fail.
+            # Instead of spamming with errors, ignore those cases for now.
+            if self.bytecode or self.bytecode_error != str(e):
+                self.bytecode = {}
+                self.bytecode_error = str(e)
+
+    def get_expr(self) -> ast.Expr:
+        raise NotImplementedError()
 
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:
