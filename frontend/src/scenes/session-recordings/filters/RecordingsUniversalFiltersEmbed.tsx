@@ -564,7 +564,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen}
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
-                        operatorAllowList={
+                        operatorAllowlist={
                             isCommentTextFilter(filterOrGroup)
                                 ? [PropertyOperator.IsSet, PropertyOperator.Exact, PropertyOperator.IContains]
                                 : undefined
