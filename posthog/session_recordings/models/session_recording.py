@@ -7,7 +7,7 @@ from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 from posthog.session_recordings.models.metadata import (
     RecordingMatchingEvents,
     RecordingMetadata,
@@ -19,7 +19,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.tasks.tasks import ee_persist_single_recording
 
 
-class SessionRecording(UUIDModel):
+class SessionRecording(UUIDTModel):
     class Meta:
         unique_together = ("team", "session_id")
 

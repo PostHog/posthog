@@ -51,7 +51,6 @@ export const SIDE_PANEL_TABS: Record<
             )
         },
         Content: SidePanelMax,
-        noModalSupport: true,
     },
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',

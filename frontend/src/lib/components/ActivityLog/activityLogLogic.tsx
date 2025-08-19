@@ -19,6 +19,8 @@ import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescr
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
+import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-exports/activityDescriptions'
+import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
 import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
@@ -99,6 +101,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return alertConfigurationActivityDescriber
         case ActivityScope.ANNOTATION:
             return annotationActivityDescriber
+        case ActivityScope.BATCH_EXPORT:
+            return batchExportActivityDescriber
+        case ActivityScope.BATCH_IMPORT:
+            return batchImportActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
         case ActivityScope.PLUGIN:

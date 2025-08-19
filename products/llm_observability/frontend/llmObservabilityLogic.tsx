@@ -4,7 +4,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -531,8 +533,15 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
                 groupsModel.selectors.groupsTaxonomicTypes,
+                featureFlagLogic.selectors.featureFlags,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                groupsTaxonomicTypes,
+                featureFlags
+            ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.TracesQuery,
@@ -543,7 +552,18 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
                 },
-                columns: ['id', 'traceName', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
+                columns: [
+                    'id',
+                    'traceName',
+                    ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                        ? ['inputState', 'outputState']
+                        : []),
+                    'person',
+                    'totalLatency',
+                    'usage',
+                    'totalCost',
+                    'timestamp',
+                ],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,
@@ -571,13 +591,15 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.propertyFilters,
                 s.generationsColumns,
                 groupsModel.selectors.groupsTaxonomicTypes,
+                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
                 generationsColumns,
-                groupsTaxonomicTypes
+                groupsTaxonomicTypes,
+                featureFlags
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -585,6 +607,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     select: generationsColumns || [
                         'uuid',
                         'properties.$ai_trace_id',
+                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                            ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices']
+                            : []),
                         'person',
                         "f'{properties.$ai_model}' -- Model",
                         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
