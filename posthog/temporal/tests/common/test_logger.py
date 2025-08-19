@@ -42,8 +42,8 @@ class LogCapture:
     """A test StructLog processor to capture logs."""
 
     def __init__(self, drop: bool = True):
-        self.write_entries = []
-        self.produce_entries = []
+        self.write_entries: list[str] = []
+        self.produce_entries: list[str] = []
         self.drop = drop
 
     def __call__(self, logger, method_name, messages):
@@ -785,7 +785,7 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
             raise TimeoutError("Timedout waiting for logs")
 
     for index, row in enumerate(results):
-        assert row[0] == log_dict["instance_id"]  # type: ignore
+        assert row[0] == log_dict["instance_id"]
         assert row[1] == "info"
         assert row[2] == log_source
         assert row[3] == log_source_id

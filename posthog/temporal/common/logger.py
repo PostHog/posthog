@@ -17,7 +17,7 @@ from structlog.processors import EventRenamer
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
-BACKGROUND_LOGGER_TASKS = {}
+BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
 
 LogQueue = asyncio.Queue[bytes]
 
@@ -82,8 +82,8 @@ class Logger(NamedLogger):
             _ = self._write(message + "\n")
             _ = self._flush()
 
-    log = debug = info = warn = warning = process
-    fatal = failure = err = error = critical = exception = process
+    log = debug = info = warn = warning = process  # type: ignore
+    fatal = failure = err = error = critical = exception = process  # type: ignore
 
 
 class LogMessages(typing.TypedDict):
@@ -262,7 +262,7 @@ def _make_async_method(name):
 def _format_args(event: str, *args) -> str:
     if args:
         if len(args) == 1 and isinstance(args[0], dict) and args[0]:
-            args = args[0]
+            args = args[0]  # type: ignore
 
         event %= args
     return event
