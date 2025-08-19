@@ -22,6 +22,46 @@ describe('LazyLoader', () => {
         jest.spyOn(Date, 'now').mockRestore()
     })
 
+    describe('constructor', () => {
+        it('should throw if refreshBackgroundAgeMs is greater than refreshAgeMs', () => {
+            expect(
+                () =>
+                    new LazyLoader({
+                        name: 'test',
+                        loader,
+                        refreshAgeMs: 1000 * 60 * 2,
+                        refreshBackgroundAgeMs: 1000 * 60 * 3,
+                    })
+            ).toThrow('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
+        })
+
+        it('should set defaults if not provided', () => {
+            const lazyLoader = new LazyLoader({
+                name: 'test',
+                loader,
+            })
+
+            expect(lazyLoader['refreshAgeMs']).toBe(300000)
+            expect(lazyLoader['refreshNullAgeMs']).toBe(300000)
+            expect(lazyLoader['refreshBackgroundAgeMs']).toBe(undefined)
+            expect(lazyLoader['refreshJitterMs']).toBe(60000)
+        })
+
+        it('should derive values based on refreshAgeMs', () => {
+            const refreshAgeMs = 1000 * 60 * 2
+            const lazyLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                refreshAgeMs,
+            })
+
+            expect(lazyLoader['refreshAgeMs']).toBe(refreshAgeMs)
+            expect(lazyLoader['refreshNullAgeMs']).toBe(refreshAgeMs)
+            expect(lazyLoader['refreshBackgroundAgeMs']).toBe(undefined)
+            expect(lazyLoader['refreshJitterMs']).toBe(refreshAgeMs / 5)
+        })
+    })
+
     describe('get', () => {
         it('loads and caches a single value', async () => {
             loader.mockResolvedValue({ key1: 'value1' })
@@ -255,18 +295,6 @@ describe('LazyLoader', () => {
             })
 
             loadSpy = jest.spyOn(lazyLoader as any, 'load')
-        })
-
-        it('should throw if badly configured', () => {
-            expect(
-                () =>
-                    new LazyLoader({
-                        name: 'test',
-                        loader,
-                        refreshAgeMs: 1000 * 60 * 2,
-                        refreshBackgroundAgeMs: 1000 * 60 * 3,
-                    })
-            ).toThrow('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
         })
 
         it('should refresh in the background if between ages', async () => {

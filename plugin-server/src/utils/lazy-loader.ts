@@ -4,9 +4,6 @@ import { defaultConfig } from '../config/config'
 import { runInstrumentedFunction } from '../main/utils'
 import { logger } from './logger'
 
-const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
-const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
-
 const lazyLoaderCacheHits = new Counter({
     name: 'lazy_loader_cache_hits',
     help: 'The number of times we have hit the cache',
@@ -69,6 +66,11 @@ export class LazyLoader<T> {
     private backgroundRefreshAfter: Record<string, number | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
 
+    private refreshAgeMs: number
+    private refreshNullAgeMs: number
+    private refreshBackgroundAgeMs?: number
+    private refreshJitterMs: number
+
     private buffer:
         | {
               keys: Set<string>
@@ -83,9 +85,12 @@ export class LazyLoader<T> {
         this.backgroundRefreshAfter = {}
         this.pendingLoads = {}
 
-        const { refreshAgeMs = REFRESH_AGE, refreshBackgroundAgeMs } = this.options
+        this.refreshAgeMs = this.options.refreshAgeMs ?? 1000 * 60 * 5 // 5 minutes
+        this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
+        this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
+        this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
 
-        if (refreshBackgroundAgeMs && refreshBackgroundAgeMs >= refreshAgeMs) {
+        if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
             throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
         }
     }
@@ -118,23 +123,18 @@ export class LazyLoader<T> {
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
-        const {
-            refreshAgeMs = REFRESH_AGE,
-            refreshBackgroundAgeMs = REFRESH_AGE,
-            refreshNullAgeMs = REFRESH_AGE,
-            refreshJitterMs = REFRESH_JITTER_MS,
-        } = this.options
         for (const [key, value] of Object.entries(map)) {
             this.cache[key] = value ?? null
             // Always update the lastUsed time
             this.lastUsed[key] = Date.now()
             const valueOrNull = value ?? null
-            const jitter = Math.floor(Math.random() * refreshJitterMs)
-            this.cacheUntil[key] = Date.now() + (valueOrNull === null ? refreshNullAgeMs : refreshAgeMs) + jitter
+            const jitter = Math.floor(Math.random() * this.refreshJitterMs)
+            this.cacheUntil[key] =
+                Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshAgeMs) + jitter
 
-            if (refreshBackgroundAgeMs) {
+            if (this.refreshBackgroundAgeMs) {
                 this.backgroundRefreshAfter[key] =
-                    Date.now() + (valueOrNull === null ? refreshNullAgeMs : refreshBackgroundAgeMs) + jitter
+                    Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
             }
         }
     }
