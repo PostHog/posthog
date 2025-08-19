@@ -40,9 +40,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
-import { createCohortDataNodeLogicKey } from './cohortUtils'
-import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { createCohortDataNodeLogicKey } from './cohortUtils'
+
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
@@ -384,7 +385,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                         className={cn(
                                                             'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
                                                             newSceneLayout &&
-                                                            'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
+                                                                'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
                                                             newSceneLayout && cohort.csv?.name && 'border-success'
                                                         )}
                                                     >
@@ -425,10 +426,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                             />
                                         </>
                                     )}
-                                    <LemonButton className="mt-3" type="primary" onClick={showAddPersonToCohortModal}>
-                                        Add User Manually
-                                    </LemonButton>
                                 </LemonField>
+                                <LemonButton className="mt-3 w-fit" type="primary" onClick={showAddPersonToCohortModal}>
+                                    Add User Manually
+                                </LemonButton>
                             </SceneSection>
                         </>
                     ) : (
