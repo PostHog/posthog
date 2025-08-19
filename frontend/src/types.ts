@@ -36,6 +36,7 @@ import {
 } from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -4365,6 +4366,7 @@ export interface ReplayExportContext {
     height?: number
     filename?: string
     duration?: number
+    mode?: SessionRecordingPlayerMode
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
