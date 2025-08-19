@@ -315,7 +315,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_rejects_empty_distinct_id() -> Result<()> {
+async fn it_accepts_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
@@ -338,10 +338,16 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
     let res = server
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
-    assert_eq!(
-        res.text().await?,
-        "The distinct_id field cannot be empty. Please provide a valid identifier."
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Should return a valid response even with empty distinct_id
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {}
+        })
     );
     Ok(())
 }
