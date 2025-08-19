@@ -929,7 +929,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user
                 )
                 if results:
-                    if isinstance(results, CachedResponse):
+                    if isinstance(results, CachedResponse) and (
+                        not get_query_tag_value("trigger") or not get_query_tag_value("trigger").startswith("warming")
+                    ):
                         log_event_usage_from_query_metadata(
                             results.query_metadata,
                             team_id=self.team.id,
@@ -981,16 +983,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             "timezone": self.team.timezone,
                             "cache_target_age": target_age,
                         }
+
+            try:
+                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+                fresh_response_dict["query_metadata"] = query_metadata
+
+                # Don't log usage for warming queries
+                if not get_query_tag_value("trigger") or not get_query_tag_value("trigger").startswith("warming"):
+                    log_event_usage_from_query_metadata(
+                        query_metadata,
+                        team_id=self.team.id,
+                        user_id=user.id if user else None,
+                    )
+            except Exception as e:
+                # fail silently if we can't extract query metadata
+                capture_exception(
+                    e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"}
+                )
+
             if get_query_tag_value("trigger"):
                 fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
-
-            query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
-            log_event_usage_from_query_metadata(
-                query_metadata,
-                team_id=self.team.id,
-                user_id=user.id if user else None,
-            )
-            fresh_response_dict["query_metadata"] = query_metadata
 
             fresh_response = CachedResponse(**fresh_response_dict)
 
