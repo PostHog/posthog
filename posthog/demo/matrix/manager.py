@@ -3,28 +3,13 @@
 import json
 import datetime as dt
 from time import sleep
-<<<<<<< HEAD
 from typing import Any, Literal, cast
-import asyncio
-||||||| parent of a3359074a0 (Rework to add standalone generate_session_recordings)
-from typing import Any, Literal, Optional, cast
-import asyncio
-=======
-from typing import Any, Literal, Optional, cast
->>>>>>> a3359074a0 (Rework to add standalone generate_session_recordings)
 
 from django.conf import settings
 from django.core import exceptions
 from django.db import IntegrityError, transaction
 
-<<<<<<< HEAD
-||||||| parent of a3359074a0 (Rework to add standalone generate_session_recordings)
-from django.db import transaction, IntegrityError
-=======
-from django.db import transaction, IntegrityError
-
 from posthog.demo.matrix.session_data_fetcher import SessionDataFetcher
->>>>>>> a3359074a0 (Rework to add standalone generate_session_recordings)
 from .session_replay_generator import SessionReplayGenerator
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
