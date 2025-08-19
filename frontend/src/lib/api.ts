@@ -72,6 +72,7 @@ import {
     DashboardType,
     DataColorThemeModel,
     DataModelingJob,
+    DataWarehouseActivityRecord,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseTable,
@@ -3360,35 +3361,13 @@ const api = {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
 
-        async recentActivity(options?: ApiMethodOptions & { limit?: number; offset?: number }): Promise<{
-            results: Array<{
-                id: string
-                type: string
-                name: string | null
-                status: string
-                rows: number
-                created_at: string
-                finished_at: string | null
-                latest_error: string | null
-                workflow_run_id?: string
-            }>
-            has_more: boolean
-            pagination: {
-                next_offset?: number
-            }
-        }> {
-            const params: Record<string, any> = {}
-            if (options?.limit) {
-                params.limit = options.limit
-            }
-            if (options?.offset) {
-                params.offset = options.offset
-            }
-
+        async recentActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number }
+        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('recent_activity')
-                .withQueryString(params)
+                .withQueryString({ limit: options?.limit, offset: options?.offset })
                 .get(options)
         },
     },

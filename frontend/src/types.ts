@@ -5650,6 +5650,18 @@ export interface LineageGraph {
     edges: LineageEdge[]
 }
 
+export interface DataWarehouseActivityRecord {
+    id: string
+    type: string
+    name: string | null
+    status: string
+    rows: number
+    created_at: string
+    finished_at: string | null
+    latest_error: string | null
+    workflow_run_id?: string
+}
+
 export enum OnboardingStepKey {
     INSTALL = 'install',
     LINK_DATA = 'link_data',
