@@ -502,8 +502,7 @@
     AND metric_name IN ('billable_invocation')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-  GROUP BY team_id,
-           metric_name
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.35
