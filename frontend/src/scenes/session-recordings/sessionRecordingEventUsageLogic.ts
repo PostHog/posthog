@@ -1,7 +1,8 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import posthog from 'posthog-js'
+
 import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
-import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'

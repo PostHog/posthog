@@ -60,17 +60,17 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
 
-   ```tsx
-   export const TOOL_DEFINITIONS: ... = {
-       // ... existing tools ...
-       your_tool_name: {
-           name: 'Do something',
-           description: 'Do something to blah blah',
-           product: Scene.YourProduct, // or null for the rare global tool
-           flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
-       },
-   }
-   ```
+    ```tsx
+    export const TOOL_DEFINITIONS: ... = {
+        // ... existing tools ...
+        your_tool_name: {
+            name: 'Do something',
+            description: 'Do something to blah blah',
+            product: Scene.YourProduct, // or null for the rare global tool
+            flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+        },
+    }
+    ```
 
 For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
 

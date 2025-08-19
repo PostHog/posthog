@@ -1,16 +1,18 @@
-import { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from '@posthog/lemon-ui'
+import { useEffect, useRef } from 'react'
+
 import { IconDrag } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { Thread } from '../Thread'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { useDragAndSnap } from '../utils/useDragAndSnap'
-import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
 import { FloatingInputActions } from './FloatingInputActions'
-import { ThreadAutoScroller } from './ThreadAutoScroller'
-import { Thread } from '../Thread'
+import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
 import { QuestionInput } from './QuestionInput'
+import { ThreadAutoScroller } from './ThreadAutoScroller'
 
 interface ExpandedFloatingMaxProps {
     onCollapse: () => void

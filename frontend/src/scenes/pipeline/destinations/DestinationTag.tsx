@@ -1,4 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HogFunctionTemplateStatus } from '~/types'

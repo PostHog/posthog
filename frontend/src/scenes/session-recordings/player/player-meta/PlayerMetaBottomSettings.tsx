@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import {
     IconEllipsis,
     IconHourglass,
@@ -6,14 +8,14 @@ import {
     IconSearch,
     IconTortoise,
 } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { LemonTag } from '@posthog/lemon-ui'
-import { humanFriendlyDuration } from 'lib/utils'
+import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,
     SettingsButton,
@@ -27,6 +29,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
 import { ExporterFormat } from '~/types'
 
 function SetPlaybackSpeed(): JSX.Element {

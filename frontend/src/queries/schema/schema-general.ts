@@ -1142,7 +1142,8 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export type ResultCustomizationBase = {
-    color: DataColorToken
+    color?: DataColorToken
+    hidden?: boolean
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -2177,6 +2178,8 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    last_seen: string
+    library: string | null
     event: string
     odds_ratio: number
     population: {
@@ -2933,12 +2936,12 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort'
 >
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    property: string
+    property: string | integer
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin
@@ -3380,6 +3383,8 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
+export type SubscriptionDropoffMode = 'last_event' | 'after_dropoff_period'
+
 export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
@@ -3411,6 +3416,15 @@ export interface RevenueAnalyticsEventItem {
      * @default 45
      */
     subscriptionDropoffDays: number
+
+    /**
+     * After a subscription has dropped off, when should we consider it to have ended?
+     * It should either be at the date of the last event (will alter past periods, the default),
+     * or at the date of the last event plus the dropoff period.
+     *
+     * @default "last_event"
+     */
+    subscriptionDropoffMode: SubscriptionDropoffMode
 
     /**
      * TODO: In the future, this should probably be renamed to

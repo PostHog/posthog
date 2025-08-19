@@ -14,7 +14,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import (
     get_hog_function_status,
     patch_hog_function_status,
@@ -60,7 +60,7 @@ TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionTy
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 
-class HogFunction(FileSystemSyncMixin, UUIDModel):
+class HogFunction(FileSystemSyncMixin, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),

@@ -1,7 +1,7 @@
 import { Edge, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
-import { NODE_GAP, NODE_LAYER_GAP, NODE_HEIGHT, NODE_WIDTH, NODE_EDGE_GAP } from './constants'
+import { NODE_EDGE_GAP, NODE_GAP, NODE_HEIGHT, NODE_LAYER_GAP, NODE_WIDTH } from './constants'
 import type { HogFlowActionNode } from './types'
 
 /**

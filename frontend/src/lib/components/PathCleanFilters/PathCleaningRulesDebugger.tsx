@@ -1,8 +1,11 @@
-import { LemonCollapse } from '@posthog/lemon-ui'
 import { IconChevronRight } from '@posthog/icons'
-import { parseAliasToReadable } from './PathCleanFilterItem'
+import { LemonCollapse } from '@posthog/lemon-ui'
+
 import { isValidRegexp } from 'lib/utils/regexp'
+
 import { PathCleaningFilter } from '~/types'
+
+import { parseAliasToReadable } from './PathCleanFilterItem'
 
 interface ProcessingStep {
     stepNumber: number

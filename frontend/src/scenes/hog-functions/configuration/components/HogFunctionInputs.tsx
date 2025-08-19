@@ -1,11 +1,15 @@
-import { LemonButton, LemonBanner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import MaxTool from 'scenes/max/MaxTool'
-import { useValues, useActions } from 'kea'
-import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
-import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
-import { IconX, IconCheck, IconPlus } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+
+import { IconCheck, IconPlus, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
+import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
+import MaxTool from 'scenes/max/MaxTool'
+
+import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
+
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 
 export function HogFunctionInputs(): JSX.Element {

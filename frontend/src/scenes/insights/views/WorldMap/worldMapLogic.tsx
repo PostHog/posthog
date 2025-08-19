@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { InsightLogicProps, TrendResult } from '~/types'

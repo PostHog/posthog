@@ -1,10 +1,13 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
+
 import { IntegrationKind } from '~/types'
 
 export function ErrorTrackingIntegrations(): JSX.Element {

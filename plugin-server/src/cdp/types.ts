@@ -1,5 +1,6 @@
-import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
+
+import { VMState } from '@posthog/hogvm'
 
 import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
@@ -197,7 +198,7 @@ export type MinimalAppMetric = {
         | 'email_sent'
         | 'email_failed'
         | 'email_opened'
-        | 'email_clicked'
+        | 'email_link_clicked'
         | 'email_bounced'
         | 'email_blocked'
         | 'email_spam'

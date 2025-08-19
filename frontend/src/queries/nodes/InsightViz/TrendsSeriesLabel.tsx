@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCalculator } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

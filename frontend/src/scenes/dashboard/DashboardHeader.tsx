@@ -1,5 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
+
+import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -7,6 +12,15 @@ import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/Expo
 import { FullScreen } from 'lib/components/FullScreen'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
@@ -16,15 +30,25 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import {
+    ScenePanel,
+    ScenePanelActions,
+    ScenePanelCommonActions,
+    ScenePanelDivider,
+    ScenePanelMetaInfo,
+} from '~/layout/scenes/SceneLayout'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -37,32 +61,10 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
-import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { useEffect, useState } from 'react'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import {
-    ScenePanel,
-    ScenePanelActions,
-    ScenePanelCommonActions,
-    ScenePanelDivider,
-    ScenePanelMetaInfo,
-} from '~/layout/scenes/SceneLayout'
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
