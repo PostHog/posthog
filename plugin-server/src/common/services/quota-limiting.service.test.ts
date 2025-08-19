@@ -4,7 +4,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { QUOTA_LIMITER_CACHE_KEY, QuotaLimiting, QuotaResource } from './quota-limiting.service'
 
-describe('HogFunctionManager', () => {
+describe('QuotaLimiting', () => {
     jest.setTimeout(2000)
     let hub: Hub
     let service: QuotaLimiting
