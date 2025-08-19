@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { Link } from 'lib/lemon-ui/Link'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { IconCancel, IconExclamation, IconRadioButtonUnchecked, IconSync } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -192,6 +193,11 @@ export function DataWarehouseScene(): JSX.Element {
 
     const materializedCount = materializedViews.length
     const runningCount = materializedViews.filter((v) => v.status?.toLowerCase() === 'running').length
+    const connectedSourceTypes = computedAllSources
+        .filter((source) => source.name && !source.name.startsWith('self-managed'))
+        .map((source) => source.name.toLowerCase())
+
+    const quickActions = connectedSourceTypes.slice(0, 4)
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
         return <NotFound object="Data Warehouse" />
@@ -295,23 +301,41 @@ export function DataWarehouseScene(): JSX.Element {
                     <LemonCard className="p-4 hover:transform-none">
                         <h3 className="font-semibold mb-3">Quick Actions</h3>
                         <div className="space-y-2">
-                            <LemonButton
-                                to={`${urls.dataWarehouseSourceNew()}?kind=postgres`}
-                                fullWidth
-                                type="secondary"
-                            >
-                                Connect PostgreSQL
-                            </LemonButton>
-                            <LemonButton
-                                to={`${urls.dataWarehouseSourceNew()}?kind=bigquery`}
-                                fullWidth
-                                type="secondary"
-                            >
-                                Connect BigQuery
-                            </LemonButton>
-                            <LemonButton to={`${urls.dataWarehouseSourceNew()}?kind=stripe`} fullWidth type="secondary">
-                                Connect Stripe
-                            </LemonButton>
+                            {quickActions.length > 0 ? (
+                                quickActions.map((sourceType) => (
+                                    <Link
+                                        key={sourceType}
+                                        to={`${urls.dataWarehouseSourceNew()}?kind=${sourceType}`}
+                                        className="group relative block px-4 py-3 bg-gradient-to-r from-bg-light to-transparent border border-border rounded-lg hover:border-primary/20 hover:shadow-sm transition-all duration-200 hover:scale-[1.02] overflow-hidden"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium text-default transition-colors">
+                                                Connect another{' '}
+                                                {sourceType.charAt(0).toUpperCase() + sourceType.slice(1)} source
+                                            </span>
+                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 transition-all duration-200">
+                                                <span className="text-primary">→</span>
+                                            </div>
+                                        </div>
+                                        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 transition-opacity duration-200" />
+                                    </Link>
+                                ))
+                            ) : (
+                                <Link
+                                    to={urls.dataWarehouseSourceNew()}
+                                    className="group relative block px-4 py-3 bg-gradient-to-r from-bg-light to-transparent border border-border rounded-lg hover:border-primary/20 hover:shadow-sm transition-all duration-200 hover:scale-[1.02] overflow-hidden"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium text-default transition-colors">
+                                            Connect your first data source
+                                        </span>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 transition-all duration-200">
+                                            <span className="text-primary">→</span>
+                                        </div>
+                                    </div>
+                                    <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 transition-opacity duration-200" />
+                                </Link>
+                            )}
                         </div>
                     </LemonCard>
                 </div>
