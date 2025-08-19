@@ -31,8 +31,8 @@ def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNod
     """Format sessions status dictionary as a TipTap bullet list"""
     items = []
     for session_id, is_completed in sessions_status.items():
-        emoji = "✅" if is_completed else "❌"
-        items.append(f"{session_id} {emoji}")
+        emoji = "✅" if is_completed else "⏳"
+        items.append(f"{emoji} {session_id}")
 
     bullet_list = create_bullet_list(items)
     # Return just the bullet list without wrapping in doc
