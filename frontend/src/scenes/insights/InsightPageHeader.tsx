@@ -18,7 +18,8 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
+import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
@@ -649,8 +650,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <ScenePanelActions>
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
-                        <SceneAddToDropdownMenu
-                            notebook={hasDashboardItemId}
+                        <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        <SceneAddToDashboardButton
                             dashboard={
                                 hasDashboardItemId
                                     ? {
@@ -660,7 +661,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                       }
                                     : undefined
                             }
-                            shortId={insight.short_id}
                             dataAttrKey={RESOURCE_TYPE}
                         />
 
@@ -682,10 +682,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         insight.short_id ? push(urls.insightSharing(insight.short_id)) : null,
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
-                            >
-                                <IconShare />
-                                Share or embed
-                            </SceneShareButton>
+                            />
                         )}
 
                         {!insight.short_id && (
@@ -724,7 +721,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 menuItem
                             >
                                 <IconShare />
-                                Share as template
+                                Share as template...
                             </ButtonPrimitive>
                         )}
 
