@@ -14,9 +14,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab } from '~/types'
+import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, PipelineTab } from '~/types'
 
-import { DashboardDataSource, type UnifiedRecentActivity, externalDataSourcesLogic } from './externalDataSourcesLogic'
+import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 
@@ -27,9 +27,9 @@ const LIST_SIZE = 5
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { totalRowsProcessed, activityPaginationState } = useValues(externalDataSourcesLogic)
+    const { activityPaginationState } = useValues(externalDataSourcesLogic)
     const { setActivityCurrentPage } = useActions(externalDataSourcesLogic)
-    const { computedAllSources } = useValues(dataWarehouseSettingsLogic)
+    const { computedAllSources, totalRowsStats } = useValues(dataWarehouseSettingsLogic)
 
     const sourcesPagination = usePagination(computedAllSources, { pageSize: LIST_SIZE }, 'sources')
     const viewsPagination = usePagination(materializedViews || [], { pageSize: LIST_SIZE }, 'views')
@@ -45,7 +45,7 @@ export function DataWarehouseScene(): JSX.Element {
         pagination: { pageSize: LIST_SIZE },
     }
 
-    const sourceColumns: LemonTableColumns<DashboardDataSource> = [
+    const sourceColumns: LemonTableColumns<DataWarehouseDashboardDataSource> = [
         {
             title: 'Name',
             key: 'name',
@@ -110,7 +110,7 @@ export function DataWarehouseScene(): JSX.Element {
         },
     ]
 
-    const activityColumns: LemonTableColumns<UnifiedRecentActivity> = [
+    const activityColumns: LemonTableColumns<DataWarehouseActivityRecord> = [
         {
             title: 'Activity',
             key: 'name',
@@ -225,7 +225,9 @@ export function DataWarehouseScene(): JSX.Element {
                             <IconInfo className="text-muted mt-0.5" />
                         </Tooltip>
                     </div>
-                    <div className="text-2xl font-semibold mt-1">{totalRowsProcessed.toLocaleString()}</div>
+                    <div className="text-2xl font-semibold mt-1">
+                        {(totalRowsStats?.total_rows ?? 0).toLocaleString()}{' '}
+                    </div>
                 </LemonCard>
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="text-sm text-muted">Materialized Views</div>
@@ -254,7 +256,7 @@ export function DataWarehouseScene(): JSX.Element {
                             </LemonButton>
                         </div>
                         <LemonTable
-                            dataSource={sourcesPagination.dataSourcePage as DashboardDataSource[]}
+                            dataSource={sourcesPagination.dataSourcePage as DataWarehouseDashboardDataSource[]}
                             columns={sourceColumns}
                             rowKey="id"
                         />
@@ -269,7 +271,7 @@ export function DataWarehouseScene(): JSX.Element {
                             </LemonTag>
                         </div>
                         <LemonTable
-                            dataSource={viewsPagination.dataSourcePage as any[]}
+                            dataSource={viewsPagination.dataSourcePage as DataWarehouseMaterializedView[]}
                             columns={viewColumns}
                             rowKey="id"
                         />
@@ -281,7 +283,7 @@ export function DataWarehouseScene(): JSX.Element {
                             <h3 className="font-semibold text-xl">Recent Activity</h3>
                         </div>
                         <LemonTable
-                            dataSource={activityPagination.dataSourcePage as UnifiedRecentActivity[]}
+                            dataSource={activityPagination.dataSourcePage as DataWarehouseActivityRecord[]}
                             columns={activityColumns}
                             rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
                         />

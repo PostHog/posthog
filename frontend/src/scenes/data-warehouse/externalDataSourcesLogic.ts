@@ -4,41 +4,17 @@ import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 
-import { ExternalDataSource } from '~/types'
+import { DataWarehouseActivityRecord, ExternalDataSource } from '~/types'
 
 import type { externalDataSourcesLogicType } from './externalDataSourcesLogicType'
-
-export interface UnifiedRecentActivity {
-    id: string
-    name: string | null
-    type: string
-    status: string
-    created_at: string
-    rows: number
-    finished_at?: string | null
-    latest_error?: string | null
-    schema_id?: string
-    source_id?: string
-    workflow_run_id?: string
-}
-
-export interface DashboardDataSource {
-    id: string
-    name: string
-    status: string | null
-    lastSync: string | null
-    rowCount: number | null
-    url: string
-}
 
 export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     path(['scenes', 'data-warehouse', 'externalDataSourcesLogic']),
     actions({
         abortAnyRunningQuery: true,
-        loadTotalRowsProcessed: true,
         loadRecentActivity: true,
         loadMoreRecentActivity: true,
-        setRecentActivityData: (data: UnifiedRecentActivity[], hasMore: boolean) => ({ data, hasMore }),
+        setRecentActivityData: (data: DataWarehouseActivityRecord[], hasMore: boolean) => ({ data, hasMore }),
         setActivityCurrentPage: (page: number) => ({ page }),
         checkAutoLoadMore: true,
     }),
@@ -73,20 +49,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                 },
             },
         ],
-        totalRowsProcessed: [
-            0 as number,
-            {
-                loadTotalRowsProcessed: async () => {
-                    try {
-                        const response = await api.dataWarehouse.total_rows_stats()
-                        return response.total_rows || 0
-                    } catch (error) {
-                        posthog.captureException(error)
-                        return 0
-                    }
-                },
-            },
-        ],
     })),
     reducers(({ cache }) => ({
         dataWarehouseSourcesLoading: [
@@ -112,7 +74,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             },
         ],
         recentActivity: [
-            [] as UnifiedRecentActivity[],
+            [] as DataWarehouseActivityRecord[],
             {
                 setRecentActivityData: (_, { data }) => data,
             },
@@ -129,7 +91,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     selectors(() => ({
         activityPaginationState: [
             (s) => [s.recentActivity, s.activityCurrentPage],
-            (recentActivity: UnifiedRecentActivity[], activityCurrentPage: number) => {
+            (recentActivity: DataWarehouseActivityRecord[], activityCurrentPage: number) => {
                 const pageSize = 5
                 const totalData = recentActivity.length
                 const pageCount = Math.ceil(totalData / pageSize)
@@ -203,7 +165,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
-        actions.loadTotalRowsProcessed()
         actions.loadRecentActivity()
     }),
 ])

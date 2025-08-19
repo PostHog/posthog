@@ -9,16 +9,20 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import {
-    DashboardDataSource,
-    UnifiedRecentActivity,
-    externalDataSourcesLogic,
-} from 'scenes/data-warehouse/externalDataSourcesLogic'
+import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { BillingPeriod, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    BillingPeriod,
+    DataWarehouseActivityRecord,
+    DataWarehouseDashboardDataSource,
+    DataWarehouseSourceRowCount,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -78,6 +82,14 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 },
             },
         ],
+        totalRowsStats: [
+            {} as DataWarehouseSourceRowCount,
+            {
+                loadTotalRowsStats: async () => {
+                    return await api.dataWarehouse.totalRowsStats()
+                },
+            },
+        ],
     })),
     reducers(() => ({
         sourceReloadingById: [
@@ -121,31 +133,33 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
         computedAllSources: [
-            (s) => [s.dataWarehouseSources, s.recentActivity, s.selfManagedTables, s.billingPeriodUTC],
+            (s) => [
+                s.dataWarehouseSources,
+                s.recentActivity,
+                s.selfManagedTables,
+                s.billingPeriodUTC,
+                s.totalRowsStats,
+            ],
             (
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                recentActivity: UnifiedRecentActivity[],
+                recentActivity: DataWarehouseActivityRecord[],
                 selfManagedTables: DatabaseSchemaDataWarehouseTable[],
-                billingPeriodUTC: BillingPeriod
-            ): DashboardDataSource[] => {
+                billingPeriodUTC: BillingPeriod,
+                totalRowsStats: DataWarehouseSourceRowCount
+            ): DataWarehouseDashboardDataSource[] => {
                 const billingPeriodStart = billingPeriodUTC?.start
                 const billingPeriodEnd = billingPeriodUTC?.end
 
-                const managed: DashboardDataSource[] = (dataWarehouseSources?.results || []).map(
-                    (source: ExternalDataSource): DashboardDataSource => {
+                const managed: DataWarehouseDashboardDataSource[] = (dataWarehouseSources?.results || []).map(
+                    (source: ExternalDataSource): DataWarehouseDashboardDataSource => {
                         const sourceActivities = (recentActivity || []).filter(
                             (a) =>
-                                String(a.source_id) === String(source.id) &&
-                                a.type !== 'materialized_view' &&
-                                (!billingPeriodStart ||
-                                    !billingPeriodEnd ||
-                                    (dayjs(a.created_at).isAfter(billingPeriodStart.subtract(1, 'millisecond')) &&
-                                        dayjs(a.created_at).isBefore(billingPeriodEnd)))
+                                !billingPeriodStart ||
+                                !billingPeriodEnd ||
+                                (dayjs(a.created_at).isAfter(billingPeriodStart.subtract(1, 'millisecond')) &&
+                                    dayjs(a.created_at).isBefore(billingPeriodEnd))
                         )
-                        const totalRows = sourceActivities.reduce(
-                            (sum: number, a: UnifiedRecentActivity) => sum + Number(a.rows || 0),
-                            0
-                        )
+                        const totalRows = totalRowsStats?.breakdownOfRowsBySource?.[source.id] ?? 0
                         const sortedActivities = sourceActivities.sort(
                             (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
                         )
@@ -161,7 +175,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     }
                 )
 
-                const selfManaged: DashboardDataSource[] = (selfManagedTables || []).map((table) => ({
+                const selfManaged: DataWarehouseDashboardDataSource[] = (selfManagedTables || []).map((table) => ({
                     id: table.id,
                     name: table.name,
                     status: null,
@@ -267,6 +281,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
+        actions.loadTotalRowsStats()
     }),
     beforeUnmount(({ cache }) => {
         clearTimeout(cache.refreshTimeout)

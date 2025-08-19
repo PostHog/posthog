@@ -5677,6 +5677,15 @@ export interface DataWarehouseActivityRecord {
     workflow_run_id?: string
 }
 
+export interface DataWarehouseDashboardDataSource {
+    id: string
+    name: string
+    status: string | null
+    lastSync: string | null
+    rowCount: number | null
+    url: string
+}
+
 export enum OnboardingStepKey {
     INSTALL = 'install',
     LINK_DATA = 'link_data',
