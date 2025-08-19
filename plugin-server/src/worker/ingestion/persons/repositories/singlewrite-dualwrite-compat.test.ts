@@ -36,7 +36,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
     let dualWriteRepository: PostgresDualWritePersonRepository
     let singleWriteRepository: PostgresPersonRepository
 
-    // Helper to create persons in both repositories with consistent test data
     async function createPersonsInBothRepos(
         team: Team,
         properties: Record<string, any> = { name: 'A' },
@@ -55,7 +54,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             ]),
         ])
 
-        // Ensure both results are successful before returning
         if (!singleResult.success || !dualResult.success) {
             throw new Error('Failed to create test persons')
         }
@@ -178,7 +176,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
             expect(singleError).toEqual(dualError)
 
-            // Database results are consistent
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -193,7 +190,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             const team = await getFirstTeam(postgres)
             const distinctId = 'primary-conflict-distinct'
 
-            // seed the primary database with a person with the above distinctId
             const seedP = await postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `
@@ -213,7 +209,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             )
             expect(seedP.rows.length).toBe(1)
 
-            // both single and dual write should conflict when we try to create a person with the same distinctId
             const singleResult = await singleWriteRepository.createPerson(
                 TEST_TIMESTAMP,
                 { name: 'A' },
@@ -331,7 +326,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
                 await createPersonsInBothRepos(team)
 
-            // Test that both repositories handle database errors consistently
             await assertConsistentDatabaseErrorHandling(
                 postgres,
                 new Error('unhandled database error'),
@@ -351,7 +345,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'unhandled database error'
             )
 
-            // Verify that the database state remains consistent (no partial updates)
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -366,8 +359,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
                 await createPersonsInBothRepos(team)
 
-            // Test that both repositories handle the check_properties_size constraint violation consistently
-            // PostgreSQL error code '23514' is for check constraint violation
             await assertConsistentDatabaseErrorHandling(
                 postgres,
                 { message: 'Check constraint violation', code: '23514', constraint: 'check_properties_size' },
@@ -401,9 +392,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
                 await createPersonsInBothRepos(team)
 
-            // we need custom database error mocking here, cause it's a special case
-
-            // Force remediation branch by reporting the current record is already oversized
             const spySizeSingle = jest
                 .spyOn(singleWriteRepository as any, 'personPropertiesSize')
                 .mockResolvedValue(70000000)
@@ -422,10 +410,8 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                         primaryUpdateCallCount++
                         if (typeof tag === 'string' && tag.includes('oversized_properties_remediation')) {
                             sawRemediationTag = true
-                            // allow remediation UPDATE to succeed
                             return originalQueryPrimary(use, query, values, tag)
                         }
-                        // First UPDATE attempt fails with size violation
                         const error: any = new Error('Check constraint violation')
                         error.code = '23514'
                         error.constraint = 'check_properties_size'
@@ -451,7 +437,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'dual-update'
             )
 
-            // both single and primary called update twice
             expect(primaryUpdateCallCount).toBe(4)
             expect(sawRemediationTag).toBe(true)
 
@@ -473,14 +458,11 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
     describe('deletePerson() is compatible between single and dual write and consistent between primary and secondary', () => {
         function assertDeletePersonContractParity(singleResult: TopicMessage[], dualResult: TopicMessage[]) {
-            // asserts that the length of the kafka messages are the same
             expect(singleResult.length).toEqual(dualResult.length)
             expect(singleResult[0].topic).toEqual(dualResult[0].topic)
         }
         it('happy path deletePerson()', async () => {
             const team = await getFirstTeam(postgres)
-            // Create persons without distinct IDs to match actual usage
-            // In production, deletePerson is only called after moveDistinctIds has moved all distinct IDs away
             const [singleCreatePersonResult, dualCreatePersonResult] = await Promise.all([
                 singleWriteRepository.createPerson(
                     TEST_TIMESTAMP,
@@ -603,8 +585,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 throw new Error('Failed to create test persons')
             }
 
-            // Test that both repositories handle deadlock errors consistently
-            // PostgreSQL error code '40P01' is for deadlock detected
             await assertConsistentDatabaseErrorHandling(
                 postgres,
                 { message: 'deadlock detected', code: '40P01' },
@@ -614,7 +594,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 'deadlock detected'
             )
 
-            // Verify that the database state remains consistent (persons should still exist as delete failed)
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -727,7 +706,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =
                 await createPersonsInBothRepos(team)
 
-            // Try to add a distinct ID that already exists
             let singleError: any
             try {
                 await singleWriteRepository.addDistinctId(singleCreatePersonResult.person, 'single-a', 1)
@@ -742,7 +720,6 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 dualError = e
             }
 
-            // Both should error with unique constraint violation
             expect(singleError).toBeDefined()
             expect(dualError).toBeDefined()
             expect(singleError.message).toContain('unique')

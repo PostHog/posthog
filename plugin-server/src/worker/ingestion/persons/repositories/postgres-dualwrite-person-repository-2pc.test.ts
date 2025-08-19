@@ -163,7 +163,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '11111111-1111-1111-1111-111111111111'
 
-            // Mock primary database to fail during person insertion
             const mockSpy = mockDatabaseError(postgres, new Error('primary database connection lost'), 'insertPerson')
 
             await expect(
@@ -174,7 +173,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify both databases have no records (rollback successful)
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -193,7 +191,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-did-rollback'
             )
 
-            // Verify they're empty
             const personCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_person WHERE uuid = $1',
@@ -215,7 +212,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '22222222-2222-2222-2222-222222222222'
 
-            // Mock secondary database to fail during person insertion
             const mockSpy = mockDatabaseError(
                 migrationPostgres,
                 new Error('secondary database connection lost'),
@@ -230,7 +226,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify both databases have no records (rollback successful)
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -249,7 +244,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-did-rollback'
             )
 
-            // Verify they're empty
             const personCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_person WHERE uuid = $1',
@@ -370,7 +364,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-unchanged'
             )
 
-            // Verify properties remain unchanged
             const personCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT properties FROM posthog_person WHERE uuid = $1',
@@ -414,7 +407,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-unchanged'
             )
 
-            // Verify properties remain unchanged
             const personCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT properties FROM posthog_person WHERE uuid = $1',
@@ -512,7 +504,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-exists'
             )
 
-            // Verify person still exists
             const personCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_person WHERE uuid = $1',
@@ -527,7 +518,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '66666666-6666-6666-6666-666666666666'
 
-            // Create a person first
             const { person } = (await repository.createPerson(
                 createdAt,
                 { name: 'To Delete' },
@@ -540,14 +530,12 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'delete-secondary-fail', version: 0 }]
             )) as any
 
-            // Mock secondary database to fail during deletion
             const mockSpy = mockDatabaseError(migrationPostgres, new Error('secondary delete failed'), 'deletePerson')
 
             await expect(repository.deletePerson(person)).rejects.toThrow('secondary delete failed')
 
             mockSpy.mockRestore()
 
-            // Verify both databases still have the person (rollback successful)
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -557,7 +545,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-exists'
             )
 
-            // Verify person still exists
             const personCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_person WHERE uuid = $1',
@@ -634,7 +621,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '77777777-7777-7777-7777-777777777777'
 
-            // Create a person first
             const { person } = (await repository.createPerson(
                 createdAt,
                 { name: 'Test' },
@@ -647,7 +633,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'original-did', version: 0 }]
             )) as any
 
-            // Mock primary database to fail during addDistinctId
             const mockSpy = mockDatabaseError(postgres, new Error('primary addDistinctId failed'), 'addDistinctId')
 
             await expect(repository.addDistinctId(person, 'new-did-primary-fail', 1)).rejects.toThrow(
@@ -656,7 +641,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify the new distinct ID was not added to either database
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -666,7 +650,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-no-new-did'
             )
 
-            // Verify it doesn't exist
             const didCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_persondistinctid WHERE distinct_id = $1',
@@ -681,7 +664,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '88888888-8888-8888-8888-888888888888'
 
-            // Create a person first
             const { person } = (await repository.createPerson(
                 createdAt,
                 { name: 'Test' },
@@ -694,7 +676,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'original-did-2', version: 0 }]
             )) as any
 
-            // Mock secondary database to fail during addDistinctId
             const mockSpy = mockDatabaseError(
                 migrationPostgres,
                 new Error('secondary addDistinctId failed'),
@@ -707,7 +688,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify the new distinct ID was not added to either database
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -717,7 +697,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-no-new-did'
             )
 
-            // Verify it doesn't exist
             const didCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_persondistinctid WHERE distinct_id = $1',
@@ -851,7 +830,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const srcUuid = '99999999-9999-9999-9999-999999999999'
             const tgtUuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
-            // Create source and target persons
             const { person: src } = (await repository.createPerson(
                 createdAt,
                 {},
@@ -876,10 +854,8 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'tgt-did', version: 0 }]
             )) as any
 
-            // Add another distinct ID to source
             await repository.addDistinctId(src, 'src-did-2', 1)
 
-            // Mock primary database to fail during moveDistinctIds
             const mockSpy = mockDatabaseError(
                 postgres,
                 new Error('primary moveDistinctIds failed'),
@@ -890,7 +866,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify distinct IDs remain with source person in both databases
             await verifyDistinctIdsForPerson(team.id, src.id, srcUuid, ['src-did', 'src-did-2'])
             await verifyDistinctIdsForPerson(team.id, tgt.id, tgtUuid, ['tgt-did'])
         })
@@ -901,7 +876,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const srcUuid = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
             const tgtUuid = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
 
-            // Create source and target persons
             const { person: src } = (await repository.createPerson(
                 createdAt,
                 {},
@@ -926,10 +900,8 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'tgt-did-b', version: 0 }]
             )) as any
 
-            // Add another distinct ID to source
             await repository.addDistinctId(src, 'src-did-b-2', 1)
 
-            // Mock secondary database to fail during moveDistinctIds
             const mockSpy = mockDatabaseError(
                 migrationPostgres,
                 new Error('secondary moveDistinctIds failed'),
@@ -940,7 +912,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify distinct IDs remain with source person in both databases
             await verifyDistinctIdsForPerson(team.id, src.id, srcUuid, ['src-did-b', 'src-did-b-2'])
             await verifyDistinctIdsForPerson(team.id, tgt.id, tgtUuid, ['tgt-did-b'])
         })
@@ -1003,7 +974,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const did = 'personless-primary-fail'
 
-            // Mock primary database to fail
             const mockSpy = mockDatabaseError(
                 postgres,
                 new Error('primary addPersonlessDistinctId failed'),
@@ -1016,7 +986,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify neither database has the record
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -1026,7 +995,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-no-personless'
             )
 
-            // Verify it doesn't exist
             const recordCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
@@ -1040,7 +1008,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const did = 'personless-secondary-fail'
 
-            // Mock secondary database to fail
             const mockSpy = mockDatabaseError(
                 migrationPostgres,
                 new Error('secondary addPersonlessDistinctId failed'),
@@ -1053,7 +1020,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify neither database has the record
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -1063,7 +1029,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-no-personless'
             )
 
-            // Verify it doesn't exist
             const recordCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
@@ -1131,7 +1096,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const did = 'personless-merge-primary-fail'
 
-            // Mock primary database to fail
             const mockSpy = mockDatabaseError(
                 postgres,
                 new Error('primary addPersonlessDistinctIdForMerge failed'),
@@ -1144,7 +1108,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify neither database has the record
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -1154,7 +1117,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-no-merge'
             )
 
-            // Verify it doesn't exist
             const recordCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
@@ -1168,7 +1130,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const did = 'personless-merge-secondary-fail'
 
-            // Mock secondary database to fail
             const mockSpy = mockDatabaseError(
                 migrationPostgres,
                 new Error('secondary addPersonlessDistinctIdForMerge failed'),
@@ -1181,7 +1142,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify neither database has the record
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -1191,7 +1151,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 'verify-secondary-no-merge'
             )
 
-            // Verify it doesn't exist
             const recordCheck = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
@@ -1488,7 +1447,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         throw new Error('Failed to create person')
                     }
 
-                    // This will fail and should cause everything to rollback
                     await tx.addDistinctId(createResult.person, 'tx-rollback-2', 1)
 
                     return createResult.person
@@ -1722,15 +1680,12 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             await expect(
                 repository.inTransaction('test-error-propagation', async (tx) => {
-                    // Simulate some work
                     await tx.addPersonlessDistinctIdForMerge(team.id, 'error-test-did')
 
-                    // Throw a custom error
                     throw customError
                 })
             ).rejects.toThrow('Custom transaction error')
 
-            // Verify the personless distinct ID was rolled back
             const check = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_personlessdistinctid WHERE distinct_id = $1',
@@ -1745,7 +1700,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-20T10:30:00.000Z').toUTC()
             const uuid = '99999999-9999-9999-9999-999999999999'
 
-            // Mock primary database to fail during person update
             const mockSpy = mockDatabaseError(
                 postgres,
                 new Error('primary database failure in transaction'),
@@ -1770,7 +1724,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         throw new Error('Failed to create person')
                     }
 
-                    // This should fail due to primary database error
                     await tx.updatePerson(createResult.person, { properties: { updated: true } })
 
                     return createResult.person
@@ -1779,7 +1732,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify nothing was committed
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -1795,7 +1747,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-20T10:30:00.000Z').toUTC()
             const uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
-            // Mock secondary database to fail during person creation
             const mockSpy = mockDatabaseError(
                 migrationPostgres,
                 new Error('secondary database failure in transaction'),
@@ -1804,7 +1755,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             await expect(
                 repository.inTransaction('test-secondary-failure', async (tx) => {
-                    // This should fail due to secondary database error
                     const createResult = await tx.createPerson(
                         createdAt,
                         { initial: true },
@@ -1823,7 +1773,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             mockSpy.mockRestore()
 
-            // Verify nothing was committed to either database
             await assertConsistencyAcrossDatabases(
                 postgres,
                 migrationPostgres,
@@ -1840,7 +1789,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const sourceUuid = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
             const targetUuid = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
 
-            // Create source and target persons
             const { person: sourcePerson } = (await repository.createPerson(
                 createdAt,
                 { source: true },
@@ -1865,7 +1813,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'mismatch-target', version: 0 }]
             )) as any
 
-            // Mock secondary to return different success status
             const spy = jest.spyOn((repository as any).secondaryRepo, 'moveDistinctIds')
             spy.mockResolvedValueOnce({ success: false, error: 'TargetPersonDeleted' })
 
@@ -1878,7 +1825,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             spy.mockRestore()
 
-            // Verify distinct IDs remain unchanged
             await verifyDistinctIdsForPerson(team.id, sourcePerson.id, sourceUuid, ['mismatch-source'])
             await verifyDistinctIdsForPerson(team.id, targetPerson.id, targetUuid, ['mismatch-target'])
         })
@@ -1889,7 +1835,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const sourceUuid = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
             const targetUuid = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
 
-            // Create source and target persons
             const { person: sourcePerson } = (await repository.createPerson(
                 createdAt,
                 { source: true },
@@ -1914,7 +1859,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'identical-fail-target', version: 0 }]
             )) as any
 
-            // Mock both to return the same failure
             const primarySpy = jest.spyOn((repository as any).primaryRepo, 'moveDistinctIds')
             const secondarySpy = jest.spyOn((repository as any).secondaryRepo, 'moveDistinctIds')
             primarySpy.mockResolvedValueOnce({ success: false, error: 'TargetPersonDeleted' })
@@ -1922,7 +1866,6 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             const result = await repository.inTransaction('test-identical-failure', async (tx) => {
                 const moveResult = await tx.moveDistinctIds(sourcePerson, targetPerson)
-                // Should return the failure result, not throw
                 expect(moveResult.success).toBe(false)
                 if (!moveResult.success) {
                     expect(moveResult.error).toBe('TargetPersonDeleted')
