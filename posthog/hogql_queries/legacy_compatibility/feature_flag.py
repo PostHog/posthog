@@ -1,10 +1,7 @@
-from typing import Literal, TYPE_CHECKING
+from typing import Literal
 import posthoganalytics
 from posthog.models import Team
 from rest_framework.request import Request
-
-if TYPE_CHECKING:
-    pass
 
 
 def hogql_insights_replace_filters(team: Team) -> bool:
