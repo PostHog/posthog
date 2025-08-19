@@ -9,6 +9,10 @@ def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
     return MergeTreeEngine("query_log_archive", replication_scheme=ReplicationScheme.REPLICATED)
 
 
+def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
+    return MergeTreeEngine("query_log_archive_new", replication_scheme=ReplicationScheme.REPLICATED)
+
+
 CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     hostname                              LowCardinality(String), -- comment 'Hostname of the server executing the query.',
@@ -228,7 +232,7 @@ ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)
     """.format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE(),
+        engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW(),
     )
 
 
