@@ -1,3 +1,29 @@
+"""Module configuring structlog for Temporal logging.
+
+This module defines how to configure structlog for Temporal logging. This effectively
+replaces the Temporal logging utilities, and users of Temporal are strongly encouraged
+to prefer structlog.
+
+In order to configure structlog, the `configure_logger` function defined in this module
+must be called at the start of each worker process, as it is done in
+`posthog.management.commands.start_temporal_worker`.
+
+Developers of Temporal workflows should consider the two logging modes offered by this
+module:
+* Write: Logs are written to stdout.
+* Produce: Logs are produced to Kafka/ClickHouse and ingested into `log_entries`.
+
+By default, the logger returned by `structlog.get_logger` or this module's `get_logger`
+will execute both modes, meaning logs issued will be written to stdout and produced to
+ClickHouse if requirements are met.
+
+Loggers (of both modes) can be used in both activity and workflow context. Developers
+are encouraged to call `get_logger` once at the top of their modules, and then `bind()`
+their loggers when starting an activity or workflow, including any relevant context.
+Temporal context, like activity ID, workflow type, attempt number, and others, will be
+automatically included.
+"""
+
 import asyncio
 import collections.abc
 import contextvars
@@ -23,14 +49,21 @@ LogQueue = asyncio.Queue[bytes]
 
 
 def get_produce_only_logger(name: str | None = None):
+    """Return a logger configured to only produce logs to Kafka/ClickHouse."""
     return structlog.get_logger(name, False, True)
 
 
 def get_write_only_logger(name: str | None = None):
+    """Return a logger configured to only write to configured file (stdout)."""
     return structlog.get_logger(name, True, False)
 
 
 def get_logger(name: str | None = None, write: bool = True, produce: bool = True):
+    """Return a structlog logger.
+
+    Optionally configure whether this logger has produce and/or write capabilities. By
+    default, it has both.
+    """
     return structlog.get_logger(name, write, produce)
 
 
@@ -87,18 +120,38 @@ class Logger(NamedLogger):
 
 
 class LogMessages(typing.TypedDict):
+    """Typed dictionary returned by renderer passed to `Logger` ."""
+
     write_message: str | None
     produce_message: bytes | None
 
 
 class LogMessagesRenderer:
-    def __init__(self, event_key: str, json_serializer: typing.Callable[[structlog.types.EventDict], str] = json.dumps):
+    """Render messages for writing and producing.
+
+    Both are passed along to `Logger.process`.
+    """
+
+    def __init__(
+        self, event_key: str = "event", json_serializer: typing.Callable[[structlog.types.EventDict], str] = json.dumps
+    ):
+        """Initialize renderer.
+
+        Args:
+            event_key: The key where the main event message is found. Defaults to
+                "event" in line with other structlog renderers.
+            json_serializer: Function used to serialize as JSON. By default, uses
+                stdlib's `json.dumps`.
+        """
         self.json_serializer = json_serializer
         self.event_key = event_key
 
     def __call__(self, logger: Logger, name: str, event_dict: structlog.types.EventDict) -> LogMessages:
-        """
-        The return type of this depends on the return type of self._dumps.
+        """Return rendered messages meant for `Logger.process`.
+
+        The 'write_only' and 'produce_only' context keys can be used to limit what gets
+        rendered. These are set by users when logging. By default, messages for both
+        writing and producing will be rendered.
         """
         write_only = event_dict.pop("write_only", False)
         produce_only = event_dict.pop("produce_only", False)
@@ -217,6 +270,8 @@ class LoggerFactory:
 
 
 def _make_method(name):
+    """Utility function used to generate logging methods."""
+
     def _(self, event, *args, **kwargs):
         event = _format_args(event, *args)
 
@@ -234,6 +289,8 @@ def _make_method(name):
 
 
 def _make_async_method(name):
+    """Utility function used to generate async logging methods."""
+
     async def _(self, event, *args, **kwargs):
         event = _format_args(event, *args)
 
@@ -260,6 +317,7 @@ def _make_async_method(name):
 
 
 def _format_args(event: str, *args) -> str:
+    """Utility function to format args like stdlib's logging."""
     if args:
         if len(args) == 1 and isinstance(args[0], dict) and args[0]:
             args = args[0]  # type: ignore
@@ -269,6 +327,7 @@ def _format_args(event: str, *args) -> str:
 
 
 def _set_exc_info(async_method: bool, **kwargs):
+    """Utility function to set `exc_info` as required."""
     if async_method is True and kwargs.get("exc_info", True) is True:
         # Exception is lost when call passed to executor, so we must capture it now.
         kwargs["exc_info"] = sys.exc_info()
@@ -287,6 +346,38 @@ class WrapperLogger(structlog.BoundLoggerBase):
 
     This means that if the first positional argument is a dictionary, we can support
     named %-style formatting.
+
+    Examples:
+        %-style named formatting:
+
+        >>> logger = structlog.get_logger() # Returns `WrapperLogger` wrapping `Logger`
+        >>> logger.info("Hello %(name)s", {"name": "World"})
+        {"event": "Hello World"}
+
+        %-style formatting:
+
+        >>> logger = structlog.get_logger()
+        >>> logger.info("Hello %s", "World")
+        {"event": "Hello World"}
+
+        Use write-only to skip production of logs:
+
+        >>> logger = structlog.get_logger()
+        >>> logger.info("Hello World", write_only=True) # Not produced to ClickHouse
+        {"event": "Hello World"}
+
+        Similary, use produce-only to only produce logs to ClickHouse:
+
+        >>> logger = structlog.get_logger()
+        >>> logger.info("Hello World", produce_only=True) # Nothing is written!
+
+        Async variants of all methods:
+
+        >>> logger = structlog.get_logger()
+        >>> await logger.ainfo("Hello World")
+
+        Do **NOT** use in workflow context! Async variants run in a separate thread, and
+        Temporal does not allow threads to be spawned in workflow context!
     """
 
     debug = _make_method("debug")
