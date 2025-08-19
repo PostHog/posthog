@@ -61,7 +61,7 @@ export class EmailService {
 
         // Finally we create the response object as the VM expects
         result.invocation.state.vmState!.stack.push({
-            success: !!success,
+            success,
         })
 
         result.metrics.push({

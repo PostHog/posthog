@@ -164,7 +164,7 @@ describe('EmailTrackingService', () => {
 
             it.each([
                 ['open', 'email_opened'],
-                ['click', 'email_clicked'],
+                ['click', 'email_link_clicked'],
                 ['bounce', 'email_bounced'],
                 ['spam', 'email_spam'],
                 ['unsub', 'email_unsubscribed'],
@@ -207,7 +207,7 @@ describe('EmailTrackingService', () => {
                     app_source_id: hogFunction.id,
                     instance_id: invocationId,
                     metric_kind: 'email',
-                    metric_name: 'email_clicked',
+                    metric_name: 'email_link_clicked',
                     team_id: team.id,
                     count: 1,
                 })

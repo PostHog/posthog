@@ -21,7 +21,7 @@ const LINK_REGEX =
 const EVENT_TYPE_TO_CATEGORY: Record<MailjetEventType, MinimalAppMetric['metric_name'] | undefined> = {
     sent: 'email_sent',
     open: 'email_opened',
-    click: 'email_clicked',
+    click: 'email_link_clicked',
     bounce: 'email_bounced',
     blocked: 'email_blocked',
     spam: 'email_spam',
@@ -249,7 +249,7 @@ export class EmailTrackingService {
             await this.trackMetric({
                 functionId: ph_fn_id as string,
                 invocationId: ph_inv_id as string,
-                metricName: 'email_clicked',
+                metricName: 'email_link_clicked',
                 source: 'direct',
             })
         } catch (error) {
