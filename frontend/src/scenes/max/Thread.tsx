@@ -628,15 +628,16 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                 )}
                 {(user?.is_staff || location.hostname === 'localhost') && traceId && (
                     <LemonButton
-                        onClick={() => {
-                            const baseUrl = location.hostname !== 'localhost' ? 'https://us.posthog.com/project/2' : ''
-                            const traceUrl = `${baseUrl}${urls.llmObservabilityTrace(traceId)}`
-                            window.open(traceUrl, '_blank')
-                        }}
+                        to={`${
+                            location.hostname !== 'localhost'
+                                ? 'https://us.posthog.com/project/2'
+                                : `${window.location.origin}/project/2`
+                        }${urls.llmObservabilityTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
                         tooltip="View trace in LLM observability"
+                        targetBlank
                     />
                 )}
             </div>
