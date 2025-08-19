@@ -29,18 +29,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
 
                     cache.abortController = null
 
-                    // For infinite loading, append new results to existing ones
-                    const currentResults = values.dataWarehouseSources?.results || []
-                    if (currentResults.length > 0 && res.results) {
-                        // Append new results, avoiding duplicates
-                        const existingIds = new Set(currentResults.map((s) => s.id))
-                        const newResults = res.results.filter((s) => !existingIds.has(s.id))
-                        return {
-                            ...res,
-                            results: [...currentResults, ...newResults],
-                        }
-                    }
-
                     return res
                 },
                 updateSource: async (source: ExternalDataSource) => {
