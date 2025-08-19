@@ -171,7 +171,7 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
     }
 
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        const [p, _s] = await Promise.all([
+        const [p, s] = await Promise.all([
             this.primaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, this.lTx),
             this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, this.rTx),
         ])
