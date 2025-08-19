@@ -195,7 +195,7 @@ impl Config {
         if s.contains('e') || s.contains('E') {
             let float_val: f64 = s
                 .parse()
-                .with_context(|| format!("Failed to parse scientific notation: {}", s))?;
+                .with_context(|| format!("Failed to parse scientific notation: {s}"))?;
             if float_val < 0.0 {
                 return Err(anyhow::anyhow!(
                     "Storage capacity cannot be negative: {}",
@@ -213,7 +213,7 @@ impl Config {
 
         // Try as raw integer
         s.parse::<u64>()
-            .with_context(|| format!("Failed to parse storage capacity: '{}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)", s))
+            .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
     }
 
     /// Get checkpoint interval as Duration
