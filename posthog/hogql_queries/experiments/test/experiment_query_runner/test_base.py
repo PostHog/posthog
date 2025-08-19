@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     ExperimentQueryRunner,
@@ -758,10 +759,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValidationError) as context:
             query_runner.calculate()
 
-        self.assertEqual(str(context.exception), "No control variant found")
+        self.assertEqual(
+            context.exception.detail[0],
+            "Invalid experiment configuration detected. Please check your experiment setup.",
+        )
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -803,10 +807,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValidationError) as context:
             query_runner.calculate()
 
-        self.assertEqual(str(context.exception), "No control variant found")
+        self.assertEqual(
+            context.exception.detail[0],
+            "Invalid experiment configuration detected. Please check your experiment setup.",
+        )
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -856,10 +863,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(ValidationError) as context:
             query_runner.calculate()
 
-        self.assertEqual(str(context.exception), "No control variant found")
+        self.assertEqual(
+            context.exception.detail[0],
+            "Invalid experiment configuration detected. Please check your experiment setup.",
+        )
 
     @parameterized.expand(
         [
@@ -1085,10 +1095,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Handle cases where filters result in no exposures
         if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
-            with self.assertRaises(ValueError) as context:
+            with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
-            self.assertEqual(str(context.exception), "No control variant found")
+            self.assertEqual(
+                context.exception.detail[0],
+                "Invalid experiment configuration detected. Please check your experiment setup.",
+            )
         else:
             result = query_runner.calculate()
             assert result.variant_results is not None
