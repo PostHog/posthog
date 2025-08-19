@@ -8,7 +8,7 @@ import { logger } from '../../utils/logger'
 // subset of resources that we care about in this service
 export type QuotaResource = 'events' | 'cdp_invocations'
 
-const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
+export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 
 export interface QuotaLimitedToken {
     token: string
@@ -35,7 +35,8 @@ export class QuotaLimiting {
             loader: async (resources: string[]) => {
                 return await this.loadLimitedTokensFromRedis(resources)
             },
-            refreshAge: 1000 * 30,
+            refreshAgeMs: 1000 * 60 * 60, // 1 hour cache here - we never need to hard refresh
+            refreshBackgroundAgeMs: 1000 * 60, // 1 minute age is more than good enough
         })
     }
 

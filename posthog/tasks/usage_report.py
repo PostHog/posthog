@@ -1003,7 +1003,7 @@ def get_teams_with_cdp_billable_invocations_in_period(
         SELECT team_id, SUM(count) as count
         FROM app_metrics2
         WHERE app_source='hog_function' AND metric_name IN ('billable_invocation') AND timestamp >= %(begin)s AND timestamp < %(end)s
-        GROUP BY team_id, metric_name
+        GROUP BY team_id
     """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
