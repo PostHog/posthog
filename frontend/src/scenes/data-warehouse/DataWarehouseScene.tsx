@@ -271,7 +271,7 @@ export function DataWarehouseScene(): JSX.Element {
                             </LemonTag>
                         </div>
                         <LemonTable
-                            dataSource={viewsPagination.dataSourcePage as DataWarehouseMaterializedView[]}
+                            dataSource={viewsPagination.dataSourcePage as any[]}
                             columns={viewColumns}
                             rowKey="id"
                         />

@@ -3,9 +3,9 @@ import { expectLogic } from 'kea-test-utils'
 import api, { PaginatedResponse } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-import { DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
+import { DataWarehouseActivityRecord, DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
 
-import { UnifiedRecentActivity, externalDataSourcesLogic } from './externalDataSourcesLogic'
+import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 
 jest.mock('lib/api')
 
@@ -65,12 +65,14 @@ describe('externalDataSourcesLogic', () => {
         })
 
         it('calculates pagination state correctly', () => {
-            const mockActivity: UnifiedRecentActivity[] = Array.from({ length: 12 }, (_, i) => ({
+            const mockActivity: DataWarehouseActivityRecord[] = Array.from({ length: 12 }, (_, i) => ({
                 id: `activity-${i}`,
                 name: `Activity ${i}`,
                 type: 'test',
                 status: 'completed',
                 created_at: '2023-01-01T00:00:00Z',
+                finished_at: '2023-01-01T00:00:00Z',
+                latest_error: null,
                 rows: 100,
             }))
 
@@ -90,12 +92,14 @@ describe('externalDataSourcesLogic', () => {
         })
 
         it('updates current page correctly', () => {
-            const mockActivity: UnifiedRecentActivity[] = Array.from({ length: 12 }, (_, i) => ({
+            const mockActivity: DataWarehouseActivityRecord[] = Array.from({ length: 12 }, (_, i) => ({
                 id: `activity-${i}`,
                 name: `Activity ${i}`,
                 type: 'test',
                 status: 'completed',
                 created_at: '2023-01-01T00:00:00Z',
+                finished_at: '2023-01-01T00:00:00Z',
+                latest_error: null,
                 rows: 100,
             }))
 
