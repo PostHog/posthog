@@ -154,8 +154,7 @@ def dashboard_threads_enabled(team: Team, user: Optional["User"] = None) -> bool
         team: The team to check the feature flag for
         user: Optional user to check user-specific feature flags
     """
-
-    distinct_id = str(user.distinct_id) if user else ""
+    distinct_id = str(user.distinct_id) if user and user.is_authenticated else ""
 
     return posthoganalytics.feature_enabled(
         "dashboard-threads",
