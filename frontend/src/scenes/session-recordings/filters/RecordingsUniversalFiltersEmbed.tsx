@@ -540,7 +540,12 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         <RecordingsUniversalFilterGroup />
 
                         <Popover
-                            overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}
+                            overlay={
+                                <UniversalFilters.PureTaxonomicFilter
+                                    fullWidth={false}
+                                    onChange={() => setIsPopoverVisible(false)}
+                                />
+                            }
                             placement="bottom"
                             visible={isPopoverVisible}
                             onClickOutside={() => setIsPopoverVisible(false)}

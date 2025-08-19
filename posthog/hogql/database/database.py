@@ -558,6 +558,16 @@ def create_hogql_database(
                 capture_exception(e)
                 continue
 
+    class WarehousePropertiesVirtualTable(VirtualTable):
+        fields: dict[str, FieldOrTable]
+        parent_table: S3Table
+
+        def to_printed_hogql(self):
+            return self.parent_table.to_printed_hogql()
+
+        def to_printed_clickhouse(self, context):
+            return self.parent_table.to_printed_clickhouse(context)
+
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
             tables = list(
@@ -577,18 +587,9 @@ def create_hogql_database(
 
                 # If the warehouse table has no _properties_ field, then set it as a virtual table
                 if s3_table.fields.get("properties") is None:
-
-                    class WarehouseProperties(VirtualTable):
-                        fields: dict[str, FieldOrTable] = s3_table.fields
-                        parent_table: S3Table = s3_table
-
-                        def to_printed_hogql(self):
-                            return self.parent_table.to_printed_hogql()
-
-                        def to_printed_clickhouse(self, context):
-                            return self.parent_table.to_printed_clickhouse(context)
-
-                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
+                    s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                        fields=s3_table.fields, parent_table=s3_table, hidden=True
+                    )
 
                 if table.external_data_source:
                     warehouse_tables[table.name] = s3_table
