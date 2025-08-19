@@ -1,12 +1,12 @@
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { createExampleInvocation } from '~/cdp/_tests/fixtures'
+import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 
 import { HogFlowAction } from '../../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from './recipient-preferences.service'
 
@@ -49,7 +49,7 @@ describe('RecipientPreferencesService', () => {
         updated_at: '2023-01-01T00:00:00Z',
     })
 
-    const createInvocation = (action: HogFlowAction): CyclotronJobInvocationHogFlow => {
+    const createFunctionStepInvocation = (action: HogFlowAction): CyclotronJobInvocationHogFunction => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withWorkflow({
@@ -70,7 +70,7 @@ describe('RecipientPreferencesService', () => {
             })
             .build()
 
-        return createExampleHogFlowInvocation(hogFlow)
+        return createExampleInvocation(hogFlow)
     }
 
     describe('shouldSkipAction', () => {
@@ -98,7 +98,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return true if recipient is opted out for the specific category', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
                 })
@@ -122,7 +122,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if recipient is opted in', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN',
                 })
@@ -138,7 +138,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if recipient has no preference', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {})
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
@@ -152,7 +152,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if recipient is not found', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
 
                 mockRecipientsManagerGet.mockResolvedValue(null)
 
@@ -168,7 +168,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should handle errors gracefully and return false', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
 
                 mockRecipientsManagerGet.mockRejectedValue(new Error('Database error'))
@@ -202,7 +202,7 @@ describe('RecipientPreferencesService', () => {
                     created_at: Date.now(),
                     updated_at: Date.now(),
                 }
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
 
                 await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
                     'No identifier found for message action email'
@@ -211,7 +211,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return true if recipient is opted out of all marketing messaging', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN', // Opted in for this category
                     $all: 'OPTED_OUT', // But opted out of all marketing
@@ -229,7 +229,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return true if recipient is opted out of specific category even when opted in to all marketing', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT', // Opted out for this category
                     $all: 'OPTED_IN', // But opted in for all marketing
@@ -247,7 +247,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if recipient is opted in to both specific category and all marketing', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN',
                     $all: 'OPTED_IN',
@@ -265,7 +265,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if recipient has no preference for category but is opted in to all marketing', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     $all: 'OPTED_IN',
                 })
@@ -282,7 +282,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if recipient has no preference for either category or all marketing', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {})
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
@@ -318,7 +318,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return true if SMS recipient is opted out', async () => {
                 const action = createSmsAction('+1234567890', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('+1234567890', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
                 })
@@ -338,7 +338,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if SMS recipient is opted in', async () => {
                 const action = createSmsAction('+1234567890', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('+1234567890', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN',
                 })
@@ -366,7 +366,7 @@ describe('RecipientPreferencesService', () => {
                     created_at: Date.now(),
                     updated_at: Date.now(),
                 }
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
 
                 await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
                     'No identifier found for message action sms'
@@ -375,7 +375,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return true if SMS recipient is opted out of all marketing messaging', async () => {
                 const action = createSmsAction('+1234567890', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('+1234567890', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN', // Opted in for this category
                     $all: 'OPTED_OUT', // But opted out of all marketing
@@ -393,7 +393,7 @@ describe('RecipientPreferencesService', () => {
 
             it('should return false if SMS recipient is opted in to both specific category and all marketing', async () => {
                 const action = createSmsAction('+1234567890', '123e4567-e89b-12d3-a456-426614174000')
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('+1234567890', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN',
                     $all: 'OPTED_IN',
@@ -424,7 +424,7 @@ describe('RecipientPreferencesService', () => {
                     created_at: Date.now(),
                     updated_at: Date.now(),
                 }
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -445,7 +445,7 @@ describe('RecipientPreferencesService', () => {
                     created_at: Date.now(),
                     updated_at: Date.now(),
                 }
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -466,7 +466,7 @@ describe('RecipientPreferencesService', () => {
                     created_at: Date.now(),
                     updated_at: Date.now(),
                 }
-                const invocation = createInvocation(action)
+                const invocation = createFunctionStepInvocation(action)
 
                 const result = await service.shouldSkipAction(invocation, action)
 
