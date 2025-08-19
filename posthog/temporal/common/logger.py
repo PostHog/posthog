@@ -295,8 +295,8 @@ class WrapperLogger(structlog.BoundLoggerBase):
     info = _make_method("info")
     ainfo = _make_async_method("info")
 
-    warning = _make_method("warning")
-    awarning = _make_async_method("warning")
+    warning = warn = _make_method("warning")
+    awarning = awarn = _make_async_method("warning")
 
     error = _make_method("error")
     aerror = _make_async_method("error")
@@ -304,8 +304,8 @@ class WrapperLogger(structlog.BoundLoggerBase):
     exception = _make_method("exception")
     aexception = _make_async_method("exception")
 
-    critical = _make_method("critical")
-    acritical = _make_async_method("critical")
+    critical = fatal = _make_method("critical")
+    acritical = afatal = _make_async_method("critical")
 
     def log(self, level, event, *args, **kwargs) -> typing.Any:
         name = LEVEL_TO_NAME[level]
