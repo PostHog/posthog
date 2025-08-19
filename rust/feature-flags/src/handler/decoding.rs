@@ -100,7 +100,23 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
 }
 
 fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
-    let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
+    // Convert to string and apply URL decoding like base64_decode in Python decide
+    let body_str = String::from_utf8_lossy(&body);
+    let url_decoded = percent_decode(body_str.as_bytes())
+        .decode_utf8()
+        .map_err(|e| {
+            tracing::warn!("Failed to URL decode base64 data: {}", e);
+            FlagError::RequestDecodingError(format!("Failed to URL decode: {e}"))
+        })?;
+
+    // Remove whitespace and add padding if necessary
+    let mut cleaned = url_decoded.replace(" ", "");
+    let padding_needed = cleaned.len() % 4;
+    if padding_needed > 0 {
+        cleaned.push_str(&"=".repeat(4 - padding_needed));
+    }
+
+    let decoded = general_purpose::STANDARD.decode(cleaned).map_err(|e| {
         tracing::warn!("Base64 decoding error: {}", e);
         FlagError::RequestDecodingError(format!("Base64 decoding error: {e}"))
     })?;
@@ -280,5 +296,27 @@ mod tests {
         let request = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_base64_with_url_encoding() {
+        // This test verifies the fix for URL-encoded base64 data
+        // Base64 with padding: eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo=
+        // URL-encoded (= becomes %3D): eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo%3D
+        let url_encoded_base64 = "eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo%3D";
+        let body = Bytes::from(url_encoded_base64);
+
+        let headers = HeaderMap::new();
+        let query = FlagsQueryParams {
+            compression: Some(Compression::Base64),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, body, &query);
+        assert!(result.is_ok());
+
+        let request = result.unwrap();
+        assert_eq!(request.distinct_id, Some("user".to_string()));
+        assert_eq!(request.token, Some("test".to_string()));
     }
 }

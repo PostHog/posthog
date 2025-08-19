@@ -18,6 +18,7 @@ use crate::{
     flags::flag_service::FlagService,
     metrics::consts::FLAG_REQUESTS_COUNTER,
 };
+use std::collections::HashMap;
 use tracing::{info, instrument, warn};
 
 /// Primary entry point for feature flag requests.
@@ -57,8 +58,10 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             team.project_id
         );
 
-        // Check quota limits - don't return early, just use quota limited response if needed
-        let flags_response = if let Some(quota_limited_response) =
+        // Early exit if flags are disabled
+        let flags_response = if request.is_flags_disabled() {
+            FlagsResponse::new(false, HashMap::new(), None, context.request_id)
+        } else if let Some(quota_limited_response) =
             billing::check_limits(&context, &verified_token).await?
         {
             warn!("Request quota limited");
