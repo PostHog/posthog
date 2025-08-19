@@ -21,12 +21,16 @@ class Migration(SchemaMigration):
         if not isinstance(insight_filter, dict):
             return query
 
-        hidden_indexes = insight_filter.get("hiddenLegendIndexes")
+        hidden_indexes = insight_filter.get("hiddenLegendIndexes") or []
         result_customizations = insight_filter.get("resultCustomizations") or {}
         result_customization_by = insight_filter.get("resultCustomizationBy")
 
-        # Nothing to do, if there are no hiddenLegendIndexes
+        #remove hiddenLegendIndexes if it's null/empty
         if not hidden_indexes:
+            new_insight_filter = dict(insight_filter)
+            new_insight_filter.pop("hiddenLegnedIndexes", None)
+            query = dict(query)
+            query[filter_key] = new_insight_filter
             return query
 
         # Handle case where we have resultCustomizations by value
