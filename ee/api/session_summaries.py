@@ -27,6 +27,7 @@ from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.models import User, Team
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep, SessionSummaryStreamUpdate
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +60,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
-        results: list[EnrichedSessionGroupSummaryPatternsList | str] = []
+        results: list[
+            tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict]
+        ] = []
         async for update in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=user_id,
@@ -74,7 +77,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         # The last item in the result should be the summary, if not - raise an exception
-        summary = results[-1]
+        _, _, summary = results[-1]
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
             error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {session_ids}): {results}"
             logger.exception(error_message)
