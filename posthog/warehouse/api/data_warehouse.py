@@ -116,7 +116,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             cursor.execute(
                 """
                 WITH external_jobs AS (
-                    SELECT edj.id, eds.source_type as type, eds.name, edj.status,
+                    SELECT edj.id, eds.source as type, eds.name, edj.status,
                            COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                            edj.finished_at, edj.latest_error, edj.workflow_run_id
                     FROM posthog_externaldatajob edj
