@@ -4,7 +4,6 @@ from typing import Any, cast
 import pytest
 from dagster_aws.s3 import S3Resource
 from django.conf import settings
-from django.test import override_settings
 from fastavro import reader
 from pydantic_avro import AvroBase
 
@@ -95,28 +94,27 @@ def test_compose_postgres_dump_path():
     dir_name = "test_dump"
     code_version = "v1.0"
 
-    with override_settings(DAGSTER_AI_EVALS_S3_BUCKET="test-bucket"):
-        result = compose_postgres_dump_path(project_id, dir_name, code_version)
+    result = compose_postgres_dump_path(project_id, dir_name, code_version)
 
-        # Should contain the project ID in path
-        assert f"/{project_id}/" in result
+    # Should contain the project ID in path
+    assert f"/{project_id}/" in result
 
-        # Should start with the mocked folder path
-        assert result.startswith(f"{EVALS_S3_PREFIX}/postgres_models/")
+    # Should start with the mocked folder path
+    assert result.startswith(f"{EVALS_S3_PREFIX}/postgres_models/")
 
-        # Should end with .avro extension
-        assert result.endswith(".avro")
+    # Should end with .avro extension
+    assert result.endswith(".avro")
 
-        # Should contain the file name and hash suffix
-        assert dir_name in result
+    # Should contain the file name and hash suffix
+    assert dir_name in result
 
-        # Should be deterministic - same inputs produce same output
-        result2 = compose_postgres_dump_path(project_id, dir_name, code_version)
-        assert result == result2
+    # Should be deterministic - same inputs produce same output
+    result2 = compose_postgres_dump_path(project_id, dir_name, code_version)
+    assert result == result2
 
-        # Different code version should produce different path
-        result_different_version = compose_postgres_dump_path(project_id, dir_name, "v2.0")
-        assert result != result_different_version
+    # Different code version should produce different path
+    result_different_version = compose_postgres_dump_path(project_id, dir_name, "v2.0")
+    assert result != result_different_version
 
 
 def test_compose_clickhouse_dump_path():
