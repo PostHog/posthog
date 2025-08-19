@@ -74,3 +74,11 @@ def is_task_started_update(
     Streaming of messages.
     """
     return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
+
+
+def prepare_reasoning_progress_message(content: str) -> AIMessageChunk:
+    """Display progress as a reasoning message"""
+    return AIMessageChunk(
+        content="",
+        additional_kwargs={"reasoning": {"summary": [{"text": f"**{content}**"}]}},
+    )

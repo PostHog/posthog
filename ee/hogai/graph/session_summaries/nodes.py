@@ -14,6 +14,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     NotebookIntermediateState,
     generate_notebook_content_from_summary,
 )
+from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
@@ -23,7 +24,6 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     execute_summarize_session_group,
 )
 from langgraph.config import get_stream_writer
-from langchain_core.messages import AIMessageChunk
 from posthog.schema import NotebookUpdateMessage
 
 
@@ -55,10 +55,7 @@ class SessionSummarizationNode(AssistantNode):
             )
             return
         # TODO: Move to util
-        message_chunk = AIMessageChunk(
-            content="",
-            additional_kwargs={"reasoning": {"summary": [{"text": f"**{progress_message}**"}]}},
-        )
+        message_chunk = prepare_reasoning_progress_message(progress_message)
         message = (message_chunk, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
         return
