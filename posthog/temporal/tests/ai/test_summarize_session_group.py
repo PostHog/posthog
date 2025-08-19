@@ -28,7 +28,6 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     SummarizeSessionGroupWorkflow,
     execute_summarize_session_group,
     fetch_session_batch_events_activity,
-    get_patterns_from_redis_activity,
     get_llm_single_session_summary_activity,
 )
 from posthog.temporal.ai.session_summary.activities.patterns import (
@@ -535,7 +534,6 @@ class TestSummarizeSessionGroupWorkflow:
                         extract_session_group_patterns_activity,
                         assign_events_to_patterns_activity,
                         fetch_session_batch_events_activity,
-                        get_patterns_from_redis_activity,
                         combine_patterns_from_chunks_activity,
                         split_session_summaries_into_chunks_for_patterns_extraction_activity,
                     ],
@@ -662,12 +660,11 @@ class TestSummarizeSessionGroupWorkflow:
             # - nothing from combine_patterns_from_chunks_activity, as only one chunk, so no combination step
             # - try to get cached extracted patterns from all sessions (1) - extract_session_group_patterns_activity
             # - get cached single-session summaries for 2 sessions (2) - extract_session_group_patterns_activity
-            # - get patterns from redis after extraction (1) - get_patterns_from_redis_activity
             # - try to get cached patterns assignments for all sessions (1) - assign_events_to_patterns_activity
             # - get cached extracted patterns for all sessions (1) - assign_events_to_patterns_activity
             # - get cached single-session summaries for 2 sessions (2) - assign_events_to_patterns_activity
             # - get cached DB data for 2 sessions (2) - assign_events_to_patterns_activity
-            assert spy_get.call_count == 18
+            assert spy_get.call_count == 17
 
     @pytest.mark.asyncio
     async def test_workflow_progress_tracking(
