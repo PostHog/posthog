@@ -316,7 +316,7 @@ SELECT
 
     min(timestamp) AS min_timestamp,
     max(timestamp) AS max_timestamp,
-    max(inserted_at) AS max_inserted_at,
+    max(coalesce(inserted_at, now64())) AS max_inserted_at, -- use coalesce to ensure we have a value even if the event is created with inserted_at=NULL
 
     -- urls
     groupUniqArray({current_url}) AS urls,
