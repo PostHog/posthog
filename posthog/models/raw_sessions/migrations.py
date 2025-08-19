@@ -18,7 +18,7 @@ def update_raw_sessions_table(migration: str):
         run_sql_with_exceptions(
             migration.format(
                 table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
-                on_cluster_clause=ON_CLUSTER_CLAUSE(),
+                on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_role=NodeRole.ALL,
         ),
@@ -26,7 +26,7 @@ def update_raw_sessions_table(migration: str):
         run_sql_with_exceptions(
             migration.format(
                 table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
-                on_cluster_clause=ON_CLUSTER_CLAUSE(),
+                on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_role=NodeRole.ALL,
         ),
@@ -36,7 +36,7 @@ def update_raw_sessions_table(migration: str):
         run_sql_with_exceptions(
             migration.format(
                 table_name=TABLE_BASE_NAME,
-                on_cluster_clause=ON_CLUSTER_CLAUSE(),
+                on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_role=NodeRole.ALL,
         ),
