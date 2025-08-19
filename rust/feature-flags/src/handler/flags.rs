@@ -253,7 +253,7 @@ mod tests {
         FeatureFlag {
             id,
             team_id: 1,
-            name: Some(format!("Test Flag {}", id)),
+            name: Some(format!("Test Flag {id}")),
             key: key.to_string(),
             filters: FlagFilters::default(),
             deleted: false,
