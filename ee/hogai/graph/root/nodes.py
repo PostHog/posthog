@@ -655,25 +655,35 @@ class RootNodeTools(AssistantNode):
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
-            result = await tool_class.ainvoke(tool_call.model_dump(), config)
-            if not isinstance(result, LangchainToolMessage):
-                raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
+            try:
+                result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            except Exception as e:
+                capture_exception(
+                    e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+                )
+                result = FailureMessage(
+                    content="Max has failed to generate an answer. Please try again.",
+                    id=str(uuid4()),
+                )
+            if not isinstance(result, LangchainToolMessage | FailureMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage} or {FailureMessage}, got {type(result)}")
 
             # If this is a navigation tool call, pause the graph execution
             # so that the frontend can re-initialise Max with a new set of contextual tools.
             if tool_call.name == "navigate":
-                navigate_message = AssistantToolCallMessage(
-                    content=str(result.content) if result.content else "",
-                    ui_payload={tool_call.name: result.artifact},
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=True,
-                )
-                # Raising a `NodeInterrupt` ensures the assistant graph stops here and
-                # surfaces the navigation confirmation to the client. The next user
-                # interaction will resume the graph with potentially different
-                # contextual tools.
-                raise NodeInterrupt(navigate_message)
+                if not isinstance(result, FailureMessage):
+                    navigate_message = AssistantToolCallMessage(
+                        content=str(result.content) if result.content else "",
+                        ui_payload={tool_call.name: result.artifact},
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                        visible=True,
+                    )
+                    # Raising a `NodeInterrupt` ensures the assistant graph stops here and
+                    # surfaces the navigation confirmation to the client. The next user
+                    # interaction will resume the graph with potentially different
+                    # contextual tools.
+                    raise NodeInterrupt(navigate_message)
 
             new_state = tool_class._state  # latest state, in case the tool has updated it
             last_message = new_state.messages[-1]
@@ -693,6 +703,8 @@ class RootNodeTools(AssistantNode):
                         tool_call_id=tool_call.id,
                         visible=tool_class.show_tool_call_message,
                     )
+                    if not isinstance(result, FailureMessage)
+                    else result
                 ],
                 root_tool_calls_count=tool_call_count + 1,
             )
