@@ -929,7 +929,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user
                 )
                 if results:
-                    if results.query_metadata:
+                    if results and isinstance(results, CachedResponse):
                         log_event_usage_from_query_metadata(
                             results.query_metadata,
                             team_id=self.team.id,
