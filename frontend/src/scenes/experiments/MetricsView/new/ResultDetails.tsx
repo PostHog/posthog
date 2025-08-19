@@ -18,6 +18,7 @@ import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTab
 import {
     ExperimentVariantResult,
     formatChanceToWin,
+    formatMetricValue,
     formatPValue,
     getIntervalLabel,
     getVariantInterval,
@@ -51,11 +52,9 @@ export function ResultDetails({
         },
         {
             key: 'value',
-            title: metric.metric_type === 'mean' ? 'Mean' : 'Conversion rate',
-            render: (_, item) => {
-                const value = item.sum / item.number_of_samples
-                return metric.metric_type === 'mean' ? value.toFixed(2) : `${(value * 100).toFixed(2)}%`
-            },
+            title:
+                metric.metric_type === 'mean' ? 'Mean' : metric.metric_type === 'ratio' ? 'Ratio' : 'Conversion rate',
+            render: (_, item) => formatMetricValue(item, metric),
         },
         {
             key: 'statistical_measure',

@@ -134,7 +134,7 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
 
 export function formatPValue(pValue: number | null | undefined): string {
     if (!pValue) {
-        return 'N/A'
+        return '—'
     }
 
     if (pValue < 0.001) {
@@ -149,7 +149,7 @@ export function formatPValue(pValue: number | null | undefined): string {
 
 export function formatChanceToWin(chanceToWin: number | null | undefined): string {
     if (chanceToWin == null) {
-        return 'N/A'
+        return '—'
     }
 
     // Convert to percentage and format
@@ -194,7 +194,7 @@ export function getIntervalBounds(result: ExperimentVariantResult): [number, num
 export function formatIntervalPercent(result: ExperimentVariantResult): string {
     const interval = getVariantInterval(result)
     if (!interval) {
-        return 'N/A'
+        return '—'
     }
     const [lower, upper] = interval
     return `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]`
@@ -233,4 +233,39 @@ export function formatDeltaPercent(result: ExperimentVariantResult, decimals: nu
     const deltaPercent = getDeltaPercent(result)
     const formatted = deltaPercent.toFixed(decimals)
     return `${deltaPercent > 0 ? '+' : ''}${formatted}%`
+}
+
+export function formatMetricValue(data: any, metric: ExperimentMetric): string {
+    if (metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.RATIO) {
+        // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
+        if (data.denominator_sum && data.denominator_sum > 0) {
+            const ratio = data.sum / data.denominator_sum
+            return ratio.toFixed(3)
+        }
+        return '0.000'
+    }
+
+    const primaryValue = data.sum / data.number_of_samples
+    if (isNaN(primaryValue)) {
+        return '—'
+    }
+    return metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.MEAN
+        ? primaryValue.toFixed(2)
+        : `${(primaryValue * 100).toFixed(2)}%`
+}
+
+export function getMetricSubtitleValues(
+    data: any,
+    metric: ExperimentMetric
+): { numerator: number; denominator: number } {
+    if (metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.RATIO) {
+        return {
+            numerator: data.sum,
+            denominator: data.denominator_sum || 0,
+        }
+    }
+    return {
+        numerator: data.sum,
+        denominator: data.number_of_samples || 0,
+    }
 }
