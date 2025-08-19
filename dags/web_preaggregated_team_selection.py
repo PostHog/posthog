@@ -37,9 +37,7 @@ def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -
 def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
     all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
 
-    enabled_strategy_names = os.getenv(
-        "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES", "environment_variable,high_pageviews"
-    ).split(",")
+    enabled_strategy_names = os.getenv("WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES", "environment_variable").split(",")
     enabled_strategy_names = [s.strip().lower() for s in enabled_strategy_names]
 
     available_strategies = strategy_registry.get_available_strategies()
@@ -116,6 +114,25 @@ def store_team_selection_in_clickhouse(
     return team_ids
 
 
+def _web_analytics_team_selection_impl(
+    context: dagster.AssetExecutionContext, cluster: dagster.ResourceParam[ClickhouseCluster]
+) -> dagster.MaterializeResult:
+    context.log.info(f"Getting team IDs from sources tables")
+    team_ids = get_team_ids_from_sources(context)
+
+    context.log.info(f"Materializing team selection for {len(team_ids)} teams")
+    stored_team_ids = store_team_selection_in_clickhouse(context, team_ids, cluster)
+
+    context.log.info(f"Successfully materialized team selection for {len(stored_team_ids)} teams")
+
+    metadata = {
+        "team_count": len(stored_team_ids),
+        "team_ids": str(stored_team_ids),
+    }
+
+    return dagster.MaterializeResult(metadata=metadata)
+
+
 @dagster.asset(
     name="web_analytics_team_selection",
     group_name="web_analytics",
@@ -126,20 +143,20 @@ def web_analytics_team_selection(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dagster.MaterializeResult:
     """
-    This asset manages which teams have access to web analytics pre-aggregated tables.
+    This manages which teams have access to web analytics pre-aggregated tables.
     The selection is then stored in a ClickHouse dictionary for fast lookups.
     """
-    context.log.info("Getting team IDs from sources")
-    team_ids = get_team_ids_from_sources(context)
+    return _web_analytics_team_selection_impl(context, cluster)
 
-    context.log.info(f"Materializing team selection for {len(team_ids)} teams")
-    stored_team_ids = store_team_selection_in_clickhouse(context, team_ids, cluster)
 
-    context.log.info(f"Successfully materialized team selection for {len(stored_team_ids)} teams")
-
-    return dagster.MaterializeResult(
-        metadata={
-            "team_count": len(stored_team_ids),
-            "team_ids": str(stored_team_ids),
-        }
-    )
+@dagster.asset(
+    name="web_analytics_team_selection_v2",
+    group_name="web_analytics_v2",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_analytics_team_selection_v2(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> dagster.MaterializeResult:
+    """This is the same as the team_selection on the web_analytics group but here to make the v2 graph independent"""
+    return _web_analytics_team_selection_impl(context, cluster)

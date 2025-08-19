@@ -4,6 +4,7 @@ from typing import cast
 from langchain_core.prompts import ChatPromptTemplate
 
 from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.warehouse import serialize_database_schema
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -12,9 +13,10 @@ from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQL
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
+from posthog.schema import AssistantHogQLQuery
 from posthog.sync import database_sync_to_async
 
-from ..schema_generator.parsers import PydanticOutputParserException
+from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
     HOGQL_GENERATOR_SYSTEM_PROMPT,
     SQL_EXPRESSIONS_DOCS,
@@ -22,14 +24,16 @@ from .prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 
+SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
+
 
 class HogQLGeneratorMixin(AssistantContextMixin):
     _database_instance: Database | None = None
 
-    async def _get_database(self):
+    def _get_database(self):
         if self._database_instance:
             return self._database_instance
-        self._database_instance = await database_sync_to_async(create_hogql_database)(team=self._team)
+        self._database_instance = create_hogql_database(team=self._team)
         return self._database_instance
 
     def _get_default_hogql_context(self, database: Database):
@@ -37,7 +41,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         return hogql_context
 
     async def _construct_system_prompt(self) -> ChatPromptTemplate:
-        database = await self._get_database()
+        database = await database_sync_to_async(self._get_database)()
         hogql_context = self._get_default_hogql_context(database)
 
         schema_description, core_memory = await asyncio.gather(
@@ -60,10 +64,17 @@ class HogQLGeneratorMixin(AssistantContextMixin):
 
         return prompt
 
+    def _parse_output(self, output: dict) -> SQLSchemaGeneratorOutput:
+        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
+        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
+
     @database_sync_to_async(thread_sensitive=False)
-    def _parse_generated_hogql(self, query: str | None, hogql_context: HogQLContext):
-        if query is None:
-            raise PydanticOutputParserException(llm_output="", validation_message="Output is empty")
+    def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
+        database = self._get_database()
+        hogql_context = self._get_default_hogql_context(database)
+        query = output.query.query if output.query else None
+        if not query:
+            raise PydanticOutputParserException(llm_output="", validation_message=f"Output is empty")
         try:
             parsed_query = parse_select(query, placeholders={})
 
@@ -84,6 +95,3 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
             raise PydanticOutputParserException(llm_output=query, validation_message=err_msg)
-        except Exception as e:
-            raise PydanticOutputParserException(llm_output=query, validation_message=str(e))
-        return query

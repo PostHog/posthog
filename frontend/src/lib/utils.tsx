@@ -1,9 +1,10 @@
 import equal from 'fast-deep-equal'
+import posthog from 'posthog-js'
+import { CSSProperties } from 'react'
+
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import posthog from 'posthog-js'
-import { CSSProperties } from 'react'
 
 import {
     ActionType,

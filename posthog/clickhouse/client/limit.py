@@ -18,7 +18,7 @@ import uuid
 
 # Default concurrency limits
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
-DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES = 4
+DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES = 6
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",

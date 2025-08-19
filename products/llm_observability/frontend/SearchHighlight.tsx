@@ -1,4 +1,5 @@
 import React from 'react'
+
 import { findSearchMatches } from './searchUtils'
 
 interface SearchHighlightProps {

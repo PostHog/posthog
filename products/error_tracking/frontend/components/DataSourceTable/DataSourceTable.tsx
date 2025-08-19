@@ -1,7 +1,8 @@
-import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { Children, isValidElement, MouseEvent, ReactElement, useCallback } from 'react'
-import { match, P } from 'ts-pattern'
+import { Children, MouseEvent, ReactElement, isValidElement, useCallback } from 'react'
+import { P, match } from 'ts-pattern'
+
+import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
 import type { DataSourceLogic } from './types'
 

@@ -6,9 +6,9 @@ import {
     LogEntryPropertyFilter,
     PropertyFilterType,
     RecordingPropertyFilter,
+    UniversalFilterValue,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
-    UniversalFilterValue,
 } from '~/types'
 
 import { isCohortPropertyFilter } from '../PropertyFilters/utils'

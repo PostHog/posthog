@@ -164,9 +164,15 @@
             ],
             "trendsFilter": {
                 "display": "WorldMap",
-                "resultCustomizationBy": "value",
-                "hiddenLegendIndexes": [0]
-            }
+                "resultCustomizationBy": "position",
+                "resultCustomizations": {
+                    "0": {
+                        "assignmentBy": "position",
+                        "hidden": true
+                    }
+                }
+            },
+            "version": 2
         },
         "full": true
     }

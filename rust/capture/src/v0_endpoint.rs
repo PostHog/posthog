@@ -238,7 +238,7 @@ async fn handle_legacy(
 
     // different SDKs stash these in different places. take the best we find
     let compression = extract_compression(&form, query_params, headers);
-    Span::current().record("compression", format!("{}", compression));
+    Span::current().record("compression", format!("{compression}"));
     let lib_version = extract_lib_version(&form, query_params);
     Span::current().record("lib_version", &lib_version);
 
@@ -714,14 +714,10 @@ pub fn process_single_event(
 
     // only should be used to check if historical topic
     // rerouting should be applied to this event
-    let raw_event_timestamp =
-        event
-            .timestamp
-            .as_ref()
-            .and_then(|ts| match DateTime::parse_from_rfc3339(ts) {
-                Ok(dt) => Some(dt),
-                Err(_) => None,
-            });
+    let raw_event_timestamp = event
+        .timestamp
+        .as_ref()
+        .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok());
 
     let data = serde_json::to_string(&event).map_err(|e| {
         error!("failed to encode data field: {}", e);

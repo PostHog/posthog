@@ -1,18 +1,22 @@
+import { useEffect, useState } from 'react'
+
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { useEffect, useState } from 'react'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
+    NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
-    NodeKind,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType, FilterType } from '~/types'
 
@@ -20,18 +24,14 @@ import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConver
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
+import { getFilter } from './metricQueryUtils'
 import {
     filterToMetricConfig,
     getAllowedMathTypes,
     getDefaultExperimentMetric,
-    getMathAvailability,
     getEventCountQuery,
+    getMathAvailability,
 } from './utils'
-
-import { getFilter } from './metricQueryUtils'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 const loadEventCount = async (
     metric: ExperimentMetric,

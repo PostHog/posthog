@@ -1,18 +1,22 @@
-import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { sessionTabLogic } from '../sessionTabLogic'
+import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
+import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
+
+import { Link, Spinner } from '@posthog/lemon-ui'
+
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { dayjs } from 'lib/dayjs'
 import { IconVerticalAlignCenter } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
-import { cva } from 'cva'
-import { dayjs } from 'lib/dayjs'
-import { Link, Spinner } from '@posthog/lemon-ui'
-import { exceptionCardLogic } from '../../../exceptionCardLogic'
-import { useScrollObserver } from '../../../../../hooks/use-scroll-observer'
-import { useAsyncCallback } from 'products/error_tracking/frontend/hooks/use-async-callback'
-import { ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
+import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
+
+import { useAsyncCallback } from 'products/error_tracking/frontend/hooks/use-async-callback'
+
+import { useScrollObserver } from '../../../../../hooks/use-scroll-observer'
+import { exceptionCardLogic } from '../../../exceptionCardLogic'
+import { sessionTabLogic } from '../sessionTabLogic'
+import { ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
 
 const LOADING_DEBOUNCE_OPTIONS = { leading: true, delay: 500 }
 

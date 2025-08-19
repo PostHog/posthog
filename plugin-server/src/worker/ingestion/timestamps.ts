@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime, Duration } from 'luxon'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'

@@ -1,8 +1,8 @@
 import { Handle, Node, NodeProps } from '@xyflow/react'
+import { z } from 'zod'
 
 import { Optional } from '~/types'
 
-import { z } from 'zod'
 import { HogFlowAction } from '../types'
 
 export type HogFlowStepNodeProps = NodeProps & {

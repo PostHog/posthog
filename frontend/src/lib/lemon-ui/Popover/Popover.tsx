@@ -1,25 +1,26 @@
 import './Popover.scss'
 
 import {
-    arrow,
-    autoUpdate,
-    flip,
     FloatingPortal,
     Middleware,
     Placement,
+    UseFloatingReturn,
+    arrow,
+    autoUpdate,
+    flip,
     shift,
     size,
     useFloating,
-    UseFloatingReturn,
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { CSSTransition } from 'react-transition-group'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 import { LemonTableLoader } from '../LemonTable/LemonTableLoader'
 

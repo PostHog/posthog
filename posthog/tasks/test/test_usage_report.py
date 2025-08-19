@@ -70,6 +70,7 @@ from posthog.warehouse.models import (
     ExternalDataSource,
     ExternalDataSchema,
 )
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -1516,7 +1517,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
@@ -1575,7 +1576,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
@@ -1654,7 +1655,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
@@ -1712,7 +1713,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
