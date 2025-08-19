@@ -18,12 +18,12 @@ import {
 } from '~/types'
 
 import {
+    createFilterForSource,
+    filterToMetricConfig,
+    filterToMetricSource,
     getFilter,
     getMathProperties,
     getQuery,
-    filterToMetricSource,
-    filterToMetricConfig,
-    createFilterForSource,
 } from './metricQueryUtils'
 
 describe('getFilter', () => {
