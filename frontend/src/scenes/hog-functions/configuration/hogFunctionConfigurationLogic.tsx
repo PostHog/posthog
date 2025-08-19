@@ -684,7 +684,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Once we have fully rolled it out we can just completely remove all addon related code
                 return (
                     hasAvailableFeature(AvailableFeature.DATA_PIPELINES) ||
-                    !!featureFlags(FEATURE_FLAGS.CDP_NEW_PRICING)
+                    !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]
                 )
             },
         ],
