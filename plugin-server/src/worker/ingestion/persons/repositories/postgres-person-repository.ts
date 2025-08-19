@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../../config/kafka-topics'
 import { TopicMessage } from '../../../../kafka/producer'

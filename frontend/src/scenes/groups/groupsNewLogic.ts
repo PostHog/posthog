@@ -1,19 +1,21 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl } from 'kea-router'
+import { router } from 'kea-router'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
+import { Breadcrumb, CreateGroupParams, Group, GroupTypeIndex } from '~/types'
 
 import type { groupsNewLogicType } from './groupsNewLogicType'
-import { forms } from 'kea-forms'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { CreateGroupParams, Group, GroupTypeIndex, Breadcrumb } from '~/types'
-import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
-import { Scene } from 'scenes/sceneTypes'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { router } from 'kea-router'
 
 export type GroupsNewLogicProps = {
     groupTypeIndex: number

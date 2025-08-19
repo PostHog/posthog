@@ -1,5 +1,6 @@
-import { objectCleanWithEmpty } from 'lib/utils'
 import posthog from 'posthog-js'
+
+import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -62,11 +63,11 @@ import {
     GroupMathType,
     HogQLMathType,
     InsightType,
-    isDataWarehouseFilter,
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
     TrendsFilterType,
+    isDataWarehouseFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'

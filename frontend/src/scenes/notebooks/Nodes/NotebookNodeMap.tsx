@@ -1,14 +1,16 @@
+import { useValues } from 'kea'
 import { Marker } from 'maplibre-gl'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { personLogic } from 'scenes/persons/personLogic'
-import { useValues } from 'kea'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { NotFound } from 'lib/components/NotFound'
+
 import { Map } from '../../../lib/components/Map/Map'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeEmptyState } from './components/NotebookNodeEmptyState'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookNodeEmptyState } from './components/NotebookNodeEmptyState'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>): JSX.Element | null => {
     const { id } = attributes

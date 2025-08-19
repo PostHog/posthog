@@ -161,6 +161,7 @@ class TestQueryRunner(BaseTest):
                             },
                             "revenueProperty": "revenue",
                             "subscriptionDropoffDays": 45,
+                            "subscriptionDropoffMode": "last_event",
                             "subscriptionProperty": "subscription",
                         }
                     ],

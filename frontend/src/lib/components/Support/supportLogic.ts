@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
-import posthog from 'posthog-js'
-import api from 'lib/api'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -24,8 +25,8 @@ import {
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
+import type { supportLogicType } from './supportLogicType'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,

@@ -1,6 +1,6 @@
 import { connect, kea, path, props, selectors } from 'kea'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     AnyResponseType,
@@ -13,14 +13,14 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMUsage, normalizeMessages } from './utils'
 import {
+    SearchOccurrence,
     eventMatchesSearch,
     findMessageOccurrences,
     findSidebarOccurrences,
     findTraceOccurrences,
-    SearchOccurrence,
 } from './searchUtils'
+import { formatLLMUsage, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string

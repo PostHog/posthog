@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconCalendar } from '@posthog/icons'
 import {
     LemonButton,
@@ -9,17 +12,16 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { ALL_METRIC_TYPES, hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { ALL_METRIC_TYPES, HogFunctionMetricsLogicProps, hogFunctionMetricsLogic } from './hogFunctionMetricsLogic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',

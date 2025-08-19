@@ -3,6 +3,9 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
@@ -12,7 +15,7 @@ import {
     LemonSelectOption,
     LemonSelectOptions,
 } from '@posthog/lemon-ui'
-import { BuiltLogic, useActions, useValues } from 'kea'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -25,33 +28,32 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
-import { useState } from 'react'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
-    apiValueToMathType,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
-    mathsLogic,
-    mathTypeToApiValues,
     PROPERTY_MATH_DEFINITIONS,
+    apiValueToMathType,
+    mathTypeToApiValues,
+    mathsLogic,
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { MathType, NodeKind } from '~/queries/schema/schema-general'
 import {
+    TRAILING_MATH_TYPES,
     getMathTypeWarning,
     isCalendarHeatmapQuery,
     isInsightVizNode,
     isStickinessQuery,
-    TRAILING_MATH_TYPES,
 } from '~/queries/utils'
 import {
     ActionFilter,

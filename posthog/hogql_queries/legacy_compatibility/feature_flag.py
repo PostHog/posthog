@@ -146,6 +146,37 @@ def query_cache_use_s3(team: Team, user: Optional["User"] = None) -> bool:
     )
 
 
+def dashboard_threads_enabled(team: Team, user: Optional["User"] = None) -> bool:
+    """
+    Use thread pool execution for dashboard tile serialization instead of IN_UNIT_TESTING logic.
+
+    Args:
+        team: The team to check the feature flag for
+        user: Optional user to check user-specific feature flags
+    """
+
+    distinct_id = str(user.distinct_id) if user else ""
+
+    return posthoganalytics.feature_enabled(
+        "dashboard-threads",
+        distinct_id,
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
 LegacyAPIQueryMethod = Literal["legacy", "hogql"]
 
 

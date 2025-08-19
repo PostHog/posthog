@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconCheckCircle, IconInfo, IconTarget, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonMenu, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
-import { useEffect } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 

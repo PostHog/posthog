@@ -58,6 +58,7 @@ valid_template: dict = {
 }
 
 
+@override_settings(IN_UNIT_TESTING=True)
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()

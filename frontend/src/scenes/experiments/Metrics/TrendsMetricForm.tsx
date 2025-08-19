@@ -1,23 +1,25 @@
-import { LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
+import { SelectableCard } from '../components/SelectableCard'
 import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { SelectableCard } from '../components/SelectableCard'
 import { commonActionFilterProps } from './Selectors'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {

@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import {
     Group,
@@ -12,8 +13,8 @@ import {
 } from '../../../../types'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../utils/db/postgres'
 import { RaceConditionError } from '../../../../utils/utils'
-import { GroupRepository } from './group-repository.interface'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
+import { GroupRepository } from './group-repository.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 

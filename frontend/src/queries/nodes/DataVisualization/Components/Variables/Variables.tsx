@@ -1,5 +1,8 @@
 import './Variables.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,11 +13,10 @@ import {
     LemonSwitch,
     Popover,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef, useState } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'

@@ -337,6 +337,7 @@
                 }
               }
               ctes: {}
+              is_lambda_type: False
               tables: {
                 events: <recursion ...>
               }
@@ -1336,6 +1337,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -2266,6 +2268,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -2911,6 +2914,7 @@
         start_time: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>,
         s: <recursion ...>
@@ -2957,6 +2961,7 @@
                   b: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {}
               }
             }
@@ -3047,6 +3052,7 @@
                         b: <recursion ...>
                       }
                       ctes: {}
+                      is_lambda_type: False
                       tables: {}
                     }
                   }
@@ -3123,6 +3129,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         x: <recursion ...>,
         y: <recursion ...>
@@ -3469,6 +3476,7 @@
                 }
               }
               ctes: {}
+              is_lambda_type: False
               tables: {
                 events: <recursion ...>
               }
@@ -5359,6 +5367,7 @@
                   uuid: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {
                   events: <recursion ...>
                 }
@@ -5406,6 +5415,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -5446,6 +5456,7 @@
                 b: <recursion ...>
               }
               ctes: {}
+              is_lambda_type: False
               tables: {}
             }
           }
@@ -5510,6 +5521,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -5553,6 +5565,7 @@
                   b: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {}
               }
             }
@@ -5618,6 +5631,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         x: <recursion ...>
       }
@@ -6547,6 +6561,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -7480,6 +7495,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -7667,6 +7683,7 @@
         max(timestamp): <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -7978,6 +7995,7 @@
         some_expr: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>,
         p: <recursion ...>
@@ -8053,6 +8071,7 @@
       anonymous_tables: []
       columns: {}
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -8170,6 +8189,7 @@
       anonymous_tables: []
       columns: {}
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -8355,6 +8375,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -8578,6 +8599,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -8833,6 +8855,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9038,6 +9061,7 @@
                   c: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {
                   events: <recursion ...>
                 }
@@ -9109,6 +9133,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9369,6 +9394,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -9602,6 +9628,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9817,6 +9844,7 @@
         person_id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -10037,6 +10065,7 @@
         person_id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -10131,6 +10160,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         person_distinct_ids: <recursion ...>
       }
@@ -10318,6 +10348,7 @@
           timestamp: <recursion ...>
         }
         ctes: {}
+        is_lambda_type: False
         tables: {
           events: <recursion ...>
         }
@@ -10502,6 +10533,7 @@
               timestamp: <recursion ...>
             }
             ctes: {}
+            is_lambda_type: False
             tables: {
               events: <recursion ...>
             }
@@ -10731,6 +10763,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }

@@ -413,7 +413,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             },
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(
+            scope="PropertyDefinition", activity="deleted"
+        ).first()
         assert activity_log is not None
         assert activity_log.detail["type"] == "event"
         assert activity_log.item_id == str(property_definition.id)

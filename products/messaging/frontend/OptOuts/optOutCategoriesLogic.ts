@@ -1,5 +1,6 @@
-import { kea, path, actions, reducers, listeners } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import type { optOutCategoriesLogicType } from './optOutCategoriesLogicType'

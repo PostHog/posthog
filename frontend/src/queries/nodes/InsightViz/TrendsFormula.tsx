@@ -1,7 +1,9 @@
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { TrendsFormulaNode } from '~/queries/schema/schema-general'

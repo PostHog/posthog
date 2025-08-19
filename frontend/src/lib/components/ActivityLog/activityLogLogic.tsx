@@ -1,14 +1,17 @@
-import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
+
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
+import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import {
     ActivityLogItem,
-    defaultDescriber,
     Describer,
-    humanize,
     HumanizedActivityLogItem,
+    defaultDescriber,
+    humanize,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
@@ -16,6 +19,8 @@ import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescr
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
+import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-exports/activityDescriptions'
+import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
 import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
@@ -26,9 +31,9 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
+import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
-import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
@@ -38,6 +43,11 @@ import type { activityLogLogicType } from './activityLogLogicType'
 // Define which scopes should be expanded to include multiple scopes
 const SCOPE_EXPANSIONS: Partial<Record<ActivityScope, ActivityScope[]>> = {
     [ActivityScope.TAG]: [ActivityScope.TAG, ActivityScope.TAGGED_ITEM],
+    [ActivityScope.ORGANIZATION]: [
+        ActivityScope.ORGANIZATION,
+        ActivityScope.ORGANIZATION_MEMBERSHIP,
+        ActivityScope.ORGANIZATION_INVITE,
+    ],
 }
 
 export const activityLogTransforms = {
@@ -91,6 +101,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return alertConfigurationActivityDescriber
         case ActivityScope.ANNOTATION:
             return annotationActivityDescriber
+        case ActivityScope.BATCH_EXPORT:
+            return batchExportActivityDescriber
+        case ActivityScope.BATCH_IMPORT:
+            return batchImportActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
         case ActivityScope.PLUGIN:
@@ -113,6 +127,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return notebookActivityDescriber
         case ActivityScope.TEAM:
             return teamActivityDescriber
+        case ActivityScope.ORGANIZATION:
+        case ActivityScope.ORGANIZATION_MEMBERSHIP:
+        case ActivityScope.ORGANIZATION_INVITE:
+            return organizationActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:

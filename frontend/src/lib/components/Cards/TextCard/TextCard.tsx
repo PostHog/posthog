@@ -1,11 +1,12 @@
 import './TextCard.scss'
 
 import clsx from 'clsx'
+import React from 'react'
+
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import React from 'react'
 
 import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
 

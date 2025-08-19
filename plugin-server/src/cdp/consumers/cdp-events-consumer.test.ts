@@ -1,10 +1,7 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
+import { HogFlow } from '~/schema/hogflow'
+
 import {
     createOrganization,
     createTeam,
@@ -13,20 +10,23 @@ import {
     resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
+import { Hub, Team } from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
-    createHogExecutionGlobals,
     insertHogFunction as _insertHogFunction,
-    createKafkaMessage,
+    createHogExecutionGlobals,
     createIncomingEvent,
     createInternalEvent,
+    createKafkaMessage,
 } from '../_tests/fixtures'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer, counterMissingAddon } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { HogFlow } from '~/schema/hogflow'
-import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 
 jest.setTimeout(1000)
 

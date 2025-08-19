@@ -30,6 +30,10 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
+from posthog.caching.login_device_cache import check_and_cache_login_device
+from posthog.geoip import get_geoip_properties
+from posthog.event_usage import groups
+from posthog.ph_client import get_client
 
 
 logger = structlog.get_logger(__name__)
@@ -224,7 +228,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send(send_async=False)
     posthoganalytics.capture(
-        distinct_id=user.distinct_id,
+        distinct_id=str(user.distinct_id),
         event="verification email sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
@@ -451,6 +455,75 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     )
     message.add_recipient(user.email)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def login_from_new_device_notification(
+    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str
+) -> None:
+    """Send login notification email if login is from a new device"""
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user: User = User.objects.get(pk=user_id)
+
+    # Send email if feature flag is enabled or in tests
+    if settings.TEST:
+        enabled = True
+    elif user.current_organization is None:
+        enabled = False
+    else:
+        enabled = posthoganalytics.feature_enabled(
+            key="login-from-new-device-notification",
+            distinct_id=str(user.distinct_id),
+            groups={"organization": str(user.current_organization.id)},
+        )
+
+    if not enabled:
+        return
+
+    is_new_device = check_and_cache_login_device(user_id, ip_address, short_user_agent)
+    if not is_new_device:
+        return
+
+    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
+    geoip_data = get_geoip_properties(ip_address)
+
+    # Compose location as "City, Country" (omit city if missing)
+    location = ", ".join(
+        part
+        for part in [geoip_data.get("$geoip_city_name", ""), geoip_data.get("$geoip_country_name", "Unknown")]
+        if part
+    )
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="login_notification",
+        subject="A new device logged into your account",
+        template_context={
+            "login_time": login_time_str,
+            "ip_address": ip_address,
+            "location": location,
+            "browser": short_user_agent,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+    # Capture event using ph_client for reliability in Celery tasks
+    ph_client = get_client()
+    ph_client.capture(
+        distinct_id=str(user.distinct_id),
+        event="login notification sent",
+        properties={
+            "ip_address": ip_address,
+            "location": location,
+            "short_user_agent": short_user_agent,
+        },
+        groups=groups(user.current_organization, user.current_team),
+    )
+    ph_client.shutdown()
 
 
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:

@@ -1,12 +1,16 @@
-import { IconWarning } from '@posthog/icons'
 import { ItemCategory, ItemLoaderFactory, ItemRenderer, TimelineItem } from '..'
-import { BasePreview, EventLoader } from './base'
+
+import { IconWarning } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
+
 import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
-import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
-import { dayjs, Dayjs } from 'lib/dayjs'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
+
+import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
+
+import { BasePreview, EventLoader } from './base'
 
 export interface ExceptionItem extends TimelineItem {
     payload: {
