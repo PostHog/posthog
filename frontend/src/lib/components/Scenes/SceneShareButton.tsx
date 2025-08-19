@@ -12,7 +12,7 @@ export function SceneShareButton({ buttonProps, dataAttrKey }: SceneShareButtonP
     return (
         <ButtonPrimitive {...buttonProps} data-attr={`${dataAttrKey}-share-button`}>
             <IconShare />
-            Share or embed...
+            Share or embed
         </ButtonPrimitive>
     )
 }

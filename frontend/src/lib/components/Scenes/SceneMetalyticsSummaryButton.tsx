@@ -32,7 +32,7 @@ export function SceneMetalyticsSummaryButton({ dataAttrKey }: SceneDataAttrKeyPr
                 data-attr={`${dataAttrKey}-metalytics-summary-button`}
             >
                 {viewCountLoading ? <Spinner textColored /> : <IconPulse />}
-                Metalytics...
+                Metalytics
             </ButtonPrimitive>
         </FlaggedFeature>
     )

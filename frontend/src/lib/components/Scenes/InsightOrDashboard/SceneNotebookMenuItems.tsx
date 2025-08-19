@@ -151,9 +151,9 @@ export function SceneNotebookMenuItems({
                                         </Label>
                                         <DropdownMenuSeparator />
                                         {notebooksContainingResource.length > 0 ? (
-                                            notebooksContainingResource.map((notebook: NotebookListItemType) => (
-                                                <>
-                                                    {notebook ? (
+                                            notebooksContainingResource.map(
+                                                (notebook: NotebookListItemType) =>
+                                                    notebook && (
                                                         <Combobox.Group value={[notebook.title ?? '']}>
                                                             <Combobox.Item key={notebook.short_id} asChild>
                                                                 <ButtonPrimitive
@@ -168,9 +168,8 @@ export function SceneNotebookMenuItems({
                                                                 </ButtonPrimitive>
                                                             </Combobox.Item>
                                                         </Combobox.Group>
-                                                    ) : null}
-                                                </>
-                                            ))
+                                                    )
+                                            )
                                         ) : (
                                             <ButtonPrimitive menuItem inert className="text-tertiary">
                                                 No notebooks found
@@ -185,9 +184,9 @@ export function SceneNotebookMenuItems({
                                         </Label>
                                         <DropdownMenuSeparator />
                                         {notebooksNotContainingResource.length > 0 ? (
-                                            notebooksNotContainingResource.map((notebook: NotebookListItemType) => (
-                                                <>
-                                                    {notebook ? (
+                                            notebooksNotContainingResource.map(
+                                                (notebook: NotebookListItemType) =>
+                                                    notebook && (
                                                         <Combobox.Group value={[notebook.title ?? '']}>
                                                             <Combobox.Item key={notebook.short_id} asChild>
                                                                 <ButtonPrimitive
@@ -202,9 +201,8 @@ export function SceneNotebookMenuItems({
                                                                 </ButtonPrimitive>
                                                             </Combobox.Item>
                                                         </Combobox.Group>
-                                                    ) : null}
-                                                </>
-                                            ))
+                                                    )
+                                            )
                                         ) : (
                                             <ButtonPrimitive menuItem inert className="text-tertiary">
                                                 No notebooks found

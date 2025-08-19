@@ -38,7 +38,7 @@ export function SceneAlertsButton({
             <IconWithCount count={alerts?.length} showZero={false}>
                 <IconWarning />
             </IconWithCount>
-            Alerts...
+            Alerts
         </ButtonPrimitive>
     )
 }

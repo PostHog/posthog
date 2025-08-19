@@ -16,6 +16,7 @@ type SceneAddToDashboardButtonProps = SceneDataAttrKeyProps &
 export function SceneAddToDashboardButton({
     dataAttrKey,
     dashboard,
+    disabledReasons,
 }: SceneAddToDashboardButtonProps): JSX.Element | null {
     if (!dashboard) {
         return null
@@ -25,11 +26,12 @@ export function SceneAddToDashboardButton({
         <ButtonPrimitive
             menuItem
             onClick={() => {
-                dashboard?.onClick?.()
+                dashboard.onClick?.()
             }}
             data-attr={`${dataAttrKey}-add-to-dashboard-button`}
+            disabledReasons={disabledReasons}
         >
-            <IconPlusSmall /> Add to dashboard...
+            <IconPlusSmall /> Add to dashboard
         </ButtonPrimitive>
     )
 }
