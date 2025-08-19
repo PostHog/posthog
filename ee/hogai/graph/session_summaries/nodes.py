@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
@@ -215,6 +216,11 @@ class SessionSummarizationNode(AssistantNode):
                 self._stream_notebook_content(formatted_state, state, writer)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
+                if not isinstance(data, EnrichedSessionGroupSummaryPatternsList):
+                    raise ValueError(
+                        f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
+                        f"(expected: EnrichedSessionGroupSummaryPatternsList)"
+                    )
                 # Replace the intermediate state with final report
                 summary = data
                 summary_content = generate_notebook_content_from_summary(

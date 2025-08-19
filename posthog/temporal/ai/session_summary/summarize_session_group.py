@@ -71,12 +71,6 @@ from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
 
-UPDATE_TYPE_TO_OUTPUT_MAPPING = {
-    SessionSummaryStreamUpdate.UI_STATUS: str,
-    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE: dict,
-    SessionSummaryStreamUpdate.FINAL_RESULT: EnrichedSessionGroupSummaryPatternsList,
-}
-
 
 def _get_db_events_per_page(
     session_ids: list[str], team: Team, min_timestamp_str: str, max_timestamp_str: str, page_size: int, offset: int
@@ -575,8 +569,6 @@ async def _start_session_group_summary_workflow(
     while True:
         # Check workflow status
         workflow_description = await handle.describe()
-        expected_progress_status_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.UI_STATUS]
-        expected_notebook_update_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.NOTEBOOK_UPDATE]
         # Query the current activities status
         step_value, progress_status = await handle.query("get_current_status")
         step = SessionSummaryStep(step_value)
@@ -600,22 +592,12 @@ async def _start_session_group_summary_workflow(
         # Workflow still running
         else:
             # Yield the current status for UI
-            if not isinstance(progress_status, expected_progress_status_type):
-                raise ValueError(
-                    f"Unexpected progress status type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(progress_status)} "
-                    f"(expected: {expected_progress_status_type})"
-                )
             yield (SessionSummaryStreamUpdate.UI_STATUS, step, progress_status)
 
             # Yield intermediate data for the notebook, if it changed
             # Single sessions summarization status
             if sessions_status != previous_sessions_status:
                 formatted_sessions_status = format_single_sessions_status(sessions_status)
-                if not isinstance(formatted_sessions_status, expected_notebook_update_type):
-                    raise ValueError(
-                        f"Unexpected sessions status type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(sessions_status)} "
-                        f"(expected: {expected_notebook_update_type})"
-                    )
                 yield (
                     SessionSummaryStreamUpdate.NOTEBOOK_UPDATE,
                     SessionSummaryStep.WATCHING_SESSIONS,
@@ -632,11 +614,6 @@ async def _start_session_group_summary_workflow(
                 if patterns is None:
                     raise ValueError(f"Extracted patterns not found in Redis for keys {patterns_keys}")
                 formatted_patterns = format_extracted_patterns_status(patterns)
-                if not isinstance(formatted_patterns, expected_notebook_update_type):
-                    raise ValueError(
-                        f"Unexpected patterns status type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(patterns)} "
-                        f"(expected: {expected_notebook_update_type})"
-                    )
                 # As I query progress (where `step` comes from) more often that intermediate updates happen - it's safe to reuse it
                 yield (
                     SessionSummaryStreamUpdate.NOTEBOOK_UPDATE,
