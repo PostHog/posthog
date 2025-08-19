@@ -26,8 +26,6 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: MessageAction
     ): Promise<boolean> {
-        // Get the identifier to be used from the action config for sms, this is an input called to_number,
-        // for email it is inside an input called email, specifically email.to.
         let identifier
 
         if (action.type === 'function_sms') {

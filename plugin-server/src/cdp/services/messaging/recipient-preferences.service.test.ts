@@ -49,7 +49,12 @@ describe('RecipientPreferencesService', () => {
         updated_at: '2023-01-01T00:00:00Z',
     })
 
-    const createFunctionStepInvocation = (action: HogFlowAction): CyclotronJobInvocationHogFunction => {
+    const createFunctionStepInvocation = (
+        action: Extract<
+            HogFlowAction,
+            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
+        >
+    ): CyclotronJobInvocationHogFunction => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withWorkflow({
@@ -70,7 +75,7 @@ describe('RecipientPreferencesService', () => {
             })
             .build()
 
-        return createExampleInvocation(hogFlow)
+        return createExampleInvocation(hogFlow, { inputs: action.config.inputs })
     }
 
     describe('shouldSkipAction', () => {
