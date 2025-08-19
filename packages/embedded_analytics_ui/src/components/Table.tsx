@@ -1,11 +1,12 @@
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react'
 import React, { ReactNode } from 'react'
-import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
-import { EmbedButton } from './ui/embedButton'
-import { SelectRoot, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
-import { EmbedSkeleton } from './ui/embedSkeleton'
+
+import type { ErrorResponse, TableColumn, TableResponse, TableRow } from '../types/schemas'
 import { cn } from '../utils'
 import { formatNumber } from '../utils'
-import type { TableResponse, TableColumn, TableRow, ErrorResponse } from '../types/schemas'
+import { EmbedButton } from './ui/embedButton'
+import { EmbedSkeleton } from './ui/embedSkeleton'
+import { SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue } from './ui/select'
 
 export interface TableProps {
     response?: TableResponse

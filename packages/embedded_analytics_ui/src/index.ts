@@ -1,3 +1,6 @@
+// Styles (consumers will need to import this)
+import './styles/globals.css'
+
 // Main components
 export { Overview } from './components/Overview'
 export { Graph } from './components/Graph'
@@ -32,6 +35,3 @@ export {
 
 // Utility functions
 export { cn, formatNumber, formatChangePercentage, getTooltipContent } from './utils'
-
-// Styles (consumers will need to import this)
-import './styles/globals.css'
