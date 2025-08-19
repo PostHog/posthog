@@ -968,7 +968,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Set target_age to None in that case
                     target_age=target_age,
                 )
-                # Cache write metrics are now handled by the cache manager's set_cache_data method
 
             return fresh_response
 
