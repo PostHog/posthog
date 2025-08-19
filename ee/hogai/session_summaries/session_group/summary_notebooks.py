@@ -21,6 +21,9 @@ from ee.hogai.session_summaries.session_group.patterns import (
     PatternAssignedEventSegmentContext,
     RawSessionGroupSummaryPattern,
 )
+from structlog import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     # TODO: Move enum to "types" and cleanup a bit to avoid circular imports
@@ -107,50 +110,53 @@ class NotebookIntermediateState:
             SessionSummaryStep.GENERATING_REPORT: ("Generate final report", False),
         }
         self.current_step_content: TipTapNode | None = None
-        self.completed_steps: list[tuple[str, TipTapNode]] = []
+        self.completed_steps: dict[str, TipTapNode] = {}
         self.previous_step: SessionSummaryStep | None = None
         self.current_step: SessionSummaryStep | None = SessionSummaryStep.WATCHING_SESSIONS
 
-    def update_step_progress(self, content: TipTapNode | None, step: "SessionSummaryStep | None" = None) -> None:
+    def update_step_progress(self, content: TipTapNode | None, step: "SessionSummaryStep") -> None:
         """Update the current step's intermediate content and handle step transitions."""
-        # If step changed, complete the previous step first
-        if step and step != self.current_step:
-            self._complete_and_transition(step)
-
-        # Update the current step content, if any (not for progress messages)
-        if content is None:
+        # If the the same step and the same content - ignore
+        if step == self.current_step and content == self.current_step_content:
             return
-        self.current_step_content = content
+        # Update the current step content, if any (not for progress messages)
+        if content:
+            self.current_step_content = content
+        # If step changed, complete the previous step first
+        if step != self.current_step:
+            self._complete_and_transition()
 
-    def _complete_and_transition(self, new_step: "SessionSummaryStep | None" = None) -> None:
+    def _complete_and_transition(self) -> None:
         """Complete current step and transition to a new step (or next in sequence if not specified)."""
-        # Mark current step as completed if we have a valid current step
-        if self.current_step and self.current_step in self.plan_items:
-            step_name, _ = self.plan_items[self.current_step]
-            self.plan_items[self.current_step] = (step_name, True)
-
-            # Preserve the current step content if it exists
-            if self.current_step_content:
-                self.completed_steps.append((step_name, self.current_step_content))
-
-        # Determine the next step
-        if new_step is not None:
-            # Transition to specified step
-            next_step = new_step
-        else:
-            # Find the next step in sequence
-            steps_list = list(self.plan_items.keys())
-            try:
-                current_index = steps_list.index(self.current_step)
-                if current_index < len(steps_list) - 1:
-                    next_step = steps_list[current_index + 1]
-                else:
-                    next_step = None
-            except (ValueError, AttributeError):
-                # Current step not found or is None
+        # If no current step - ignore
+        if self.current_step is None:
+            return
+        # If an unexpected step was provided - ignore
+        if self.current_step not in self.plan_items:
+            logger.exception(f"Unexpected step when streaming notebook update: {self.current_step}")
+            return
+        # If the step is already completed - ignore
+        step_name, _ = self.plan_items[self.current_step]
+        if step_name in self.completed_steps:
+            return
+        # Mark current step as completed
+        self.plan_items[self.current_step] = (step_name, True)
+        # Preserve the current step content if it exists
+        if self.current_step_content:
+            self.completed_steps[step_name] = self.current_step_content
+            self.current_step_content = None
+        # Find the next step in sequence
+        steps_list = list(self.plan_items.keys())
+        try:
+            current_index = steps_list.index(self.current_step)
+            if current_index < len(steps_list) - 1:
+                next_step = steps_list[current_index + 1]
+            else:
                 next_step = None
-
-        # Update step tracking
+        except (ValueError, AttributeError):
+            # Current step not found or is None
+            next_step = None
+        # Update step tracking to the next step
         self.previous_step = self.current_step
         self.current_step = next_step
         self.current_step_content = None
@@ -180,7 +186,7 @@ class NotebookIntermediateState:
                 content.append(self.current_step_content)
 
         # Add completed steps in reverse order (most recent first)
-        for step_name, step_content in reversed(self.completed_steps):
+        for step_name, step_content in reversed(list(self.completed_steps.items())):
             content.append(create_empty_paragraph())
             content.append(_create_line_separator())
             content.append(create_heading_with_text(f"Step: {step_name} (Completed)", 2))

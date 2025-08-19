@@ -202,8 +202,6 @@ class SessionSummarizationNode(AssistantNode):
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
-                # Update intermediate state based on step enum (no data, as it's a progress message)
-                self._intermediate_state.update_step_progress(None, step)
                 # Status message - stream to user
                 self._stream_progress(progress_message=data, writer=writer)
             # Notebook intermediate data update messages
