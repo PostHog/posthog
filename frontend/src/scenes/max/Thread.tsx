@@ -147,10 +147,9 @@ interface MessageGroupProps {
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const { tools } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
-    const isEditingInsight = tools?.some((tool) => tool.identifier === 'create_and_query_insight')
 
     return (
         <MessageGroupContainer groupType={groupType}>
@@ -235,7 +234,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 key={messageIndex}
                                 message={message}
                                 status={message.status}
-                                isEditingInsight={isEditingInsight}
+                                isEditingInsight={editInsightToolRegistered}
                             />
                         )
                     } else if (isReasoningMessage(message)) {

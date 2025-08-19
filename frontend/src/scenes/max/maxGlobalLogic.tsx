@@ -203,5 +203,19 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             }),
         ],
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
+        editInsightToolRegistered: [
+            (s) => [s.tools],
+            (tools) =>
+                tools?.some((tool) => {
+                    const editInsightTool = TOOL_DEFINITIONS.create_and_query_insight
+                    // TRICKY: there are two tools with the same name and description: default and contextual.
+                    // If the contextual tool is registered, this means we're editing an insight.
+                    return (
+                        tool.identifier === 'create_and_query_insight' &&
+                        editInsightTool.name === tool.name &&
+                        editInsightTool.description === tool.description
+                    )
+                }),
+        ],
     }),
 ])
