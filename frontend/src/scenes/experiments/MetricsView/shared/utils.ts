@@ -39,6 +39,12 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             return getDefaultName(metric.source) || 'Untitled metric'
         case ExperimentMetricType.FUNNEL:
             return getDefaultName(metric.series[0]) || 'Untitled funnel'
+        case ExperimentMetricType.RATIO:
+            const numeratorName = getDefaultName(metric.numerator)
+            const denominatorName = getDefaultName(metric.denominator)
+            return `${numeratorName || 'Numerator'} / ${denominatorName || 'Denominator'}`
+        default:
+            return 'Untitled metric'
     }
 }
 

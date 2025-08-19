@@ -7,7 +7,7 @@ import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip
 
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
@@ -160,8 +160,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <ScenePanelDivider />
 
                 <ScenePanelActions>
-                    <SceneAddToDropdownMenu
-                        notebook={true}
+                    <SceneAddToNotebookDropdownMenu
                         dataAttrKey={RESOURCE_TYPE}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
@@ -339,7 +338,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             <SceneDivider />
                             <SceneSection
                                 title={isNewCohort ? 'Upload users' : 'Add users'}
-                                description="Upload a CSV file to add users to your cohort. The CSV file only requires a single column with the user's distinct ID. The very first row (the header) will be skipped during import."
+                                description="Upload a CSV file to add users to your cohort. For single-column files, include
+                                        one distinct ID per row (all rows will be processed as data). For multi-column
+                                        files, include a header row with a 'distinct_id' column containing the user
+                                        identifiers."
                                 className={cn('ph-ignore-input', !newSceneLayout && 'mt-4')}
                             >
                                 {/* TODO: @adamleithp Allow users to download a template CSV file */}
@@ -356,9 +358,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         <>
                                             {!newSceneLayout && (
                                                 <span>
-                                                    Upload a CSV file to add users to your cohort. The CSV file only
-                                                    requires a single column with the user's distinct ID. The very first
-                                                    row (the header) will be skipped during import.
+                                                    Upload a CSV file to add users to your cohort. For single-column
+                                                    files, include one distinct ID per row (all rows will be processed
+                                                    as data). For multi-column files, include a header row with a
+                                                    'distinct_id' column containing the user identifiers.
                                                 </span>
                                             )}
                                             <LemonFileInput

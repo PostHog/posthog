@@ -390,11 +390,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         for i in range(5):
+            new_credential = DataWarehouseCredential.objects.create(
+                team=self.team, access_key="_accesskey", access_secret="_secret"
+            )
             table = DataWarehouseTable.objects.create(
                 name=f"whatever{i}",
                 team=self.team,
                 columns={"id": "String"},
-                credential=credential,
+                credential=new_credential,
                 url_pattern="",
             )
             DataWarehouseSavedQuery.objects.create(
@@ -403,17 +406,21 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 query={"query": f"SELECT id FROM whatever{i}"},
                 columns={"id": "String"},
                 table=table,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
-        with self.assertNumQueries(8):
-            create_hogql_database(team=self.team)
+        with self.assertNumQueries(7):
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+            )
+            create_hogql_database(team=self.team, modifiers=modifiers)
 
         for i in range(5):
             table = DataWarehouseTable.objects.create(
                 name=f"whatever{i + 5}",
                 team=self.team,
                 columns={"id": "String"},
-                credential=credential,
+                credential=new_credential,
                 url_pattern="",
             )
             DataWarehouseSavedQuery.objects.create(
@@ -422,11 +429,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 query={"query": f"SELECT id FROM whatever{i + 5}"},
                 columns={"id": "String"},
                 table=table,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
         # initialization team query doesn't run
-        with self.assertNumQueries(7):
-            create_hogql_database(team=self.team)
+        with self.assertNumQueries(6):
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+            )
+            create_hogql_database(team=self.team, modifiers=modifiers)
 
     def test_database_group_type_mappings(self):
         GroupTypeMapping.objects.create(
