@@ -763,7 +763,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             query_runner.calculate()
 
         self.assertEqual(
-            context.exception.detail[0],
+            str(
+                context.exception.detail[0] if isinstance(context.exception.detail, list) else context.exception.detail
+            ),
             "No experiment exposures found. Please ensure users are being exposed to your experiment variants.",
         )
 
@@ -811,7 +813,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             query_runner.calculate()
 
         self.assertEqual(
-            context.exception.detail[0],
+            str(
+                context.exception.detail[0] if isinstance(context.exception.detail, list) else context.exception.detail
+            ),
             "No experiment exposures found. Please ensure users are being exposed to your experiment variants.",
         )
 
@@ -867,7 +871,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             query_runner.calculate()
 
         self.assertEqual(
-            context.exception.detail[0],
+            str(
+                context.exception.detail[0] if isinstance(context.exception.detail, list) else context.exception.detail
+            ),
             "No control variant found. Please ensure your experiment has a 'control' variant and that users are being exposed to it.",
         )
 
@@ -1099,7 +1105,11 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 query_runner.calculate()
 
             self.assertEqual(
-                context.exception.detail[0],
+                str(
+                    context.exception.detail[0]
+                    if isinstance(context.exception.detail, list)
+                    else context.exception.detail
+                ),
                 "No experiment exposures found. Please ensure users are being exposed to your experiment variants.",
             )
         else:

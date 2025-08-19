@@ -4,7 +4,7 @@ while technical details are logged for engineers.
 """
 
 import functools
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from collections.abc import Callable
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -36,6 +36,22 @@ def get_user_friendly_message(error: Exception) -> str:
     """Convert technical error messages to user-friendly ones based on error type and message content."""
 
     error_type = type(error)
+
+    # If a ValidationError is raised, we can return the message directly
+    if error_type is ValidationError:
+        validation_error = cast(ValidationError, error)
+        if isinstance(validation_error.detail, list) and validation_error.detail:
+            return str(validation_error.detail[0])
+        elif isinstance(validation_error.detail, dict):
+            # For dict-style errors, get the first error message
+            first_key = next(iter(validation_error.detail))
+            detail_value = validation_error.detail[first_key]
+            if isinstance(detail_value, list) and detail_value:
+                return str(detail_value[0])
+            else:
+                return str(detail_value)
+        else:
+            return str(validation_error.detail)
 
     # Look for exact type match first
     if error_type in ERROR_TYPE_MESSAGES:
@@ -101,4 +117,4 @@ def experiment_error_handler(method: F) -> F:
             user_message = get_user_friendly_message(e)
             raise ValidationError(user_message)
 
-    return wrapper
+    return cast(F, wrapper)
