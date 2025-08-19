@@ -65,7 +65,12 @@ def experiment_error_handler(method: F) -> F:
         except Exception as e:
             # Get context for logging
             self = args[0] if args else None
-            experiment_id = getattr(self, "experiment_id", None) or getattr(self, "experiment", {}).get("id", "unknown")
+            experiment_id = "unknown"
+            if hasattr(self, "experiment_id"):
+                experiment_id = self.experiment_id
+            elif hasattr(self, "experiment") and hasattr(self.experiment, "id"):
+                experiment_id = self.experiment.id
+
             metric_type = None
             if hasattr(self, "metric"):
                 metric_type = getattr(self.metric, "__class__", type(self.metric)).__name__
