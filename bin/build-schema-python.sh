@@ -31,4 +31,4 @@ else
 fi
 
 # Fix inheritance for AnalyticsQueryResponseBase subclasses
-python bin/fix-schema-inheritance.py posthog/schema.py
+# python bin/fix-schema-inheritance.py posthog/schema.py
