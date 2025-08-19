@@ -42,7 +42,7 @@ jobs:
                         - pnpm-lock.yaml
 
     Embedded-Analytics-UI-format:
-        name: Embedded-Analytics-UI formatting
+        name: Embedded analytics UI library JS checks
         needs: changes
         runs-on: depot-ubuntu-24.04
         steps:
@@ -78,6 +78,13 @@ jobs:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
                   key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Debug node
+              if: needs.changes.outputs.Embedded-Analytics-UI == 'true'
+              run: |
+                  node --version
+                  pnpm --version
+                  ls node_modules packages/*/node_modules products/*/node_modules
 
             - name: Check TypeScript types
               if: needs.changes.outputs.Embedded-Analytics-UI == 'true'
