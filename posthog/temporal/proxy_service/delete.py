@@ -8,11 +8,12 @@ import grpc.aio
 import temporalio.common
 from asgiref.sync import sync_to_async
 from django.db import connection
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     UpdateProxyRecordInputs,

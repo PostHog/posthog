@@ -1,7 +1,8 @@
 from django.db import close_old_connections
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.warehouse.models.join import DataWarehouseJoin
+
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)

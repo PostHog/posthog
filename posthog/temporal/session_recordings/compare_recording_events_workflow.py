@@ -8,13 +8,13 @@ import temporalio.activity
 import temporalio.common
 import temporalio.workflow
 from asgiref.sync import sync_to_async
+from structlog import get_logger
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger
 from posthog.temporal.session_recordings.queries import get_session_metadata
 from posthog.temporal.session_recordings.segmentation import compute_active_milliseconds
 from posthog.temporal.session_recordings.session_comparer import count_events_per_window

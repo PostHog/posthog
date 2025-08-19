@@ -6,6 +6,7 @@ import typing
 
 import posthoganalytics
 from django.db import close_old_connections
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -13,7 +14,7 @@ from temporalio.common import RetryPolicy
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
@@ -43,9 +44,9 @@ from posthog.warehouse.data_load.source_templates import (
     create_warehouse_templates_for_source,
 )
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
+from posthog.warehouse.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 

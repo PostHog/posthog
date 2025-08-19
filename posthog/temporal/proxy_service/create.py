@@ -11,6 +11,7 @@ import dns.resolver
 import grpc.aio
 import requests
 import temporalio.common
+from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.client import (
     Schedule,
@@ -25,7 +26,6 @@ from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import a_create_schedule
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,

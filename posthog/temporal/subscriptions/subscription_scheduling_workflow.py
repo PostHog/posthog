@@ -9,13 +9,13 @@ import temporalio.activity
 import temporalio.common
 import temporalio.workflow
 from django.conf import settings
+from structlog import get_logger
 
 from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

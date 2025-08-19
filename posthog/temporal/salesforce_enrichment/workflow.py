@@ -7,6 +7,7 @@ import time
 import typing
 
 from django.db import close_old_connections
+from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -16,7 +17,6 @@ from ee.billing.salesforce_enrichment.redis_cache import get_cached_accounts_cou
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

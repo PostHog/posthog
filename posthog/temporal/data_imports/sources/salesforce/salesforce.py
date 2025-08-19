@@ -6,8 +6,9 @@ from urllib.parse import urlencode
 import dlt
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from structlog import get_logger
+from structlog.contextvars import bind_contextvars
 
-from posthog.temporal.common.logger import bind_contextvars, get_logger
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth

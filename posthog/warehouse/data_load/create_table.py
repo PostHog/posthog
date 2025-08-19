@@ -3,9 +3,10 @@ import uuid
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
 from django.conf import settings
+from structlog.contextvars import bind_contextvars
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,

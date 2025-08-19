@@ -9,11 +9,11 @@ import temporalio.activity
 import temporalio.common
 import temporalio.workflow
 from django.conf import settings
+from structlog import get_logger
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

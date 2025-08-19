@@ -3,12 +3,12 @@ import textwrap
 from typing import Optional
 
 from django.db import connection
+from structlog import get_logger
 from temporalio import activity
 
 from posthog.models import Insight
 from posthog.schema_migrations import LATEST_VERSIONS
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

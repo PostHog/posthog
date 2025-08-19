@@ -8,12 +8,12 @@ import typing
 import temporalio.activity
 import temporalio.common
 import temporalio.workflow
+from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

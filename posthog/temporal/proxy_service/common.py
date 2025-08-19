@@ -7,12 +7,13 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import connection
+from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
 LOGGER = get_logger(__name__)

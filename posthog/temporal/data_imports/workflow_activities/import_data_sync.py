@@ -4,12 +4,13 @@ from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
+from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -59,7 +60,8 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
 
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:

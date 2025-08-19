@@ -5,9 +5,9 @@ from urllib.parse import urlparse
 
 import posthoganalytics
 from django.utils import timezone
+from structlog import get_logger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import get_logger
 
 from .constants import (
     DEFAULT_CHUNK_SIZE,

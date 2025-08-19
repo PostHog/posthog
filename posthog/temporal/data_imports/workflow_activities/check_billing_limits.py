@@ -2,6 +2,7 @@ import dataclasses
 import typing
 
 from django.db import close_old_connections
+from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from ee.billing.quota_limiting import (
@@ -10,7 +11,7 @@ from ee.billing.quota_limiting import (
     list_limited_team_attributes,
 )
 from posthog.models.team.team import Team
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

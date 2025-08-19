@@ -16,9 +16,10 @@ from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.db.models import Prefetch
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from structlog.contextvars import bind_contextvars
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema

@@ -6,6 +6,7 @@ from django.conf import settings
 from dlt.common.data_types.typing import TDataType
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.common.schema.typing import TSchemaTables
+from structlog import get_logger
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -16,7 +17,6 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
 )
-from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseTable,

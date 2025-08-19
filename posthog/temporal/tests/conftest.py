@@ -145,7 +145,7 @@ async def temporal_worker(temporal_client, workflows, activities):
     await asyncio.wait([worker_run])
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def event_loop():
     loop = asyncio.new_event_loop()
     yield loop

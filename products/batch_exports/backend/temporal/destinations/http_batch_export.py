@@ -6,6 +6,7 @@ import json
 
 import aiohttp
 from django.conf import settings
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -17,7 +18,7 @@ from posthog.batch_exports.service import (
 from posthog.models import BatchExportRun
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
