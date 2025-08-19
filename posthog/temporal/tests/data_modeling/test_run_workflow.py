@@ -24,7 +24,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
-from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
     CleanupRunningJobsActivityInputs,
@@ -1276,9 +1276,7 @@ async def test_create_table_activity_invalid_uuid_fails(activity_environment, at
 
     mock_create_table.assert_not_called()
 
-    mock_logger.return_value.aerror.assert_called_once()
-    error_message = mock_logger.return_value.aerror.call_args[0][0]
-    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in error_message
+    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in cap_logs[0]["msg"]
 
 
 async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client):
