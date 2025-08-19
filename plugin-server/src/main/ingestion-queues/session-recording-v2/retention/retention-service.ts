@@ -6,6 +6,7 @@ import { logger } from '../../../../utils/logger'
 import { ValidRetentionPeriods } from '../constants'
 import { MessageWithTeam } from '../teams/types'
 import { RetentionPeriod } from '../types'
+import { RetentionServiceMetrics } from './metrics'
 import { MessageWithRetention } from './types'
 
 function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is RetentionPeriod {
@@ -24,8 +25,9 @@ export class RetentionService {
             () => this.fetchTeamRetentionPeriods(),
             5 * 60 * 1000, // 5 minutes
             (e) => {
-                // We ignore the error and wait for postgres to recover
+                // We log and count the error and wait for postgres to recover
                 logger.error('Error refreshing team retention periods', e)
+                RetentionServiceMetrics.incrementRefreshErrors()
             }
         )
     }
@@ -42,6 +44,7 @@ export class RetentionService {
         const retentionPeriods = await this.retentionRefresher.get()
 
         if (!(teamId in retentionPeriods)) {
+            RetentionServiceMetrics.incrementLookupErrors()
             throw new Error(`Error during retention period lookup: Unknown team id ${teamId}`)
         }
 
@@ -101,11 +104,15 @@ export async function fetchTeamRetentionPeriods(client: PostgresRouter): Promise
         'fetchTeamRetentionPeriods'
     )
 
-    return selectResult.rows.reduce(
+    const rows = selectResult.rows.reduce(
         (acc, row) => {
             acc[row.id] = row.session_recording_retention_period
             return acc
         },
         {} as Record<TeamId, RetentionPeriod>
     )
+
+    RetentionServiceMetrics.incrementRefreshCount()
+
+    return rows
 }

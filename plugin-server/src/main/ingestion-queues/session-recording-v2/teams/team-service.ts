@@ -2,6 +2,7 @@ import { Team } from '../../../../types'
 import { BackgroundRefresher } from '../../../../utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { logger } from '../../../../utils/logger'
+import { TeamServiceMetrics } from './metrics'
 import { TeamForReplay } from './types'
 
 export class TeamService {
@@ -14,6 +15,7 @@ export class TeamService {
             (e) => {
                 // We ignore the error and wait for postgres to recover
                 logger.error('Error refreshing team tokens', e)
+                TeamServiceMetrics.incrementRefreshErrors()
             }
         )
     }
@@ -46,7 +48,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         'fetchTeamTokensWithRecordings'
     )
 
-    return selectResult.rows.reduce(
+    const rows = selectResult.rows.reduce(
         (acc, row) => {
             acc[row.api_token] = {
                 teamId: row.id,
@@ -56,4 +58,8 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         },
         {} as Record<string, TeamForReplay>
     )
+
+    TeamServiceMetrics.incrementRefreshCount()
+
+    return rows
 }
