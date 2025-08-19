@@ -265,6 +265,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     )
 
         if attrs.get("mappings", None) is not None:
+            # special case for items that migrate to mappings - we want to make sure event filters are not set
+            if attrs.get("filters", None) is not None:
+                del attrs["filters"]["events"]
+                del attrs["filters"]["actions"]
+
             if hog_type not in ["site_destination", "destination"]:
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 
