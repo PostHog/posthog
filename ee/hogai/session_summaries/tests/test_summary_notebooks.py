@@ -844,10 +844,12 @@ class TestNotebookIntermediateState(APIBaseTest):
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Watching sessions..."}]}],
         }
+        # Update the state
         state.update_step_progress(content_step_one, SessionSummaryStep.WATCHING_SESSIONS)
 
         # Verify initial state
-        assert state.current_step == SessionSummaryStep.WATCHING_SESSIONS
+        step_one = state.current_step
+        assert step_one == SessionSummaryStep.WATCHING_SESSIONS
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", False)
         assert state.current_step_content == content_step_one
 
@@ -856,10 +858,12 @@ class TestNotebookIntermediateState(APIBaseTest):
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Finding patterns..."}]}],
         }
+        # Update the state
         state.update_step_progress(content_step_two, SessionSummaryStep.FINDING_PATTERNS)
 
         # Verify the transition
-        assert state.current_step == SessionSummaryStep.FINDING_PATTERNS  # type: ignore[comparison-overlap]
+        step_two = state.current_step
+        assert step_two == SessionSummaryStep.FINDING_PATTERNS
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
         assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", False)
         assert state.current_step_content == content_step_two
