@@ -148,7 +148,12 @@ export function renderColumn(
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
 
         if (value === '$autocapture' && eventRecord) {
-            return autoCaptureEventToDescription(eventRecord)
+            return (
+                <span className="PropertyKeyInfo">
+                    <span className="PropertyKeyInfo__logo PropertyKeyInfo__logo--posthog" />
+                    <span className="PropertyKeyInfo__text">{autoCaptureEventToDescription(eventRecord)}</span>
+                </span>
+            )
         }
         const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
         const $sentry_url = eventRecord?.properties?.$sentry_url
