@@ -57,10 +57,8 @@ export class TwoPhaseCommitCoordinator {
                     rClient?.query(`PREPARE TRANSACTION ${gidRightLiteral}`),
                 ])
 
-                // Check left result first
                 if (prepareResults[0].status === 'rejected') {
                     twoPhaseCommitFailuresCounter.labels(tag, 'prepare_left_failed').inc()
-                    // Right might have succeeded, check and update flag before throwing
                     if (prepareResults[1].status === 'fulfilled') {
                         preparedRight = true
                     }
