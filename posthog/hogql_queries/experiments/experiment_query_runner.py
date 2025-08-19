@@ -3,10 +3,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from rest_framework.exceptions import ValidationError
+import structlog
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -414,7 +414,6 @@ class ExperimentQueryRunner(QueryRunner):
 
         return experiment_variant_results_query
 
-    @experiment_error_handler
     def _evaluate_experiment_query(
         self,
     ) -> list[tuple]:

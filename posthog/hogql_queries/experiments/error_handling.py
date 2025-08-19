@@ -4,7 +4,7 @@ while technical details are logged for engineers.
 """
 
 import functools
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, TypeVar
 from collections.abc import Callable
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -17,49 +17,36 @@ logger = structlog.get_logger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-# User-friendly error messages for technical errors
-ERROR_MESSAGES: dict[str, str] = {
-    # Statistical errors
-    "Sample size must be positive": "Not enough data to calculate results. Please wait for more participants to join the experiment.",
-    "sum_squares must be >= sum^2": "Invalid metric data detected. Please check your metric configuration and try again.",
-    "sum_squares incompatible with sum and n": "Unable to calculate statistics due to data inconsistency. Please refresh and try again.",
-    "No control variant found": "No control group data available. Please ensure your experiment has a control variant.",
-    "Multiple control variants found": "Multiple control groups detected. Please check your experiment configuration.",
-    # Validation errors
-    "NOT_ENOUGH_EXPOSURES": "Not enough participants yet. Experiments need at least 50 participants per variant.",
-    "NOT_ENOUGH_METRIC_DATA": "Not enough conversion data. Please wait for more events to be tracked.",
-    "BASELINE_MEAN_IS_ZERO": "The control group has no metric data. Please check your metric configuration.",
-    # HogQL errors
-    "Unable to execute experiment analysis": "Unable to calculate experiment results. Please check your metric configuration and try again.",
-    "Query timeout": "The analysis is taking too long. Try refreshing the page or simplifying your metrics.",
+# User-friendly error messages for different error types
+ERROR_TYPE_MESSAGES: dict[type, str] = {
+    # Statistical calculation errors
+    StatisticError: "Unable to calculate experiment statistics. Please ensure your experiment has sufficient data and try again.",
+    # HogQL/Query errors
+    InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
+    ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
+    # Python built-in errors that can occur during calculation
+    ValueError: "Invalid experiment configuration detected. Please check your experiment setup.",
+    ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
     # Default fallback
-    "_DEFAULT": "Unable to calculate experiment results. Please try again or contact support if the issue persists.",
+    Exception: "Unable to calculate experiment results. Please try again or contact support if the issue persists.",
 }
 
 
 def get_user_friendly_message(error: Exception) -> str:
-    """Convert technical error messages to user-friendly ones."""
-    error_str = str(error)
+    """Convert technical error messages to user-friendly ones based on error type."""
+    error_type = type(error)
 
-    # Check for exact matches first
-    if error_str in ERROR_MESSAGES:
-        return ERROR_MESSAGES[error_str]
+    # Look for exact type match first
+    if error_type in ERROR_TYPE_MESSAGES:
+        return ERROR_TYPE_MESSAGES[error_type]
 
-    # Check for partial matches
-    for key, message in ERROR_MESSAGES.items():
-        if key in error_str:
+    # Check if error is an instance of any of the registered types
+    for registered_type, message in ERROR_TYPE_MESSAGES.items():
+        if isinstance(error, registered_type):
             return message
 
-    # Special handling for specific error types
-    if isinstance(error, StatisticError):
-        return "Unable to calculate statistics. Please ensure your experiment has sufficient data."
-    elif isinstance(error, InternalHogQLError | ExposedHogQLError):
-        return "Unable to process your query. Please check your metric configuration."
-    elif isinstance(error, ExposedCHQueryError):
-        return "Unable to retrieve experiment data. Please try again."
-
-    # Default message
-    return ERROR_MESSAGES["_DEFAULT"]
+    # Default fallback
+    return ERROR_TYPE_MESSAGES[Exception]
 
 
 def experiment_error_handler(method: F) -> F:
@@ -109,34 +96,3 @@ def experiment_error_handler(method: F) -> F:
             raise ValidationError(user_message)
 
     return wrapper
-
-
-def handle_experiment_error(
-    error: Exception,
-    experiment_id: Optional[Union[str, int]] = None,
-    metric_type: Optional[str] = None,
-    context: Optional[dict[str, Any]] = None,
-) -> None:
-    """
-    Utility function to handle experiment errors consistently.
-    Logs the error and raises a user-friendly ValidationError.
-    """
-    # Log the technical error
-    logger.error(
-        "Experiment error",
-        experiment_id=experiment_id,
-        metric_type=metric_type,
-        error_type=type(error).__name__,
-        error_message=str(error),
-        context=context,
-        exc_info=True,
-    )
-
-    # Capture for error tracking
-    capture_exception(
-        error, additional_properties={"experiment_id": experiment_id, "metric_type": metric_type, **(context or {})}
-    )
-
-    # Raise user-friendly error
-    user_message = get_user_friendly_message(error)
-    raise ValidationError(user_message)

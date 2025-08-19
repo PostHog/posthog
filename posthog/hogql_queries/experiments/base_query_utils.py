@@ -35,8 +35,6 @@ from posthog.schema import (
     PropertyMathType,
 )
 
-from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
-
 
 def get_data_warehouse_metric_source(
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
@@ -584,7 +582,6 @@ def get_source_aggregation_expr(
     return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
-@experiment_error_handler
 def get_metric_aggregation_expr(
     experiment: Experiment,
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
