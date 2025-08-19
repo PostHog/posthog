@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 export function initPostHog(): void {
     if (typeof window !== 'undefined') {
+        console.log('initPostHog', process.env.NEXT_PUBLIC_POSTHOG_KEY)
         const demoApiToken = process.env.NEXT_PUBLIC_POSTHOG_KEY
         if (!demoApiToken) {
            console.warn('NEXT_PUBLIC_POSTHOG_KEY is not set, skipping PostHog initialization')
@@ -16,6 +17,7 @@ export function initPostHog(): void {
             persistence: 'memory', // Use memory persistence for replay mode to avoid conflicts
             opt_out_useragent_filter: true // We do want capture to work in a bot environment (Playwright)
         })
+        console.log('posthog', posthog)
     }
     (window as any).posthog = posthog
 }
