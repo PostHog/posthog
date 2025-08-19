@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from types import UnionType
-from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args
+from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args, Protocol
 
 import posthoganalytics
 import structlog
@@ -45,7 +45,6 @@ from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
-    AnalyticsQueryResponseBase,
     CacheMissResponse,
     CalendarHeatmapQuery,
     DashboardFilter,
@@ -1152,10 +1151,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
 
 # Type constraint for analytics query responses
-AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
+class AnalyticsQueryResponseProtocol(Protocol):
+    timings: Optional[list[QueryTiming]]
 
 
-class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
+AR = TypeVar("AR", bound=AnalyticsQueryResponseProtocol)
+
+
+class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
     QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
     """
