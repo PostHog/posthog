@@ -10,7 +10,7 @@ from posthog.models.exported_asset import ExportedAsset, get_public_access_token
 from posthog.utils import absolute_uri
 
 # Optional: stable browser cache for Playwright worker processes
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", os.path.join("/tmp", "ms-playwright"))
+# os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", os.path.join("/tmp", "ms-playwright"))
 
 
 @activity.defn

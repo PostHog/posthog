@@ -11,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 
 ScreenWidth = Literal[800, 1920, 1400]
 HEIGHT_OFFSET = 85
-PLAYBACK_SPEED_MULTIPLIER = 8  # Speed up playback during recording for long videos
+PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
 
 
 def record_replay_to_file(
@@ -27,7 +27,7 @@ def record_replay_to_file(
         temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-")
         record_dir = temp_dir_ctx.name
         with sync_playwright() as p:
-            headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"
+            headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"  # TIP: for debugging, set to False
             browser = p.chromium.launch(
                 headless=headless,
                 devtools=not headless,

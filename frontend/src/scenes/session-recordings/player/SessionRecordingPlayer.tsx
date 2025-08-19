@@ -121,8 +121,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         if (mode === SessionRecordingPlayerMode.Screenshot) {
             setSkipInactivitySetting(false)
 
-            //Not the maximum, but 8
-            setSpeed(PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.length - 1])
+            //Not the maximum, but 4 for a balance between speed and quality
+            setSpeed(4)
         }
     }, [mode, setSkipInactivitySetting, setSpeed])
 
