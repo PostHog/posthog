@@ -662,7 +662,7 @@ class RootNodeTools(AssistantNode):
                     e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
                 )
                 result = FailureMessage(
-                    content="Max has failed to generate an answer. Please try again.",
+                    content=f"The {tool_call.name.replace('_', ' ')} tool raised an internal error.",
                     id=str(uuid4()),
                 )
             if not isinstance(result, LangchainToolMessage | FailureMessage):
