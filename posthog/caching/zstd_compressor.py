@@ -1,4 +1,3 @@
-import zlib
 import zstd
 
 from django_redis.compressors.base import BaseCompressor
@@ -20,28 +19,21 @@ COULD_NOT_DECOMPRESS_VALUE_COUNTER = Counter(
     """,
 )
 
-USING_ZLIB_VALUE_COUNTER = Counter(
-    "posthog_redis_using_zlib_value_counter",
-    """
-    A counter to track cache keys that are still being decompressed with (deprecated) zlib
-    """,
-)
 
-
-class TolerantZlibCompressor(BaseCompressor):
+class ZstdCompressor(BaseCompressor):
     """
-    If the compressor is turned on then values written to the cache will be compressed using zlib.
+    Compressor that uses zstd for compression.
+    If the compressor is turned on then values written to the cache will be compressed using zstd.
     If it is subsequently turned off we still want to be able to read compressed values from the cache.
     Even while we no longer write compressed values to the cache.
 
-    This compressor is a tolerant reader and will return the original value if it can't be decompressed.
+    This compressor will return the original value if it can't be decompressed.
     """
 
     # we don't want to compress all values, e.g. feature flag cache in decide is already small
     min_length = 512
     zstd_preset = 0
     zstd_threads = 1
-    zlib_preset = 6
 
     def compress(self, value: bytes) -> bytes:
         if settings.USE_REDIS_COMPRESSION and len(value) > self.min_length:
@@ -50,13 +42,8 @@ class TolerantZlibCompressor(BaseCompressor):
 
     def decompress(self, value: bytes) -> bytes:
         try:
-            try:
-                return zstd.decompress(value)
-            except zstd.Error:
-                r = zlib.decompress(value)  # Phasing out zlib, it is 10x slower and compresses worse
-                USING_ZLIB_VALUE_COUNTER.inc()
-                return r
-        except zlib.error:
+            return zstd.decompress(value)
+        except zstd.Error:
             if settings.USE_REDIS_COMPRESSION:
                 COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()
             # if the decompression fails, behave like the IdentityCompressor
