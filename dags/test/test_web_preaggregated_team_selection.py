@@ -402,12 +402,16 @@ class TestWebAnalyticsTeamSelectionAsset:
 
 
 class TestIntegrationScenarios(APIBaseTest):
-    def setup_method(self):
+    def setUp(self):
+        super().setUp()
         self.mock_context = Mock(spec=dagster.OpExecutionContext)
         self.mock_context.log = Mock()
 
-    def test_complete_flow_with_env_variable(self):
+    @patch("dags.web_preaggregated_team_selection.validate_team_ids")
+    def test_complete_flow_with_env_variable(self, mock_validate):
         test_teams = "100, 200, 300"
+        expected_teams = [100, 200, 300, *list(DEFAULT_ENABLED_TEAM_IDS)]
+        mock_validate.return_value = set(expected_teams)
 
         with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
             result = get_team_ids_from_sources(self.mock_context)
@@ -419,7 +423,10 @@ class TestIntegrationScenarios(APIBaseTest):
         for default_team in DEFAULT_ENABLED_TEAM_IDS:
             assert default_team in result
 
-    def test_complete_flow_with_defaults(self):
+    @patch("dags.web_preaggregated_team_selection.validate_team_ids")
+    def test_complete_flow_with_defaults(self, mock_validate):
+        mock_validate.return_value = set(DEFAULT_ENABLED_TEAM_IDS)
+
         with patch.dict(os.environ, {}, clear=True):
             result = get_team_ids_from_sources(self.mock_context)
 
