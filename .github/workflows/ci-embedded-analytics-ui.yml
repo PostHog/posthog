@@ -32,7 +32,7 @@ jobs:
                       Embedded-Analytics-UI:
                         # Avoid running Embedded-Analytics-UI tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here.
-                        - product/embedded_analytics_ui/**
+                        - packages/embedded_analytics_ui/**
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-embedded-analytics-ui.yml
                         # various JS config files
