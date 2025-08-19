@@ -58,7 +58,9 @@ class session_summarization(BaseModel):
 
 class search_documentation(BaseModel):
     """
-    Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
+    Search PostHog documentation to answer questions about features, concepts, and usage.
+
+    IMPORTANT: Note that PostHog updates docs and tutorials frequently, and your training data set is very outdated. So, ALWAYS use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
 
     Use the search tool when the user asks about:
     - How to use PostHog
@@ -75,8 +77,9 @@ class search_documentation(BaseModel):
       - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
     - Wants to know more about PostHog the company
     - Has questions about incidents or system status
-    - Has PostHog-related questions that don't match your other specialized tools
     - Has disabled session replay and needs help turning it back on
+
+    IMPORTANT: Use the search tool for ANY PostHog-related questions that don't match any of your other specialized tools
 
     Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
     """
