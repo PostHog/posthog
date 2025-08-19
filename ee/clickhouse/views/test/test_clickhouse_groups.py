@@ -12,7 +12,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import GroupTypeMapping, Person, Notebook
+from posthog.models import GroupTypeMapping, Person, Notebook, GroupUsageMetric
 from posthog.models.group.util import create_group
 from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
@@ -1481,3 +1481,194 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.json()), 0)
+
+
+class GroupUsageMetricViewSetTestCase(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.group_type = GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        self.url = f"/api/projects/{self.team.id}/groups_types/{str(self.group_type.group_type_index)}/metrics"
+
+        self.other_org = Organization.objects.create(name="other org")
+        self.other_team = Team.objects.create(organization=self.other_org, name="other team")
+        self.other_group_type = GroupTypeMapping.objects.create(
+            team=self.other_team, project_id=self.other_team.project_id, group_type="company", group_type_index=0
+        )
+        self.other_url = (
+            f"/api/projects/{self.other_team.id}/groups_types/{str(self.other_group_type.group_type_index)}/metrics"
+        )
+
+    def assertListFields(self, data, metric):
+        self.assertEqual(data["id"], str(metric.id))
+        self.assertEqual(data["name"], metric.name)
+        self.assertEqual(data["format"], metric.format)
+        self.assertEqual(data["interval"], metric.interval)
+        self.assertEqual(data["display"], metric.display)
+
+    def assertDetailFields(self, data, metric):
+        self.assertListFields(data, metric)
+        self.assertEqual(data["filters"], metric.filters)
+
+    def _create_metric(self, **kwargs):
+        defaults = {
+            "team": self.team,
+            "group_type_index": self.group_type.group_type_index,
+            "name": "Events",
+            "filters": {"foo": "bar"},
+        }
+        defaults.update(kwargs)
+        return GroupUsageMetric.objects.create(**defaults)
+
+    def test_list(self):
+        metric = self._create_metric()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertListFields(response.json()["results"][0], metric)
+
+    def test_create(self):
+        payload = {"name": "Events", "filters": {"foo": "bar"}}
+
+        response = self.client.post(self.url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        metric = GroupUsageMetric.objects.get(id=response.json().get("id"))
+        self.assertListFields(response.json(), metric)
+        self.assertEqual(metric.team, self.team, "Should set team automatically")
+        self.assertEqual(
+            metric.group_type_index, self.group_type.group_type_index, "Should set group_type_index automatically"
+        )
+        self.assertIsNotNone(metric.bytecode, "Should set bytecode automatically")
+
+    def test_retrieve(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertDetailFields(response.json(), metric)
+
+    def test_update(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        payload = {
+            "name": "Updated Events",
+            "format": "currency",
+            "interval": 30,
+            "display": "sparkline",
+            "filters": {"updated": "value"},
+        }
+
+        response = self.client.put(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Updated Events")
+        self.assertEqual(metric.format, "currency")
+        self.assertEqual(metric.interval, 30)
+        self.assertEqual(metric.display, "sparkline")
+        self.assertEqual(metric.filters, {"updated": "value"})
+        self.assertDetailFields(response.json(), metric)
+
+    def test_delete(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GroupUsageMetric.objects.filter(id=metric.id).exists())
+
+    def test_partial_update(self):
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        payload = {"name": "Partially Updated Events"}
+
+        response = self.client.patch(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Partially Updated Events")
+        self.assertEqual(metric.format, "numeric", "Should remain unchanged")
+        self.assertEqual(metric.interval, 7, "Should remain unchanged")
+        self.assertEqual(metric.display, "number", "Should remain unchanged")
+
+    def test_delete_nonexistent(self):
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        url = f"{self.url}/{fake_id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_nonexistent(self):
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        url = f"{self.url}/{fake_id}"
+        payload = {"name": "Updated Events"}
+
+        response = self.client.put(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unauthenticated_access(self):
+        self.client.logout()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_unauthorized_team_access(self):
+        self._create_metric(group_type_index=self.other_group_type.group_type_index, team=self.other_team)
+
+        response = self.client.get(self.other_url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_access(self):
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
+        )
+        url = f"{self.other_url}/{other_metric.id}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_creation(self):
+        payload = {"name": "Unauthorized Events"}
+
+        response = self.client.post(self.other_url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_modification(self):
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
+        )
+        url = f"{self.other_url}/{other_metric.id}"
+        payload = {"name": "Hacked Events"}
+
+        response = self.client.put(url, payload)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+    def test_unauthorized_metric_deletion(self):
+        other_metric = self._create_metric(
+            group_type_index=self.other_group_type.group_type_index, team=self.other_team
+        )
+        url = f"{self.other_url}/{other_metric.id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+
+        self.assertTrue(GroupUsageMetric.objects.filter(id=other_metric.id).exists())

@@ -350,10 +350,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
-        availableSources: [
-            () => [(_, props) => props.availableSources],
-            (availableSources): Record<string, SourceConfig> => availableSources,
-        ],
+        availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
         breadcrumbs: [
             (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
@@ -438,7 +435,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
-            (sources, availableSources): SourceConfig[] => {
+            (sources, availableSources: Record<string, SourceConfig>): SourceConfig[] => {
                 return Object.values(availableSources).map((connector) => ({
                     ...connector,
                     disabledReason:

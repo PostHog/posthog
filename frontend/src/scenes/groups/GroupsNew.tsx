@@ -7,18 +7,14 @@ import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@po
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { groupsNewLogic } from 'scenes/groups/groupsNewLogic'
+import { GroupsNewLogicProps, groupsNewLogic } from 'scenes/groups/groupsNewLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-interface GroupsNewSceneProps {
-    groupTypeIndex?: string
-}
-
-export const scene: SceneExport = {
+export const scene: SceneExport<GroupsNewLogicProps> = {
     component: GroupsNew,
     logic: groupsNewLogic,
-    paramsToProps: ({ params: { groupTypeIndex } }: { params: GroupsNewSceneProps }) => ({
+    paramsToProps: ({ params: { groupTypeIndex } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
     }),
 }

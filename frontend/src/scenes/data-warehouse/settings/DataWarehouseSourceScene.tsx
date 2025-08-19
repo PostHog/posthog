@@ -93,10 +93,10 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<(typeof dataWarehouseSourceSceneLogic)['props']> = {
     component: DataWarehouseSourceScene,
     logic: dataWarehouseSourceSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof dataWarehouseSourceSceneLogic)['props'] => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
 export function DataWarehouseSourceScene(): JSX.Element {

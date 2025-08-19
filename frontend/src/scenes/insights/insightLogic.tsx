@@ -19,6 +19,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -123,7 +124,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ) => ({
             metadataUpdate,
         }),
-        highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
@@ -222,9 +223,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     })),
     reducers(({ props }) => ({
         highlightedSeries: [
-            null as number | null,
+            null as IndexedTrendResult | null,
             {
-                highlightSeries: (_, { seriesIndex }) => seriesIndex,
+                highlightSeries: (_, { series }) => series,
             },
         ],
         insight: {

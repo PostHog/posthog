@@ -56,20 +56,20 @@ import {
 } from '~/types'
 
 import { InstructionsModal } from './InstructionsModal'
-import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     component: EarlyAccessFeature,
     logic: earlyAccessFeatureLogic,
-    paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? id : 'new',
     }),
     settingSectionId: 'environment-feature-flags',
 }
 
-export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
+export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
     const {
         earlyAccessFeature,
         earlyAccessFeatureLoading,

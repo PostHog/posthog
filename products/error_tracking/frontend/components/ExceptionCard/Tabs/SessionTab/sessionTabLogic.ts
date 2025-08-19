@@ -91,11 +91,11 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
         },
     }),
     selectors({
-        sessionId: [() => [(_, props) => props.sessionId], (sessionId: string) => sessionId],
-        timestamp: [() => [(_, props) => props.timestamp], (timestamp: string) => timestamp],
+        sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
+        timestamp: [(_, p) => [p.timestamp], (timestamp) => timestamp],
         recordingProps: [
-            () => [(_, props) => props.sessionId],
-            (sessionId: string) => {
+            (_, p) => [p.sessionId],
+            (sessionId) => {
                 return getRecordingProps(sessionId)
             },
         ],

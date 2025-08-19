@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
-import { startupProgramLogic } from './startupProgramLogic'
+import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
@@ -44,12 +44,10 @@ const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingPro
     )
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<StartupProgramLogicProps> = {
     component: StartupProgram,
     logic: startupProgramLogic,
-    paramsToProps: ({ params: { referrer } }): { referrer?: string } => ({
-        referrer: referrer || undefined,
-    }),
+    paramsToProps: ({ params: { referrer } }) => ({ referrer: referrer || undefined }),
 }
 
 export function StartupProgram(): JSX.Element {

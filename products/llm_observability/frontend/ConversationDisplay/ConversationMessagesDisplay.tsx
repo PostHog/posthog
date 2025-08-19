@@ -235,19 +235,28 @@ export const LLMMessageDisplay = React.memo(
     ({
         message,
         isOutput,
-        show,
+        show = true,
+        minimal = false,
         onToggle,
         searchQuery,
     }: {
         message: CompatMessage
         isOutput?: boolean
-        show: boolean
+        /** @default true */
+        show?: boolean
+        /** In minimal mode, we don't show the role, toggles, or additional kwargs, and reduce padding. */
+        minimal?: boolean
         onToggle?: () => void
         searchQuery?: string
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        const { isRenderingMarkdown, isRenderingXml } = useValues(llmObservabilityTraceLogic)
+        let { isRenderingMarkdown, isRenderingXml } = useValues(llmObservabilityTraceLogic)
         const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmObservabilityTraceLogic)
+
+        if (minimal) {
+            isRenderingMarkdown = true
+            isRenderingXml = false
+        }
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
@@ -462,7 +471,8 @@ export const LLMMessageDisplay = React.memo(
         return (
             <div
                 className={clsx(
-                    'rounded border text-default',
+                    'border text-default min-w-[min(fit-content,8rem)]',
+                    !minimal ? 'rounded' : 'rounded-sm text-xs max-w-50 max-h-50 overflow-y-auto',
                     isOutput
                         ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
@@ -472,46 +482,52 @@ export const LLMMessageDisplay = React.memo(
                             : null
                 )}
             >
-                <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
-                    <span className="grow">{role}</span>
-                    {(content || Object.keys(additionalKwargsEntries).length > 0) && (
-                        <>
-                            <LemonButton
-                                size="small"
-                                noPadding
-                                icon={show ? <IconEyeHidden /> : <IconEye />}
-                                tooltip="Toggle message content"
-                                onClick={onToggle}
-                            />
-                            {isMarkdownCandidate && (
+                {!minimal && (
+                    <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
+                        <span className="grow">{role}</span>
+                        {(content || Object.keys(additionalKwargsEntries).length > 0) && (
+                            <>
                                 <LemonButton
                                     size="small"
                                     noPadding
-                                    icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                                    tooltip="Toggle markdown rendering"
-                                    onClick={toggleMarkdownRendering}
+                                    icon={show ? <IconEyeHidden /> : <IconEye />}
+                                    tooltip="Toggle message content"
+                                    onClick={onToggle}
                                 />
-                            )}
-                            {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
-                                <LemonButton
-                                    size="small"
-                                    noPadding
-                                    icon={<IconCode />}
-                                    tooltip="Toggle XML syntax highlighting"
-                                    onClick={toggleXmlRendering}
-                                    active={isRenderingXml}
+                                {isMarkdownCandidate && (
+                                    <LemonButton
+                                        size="small"
+                                        noPadding
+                                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                        tooltip="Toggle markdown rendering"
+                                        onClick={toggleMarkdownRendering}
+                                    />
+                                )}
+                                {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
+                                    <LemonButton
+                                        size="small"
+                                        noPadding
+                                        icon={<IconCode />}
+                                        tooltip="Toggle XML syntax highlighting"
+                                        onClick={toggleXmlRendering}
+                                        active={isRenderingXml}
+                                    />
+                                )}
+                                <CopyToClipboardInline
+                                    iconSize="small"
+                                    description="message content"
+                                    explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
-                            )}
-                            <CopyToClipboardInline
-                                iconSize="small"
-                                description="message content"
-                                explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
-                            />
-                        </>
-                    )}
-                </div>
-                {show && !!content && <div className="p-2 border-t">{renderMessageContent(content, searchQuery)}</div>}
-                {show && Object.keys(additionalKwargsEntries).length > 0 && (
+                            </>
+                        )}
+                    </div>
+                )}
+                {show && !!content && (
+                    <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
+                        {renderMessageContent(content, searchQuery)}
+                    </div>
+                )}
+                {show && !minimal && Object.keys(additionalKwargsEntries).length > 0 && (
                     <div className="p-2 text-xs border-t">
                         <HighlightedJSONViewer
                             src={additionalKwargsEntries}
