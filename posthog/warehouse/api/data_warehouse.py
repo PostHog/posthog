@@ -8,10 +8,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from ee.billing.billing_manager import BillingManager
 from posthog.cloud_utils import get_cached_instance_license
+
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +38,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         pending_billing_rows = 0
         rows_synced = 0
         billing_available = False
+        breakdown_of_rows_by_source = {}
+        sources = ExternalDataSource.objects.filter(team_id=self.team_id, deleted=False)
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -71,6 +74,18 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
                 materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
+                for source in sources:
+                    total_rows = (
+                        ExternalDataJob.objects.filter(
+                            pipeline=source,
+                            created_at__gte=billing_period_start,
+                            created_at__lt=billing_period_end,
+                        ).aggregate(total=Sum("rows_synced"))["total"]
+                        or 0
+                    )
+
+                    breakdown_of_rows_by_source[str(source.id)] = total_rows
+
             else:
                 logger.info("No billing period information available, using defaults")
 
@@ -88,6 +103,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "billing_interval": billing_interval,
                 "billing_period_end": billing_period_end,
                 "billing_period_start": billing_period_start,
+                "breakdownOfRowsBySource": breakdown_of_rows_by_source,
                 "materialized_rows_in_billing_period": materialized_rows,
                 "total_rows": rows_synced,
                 "tracked_billing_rows": billing_tracked_rows,
