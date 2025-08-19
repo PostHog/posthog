@@ -18,7 +18,7 @@ import {
     Webhook,
 } from '@posthog/plugin-scaffold'
 
-import { QuotaLimiting } from '~/common/quota-limiting'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'

@@ -1,8 +1,9 @@
 import { createRedisPool } from '~/utils/db/redis'
+import { TeamManager } from '~/utils/team-manager'
 
-import { PluginsServerConfig, RedisPool } from '../types'
-import { LazyLoader } from '../utils/lazy-loader'
-import { logger } from '../utils/logger'
+import { PluginsServerConfig, RedisPool } from '../../types'
+import { LazyLoader } from '../../utils/lazy-loader'
+import { logger } from '../../utils/logger'
 
 // subset of resources that we care about in this service
 export type QuotaResource = 'events' | 'cdp_invocations'
@@ -19,19 +20,16 @@ export interface QuotaLimitingResult {
     limitedUntil?: number
 }
 
-/**
- * Class to handle quota limiting checks using Redis and lazy loading.
- *
- * This class provides methods to check if a team is quota limited for various resources.
- * It uses the LazyLoader to efficiently batch Redis queries and cache results.
- */
 export class QuotaLimiting {
     private readonly redisPool: RedisPool
     private readonly limitedTokensLoader: LazyLoader<Record<string, number>>
 
-    constructor(private readonly config: PluginsServerConfig) {
+    constructor(
+        config: PluginsServerConfig,
+        private readonly teamManager: TeamManager
+    ) {
         this.redisPool = createRedisPool(config, 'posthog')
-        // Loader for tokens that are currently quota limited
+
         this.limitedTokensLoader = new LazyLoader({
             name: 'quota_limited_tokens',
             loader: async (resources: string[]) => {
@@ -41,10 +39,21 @@ export class QuotaLimiting {
         })
     }
 
-    /**
-     * Check if a team is quota limited for a specific resource
-     */
-    public async isQuotaLimited(teamToken: string, resource: QuotaResource): Promise<QuotaLimitingResult> {
+    public async isTeamQuotaLimited(teamId: number, resource: QuotaResource): Promise<boolean> {
+        const team = await this.teamManager.getTeam(teamId)
+        if (!team) {
+            return false
+        }
+        return await this.isTeamTokenQuotaLimited(team.api_token, resource)
+    }
+
+    public async isTeamTokenQuotaLimited(teamToken: string, resource: QuotaResource): Promise<boolean> {
+        const result = await this.getQuotaLimitedTokens(teamToken, resource)
+
+        return result.isLimited
+    }
+
+    public async getQuotaLimitedTokens(teamToken: string, resource: QuotaResource): Promise<QuotaLimitingResult> {
         const now = Date.now()
         const limitedTokens = await this.limitedTokensLoader.get(resource)
         const limitedUntil = limitedTokens?.[teamToken]
