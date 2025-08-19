@@ -585,7 +585,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
 
                     // Check if any SDKs in this category are outdated
                     const outdatedSDKs = categorySDKs.filter((sdk) => sdk.isOutdated)
-                    const hasOutdatedSDKs = outdatedSDKs.length > 0
 
                     return (
                         <div key={category} className="mb-6">
@@ -598,8 +597,8 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 emptyState="No SDK information found. Try scanning recent events."
                             />
 
-                            {/* Show documentation links for outdated SDKs in this category */}
-                            {hasOutdatedSDKs && categorySDKs.length > 0 && (
+                            {/* Show documentation links for all SDKs in this category */}
+                            {categorySDKs.length > 0 && (
                                 <div className="mt-2">
                                     <SdkLinks sdkType={categorySDKs[0].type} />
                                 </div>
