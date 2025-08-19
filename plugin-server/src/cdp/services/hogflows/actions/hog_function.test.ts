@@ -12,12 +12,56 @@ import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '../../../types'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationHogFunction } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
+
+const getHogFunctionInvocationFromHogFlowInvocation = ({
+    action,
+    invocation,
+}: {
+    action: Extract<HogFlowAction, { type: 'function' | 'function_email' | 'function_sms' }>
+    invocation: CyclotronJobInvocationHogFlow
+}): CyclotronJobInvocationHogFunction => {
+    return {
+        ...invocation,
+        hogFunction: {
+            id: invocation.hogFlow.id,
+            team_id: invocation.teamId,
+            name: 'test',
+            enabled: true,
+            type: 'destination',
+            deleted: false,
+            hog: '<<TEMPLATE>>',
+            bytecode: [],
+            inputs: action.config.inputs,
+            inputs_schema: [],
+            is_addon_required: false,
+            created_at: '',
+            updated_at: '',
+        },
+        state: invocation.state.currentAction?.hogFunctionState ?? {
+            globals: {
+                inputs: {},
+                project: { id: 0, name: '', url: '' },
+                event: {
+                    uuid: '',
+                    event: '',
+                    distinct_id: '',
+                    properties: {},
+                    elements_chain: '',
+                    timestamp: '',
+                    url: '',
+                },
+            },
+            timings: [],
+            attempts: 0,
+        },
+    }
+}
 
 describe('HogFunctionHandler', () => {
     let hub: Hub
@@ -175,7 +219,10 @@ describe('HogFunctionHandler', () => {
 
         await hogFunctionHandler.execute(invocation, action, invocationResult)
 
-        expect(mockRecipientPreferencesService.shouldSkipAction).toHaveBeenCalledWith(invocation, action)
+        expect(mockRecipientPreferencesService.shouldSkipAction).toHaveBeenCalledWith(
+            getHogFunctionInvocationFromHogFlowInvocation({ invocation, action }),
+            action
+        )
     })
 
     it('should skip execution if recipient preferences service returns true', async () => {
@@ -188,7 +235,10 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute(invocation, action, invocationResult)
 
-        expect(mockRecipientPreferencesService.shouldSkipAction).toHaveBeenCalledWith(invocation, action)
+        expect(mockRecipientPreferencesService.shouldSkipAction).toHaveBeenCalledWith(
+            getHogFunctionInvocationFromHogFlowInvocation({ invocation, action }),
+            action
+        )
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain(`[Action:function] Recipient opted out for action function`)
