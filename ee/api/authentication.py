@@ -1,11 +1,22 @@
-from typing import Any, Union
+from typing import Any, Union, Literal
+import re
+from django.core.cache import cache
+
+import jwt
+from jwt.algorithms import RSAAlgorithm
+import requests
+from requests.models import Response
 
 import posthoganalytics
+import structlog
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, AuthenticationFailed
+from rest_framework import authentication
+from rest_framework.request import Request
+from django.contrib.auth.models import AnonymousUser
 from social_core.backends.saml import (
     OID_COMMON_NAME,
     OID_GIVEN_NAME,
@@ -19,6 +30,7 @@ from social_core.backends.google import GoogleOAuth2
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.utils import load_backend, load_strategy
 
+from ee import settings
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -242,3 +254,169 @@ class CustomGoogleOAuth2(GoogleOAuth2):
         except UserSocialAuth.DoesNotExist:
             # No existing user found - use sub for new account
             return sub
+
+
+VERCEL_JWKS_URL: str = "https://marketplace.vercel.com/.well-known/jwks.json"
+VERCEL_ISSUER = "https://marketplace.vercel.com"
+VERCEL_JWKS_CACHE_KEY = "vercel_jwks"
+VERCEL_JWKS_CACHE_TIMEOUT = 600
+
+logger = structlog.get_logger(__name__)
+
+
+def get_vercel_jwks() -> dict[str, Any]:
+    jwks = cache.get(VERCEL_JWKS_CACHE_KEY)
+    if jwks is None:
+        for attempt in range(3):
+            try:
+                response: Response = requests.get(VERCEL_JWKS_URL, timeout=10)
+                response.raise_for_status()
+                jwks = response.json()
+                cache.set(VERCEL_JWKS_CACHE_KEY, jwks, timeout=VERCEL_JWKS_CACHE_TIMEOUT)
+                logger.debug("JWKS fetched successfully")
+                break
+            except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+                if attempt == 2:
+                    logger.exception("JWKS fetch failed after all retries", attempts=3, error=str(e))
+                    raise
+                logger.warning("JWKS fetch failed, retrying", attempt=attempt + 1, error=str(e))
+    return jwks
+
+
+VercelAuthType = Literal["user", "system"]
+VERCEL_AUTH_TYPES: tuple[VercelAuthType, ...] = ("user", "system")
+
+
+class VercelAuthentication(authentication.BaseAuthentication):
+    """
+    Implements Vercel Marketplace API authentication.
+    This authentication uses the OpenID Connect Protocol (OIDC).
+    Vercel sends a JSON web token (JWT) signed with Vercel’s private key and verifiable
+    using Vercel’s public JSON Web Key Sets (JWKS) available through VERCEL_JWKS_URL
+
+    For detailed reference of User/System Auth OIDC token claims schema, see:
+    https://vercel.com/docs/integrations/create-integration/marketplace-api#marketplace-partner-api-authentication
+    """
+
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, dict[str, Any]] | None:
+        """Uses X-Vercel-Auth header to determine validation type"""
+        token = self._get_bearer_token(request)
+        if not token:
+            return None
+
+        auth_type = self._get_vercel_auth_type(request)
+
+        try:
+            payload = self._validate_jwt_token(token, auth_type)
+            logger.info("Vercel auth successful", auth_type=auth_type, account_id=payload.get("account_id"))
+            return AnonymousUser(), payload
+        except jwt.InvalidTokenError as e:
+            logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e))
+            raise AuthenticationFailed(f"Invalid {auth_type} JWT token: {str(e)}")
+
+    def _get_bearer_token(self, request: Request) -> str | None:
+        auth_header = request.META.get("HTTP_AUTHORIZATION")
+
+        if auth_header:
+            parts = auth_header.split(" ")
+            if len(parts) == 2 and parts[0].lower() == "bearer":
+                return parts[1]
+
+        return None
+
+    def _get_vercel_auth_type(self, request: Request) -> VercelAuthType:
+        auth_type = request.headers.get("X-Vercel-Auth", "").lower()
+
+        if auth_type not in VERCEL_AUTH_TYPES:
+            raise AuthenticationFailed("Missing or invalid X-Vercel-Auth header")
+
+        return auth_type
+
+    def _validate_jwt_token(self, token: str, auth_type: VercelAuthType) -> dict[str, Any]:
+        """Validate JWT token using Vercel's JWKS"""
+        # Get the token header to find the key ID
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+
+        if not kid:
+            raise jwt.InvalidTokenError("Token missing key ID")
+
+        # Get JWKS and find the matching key
+        jwks = get_vercel_jwks()
+        public_key = self._get_public_key_from_jwks(jwks, kid)
+
+        # Verify and decode the token
+        if not settings.VERCEL_CLIENT_INTEGRATION_ID:
+            raise jwt.InvalidTokenError("VERCEL_CLIENT_INTEGRATION_ID not configured")
+
+        payload = jwt.decode(
+            token,
+            public_key,
+            algorithms=["RS256"],
+            issuer=VERCEL_ISSUER,
+            options={},
+            audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
+        )
+
+        # Validate claims based on auth type
+        self._validate_claims(payload, auth_type)
+
+        return payload
+
+    def _get_public_key_from_jwks(self, jwks: dict[str, Any], kid: str):
+        """Extract the public key for the given key ID from JWKS"""
+        for key in jwks.get("keys", []):
+            if key.get("kid") == kid:
+                return RSAAlgorithm.from_jwk(key)
+
+        raise jwt.InvalidTokenError(f"Unable to find key with ID: {kid}")
+
+    def _validate_claims(self, payload: dict[str, Any], auth_type: VercelAuthType) -> None:
+        """Validate Vercel JWT claims based on auth type"""
+        # Base required claims
+        required_claims = ["iss", "sub", "aud"]
+
+        for claim in required_claims:
+            if claim not in payload:
+                raise jwt.InvalidTokenError(f"Missing required claim: {claim}")
+
+        if payload["iss"] != VERCEL_ISSUER:
+            raise jwt.InvalidTokenError(f"Invalid issuer: {payload['iss']}")
+
+        # Validate claims specific to auth type
+        if auth_type == "user":
+            self._validate_user_claims(payload)
+        elif auth_type == "system":
+            self._validate_system_claims(payload)
+
+    def _validate_user_claims(self, payload: dict[str, Any]) -> None:
+        user_required_claims = ["account_id", "installation_id", "user_id", "user_role"]
+
+        for claim in user_required_claims:
+            if claim not in payload:
+                raise jwt.InvalidTokenError(f"Missing required User auth claim: {claim}")
+
+        # Validate sub format for user (matches /^account:[0-9a-fA-F]+:user:[0-9a-fA-F]+$/)
+        sub = payload.get("sub", "")
+        if not re.match(r"^account:[0-9a-fA-F]+:user:[0-9a-fA-F]+$", sub):
+            raise jwt.InvalidTokenError(f"Invalid User auth sub format: {sub}")
+
+        # Validate user_role
+        if payload.get("user_role") not in ["ADMIN", "USER"]:
+            raise jwt.InvalidTokenError(f"Invalid user_role: {payload.get('user_role')}")
+
+    def _validate_system_claims(self, payload: dict[str, Any]) -> None:
+        system_required_claims = ["account_id", "installation_id"]
+
+        for claim in system_required_claims:
+            if claim not in payload:
+                raise jwt.InvalidTokenError(f"Missing required System auth claim: {claim}")
+
+        # Validate sub format for system (matches /^account:[0-9a-fA-F]+$/)
+        sub = payload.get("sub", "")
+        if sub and not re.match(r"^account:[0-9a-fA-F]+$", sub):
+            raise jwt.InvalidTokenError(f"Invalid System auth sub format: {sub}")
+
+        # installation_id can be null for system auth - just validate it exists
+        if "installation_id" not in payload:
+            raise jwt.InvalidTokenError("Missing installation_id claim")
