@@ -6,11 +6,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 
 import posthoganalytics
+from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
+from two_factor.utils import default_device
 
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
@@ -21,6 +23,7 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException
+from posthog.mfa_session import is_mfa_verified_in_session
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
@@ -328,6 +331,48 @@ class TimeSensitiveActionPermission(BasePermission):
             return False
 
         return True
+
+
+class MFARequiredPermission(BasePermission):
+    """
+    Enforces MFA requirements for organizations with enforce_2fa=True.
+    Only applies to session-based authentication (not API keys).
+    """
+
+    message = "Multi-factor authentication is required for this organization."
+
+    def has_permission(self, request, view) -> bool:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return True
+
+        user = cast(User, request.user)
+        if not user or not user.is_authenticated:
+            return True
+
+        organization = self._get_organization(request, view, user)
+        if not organization or not organization.enforce_2fa:
+            return True
+
+        if is_impersonated_session(request):
+            return True
+
+        # If no 2FA devices set up
+        if not default_device(user):
+            return False
+
+        if not is_mfa_verified_in_session(request):
+            return False
+
+        return True
+
+    def _get_organization(self, request, view, user: User) -> Optional[Organization]:
+        try:
+            view_org = getattr(view, "organization", None)
+            if view_org:
+                return view_org
+            return getattr(user, "organization", None)
+        except AttributeError:
+            return None
 
 
 class ScopeBasePermission(BasePermission):
