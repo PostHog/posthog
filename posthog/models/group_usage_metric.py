@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, BytecodeModelMixin
 
 
-class GroupUsageMetric(UUIDModel):
+class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
     class Format(models.TextChoices):
         NUMERIC = "numeric", "numeric"
         CURRENCY = "currency", "currency"
@@ -25,10 +25,7 @@ class GroupUsageMetric(UUIDModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "group_type_index", "name"], name="unique_metric_name")]
 
-    def refresh_bytecode(self):
-        # TODO(https://github.com/PostHog/posthog/issues/36710): Implement actual conversion from filter to bytecode
-        self.bytecode = self.filters
+    def get_expr(self):
+        from posthog.cdp.filters import hog_function_filters_to_expr
 
-    def save(self, *args, **kwargs):
-        self.refresh_bytecode()
-        super().save(*args, **kwargs)
+        return hog_function_filters_to_expr(self.filters, self.team, {})
