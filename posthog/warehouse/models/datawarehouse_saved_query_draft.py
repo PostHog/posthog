@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel, UpdatedMetaFields
 
 
-class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     """
     Draft version of a saved query that allows users to iterate on queries
     before materializing them as actual saved queries.

@@ -58,6 +58,7 @@ from .surveys.survey import Survey
 from .file_system.file_system import FileSystem
 from .filters import Filter, RetentionFilter
 from .group import Group
+from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
@@ -76,6 +77,7 @@ from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
+from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
@@ -155,6 +157,7 @@ __all__ = [
     "FileSystem",
     "Filter",
     "Group",
+    "GroupUsageMetric",
     "GroupTypeMapping",
     "HogFlow",
     "HogFunction",
@@ -177,6 +180,7 @@ __all__ = [
     "NotificationViewed",
     "Organization",
     "OrganizationDomain",
+    "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
     "OAuthAccessToken",

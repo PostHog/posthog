@@ -13,12 +13,11 @@ import {
     BillingPlanType,
     BillingProductV2AddonType,
     BillingProductV2Type,
-    BillingTierType,
     BillingType,
     SurveyEventName,
 } from '~/types'
 
-import { convertAmountToUsage, isAddonVisible } from './billing-utils'
+import { isAddonVisible } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
@@ -491,7 +490,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             }
         },
     })),
-    forms(({ actions, props, values }) => ({
+    forms(({ actions, props }) => ({
         billingLimitInput: {
             errors: ({ input }) => ({
                 input:
@@ -502,22 +501,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : 'Please enter a whole number',
             }),
             submit: async ({ input }) => {
-                const addonTiers =
-                    'addons' in props.product
-                        ? props.product.addons
-                              ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                              ?.map((addon: BillingProductV2AddonType) => addon.tiers)
-                        : []
-
-                const productAndAddonTiers: BillingTierType[][] = [props.product.tiers, ...addonTiers].filter(
-                    Boolean
-                ) as BillingTierType[][]
-
-                const newAmountAsUsage = props.product.tiers
-                    ? convertAmountToUsage(`${input}`, productAndAddonTiers, values.billing?.discount_percent)
-                    : 0
-
-                if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
+                if (props.product.current_amount_usd && input < props.product.current_amount_usd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',
@@ -538,7 +522,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return
                 }
 
-                if (props.product.projected_usage && newAmountAsUsage < props.product.projected_usage) {
+                if (props.product.projected_amount_usd && input < props.product.projected_amount_usd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',

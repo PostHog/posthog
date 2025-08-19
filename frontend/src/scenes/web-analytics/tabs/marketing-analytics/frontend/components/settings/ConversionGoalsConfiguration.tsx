@@ -4,10 +4,13 @@ import { useState } from 'react'
 import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
+import { SceneSection } from '~/layout/scenes/SceneContent'
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -24,12 +27,19 @@ const createEmptyFormState = (): ConversionGoalFormState => ({
     name: '',
 })
 
-export function ConversionGoalsConfiguration(): JSX.Element {
+export function ConversionGoalsConfiguration({
+    hideTitle = false,
+    hideDescription = false,
+}: {
+    hideTitle?: boolean
+    hideDescription?: boolean
+}): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const handleAddConversionGoal = (): void => {
         let conversionGoalName = formState.name.trim()
@@ -71,14 +81,23 @@ export function ConversionGoalsConfiguration(): JSX.Element {
     const isFormValid = defaultConversionGoalFilter.name !== formState.filter.name
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h3 className="mb-2">Conversion goals</h3>
-                <p className="mb-4">
-                    Define conversion goals by selecting events or data warehouse tables. These goals can be used to
-                    track and analyze user conversions in your marketing analytics.
-                </p>
-            </div>
+        <SceneSection
+            hideTitleAndDescription={!newSceneLayout}
+            title={!hideTitle ? 'Conversion goals' : undefined}
+            description="Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics."
+            className={cn(!newSceneLayout && 'gap-y-4')}
+        >
+            {!newSceneLayout && (!hideTitle || !hideDescription) && (
+                <div>
+                    {!hideTitle && <h3 className="mb-2">Conversion goals</h3>}
+                    {!hideDescription && (
+                        <p className="mb-0">
+                            Define conversion goals by selecting events or data warehouse tables. These goals can be
+                            used to track and analyze user conversions in your marketing analytics.
+                        </p>
+                    )}
+                </div>
+            )}
 
             {/* Add New Conversion Goal Form */}
             <div className="border rounded p-4 space-y-4">
@@ -121,7 +140,11 @@ export function ConversionGoalsConfiguration(): JSX.Element {
 
             {/* Existing Conversion Goals Table */}
             <div>
-                <h4 className="font-medium mb-3">Configured conversion goals ({conversion_goals.length})</h4>
+                {newSceneLayout ? (
+                    <h3 className="font-bold mb-4">Configured conversion goals ({conversion_goals.length})</h3>
+                ) : (
+                    <h4 className="font-medium mb-3">Configured conversion goals ({conversion_goals.length})</h4>
+                )}
 
                 <LemonTable
                     rowKey={(item) => item.conversion_goal_id}
@@ -235,6 +258,6 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                     emptyState="No conversion goals configured yet. Add your first conversion goal above."
                 />
             </div>
-        </div>
+        </SceneSection>
     )
 }

@@ -156,22 +156,26 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 messages = serializer.validated_data.get("messages")
                 if not self.validate_messages(messages):
                     return Response({"error": "Invalid messages"}, status=400)
+                # Build kwargs common to all providers
+                stream_kwargs: dict[str, Any] = {
+                    "system": serializer.validated_data.get("system"),
+                    "messages": messages,
+                    "thinking": serializer.validated_data.get("thinking", False),
+                    "temperature": serializer.validated_data.get("temperature"),
+                    "max_tokens": serializer.validated_data.get("max_tokens"),
+                    "tools": serializer.validated_data.get("tools"),
+                    "distinct_id": distinct_id,
+                    "trace_id": trace_id,
+                    "properties": properties,
+                    "groups": groups,
+                }
+
+                # Only pass reasoning_level to OpenAI provider which supports it
+                if isinstance(provider, OpenAIProvider):
+                    stream_kwargs["reasoning_level"] = serializer.validated_data.get("reasoning_level")
+
                 stream = self._create_stream_generator(
-                    provider.stream_response(
-                        **{
-                            "system": serializer.validated_data.get("system"),
-                            "messages": messages,
-                            "thinking": serializer.validated_data.get("thinking", False),
-                            "temperature": serializer.validated_data.get("temperature"),
-                            "max_tokens": serializer.validated_data.get("max_tokens"),
-                            "tools": serializer.validated_data.get("tools"),
-                            "reasoning_level": serializer.validated_data.get("reasoning_level"),
-                            "distinct_id": distinct_id,
-                            "trace_id": trace_id,
-                            "properties": properties,
-                            "groups": groups,
-                        }
-                    ),
+                    provider.stream_response(**stream_kwargs),
                     request,
                 )
             else:

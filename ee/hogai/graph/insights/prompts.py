@@ -16,7 +16,7 @@ Guidelines:
 3. Consider semantic similarity and practical usefulness
 4. You can iterate through pages to find better matches
 5. If you are not satisfied with current found insight, you can replace them with ones found in next pages!
-6. Return 3 highly relevant insights IDs in your final response
+6. Return ONLY 3 highly relevant insights IDs in your final response - no explanations or reasoning
 
 Available insights (Page 1):
 {first_page_insights}
@@ -27,9 +27,9 @@ Available insights (Page 1):
 ITERATIVE_SEARCH_USER_PROMPT = """
 Find 3 insights matching this search query: {query}
 
-Return the insight IDs as a list of numbers.
+IMPORTANT: Return ONLY the insight IDs as a list of numbers. Do not include any explanation or reasoning.
 
-Example output format:
+Required output format (nothing else):
 [42, 17, 205]
 """
 
