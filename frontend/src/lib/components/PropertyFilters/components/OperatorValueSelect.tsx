@@ -45,7 +45,7 @@ export interface OperatorValueSelectProps {
     /**
      * in some contexts you want to externally limit the available operators
      * this won't add an operator if it isn't valid
-     * it limits the options shown from the options that would have been shown
+     * i.e. it limits the options shown from the options that would have been shown
      * **/
     operatorAllowlist?: Array<PropertyOperator>
 }
@@ -140,7 +140,7 @@ export function OperatorValueSelect({
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
         const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
-            return !operatorAllowlist || operatorAllowlist.includes(op as PropertyOperator)
+            return !operatorAllowlist || operatorAllowlist.includes(op)
         })
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {

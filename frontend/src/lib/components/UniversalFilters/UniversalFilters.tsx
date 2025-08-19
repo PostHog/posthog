@@ -81,7 +81,7 @@ const Value = ({
     initiallyOpen = false,
     metadataSource,
     className,
-    operatorAllowList,
+    operatorAllowlist,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -90,7 +90,7 @@ const Value = ({
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
     className?: string
-    operatorAllowList?: OperatorValueSelectProps['operatorAllowlist']
+    operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
@@ -128,7 +128,7 @@ const Value = ({
                         setFilter={(_, property) => onChange(property)}
                         disablePopover={false}
                         taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
-                        operatorAllowList={operatorAllowList}
+                        operatorAllowlist={operatorAllowlist}
                     />
                 ) : null
             }
