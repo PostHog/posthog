@@ -828,8 +828,9 @@ class TestRootNodeTools(BaseTest):
             # Verify result is a PartialAssistantState with FailureMessage
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
-            self.assertIsInstance(result.messages[0], FailureMessage)
-            self.assertEqual(result.messages[0].content, "Max has failed to generate an answer. Please try again.")
+            failure_message = result.messages[0]
+            assert isinstance(failure_message, FailureMessage)
+            self.assertEqual(failure_message.content, "Max has failed to generate an answer. Please try again.")
             self.assertEqual(result.root_tool_calls_count, 1)
 
     async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
@@ -1406,6 +1407,7 @@ Query results: 42 events
             # Verify result is a PartialAssistantState with FailureMessage
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
-            self.assertIsInstance(result.messages[0], FailureMessage)
-            self.assertEqual(result.messages[0].content, "Max has failed to generate an answer. Please try again.")
+            failure_message = result.messages[0]
+            assert isinstance(failure_message, FailureMessage)
+            self.assertEqual(failure_message.content, "Max has failed to generate an answer. Please try again.")
             self.assertEqual(result.root_tool_calls_count, 1)
