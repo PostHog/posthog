@@ -7241,6 +7241,80 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
 
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius_with_group_key_property(self):
+        """Test that $group_key property correctly identifies groups by their key"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create groups with specific keys
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"tech-{i}"},
+            )
+
+        # Create one specific group we'll target
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="special-workspace",
+            properties={"industry": "special"},
+        )
+
+        # Test filtering by exact group key match
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "special-workspace",
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match exactly 1 group out of 11 total
+        self.assertDictContainsSubset({"users_affected": 1, "total_users": 11}, response_json)
+
+        # Test filtering by group key pattern
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "org:",
+                            "operator": "icontains",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match 10 groups that have "org:" in their key
+        self.assertDictContainsSubset({"users_affected": 10, "total_users": 11}, response_json)
+
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0

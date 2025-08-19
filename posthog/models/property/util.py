@@ -289,16 +289,44 @@ def parse_prop_clauses(
                 params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
-                filter_query, filter_params = prop_filter_json_extract(
-                    prop,
-                    idx,
-                    prepend,
-                    prop_var=f"group_properties_{prop.group_type_index}",
-                    allow_denormalized_props=False,
-                    property_operator=property_operator,
-                )
-                final.append(filter_query)
-                params.update(filter_params)
+                # Special case: $group_key refers to the actual group_key column, not a JSON property
+                if prop.key == "$group_key":
+                    operator = prop.operator or "exact"
+                    if prop.negation:
+                        operator = negate_operator(operator)
+
+                    param_key = f"{prepend}_group_key_{idx}"
+                    if operator == "exact":
+                        filter_query = f"{property_operator} group_key = %({param_key})s"
+                    elif operator == "is_not":
+                        filter_query = f"{property_operator} group_key != %({param_key})s"
+                    elif operator == "icontains":
+                        filter_query = f"{property_operator} group_key ILIKE %({param_key})s"
+                        prop.value = f"%{prop.value}%"
+                    elif operator == "not_icontains":
+                        filter_query = f"{property_operator} NOT (group_key ILIKE %({param_key})s)"
+                        prop.value = f"%{prop.value}%"
+                    elif operator in ("regex", "not_regex"):
+                        regex_func = "match" if operator == "regex" else "NOT match"
+                        filter_query = f"{property_operator} {regex_func}(group_key, %({param_key})s)"
+                    else:
+                        # Default to exact match for unsupported operators
+                        filter_query = f"{property_operator} group_key = %({param_key})s"
+
+                    filter_params = {param_key: prop.value}
+                    final.append(filter_query)
+                    params.update(filter_params)
+                else:
+                    filter_query, filter_params = prop_filter_json_extract(
+                        prop,
+                        idx,
+                        prepend,
+                        prop_var=f"group_properties_{prop.group_type_index}",
+                        allow_denormalized_props=False,
+                        property_operator=property_operator,
+                    )
+                    final.append(filter_query)
+                    params.update(filter_params)
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
