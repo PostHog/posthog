@@ -57,6 +57,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.geoip import get_geoip_properties
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
@@ -616,6 +617,17 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = ip.split(":")[0]
 
     return ip
+
+
+def get_location_from_ip(ip_address: str) -> str:
+    """Compose location as 'Region, Country', omit region if missing"""
+    geoip_data = get_geoip_properties(ip_address)
+    location = ", ".join(
+        part
+        for part in [geoip_data.get("$geoip_region_name", ""), geoip_data.get("$geoip_country_name", "Unknown")]
+        if part
+    )
+    return location
 
 
 def get_short_user_agent(request: HttpRequest) -> str:

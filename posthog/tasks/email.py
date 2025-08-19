@@ -31,7 +31,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
 from posthog.caching.login_device_cache import check_and_cache_login_device
-from posthog.geoip import get_geoip_properties
+from posthog.utils import get_location_from_ip
 from posthog.event_usage import groups
 from posthog.ph_client import get_client
 
@@ -482,19 +482,12 @@ def login_from_new_device_notification(
     if not enabled:
         return
 
-    is_new_device = check_and_cache_login_device(user_id, ip_address, short_user_agent)
+    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
+    location = get_location_from_ip(ip_address)  # Region, Country
+
+    is_new_device = check_and_cache_login_device(user_id, location, short_user_agent)
     if not is_new_device:
         return
-
-    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
-    geoip_data = get_geoip_properties(ip_address)
-
-    # Compose location as "City, Country" (omit city if missing)
-    location = ", ".join(
-        part
-        for part in [geoip_data.get("$geoip_city_name", ""), geoip_data.get("$geoip_country_name", "Unknown")]
-        if part
-    )
 
     message = EmailMessage(
         use_http=True,
