@@ -1,5 +1,4 @@
 // for testing scenarios and ensuring that outcomes for dualwrite and singlewrite are the same
-
 // we should test: 1. contract returned is the same, 2. consistency across primary and secondary
 import { DateTime } from 'luxon'
 
@@ -16,6 +15,8 @@ import { PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresDualWritePersonRepository } from './postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import {
+    TEST_TIMESTAMP,
+    TEST_UUIDS,
     assertConsistencyAcrossDatabases,
     assertConsistentDatabaseErrorHandling,
     assertCreatePersonConflictContractParity,
@@ -24,8 +25,6 @@ import {
     getFirstTeam,
     mockDatabaseError,
     setupMigrationDb,
-    TEST_TIMESTAMP,
-    TEST_UUIDS,
 } from './test-helpers'
 
 jest.mock('../../../../utils/logger')
