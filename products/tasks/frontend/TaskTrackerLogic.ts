@@ -1,11 +1,12 @@
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { UniqueIdentifier } from 'node_modules/@dnd-kit/core/dist'
 
 import api from 'lib/api'
 
 import { demoTasks } from './demoData'
 import type { taskTrackerLogicType } from './taskTrackerLogicType'
-import { KanbanColumn, Task, TaskStatus, TaskUpsertProps } from './types'
+import { Task, TaskStatus, TaskUpsertProps } from './types'
 
 export const taskTrackerLogic = kea<taskTrackerLogicType>([
     path(['products', 'tasks', 'frontend', 'taskTrackerLogic']),
@@ -205,27 +206,20 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
         ],
         kanbanColumns: [
             (s) => [s.tasks],
-            (tasks): KanbanColumn[] => {
-                const columns: KanbanColumn[] = [
-                    { id: TaskStatus.BACKLOG, title: 'Backlog', tasks: [] },
-                    { id: TaskStatus.TODO, title: 'To Do', tasks: [] },
-                    { id: TaskStatus.IN_PROGRESS, title: 'In Progress', tasks: [] },
-                    { id: TaskStatus.TESTING, title: 'Testing', tasks: [] },
-                    { id: TaskStatus.DONE, title: 'Done', tasks: [] },
-                ]
-
-                tasks.forEach((task) => {
-                    const column = columns.find((col) => col.id === task.status)
-                    if (column) {
-                        column.tasks.push(task)
-                    }
-                })
-
-                columns.forEach((column) => {
-                    column.tasks.sort((a, b) => a.position - b.position)
-                })
-
-                return columns
+            (tasks): Record<UniqueIdentifier, Task[]> => {
+                return tasks.reduce(
+                    (acc, task) => {
+                        acc[task.status].push(task)
+                        return acc
+                    },
+                    {
+                        [TaskStatus.BACKLOG]: [],
+                        [TaskStatus.TODO]: [],
+                        [TaskStatus.IN_PROGRESS]: [],
+                        [TaskStatus.TESTING]: [],
+                        [TaskStatus.DONE]: [],
+                    } as Record<TaskStatus, Task[]>
+                )
             },
         ],
         selectedTask: [
