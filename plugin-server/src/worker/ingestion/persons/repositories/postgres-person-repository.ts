@@ -321,7 +321,7 @@ export class PostgresPersonRepository
                         (_, index) => `, distinct_id_${index} AS (
                             INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                             VALUES (
-                                $${distinctIdStartIndex + distinctIds!.length - 1 - index},
+                                $${distinctIdStartIndex + index},
                                 (SELECT id FROM inserted_person),
                                 $${teamIdParamIndex},
                                 $${distinctIdVersionStartIndex + index})
