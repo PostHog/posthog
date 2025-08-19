@@ -4,13 +4,11 @@ import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimi
 
 import { SceneDataAttrKeyProps } from '../utils'
 
-type SceneAddToDropdownMenuProps = {
-    onClick?: () => void
-}
-
 type SceneAddToDashboardButtonProps = SceneDataAttrKeyProps &
     Pick<ButtonPrimitiveProps, 'disabledReasons'> & {
-        dashboard?: SceneAddToDropdownMenuProps
+        dashboard?: {
+            onClick?: () => void
+        }
     }
 
 export function SceneAddToDashboardButton({
