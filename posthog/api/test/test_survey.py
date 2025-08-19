@@ -3498,6 +3498,233 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 3) * 100 = 33.33
         self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
 
+    def test_create_survey_with_valid_linked_flag_variant(self):
+        """Test creating a survey with a valid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-ab-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "control"},
+                "questions": [{"type": "open", "question": "How is the control version?"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "control")
+
+    def test_create_survey_with_invalid_linked_flag_variant(self):
+        """Test creating a survey with an invalid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-ab-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Invalid Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "non_existent_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("Feature flag variant 'non_existent_variant' does not exist", error_data["detail"])
+        self.assertIn("Available variants: control, treatment", error_data["detail"])
+
+    def test_create_survey_with_linked_flag_variant_any(self):
+        """Test creating a survey with linkedFlagVariant set to 'any'"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-multivariate-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "variant_a", "rollout_percentage": 33},
+                        {"key": "variant_b", "rollout_percentage": 33},
+                        {"key": "variant_c", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Any Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "any"},
+                "questions": [{"type": "open", "question": "How is the feature?"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "any")
+
+    def test_create_survey_with_linked_flag_variant_no_variants(self):
+        """Test creating a survey with linkedFlagVariant when flag has no variants"""
+        # Create a simple feature flag without variants
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="simple-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "No Variants Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "some_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn(
+            "Feature flag variant 'some_variant' specified but the linked feature flag has no variants",
+            error_data["detail"],
+        )
+
+    def test_create_survey_with_linked_flag_variant_without_flag_id(self):
+        """Test creating a survey with linkedFlagVariant but no linked_flag_id"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "No Flag ID Survey",
+                "type": "popover",
+                "conditions": {"linkedFlagVariant": "some_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data["detail"], "linkedFlagVariant can only be used when a linked_flag_id is specified")
+
+    def test_update_survey_with_valid_linked_flag_variant(self):
+        """Test updating a survey to add a valid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="update-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [{"key": "alpha", "rollout_percentage": 50}, {"key": "beta", "rollout_percentage": 50}]
+                },
+            },
+        )
+
+        # Create a survey without variant
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Update Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+        )
+
+        # Update survey to add feature flag and variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"linked_flag_id": flag.id, "conditions": {"linkedFlagVariant": "alpha"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "alpha")
+
+    def test_update_survey_with_invalid_linked_flag_variant(self):
+        """Test updating a survey with an invalid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="update-invalid-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "option_1", "rollout_percentage": 50},
+                        {"key": "option_2", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Create a survey
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Update Invalid Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+        )
+
+        # Try to update survey with invalid variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"linked_flag_id": flag.id, "conditions": {"linkedFlagVariant": "invalid_option"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("Feature flag variant 'invalid_option' does not exist", error_data["detail"])
+        self.assertIn("Available variants: option_1, option_2", error_data["detail"])
+
 
 @pytest.mark.parametrize(
     "test_input,expected",

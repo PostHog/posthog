@@ -1,5 +1,7 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSwitch } from '@posthog/lemon-ui'
+
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'

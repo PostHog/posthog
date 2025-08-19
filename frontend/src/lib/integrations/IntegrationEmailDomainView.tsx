@@ -1,10 +1,13 @@
+import { useActions } from 'kea'
+
 import { IconLetter, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
+
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
+
 import { integrationsLogic } from './integrationsLogic'
-import { useActions } from 'kea'
 
 const isVerificationRequired = (integration: IntegrationType): boolean => {
     return ['email'].includes(integration.kind)

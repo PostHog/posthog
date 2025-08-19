@@ -1,8 +1,9 @@
 import clsx from 'clsx'
+import { memo } from 'react'
+
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
-import { memo } from 'react'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 function formattedReplayTime(

@@ -40,7 +40,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
     pub fn from_config(
         config: &rdkafka::ClientConfig,
         rebalance_handler: Arc<dyn RebalanceHandler>,
-        message_processor: P,
+        message_processor: Arc<P>,
         max_in_flight_messages: usize,
         commit_interval: Duration,
         shutdown_rx: oneshot::Receiver<()>,
@@ -55,7 +55,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
         Ok(Self {
             consumer,
-            message_processor: Arc::new(message_processor),
+            message_processor,
             tracker,
             global_semaphore,
             commit_interval,

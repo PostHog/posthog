@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { FunctionComponent, isValidElement, useEffect, useRef } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+import useResizeObserver from 'use-resize-observer'
+
 import {
     BaseIcon,
     IconBolt,
@@ -14,13 +20,11 @@ import {
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond } from 'lib/utils'
-import { FunctionComponent, isValidElement, useEffect, useRef } from 'react'
 import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import {
     ItemAnyComment,
@@ -28,8 +32,6 @@ import {
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
-import { useDebouncedCallback } from 'use-debounce'
-import useResizeObserver from 'use-resize-observer'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 

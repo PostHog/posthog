@@ -1,17 +1,19 @@
 import './BoldNumber.scss'
 
-import { IconTrending } from '@posthog/icons'
-import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
 import React from 'react'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+
+import { IconTrending } from '@posthog/icons'
+import { LemonRow, Link } from '@posthog/lemon-ui'
+
+import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 

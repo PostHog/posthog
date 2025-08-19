@@ -1,9 +1,9 @@
-import 'givens/setup'
-import './commands'
 import 'cypress-axe'
+import 'givens/setup'
 
 import { urls } from 'scenes/urls'
 
+import './commands'
 import { setupFeatureFlags } from './decide'
 
 try {

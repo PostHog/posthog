@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'

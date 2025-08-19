@@ -1,6 +1,8 @@
 import { BreakPointFunction } from 'kea'
+
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { getDefaultInterval, UnexpectedNeverError } from 'lib/utils'
+import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
+
 import { hogqlQuery } from '~/queries/query'
 import {
     BreakdownFilter,

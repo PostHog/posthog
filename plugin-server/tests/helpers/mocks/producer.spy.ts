@@ -4,7 +4,6 @@
  *
  * It does not mock the producer itself, for that see `producer.mock.ts`
  */
-
 import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
 import { parseJSON } from '../../../src/utils/json-parse'
 

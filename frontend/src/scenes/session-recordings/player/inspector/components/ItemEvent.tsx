@@ -2,11 +2,16 @@ import './ImagePreview.scss'
 
 import { IconShare, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, Link } from '@posthog/lemon-ui'
+
+import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
+import { getExceptionAttributes } from 'lib/components/Errors/utils'
+import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -15,10 +20,6 @@ import { urls } from 'scenes/urls'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
-import { getExceptionAttributes } from 'lib/components/Errors/utils'
-import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
-import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
-import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent

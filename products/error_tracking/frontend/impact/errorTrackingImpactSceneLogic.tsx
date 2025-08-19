@@ -1,15 +1,17 @@
-import { path, selectors, kea, reducers, actions, listeners, connect } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
+
+import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
-import type { errorTrackingImpactSceneLogicType } from './errorTrackingImpactSceneLogicType'
-import { errorTrackingIssueCorrelationQuery } from '../queries'
-import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
-import api from 'lib/api'
-import { subscriptions } from 'kea-subscriptions'
 import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
+import { errorTrackingIssueCorrelationQuery } from '../queries'
+import type { errorTrackingImpactSceneLogicType } from './errorTrackingImpactSceneLogicType'
 
 export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'errorTrackingImpactSceneLogic']),

@@ -1,12 +1,11 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { parseJSON } from '../utils/json-parse'
-import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
@@ -16,6 +15,7 @@ import {
     LogEntrySerialized,
     MinimalLogEntry,
 } from './types'
+
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'

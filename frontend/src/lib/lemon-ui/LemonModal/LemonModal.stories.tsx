@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonModal, LemonModalProps } from './LemonModal'
 

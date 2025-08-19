@@ -1,15 +1,17 @@
 import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { wordPluralize } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import type { groupsModelType } from './groupsModelType'
+
 export interface Noun {
     singular: string
     plural: string
