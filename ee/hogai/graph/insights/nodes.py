@@ -345,7 +345,7 @@ class InsightSearchNode(AssistantNode):
                     for tool_call in response.tool_calls:
                         if tool_call.get("name") == "read_insights_page":
                             page_num = tool_call.get("args", {}).get("page_number", 0)
-                            page_message = f"Reading page {page_num + 1} to find more relevant insights"
+                            page_message = "Finding the most relevant insights"
                             self._stream_reasoning(content=page_message, writer=writer)
 
                             tool_response = await sync_to_async(self._get_page_content_for_tool)(page_num)
@@ -367,7 +367,7 @@ class InsightSearchNode(AssistantNode):
 
             except Exception as e:
                 capture_exception(e)
-                error_message = f"Error during search..."
+                error_message = f"Error during search"
                 self._stream_reasoning(content=error_message, writer=writer)
                 break
 
