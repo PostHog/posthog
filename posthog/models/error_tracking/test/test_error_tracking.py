@@ -5,7 +5,7 @@ from django.db.utils import IntegrityError
 from unittest.mock import patch
 
 from posthog.test.base import BaseTest
-from posthog.models.error_tracking import (
+from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueAssignment,

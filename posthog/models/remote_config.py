@@ -12,7 +12,7 @@ import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
+from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig

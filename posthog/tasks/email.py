@@ -25,7 +25,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.error_tracking import ErrorTrackingIssueAssignment
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT

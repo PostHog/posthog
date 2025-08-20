@@ -50,7 +50,7 @@ from posthog.utils import (
 )
 from posthog.models import BatchExport
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 

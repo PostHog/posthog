@@ -13,7 +13,7 @@ from posthog.schema import (
     DateRange,
 )
 from django.db.models import QuerySet
-from posthog.models.error_tracking import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.hogql.parser import parse_select
 import datetime

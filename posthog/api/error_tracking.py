@@ -21,7 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.utils import UUIDT
 from posthog.models.integration import Integration, GitHubIntegration, LinearIntegration
-from posthog.models.error_tracking import (
+from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingRelease,
     ErrorTrackingSymbolSet,
