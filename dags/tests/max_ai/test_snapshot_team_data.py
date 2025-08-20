@@ -80,7 +80,7 @@ def test_snapshot_postgres_model_skips_when_file_exists(
     mock_compose_path.return_value = file_key
     mock_check_dump_exists.return_value = True
 
-    project_id = 123
+    team_id = 123
     file_name = "teams"
     code_version = "v1"
 
@@ -90,13 +90,13 @@ def test_snapshot_postgres_model_skips_when_file_exists(
         model_type=TeamSnapshot,
         file_name=file_name,
         s3=mock_s3,
-        project_id=project_id,
+        team_id=team_id,
         code_version=code_version,
     )
 
     # Verify
     assert result == file_key
-    mock_compose_path.assert_called_once_with(project_id, file_name, code_version)
+    mock_compose_path.assert_called_once_with(team_id, file_name, code_version)
     mock_check_dump_exists.assert_called_once_with(mock_s3, file_key)
     mock_context.log.info.assert_called_once_with(f"Skipping {file_key} because it already exists")
 
@@ -112,10 +112,10 @@ def test_snapshot_postgres_model_dumps_when_file_not_exists(
     mock_compose_path.return_value = file_key
     mock_check_dump_exists.return_value = False
 
-    # Mock the serialize_for_project method
+    # Mock the serialize_for_team method
     mock_serialized_data = [{"id": 1, "name": "test"}]
-    with patch.object(TeamSnapshot, "serialize_for_project", return_value=mock_serialized_data):
-        project_id = 123
+    with patch.object(TeamSnapshot, "serialize_for_team", return_value=mock_serialized_data):
+        team_id = 123
         file_name = "teams"
         code_version = "v1"
 
@@ -125,13 +125,13 @@ def test_snapshot_postgres_model_dumps_when_file_not_exists(
             model_type=TeamSnapshot,
             file_name=file_name,
             s3=mock_s3,
-            project_id=project_id,
+            team_id=team_id,
             code_version=code_version,
         )
 
     # Verify
     assert result == file_key
-    mock_compose_path.assert_called_once_with(project_id, file_name, code_version)
+    mock_compose_path.assert_called_once_with(team_id, file_name, code_version)
     mock_check_dump_exists.assert_called_once_with(mock_s3, file_key)
     mock_context.log.info.assert_called_with(f"Dumping {file_key}")
     mock_dump.assert_called_once_with(mock_serialized_data)
@@ -141,7 +141,7 @@ def test_snapshot_postgres_model_dumps_when_file_not_exists(
 def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgres_model, mock_s3):
     """Test that snapshot_postgres_project_data exports all expected models."""
     # Setup
-    project_id = 456
+    team_id = 456
     mock_snapshot_postgres_model.side_effect = [
         "path/to/project.avro",
         "path/to/property_definitions.avro",
@@ -153,7 +153,7 @@ def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgre
     context = dagster.build_op_context()
 
     # Execute
-    result = snapshot_postgres_project_data(context, project_id, mock_s3)
+    result = snapshot_postgres_project_data(context, team_id, mock_s3)
 
     # Verify all expected models are in the result
     assert isinstance(result, PostgresTeamDataSnapshot)

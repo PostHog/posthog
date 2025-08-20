@@ -1,5 +1,5 @@
 import json
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
@@ -31,7 +31,7 @@ class ToolRelevance(ScorerWithPartial):
             return Score(name=self._name(), score=0)
         if not isinstance(expected, AssistantToolCall):
             raise TypeError(f"Eval case expected must be an AssistantToolCall, not {type(expected)}")
-        if not isinstance(output, AssistantMessage | LangchainAIMessage):
+        if not isinstance(output, AssistantMessage):
             raise TypeError(f"Eval case output must be an AssistantMessage, not {type(output)}")
         if output.tool_calls and len(output.tool_calls) > 1:
             raise ValueError("Parallel tool calls not supported by this scorer yet")
@@ -56,18 +56,22 @@ class ToolRelevance(ScorerWithPartial):
         return Score(name=self._name(), score=score)
 
 
+QueryType = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+
+
 class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    query: QueryType
     query_generation_retry_count: int | None
 
 
 def serialize_output(output: PlanAndQueryOutput | dict | None) -> PlanAndQueryOutput | None:
     if output:
-        return {
+        serialized_output: PlanAndQueryOutput = {
             **output,
-            "query": output.get("query").model_dump(exclude_none=True),
+            "query": cast(QueryType, output.get("query")).model_dump(exclude_none=True),
         }
+        return serialized_output
     return None
 
 

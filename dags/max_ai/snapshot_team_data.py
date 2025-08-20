@@ -44,6 +44,9 @@ from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsPropertyTaxonomyResponse,
+    CachedActorsPropertyTaxonomyQueryResponse,
+    CachedEventTaxonomyQueryResponse,
+    CachedTeamTaxonomyQueryResponse,
     EventTaxonomyQuery,
     TeamTaxonomyItem,
     TeamTaxonomyQuery,
@@ -134,12 +137,12 @@ def snapshot_properties_taxonomy(
     results: list[PropertyTaxonomySnapshot] = []
 
     def snapshot_event(item: TeamTaxonomyItem):
-        return call_query_runner(
-            lambda: EventTaxonomyQueryRunner(
-                query=EventTaxonomyQuery(event=item.event),
-                team=team,
-            ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        response = EventTaxonomyQueryRunner(query=EventTaxonomyQuery(event=item.event), team=team).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
+        if not isinstance(response, CachedEventTaxonomyQueryResponse):
+            raise ValueError(f"Unexpected response type from event taxonomy query: {type(response)}")
+        return response
 
     for item in events:
         context.log.info(f"Snapshotting properties taxonomy for event {item.event} of {team.id}")
@@ -165,11 +168,16 @@ def snapshot_events_taxonomy(
 
     context.log.info(f"Snapshotting events taxonomy for {team.id}")
 
-    res = call_query_runner(
-        lambda: TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).run(
+    def snapshot_events_taxonomy():
+        response = TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).run(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
-    )
+        if not isinstance(response, CachedTeamTaxonomyQueryResponse):
+            raise ValueError(f"Unexpected response type from events taxonomy query: {type(response)}")
+        return response
+
+    res = call_query_runner(snapshot_events_taxonomy)
+
     if not res.results:
         raise ValueError("No results from events taxonomy query")
 
@@ -234,12 +242,13 @@ def snapshot_actors_property_taxonomy(
         for batch in chunked(property_defs, 200):
 
             def snapshot(index: int | None, batch: list[str]):
-                return call_query_runner(
-                    lambda: ActorsPropertyTaxonomyQueryRunner(
-                        query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
-                        team=team,
-                    ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-                )
+                response = ActorsPropertyTaxonomyQueryRunner(
+                    query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
+                    team=team,
+                ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
+                    raise ValueError(f"Unexpected response type from actors property taxonomy query: {type(response)}")
+                return response
 
             res = snapshot(index, batch)
 

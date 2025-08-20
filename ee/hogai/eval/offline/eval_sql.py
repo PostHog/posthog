@@ -28,7 +28,7 @@ class EvalOutput(BaseModel):
 
 
 class EvalMetadata(TypedDict):
-    project_id: int
+    team_id: int
 
 
 async def serialize_database(team: Team):
@@ -40,7 +40,7 @@ async def serialize_database(team: Team):
 @pytest.fixture
 def call_graph(eval_ctx: EvaluationContext):
     async def callable(entry: DatasetInput, *args, **kwargs) -> EvalOutput:
-        team = await Team.objects.aget(id=entry.project_id)
+        team = await Team.objects.aget(id=entry.team_id)
         conversation, database_schema = await asyncio.gather(
             Conversation.objects.acreate(team=team, user=eval_ctx.user),
             serialize_database(team),
@@ -88,7 +88,7 @@ async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutp
 
 def generate_test_cases(eval_ctx: EvaluationContext):
     for entry in eval_ctx.dataset:
-        metadata: EvalMetadata = {"project_id": entry.project_id}
+        metadata: EvalMetadata = {"team_id": entry.team_id}
         yield EvalCase(input=entry, expected=entry.expected["output"], metadata=cast(dict, metadata))
 
 

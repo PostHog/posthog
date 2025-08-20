@@ -128,7 +128,7 @@ class SnapshotLoader:
 
     async def _load_team_snapshot(self, project: Project, team_id: int, buffer: BytesIO) -> Team:
         team_snapshot = next(self._parse_snapshot_to_schema(TeamSnapshot, buffer))
-        team = next(TeamSnapshot.deserialize_for_project([team_snapshot], team_id=team_id, project_id=project.id))
+        team = next(TeamSnapshot.deserialize_for_team([team_snapshot], team_id=team_id, project_id=project.id))
         team.project = project
         team.organization = self.organization
         team.api_token = f"team_{team_id}"
@@ -137,21 +137,21 @@ class SnapshotLoader:
 
     async def _load_property_definitions(self, buffer: BytesIO, *, team: Team, project: Project):
         snapshot = list(self._parse_snapshot_to_schema(PropertyDefinitionSnapshot, buffer))
-        property_definitions = PropertyDefinitionSnapshot.deserialize_for_project(
+        property_definitions = PropertyDefinitionSnapshot.deserialize_for_team(
             snapshot, team_id=team.id, project_id=project.id
         )
         return await PropertyDefinition.objects.abulk_create(property_definitions, batch_size=500)
 
     async def _load_group_type_mappings(self, buffer: BytesIO, *, team: Team, project: Project):
         snapshot = list(self._parse_snapshot_to_schema(GroupTypeMappingSnapshot, buffer))
-        group_type_mappings = GroupTypeMappingSnapshot.deserialize_for_project(
+        group_type_mappings = GroupTypeMappingSnapshot.deserialize_for_team(
             snapshot, team_id=team.id, project_id=project.id
         )
         return await GroupTypeMapping.objects.abulk_create(group_type_mappings, batch_size=500)
 
     async def _load_data_warehouse_tables(self, buffer: BytesIO, *, team: Team, project: Project):
         snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSnapshot, buffer))
-        data_warehouse_tables = DataWarehouseTableSnapshot.deserialize_for_project(
+        data_warehouse_tables = DataWarehouseTableSnapshot.deserialize_for_team(
             snapshot, team_id=team.id, project_id=project.id
         )
         return await DataWarehouseTable.objects.abulk_create(data_warehouse_tables, batch_size=500)
