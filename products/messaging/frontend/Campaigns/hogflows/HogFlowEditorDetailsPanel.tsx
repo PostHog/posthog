@@ -5,6 +5,7 @@ import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { CategorySelect } from '../../OptOuts/CategorySelect'
@@ -38,10 +39,12 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
 
     const validationResult = HogFlowActionSchema.safeParse(action)
     const hasConfigurationErrors = !['trigger', 'exit'].includes(action.type) && !validationResult.success
-    const fieldsWithErrors = (
-        validationResult.error?.issues.map((issue) => String(issue.path[issue.path.length - 2]).replaceAll('_', ' ')) ||
-        []
-    ).join(', ')
+    const fieldsWithErrors = validationResult.error
+        ? // err.path.length - 2, because - 1 always be "value" for hog function inputs
+          validationResult.error.errors
+              .map((err) => `${capitalizeFirstLetter(String(err.path[err.path.length - 2]))}: ${err.message}`)
+              .join(', ')
+        : ''
 
     return (
         <div className="flex flex-col h-full w-140 overflow-hidden">
