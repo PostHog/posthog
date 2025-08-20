@@ -292,7 +292,12 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+        try:
+            core_memory = CoreMemory.objects.get(team=self._team)
+        except CoreMemory.DoesNotExist:
+            # Edge case: create if missing, but this shouldn't happen in normal flow
+            core_memory = CoreMemory.objects.create(team=self._team)
+        
         if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
         return "continue"
@@ -349,7 +354,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+        # This router only checks state, no CoreMemory needed
         if state.root_tool_insight_plan:
             return "insights"
         return "continue"
