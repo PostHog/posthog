@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
         ("posthog", "0829_remove_error_tracking"),
     ]
 
-    database_operations = []
+    database_operations = []  # type: ignore
 
     state_operations = [
         migrations.CreateModel(
