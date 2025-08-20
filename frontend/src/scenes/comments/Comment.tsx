@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react'
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -19,13 +20,15 @@ export type CommentProps = {
 }
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, commentsLoading, replyingCommentId } = useValues(commentsLogic)
+    const { editingComment, commentsLoading, replyingCommentId, emojiReactionsByComment, isMyComment } =
+        useValues(commentsLogic)
     const { deleteComment, setEditingComment, persistEditedComment, setReplyingComment, sendEmojiReaction } =
         useActions(commentsLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
     const isHighlighted = replyingCommentId === comment.id || editingComment?.id === comment.id
+    const reactions = emojiReactionsByComment[comment.id] || {}
 
     useEffect(() => {
         if (isHighlighted) {
@@ -81,7 +84,40 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         <span className="text-xs text-secondary italic">
                             {comment.version ? <span>(edited)</span> : null}
                         </span>
-                        <div data-attr="comment-reactions">
+                        <div data-attr="comment-reactions" className="flex items-center">
+                            {Object.entries(reactions).map(([emoji, commentList]) => (
+                                <LemonButton
+                                    key={emoji}
+                                    type="tertiary"
+                                    onClick={() => {
+                                        if (isMyComment(comment)) {
+                                            deleteComment(comment)
+                                        } else {
+                                            sendEmojiReaction(emoji, comment.id)
+                                        }
+                                    }}
+                                    size="small"
+                                    data-attr={`comment-reaction-${emoji}`}
+                                    tooltip={
+                                        <div className="flex flex-col gap-2">
+                                            <div>
+                                                <SentenceList
+                                                    listParts={commentList.map(
+                                                        (c) => c.created_by?.first_name ?? 'Unknown user'
+                                                    )}
+                                                />
+                                                <div>reacted</div>
+                                                <div className="text-2xl">{emoji}</div>
+                                            </div>
+                                        </div>
+                                    }
+                                >
+                                    <div className="flex flex-row gap-1 items-center">
+                                        <span>{emoji}</span>
+                                        <span className="text-xs font-semibold">{commentList.length}</span>
+                                    </div>
+                                </LemonButton>
+                            ))}
                             <EmojiPickerPopover
                                 onSelect={(emoji: string): void => {
                                     sendEmojiReaction(emoji, comment.id)
