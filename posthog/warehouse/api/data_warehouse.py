@@ -1,6 +1,7 @@
 import structlog
 from dateutil import parser
 from django.db.models import Sum
+from django.db.models.functions import TruncDate
 from django.db import connection
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -198,27 +199,30 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_available = True
 
-                # Get only external data jobs within the billing period, grouped by day
-                from django.db.models.functions import TruncDate
+                # create a external data job object filtered by billing period and status completed and rows synced greater than 0
+                external_data_jobs = ExternalDataJob.objects.filter(
+                    team_id=self.team_id,
+                    created_at__gte=billing_period_start,
+                    created_at__lt=billing_period_end,
+                    status="Completed",
+                    rows_synced__gt=0,
+                )
 
+                # now use the external_data_jobs object to create a breakdown of rows by day
                 daily_totals = (
-                    ExternalDataJob.objects.filter(
-                        team_id=self.team_id,
-                        created_at__gte=billing_period_start,
-                        created_at__lt=billing_period_end,
-                        status="Completed",
-                        rows_synced__gt=0,
-                    )
-                    .annotate(sync_date=TruncDate("created_at"))
+                    external_data_jobs.annotate(sync_date=TruncDate("created_at"))
                     .values("sync_date")
                     .annotate(total_rows_synced=Sum("rows_synced"))
                     .order_by("sync_date")
                 )
+                # get job details for each job in the daily_totals object using the external_data_jobs object
+                job_details = external_data_jobs.filter(id__in=daily_totals.values_list("id", flat=True))
 
                 breakdown_of_rows_by_day = [
                     {
                         "date": item["sync_date"].strftime("%Y-%m-%d"),
                         "rows_synced": item["total_rows_synced"] or 0,
+                        "daily_totals": job_details,
                     }
                     for item in daily_totals
                 ]
