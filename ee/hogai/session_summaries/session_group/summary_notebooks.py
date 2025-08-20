@@ -230,24 +230,19 @@ def generate_notebook_content_from_summary(
         }
 
     # Sort patterns by severity: critical, high, medium, low
-    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    patterns_sorted = sorted(
-        patterns, key=lambda p: severity_order.get(p.severity.value if hasattr(p.severity, "value") else p.severity, 3)
-    )
     content = []
-
     # Title
     content.append(create_heading_with_text(f"Session Summaries Report - {project_name}", 1))
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
     content.append(create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
     # Summary table
-    table_content = _create_summary_table(patterns_sorted, total_sessions)
+    table_content = _create_summary_table(patterns, total_sessions)
     content.extend(table_content)
     content.append(_create_line_separator())
 
     # Pattern details
-    for pattern in patterns_sorted:
+    for pattern in patterns:
         pattern_content = _create_pattern_section(pattern=pattern, total_sessions=total_sessions, team_id=team_id)
         content.append(create_empty_paragraph())
         content.extend(pattern_content)
