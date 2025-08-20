@@ -58,6 +58,17 @@ class HyperCache:
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
     ):
+        """
+        Initialize the HyperCache instance.
+
+        Args:
+            namespace: The namespace for the cache.
+            value: Specific data/file within the namespace. Similar to a filename such as "flags_with_cohorts.json".
+            load_fn: The function to load the cache.
+            token_based: True when the calling code only knows the team's API token (like SDK requests).
+            cache_ttl: The TTL for items in the cache.
+            cache_miss_ttl: The TTL for the cache when the value is missing.
+        """
         self.namespace = namespace
         self.value = value
         self.load_fn = load_fn
