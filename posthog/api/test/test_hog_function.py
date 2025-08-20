@@ -143,9 +143,6 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert response.json()["detail"] == "The Data Pipelines addon is required for this template."
 
     def test_free_users_can_update_non_free_templates(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-        ]
         self.organization.save()
 
         response = self._create_slack_function(
@@ -219,9 +216,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
 
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-        ]
         self.organization.save()
 
         # Create slack template in DB

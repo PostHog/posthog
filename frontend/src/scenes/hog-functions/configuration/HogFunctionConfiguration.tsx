@@ -14,15 +14,12 @@ import {
 
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
-
-import { AvailableFeature } from '~/types'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
@@ -54,7 +51,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         hogFunction,
         willReEnableOnSave,
         willChangeEnabledOnSave,
-        showPaygate,
         template,
         templateHasChanged,
         type,
@@ -135,10 +131,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
             </LemonButton>
         </>
     )
-
-    if (showPaygate) {
-        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
-    }
 
     return (
         <div className="deprecated-space-y-3">

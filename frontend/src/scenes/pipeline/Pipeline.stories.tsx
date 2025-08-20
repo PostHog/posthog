@@ -6,9 +6,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
 import { MockSignature } from '~/mocks/utils'
-import { AvailableFeature, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
+import { PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 import batchExports from './__mocks__/batchExports.json'
 import empty from './__mocks__/empty.json'
@@ -98,12 +97,6 @@ const geoIpConfigId = pluginConfigs.results.find(
     (conf) => conf.plugin === plugins.results.find((plugin) => plugin.name === 'GeoIP')!.id
 )!.id
 
-// A wrapper that enables the data pipelines feature flag
-const AppWithDataPipelines = (): JSX.Element | null => {
-    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
-    return <App />
-}
-
 type Story = StoryObj<typeof meta>
 export const PipelineLandingPage: Story = { parameters: { pageUrl: urls.pipeline() } }
 
@@ -126,7 +119,7 @@ export const PipelineTransformationsPageEmpty: Story = {
 export const PipelineDestinationsPage: Story = { parameters: { pageUrl: urls.pipeline(PipelineTab.Destinations) } }
 export const PipelineDestinationsPageWithPipelines: Story = {
     ...PipelineDestinationsPage,
-    render: () => <AppWithDataPipelines />,
+    render: () => <App />,
 }
 
 export const PipelineSiteAppsPage: Story = { parameters: { pageUrl: urls.pipeline(PipelineTab.SiteApps) } }
@@ -166,7 +159,7 @@ export const PipelineNodeNewDestination: Story = {
 }
 export const PipelineNodeNewDestinationWithDataPipelines: Story = {
     ...PipelineNodeNewDestination,
-    render: () => <AppWithDataPipelines />,
+    render: () => <App />,
 }
 
 export const PipelineNodeNewSequenceTimer: Story = {
@@ -178,7 +171,7 @@ export const PipelineNodeNewBigQuery: Story = {
 }
 export const PipelineNodeNewBigQueryWithDataPipelines: Story = {
     ...PipelineNodeNewBigQuery,
-    render: () => <AppWithDataPipelines />,
+    render: () => <App />,
 }
 
 export const PipelineNodeNewHogFunction: Story = {

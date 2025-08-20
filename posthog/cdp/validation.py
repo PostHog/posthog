@@ -379,19 +379,3 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
-
-
-def has_data_pipelines_addon(team: Team, user: Optional[User]) -> bool:
-    if team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES):
-        return True
-
-    if user is None:
-        return False
-
-    return posthoganalytics.feature_enabled(
-        "cdp-new-pricing",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization.id)},
-        group_properties={"organization": {"id": str(team.organization.id)}},
-        send_feature_flag_events=False,
-    )

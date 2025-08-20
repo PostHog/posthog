@@ -28,9 +28,6 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         self.plugin = Plugin.objects.create(organization=self.organization)
         self.plugin_config = PluginConfig.objects.create(plugin=self.plugin, team=self.team, enabled=True, order=1)
 
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-        ]
         self.organization.save()
 
     def test_retrieve(self):

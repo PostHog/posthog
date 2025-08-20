@@ -1,12 +1,10 @@
 import { NotFound } from 'lib/components/NotFound'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { BatchExportConfiguration } from 'scenes/data-pipelines/batch-exports/BatchExportConfiguration'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { PipelineStage } from '~/types'
 
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
@@ -44,32 +42,19 @@ export const scene: SceneExport = {
 export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, pluginId, batchExportDestination, hogFunctionId } = paramsToProps({ params })
 
-    const hasNewPricing = !!useFeatureFlag('CDP_NEW_PRICING')
-
     if (!stage) {
         return <NotFound object="pipeline app stage" />
     }
 
     if (pluginId) {
-        const res = <PipelinePluginConfiguration stage={stage} pluginId={pluginId} />
-        if (stage === PipelineStage.Destination) {
-            return <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>{res}</PayGateMini>
-        }
-        return res
+        return <PipelinePluginConfiguration stage={stage} pluginId={pluginId} />
     }
 
     if (batchExportDestination) {
         if (stage !== PipelineStage.Destination) {
             return <NotFound object={batchExportDestination} />
         }
-        if (hasNewPricing) {
-            return <BatchExportConfiguration service={batchExportDestination} />
-        }
-        return (
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-                <BatchExportConfiguration service={batchExportDestination} />
-            </PayGateMini>
-        )
+        return <BatchExportConfiguration service={batchExportDestination} />
     }
 
     if (hogFunctionId) {

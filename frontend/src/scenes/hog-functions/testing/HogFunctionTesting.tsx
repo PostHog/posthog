@@ -22,7 +22,6 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -32,7 +31,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, CyclotronJobInvocationGlobals, GroupType, GroupTypeIndex, LogEntry } from '~/types'
+import { CyclotronJobInvocationGlobals, GroupType, GroupTypeIndex, LogEntry } from '~/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -90,7 +89,6 @@ export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.El
     const {
         loading,
         loaded,
-        showPaygate,
         groupTypes,
         configuration,
         isConfigurationSubmitting,
@@ -106,10 +104,6 @@ export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.El
 
     if (!loaded || !id) {
         return <NotFound object="Hog function" />
-    }
-
-    if (showPaygate) {
-        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
     return (

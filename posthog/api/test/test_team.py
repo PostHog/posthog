@@ -506,9 +506,6 @@ def team_api_test_factory():
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-            ]
             self.organization.save()
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 

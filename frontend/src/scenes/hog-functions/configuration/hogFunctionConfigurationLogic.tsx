@@ -11,7 +11,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { LiquidRenderer } from 'lib/utils/liquid'
@@ -295,8 +294,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
@@ -675,12 +672,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
-            },
-        ],
-        showPaygate: [
-            (s) => [s.template, s.hasAddon],
-            (template, hasAddon) => {
-                return template && !template.free && !hasAddon
             },
         ],
         useMapping: [
