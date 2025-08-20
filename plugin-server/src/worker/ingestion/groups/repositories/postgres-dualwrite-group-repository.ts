@@ -106,6 +106,10 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
             throw err
         }
         
+        if (raceConditionError) {
+            throw raceConditionError
+        }
+        
         return result
     }
 
@@ -166,22 +170,22 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined> {
-        let primaryOut!: number | undefined
-        await this.coordinator.run('updateGroupOptimistically', async () => {
-            const p = await this.primaryRepo.updateGroupOptimistically(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                expectedVersion,
-                groupProperties,
-                createdAt,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation
-            )
-            primaryOut = p
+        // Optimistic updates don't use 2PC - primary is source of truth
+        const primaryResult = await this.primaryRepo.updateGroupOptimistically(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            expectedVersion,
+            groupProperties,
+            createdAt,
+            propertiesLastUpdatedAt,
+            propertiesLastOperation
+        )
 
-            if (p !== undefined) {
-                const s = await this.secondaryRepo.updateGroupOptimistically(
+        if (primaryResult !== undefined) {
+            // Best effort update to secondary
+            try {
+                const secondaryResult = await this.secondaryRepo.updateGroupOptimistically(
                     teamId,
                     groupTypeIndex,
                     groupKey,
@@ -193,7 +197,7 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
                 )
 
                 if (this.comparisonEnabled) {
-                    if (p !== s) {
+                    if (primaryResult !== secondaryResult) {
                         dualWriteComparisonCounter.inc({
                             operation: 'updateGroupOptimistically',
                             comparison_type: 'version_mismatch',
@@ -207,10 +211,18 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
                         })
                     }
                 }
+            } catch (err) {
+                // Log error but don't fail the operation
+                _logger.error('Failed to update secondary in optimistic update', {
+                    error: err,
+                    teamId,
+                    groupKey,
+                    groupTypeIndex
+                })
             }
-            return true
-        })
-        return primaryOut
+        }
+
+        return primaryResult
     }
 
     async inTransaction<T>(
@@ -246,6 +258,11 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
             }
             throw err
         }
+        
+        if (raceConditionError) {
+            throw raceConditionError
+        }
+        
         return result
     }
 

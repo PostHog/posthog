@@ -90,6 +90,21 @@ services:
         ports:
             - '5433:5432'
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+    
+    persons_migration_db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5434:5432'
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: test_posthog_persons_migration
+            POSTGRES_PASSWORD: posthog
+        volumes:
+            - persons-migration-db:/var/lib/postgresql/data
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
+    
     redis:
         extends:
             file: docker-compose.base.yml
@@ -258,3 +273,6 @@ services:
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    persons-migration-db:
