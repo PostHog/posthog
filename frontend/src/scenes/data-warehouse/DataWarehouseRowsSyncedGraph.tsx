@@ -1,8 +1,6 @@
 import { actions, afterMount, kea, path, selectors, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
-import { useCallback, useEffect, useRef, useState } from 'react'
-
-import { LemonModal } from '@posthog/lemon-ui'
+import { useEffect, useRef } from 'react'
 
 import { Chart, ChartDataset, ChartOptions } from 'lib/Chart'
 import api from 'lib/api'
@@ -71,7 +69,7 @@ const dataWarehouseRowsSyncedGraphLogic = kea<dataWarehouseRowsSyncedGraphLogicT
 
                 return Array.from(dailyData.entries())
                     .map(([date, rows_synced]) => ({ date, rows_synced }))
-                    .sort((a) => dayjs(a.date).unix() - dayjs(a.date).unix())
+                    .sort((a, b) => dayjs(a.date).unix() - dayjs(b.date).unix())
             },
         ],
         hasData: [
@@ -89,14 +87,7 @@ const dataWarehouseRowsSyncedGraphLogic = kea<dataWarehouseRowsSyncedGraphLogicT
         actions.loadDailyBreakdown()
     }),
 ])
-
-function SimpleLineChart({
-    data,
-    onPointClick,
-}: {
-    data: DailyRowsSyncedData[]
-    onPointClick: (date: string, rows: number | null) => void
-}): JSX.Element {
+function SimpleLineChart({ data }: { data: DailyRowsSyncedData[] }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<any>(null)
 
@@ -128,17 +119,17 @@ function SimpleLineChart({
                 {
                     label: 'Rows synced',
                     data: data.map((d) => d.rows_synced),
-                    borderColor: '#111827',
-                    borderWidth: 2,
-                    pointRadius: 6,
-                    pointHoverRadius: 8,
+                    borderColor: '#111827', // Black line
+                    borderWidth: 2, // Thicker line
+                    pointRadius: 6, // Hide points by default
+                    pointHoverRadius: 8, // Show points on hover
                     pointBackgroundColor: '#111827',
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 2,
-                    tension: 0, // Remove curves - straight lines between points
-                    fill: false,
+                    tension: 0.4, // Smooth curves
+                    fill: false, // Enable fill
                     spanGaps: true,
-                    pointHitRadius: 10,
+                    pointHitRadius: 10, // Larger hover area
                     pointHoverBackgroundColor: '#ffffff',
                     pointHoverBorderColor: '#111827',
                 } as ChartDataset<'line'>,
@@ -148,19 +139,10 @@ function SimpleLineChart({
         const options: ChartOptions<'line'> = {
             responsive: true,
             maintainAspectRatio: false,
-            onClick: (event, elements) => {
-                if (elements.length > 0) {
-                    const element = elements[0]
-                    const dataIndex = element.index
-                    const date = data[dataIndex].date
-                    const rows = data[dataIndex].rows_synced
-                    onPointClick(date, rows)
-                }
-            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
-                    backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                    backgroundColor: 'rgba(17, 24, 39, 0.95)', // Dark tooltip
                     titleColor: '#ffffff',
                     bodyColor: '#ffffff',
                     borderColor: '#111827',
@@ -182,7 +164,7 @@ function SimpleLineChart({
                     display: true,
                     grid: {
                         display: true,
-                        color: 'rgba(17, 24, 39, 0.08)',
+                        color: 'rgba(17, 24, 39, 0.08)', // Very light grid
                         lineWidth: 0.5,
                     },
                     ticks: {
@@ -247,126 +229,46 @@ function SimpleLineChart({
                 chartRef.current.destroy()
             }
         }
-    }, [data, onPointClick])
+    }, [data])
 
     return <canvas ref={canvasRef} />
 }
 
 export function DataWarehouseRowsSyncedGraph(): JSX.Element {
     const { dailyRowsSyncedData, hasData, dailyBreakdownDataLoading } = useValues(dataWarehouseRowsSyncedGraphLogic)
-    const [selectedDate, setSelectedDate] = useState<string | null>(null)
-    const [selectedRows, setSelectedRows] = useState<number | null>(null)
-
-    // Memoize the click handler to prevent re-renders
-    const handlePointClick = useCallback((date: string, rows: number | null) => {
-        setSelectedDate(date)
-        setSelectedRows(rows)
-    }, [])
-
-    const formatRows = (value: number): string => {
-        if (value === 0) {
-            return '0'
-        }
-        if (value < 1000) {
-            return value.toLocaleString()
-        }
-        if (value < 1000000) {
-            return `${(value / 1000).toFixed(1)}K`
-        }
-        return `${(value / 1000000).toFixed(1)}M`
-    }
-
     return (
-        <>
-            <div className="bg-white rounded-lg border border-border shadow-sm">
-                <div className="p-4 border-b border-border">
-                    <div>
-                        <h3 className="text-xl font-semibold text-default">Daily Rows Synced</h3>
-                        {hasData && (
-                            <div className="text-sm text-muted">
-                                Rows synced to your data warehouse over your current billing period.
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="p-4">
-                    {dailyBreakdownDataLoading ? (
-                        <div className="h-64 flex items-center justify-center">
-                            <div className="text-muted">Loading data...</div>
-                        </div>
-                    ) : !hasData ? (
-                        <div className="h-64 flex items-center justify-center">
-                            <div className="text-center">
-                                <div className="text-muted-alt mb-2">No data synced yet.</div>
-                                <div className="text-muted text-sm">
-                                    Sync jobs will appear here once your data sources start syncing.
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="h-64">
-                            <SimpleLineChart data={dailyRowsSyncedData} onPointClick={handlePointClick} />
+        <div className="bg-white rounded-lg border border-border shadow-sm">
+            <div className="p-4 border-b border-border">
+                <div>
+                    <h3 className="text-xl font-semibold text-default">Daily Rows Synced</h3>
+                    {hasData && (
+                        <div className="text-sm text-muted">
+                            Rows synced to your data warehouse over your current billing period.
                         </div>
                     )}
                 </div>
             </div>
 
-            <LemonModal
-                isOpen={!!selectedDate}
-                onClose={() => setSelectedDate(null)}
-                title={`Sync Details for ${selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}`}
-                footer={
-                    <div className="flex justify-end">
-                        <button
-                            onClick={() => setSelectedDate(null)}
-                            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                        >
-                            Close
-                        </button>
+            <div className="p-4">
+                {dailyBreakdownDataLoading ? (
+                    <div className="h-64 flex items-center justify-center">
+                        <div className="text-muted">Loading data...</div>
                     </div>
-                }
-            >
-                <div className="p-6">
-                    {selectedRows === null ? (
+                ) : !hasData ? (
+                    <div className="h-64 flex items-center justify-center">
                         <div className="text-center">
-                            <div className="text-lg text-gray-600 mb-2">
-                                No sync activity on {selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}
-                            </div>
-                            <div className="text-sm text-gray-500">This date is in the future or has no sync jobs.</div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="text-center">
-                                <div className="text-3xl font-bold text-gray-900 mb-2">{formatRows(selectedRows)}</div>
-                                <div className="text-lg text-gray-600">
-                                    rows synced on {selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}
-                                </div>
-                            </div>
-
-                            <div className="border-t pt-4">
-                                <div className="text-sm text-gray-500 mb-2">Sync Details:</div>
-                                <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Date:</span>
-                                        <span className="font-medium">
-                                            {selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Rows Processed:</span>
-                                        <span className="font-medium">{formatRows(selectedRows)}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Status:</span>
-                                        <span className="font-medium text-green-600">Completed</span>
-                                    </div>
-                                </div>
+                            <div className="text-muted-alt mb-2">No data synced yet.</div>
+                            <div className="text-muted text-sm">
+                                Sync jobs will appear here once your data sources start syncing.
                             </div>
                         </div>
-                    )}
-                </div>
-            </LemonModal>
-        </>
+                    </div>
+                ) : (
+                    <div className="h-64">
+                        <SimpleLineChart data={dailyRowsSyncedData} />
+                    </div>
+                )}
+            </div>
+        </div>
     )
 }
