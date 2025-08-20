@@ -136,7 +136,7 @@ def snapshot_properties_taxonomy(
 ):
     results: list[PropertyTaxonomySnapshot] = []
 
-    def snapshot_event(item: TeamTaxonomyItem):
+    def wrapped_query_runner(item: TeamTaxonomyItem):
         response = EventTaxonomyQueryRunner(query=EventTaxonomyQuery(event=item.event), team=team).run(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
@@ -144,9 +144,12 @@ def snapshot_properties_taxonomy(
             raise ValueError(f"Unexpected response type from event taxonomy query: {type(response)}")
         return response
 
+    def call_event_taxonomy_query(item: TeamTaxonomyItem):
+        return call_query_runner(lambda: wrapped_query_runner(item))
+
     for item in events:
         context.log.info(f"Snapshotting properties taxonomy for event {item.event} of {team.id}")
-        results.append(PropertyTaxonomySnapshot(event=item.event, results=snapshot_event(item).results))
+        results.append(PropertyTaxonomySnapshot(event=item.event, results=call_event_taxonomy_query(item).results))
 
     context.log.info(f"Dumping properties taxonomy to {file_key}")
     with dump_model(s3=s3, schema=PropertyTaxonomySnapshot, file_key=file_key) as dump:
@@ -241,7 +244,7 @@ def snapshot_actors_property_taxonomy(
         # Query ClickHouse in batches of 200 properties
         for batch in chunked(property_defs, 200):
 
-            def snapshot(index: int | None, batch: list[str]):
+            def wrapped_query_runner(index: int | None, batch: list[str]):
                 response = ActorsPropertyTaxonomyQueryRunner(
                     query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
                     team=team,
@@ -250,7 +253,10 @@ def snapshot_actors_property_taxonomy(
                     raise ValueError(f"Unexpected response type from actors property taxonomy query: {type(response)}")
                 return response
 
-            res = snapshot(index, batch)
+            def call_actors_property_taxonomy_query(index: int | None, batch: list[str]):
+                return call_query_runner(lambda: wrapped_query_runner(index, batch))
+
+            res = call_actors_property_taxonomy_query(index, batch)
 
             if not res.results:
                 raise ValueError(

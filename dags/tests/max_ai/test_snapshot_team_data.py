@@ -17,6 +17,8 @@ from posthog.models import GroupTypeMapping, Organization, Project, Team
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActorsPropertyTaxonomyResponse,
+    CachedEventTaxonomyQueryResponse,
+    CachedTeamTaxonomyQueryResponse,
     EventTaxonomyItem,
     TeamTaxonomyItem,
 )
@@ -193,8 +195,8 @@ def test_snapshot_properties_taxonomy(mock_call_query_runner, mock_context, mock
 
 
 @patch("dags.max_ai.snapshot_team_data.check_dump_exists")
-@patch("dags.max_ai.snapshot_team_data.EventTaxonomyQueryRunner.calculate")
-@patch("dags.max_ai.snapshot_team_data.TeamTaxonomyQueryRunner.calculate")
+@patch("dags.max_ai.snapshot_team_data.EventTaxonomyQueryRunner.run")
+@patch("dags.max_ai.snapshot_team_data.TeamTaxonomyQueryRunner.run")
 @pytest.mark.django_db
 def test_snapshot_events_taxonomy(
     mock_team_taxonomy_query_runner,
@@ -209,16 +211,18 @@ def test_snapshot_events_taxonomy(
     mock_check_dump_exists.return_value = False
 
     mock_team_taxonomy_query_runner.return_value = MagicMock(
+        spec=CachedTeamTaxonomyQueryResponse,
         results=[
             TeamTaxonomyItem(event="pageview", count=2),
             TeamTaxonomyItem(event="click", count=1),
-        ]
+        ],
     )
 
     mock_event_taxonomy_query_runner.return_value = MagicMock(
+        spec=CachedEventTaxonomyQueryResponse,
         results=[
             EventTaxonomyItem(property="$current_url", sample_values=["https://posthog.com"], sample_count=1),
-        ]
+        ],
     )
 
     mock_s3_client = MagicMock()
