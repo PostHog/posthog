@@ -92,9 +92,13 @@ Now, create a template for these instructions: {instructions}
             if final_error is not None:
                 raise final_error
 
-        if parsed_result:
-            template_json = json.dumps(parsed_result.model_dump(), indent=2)
-            return f"```json\n{template_json}\n```", template_json
+        if parsed_result is None:
+            raise PydanticOutputParserException(
+                llm_output=result.content, validation_message="The model did not return a valid template."
+            )
+
+        template_json = json.dumps(parsed_result.model_dump(), indent=2)
+        return f"```json\n{template_json}\n```", template_json
 
     @property
     def _model(self):
