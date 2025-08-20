@@ -36,6 +36,7 @@ pub struct State {
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
+    pub capture_mode: CaptureMode,
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
 }
@@ -128,6 +129,7 @@ pub fn router<
             historical_rerouting_threshold_days,
             historical_tokens_keys,
         ),
+        capture_mode: capture_mode.clone(),
         is_mirror_deploy,
         verbose_sample_percent,
     };

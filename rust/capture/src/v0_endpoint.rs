@@ -478,8 +478,12 @@ pub async fn event(
         }
 
         Err(err) => {
-            report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event: request payload processing error: {:?}", err);
+            report_internal_error_metrics(
+                err.to_metric_tag(),
+                "parsing",
+                state.capture_mode.as_tag(),
+            );
+            error!("event: request payload parsing error: {:?}", err);
             Err(err)
         }
 
@@ -494,7 +498,11 @@ pub async fn event(
             .await
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
-                report_internal_error_metrics(err.to_metric_tag(), "processing");
+                report_internal_error_metrics(
+                    err.to_metric_tag(),
+                    "processing",
+                    state.capture_mode.as_tag(),
+                );
                 error!("event: rejected payload: {}", err);
                 return Err(err);
             }
@@ -549,13 +557,25 @@ pub async fn recording(
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
         }),
-        Err(err) => Err(err),
+        Err(err) => {
+            report_internal_error_metrics(
+                err.to_metric_tag(),
+                "parsing",
+                state.capture_mode.as_tag(),
+            );
+            error!("recordings: request payload parsing error: {:?}", err);
+            Err(err)
+        }
         Ok((context, events)) => {
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 report_dropped_events(err.to_metric_tag(), count);
-                report_internal_error_metrics(err.to_metric_tag(), "process_replay_events");
-                warn!("rejected invalid payload: {:?}", err);
+                report_internal_error_metrics(
+                    err.to_metric_tag(),
+                    "processing",
+                    state.capture_mode.as_tag(),
+                );
+                error!("recordings:rejected payload: {:?}", err);
                 return Err(err);
             }
             Ok(CaptureResponse {
