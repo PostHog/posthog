@@ -23,7 +23,7 @@ export class PersonContext {
         public readonly kafkaProducer: KafkaProducerWrapper,
         public readonly personStore: PersonsStoreForBatch,
         public readonly measurePersonJsonbSize: number = 0,
-        public readonly personMergeMoveDistinctIdLimit: number = 0
+        public readonly personMergeMoveDistinctIdLimit: number | undefined = undefined
     ) {
         this.eventProperties = event.properties!
     }
