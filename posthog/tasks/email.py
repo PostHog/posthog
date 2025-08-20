@@ -482,19 +482,12 @@ def login_from_new_device_notification(
     if not enabled:
         return
 
-    is_new_device = check_and_cache_login_device(user_id, ip_address, short_user_agent)
+    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
+    country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
+
+    is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:
         return
-
-    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
-    geoip_data = get_geoip_properties(ip_address)
-
-    # Compose location as "City, Country" (omit city if missing)
-    location = ", ".join(
-        part
-        for part in [geoip_data.get("$geoip_city_name", ""), geoip_data.get("$geoip_country_name", "Unknown")]
-        if part
-    )
 
     message = EmailMessage(
         use_http=True,
@@ -504,7 +497,7 @@ def login_from_new_device_notification(
         template_context={
             "login_time": login_time_str,
             "ip_address": ip_address,
-            "location": location,
+            "location": country,
             "browser": short_user_agent,
         },
     )
@@ -518,7 +511,7 @@ def login_from_new_device_notification(
         event="login notification sent",
         properties={
             "ip_address": ip_address,
-            "location": location,
+            "location": country,
             "short_user_agent": short_user_agent,
         },
         groups=groups(user.current_organization, user.current_team),

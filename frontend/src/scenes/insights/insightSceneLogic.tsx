@@ -41,13 +41,13 @@ import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
-export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
+function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
     return (
         !filter ||
-        (filter.date_from === null &&
-            filter.date_to === null &&
-            (filter.properties === null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
-            filter.breakdown_filter === null)
+        (filter.date_from == null &&
+            filter.date_to == null &&
+            (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
+            filter.breakdown_filter == null)
     )
 }
 
@@ -360,7 +360,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
-            const filtersOverride = dashboardLogic.findMounted({ id: dashboard })?.values.temporaryFilters
+            const filtersOverride = searchParams['filters_override']
             const variablesOverride = searchParams['variables_override']
 
             if (

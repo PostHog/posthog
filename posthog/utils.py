@@ -1155,16 +1155,19 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request) -> Optional[dict]:
-    raw_filters = request.query_params.get("filters_override")
+def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+    raw_filters_override_param = request.query_params.get("filters_override")
 
-    if raw_filters is not None:
+    request_filters = {}
+    dashboard_filters = dashboard.filters if dashboard else {}
+
+    if raw_filters_override_param is not None:
         try:
-            return json.loads(raw_filters)
+            request_filters = json.loads(raw_filters_override_param)
         except Exception:
             raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
-    return None
+    return {**dashboard_filters, **request_filters}
 
 
 def variables_override_requested_by_client(

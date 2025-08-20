@@ -4,7 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { currentSessionId } from 'lib/internalMetrics'
-import { shouldCancelQuery, toParams } from 'lib/utils'
+import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
@@ -25,7 +25,8 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
-export const QUERY_VARIABLES_KEY = 'query_variables'
+export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
+export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 /**
  * Once a dashboard has more tiles than this,
@@ -218,9 +219,9 @@ export async function getInsightWithRetry(
 export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    if (searchParams[QUERY_VARIABLES_KEY]) {
+    if (searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]) {
         try {
-            const parsedVariables = JSON.parse(searchParams[QUERY_VARIABLES_KEY])
+            const parsedVariables = JSON.parse(searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY])
             Object.assign(variables, parsedVariables)
         } catch (e) {
             console.error('Failed to parse query_variables from URL:', e)
@@ -234,8 +235,45 @@ export const encodeURLVariables = (variables: Record<string, string>): Record<st
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
-        encodedVariables[QUERY_VARIABLES_KEY] = JSON.stringify(variables)
+        encodedVariables[SEARCH_PARAM_QUERY_VARIABLES_KEY] = JSON.stringify(variables)
     }
 
     return encodedVariables
+}
+
+export const parseURLFilters = (searchParams: Record<string, any>): DashboardFilter => {
+    const filters: DashboardFilter = {}
+
+    if (searchParams[SEARCH_PARAM_FILTERS_KEY]) {
+        try {
+            const parsedFilters = JSON.parse(searchParams[SEARCH_PARAM_FILTERS_KEY])
+            Object.assign(filters, parsedFilters)
+        } catch (e) {
+            console.error(`Failed to parse ${SEARCH_PARAM_FILTERS_KEY} from URL:`, e)
+        }
+    }
+
+    return filters
+}
+
+export const encodeURLFilters = (filters: DashboardFilter): Record<string, string> => {
+    const encodedFilters: Record<string, string> = {}
+
+    if (Object.keys(filters).length > 0) {
+        encodedFilters[SEARCH_PARAM_FILTERS_KEY] = JSON.stringify(objectClean(filters as Record<string, unknown>))
+    }
+
+    return encodedFilters
+}
+
+export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
+    return filters.reduce((combined, filter) => {
+        Object.keys(filter).forEach((key) => {
+            const value = (filter as Record<string, any>)[key]
+            if (value !== undefined) {
+                ;(combined as Record<string, any>)[key] = value
+            }
+        })
+        return combined
+    }, {} as DashboardFilter)
 }

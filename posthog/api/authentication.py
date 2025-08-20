@@ -45,6 +45,7 @@ from posthog.utils import get_instance_available_sso_providers
 from posthog.tasks.email import login_from_new_device_notification
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.utils import get_short_user_agent, get_ip_address
+from posthog.geoip import get_geoip_properties
 
 
 @receiver(user_logged_in)
@@ -60,7 +61,8 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     if user.last_login is None:
         short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
-        check_and_cache_login_device(user.id, ip_address, short_user_agent)
+        country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
+        check_and_cache_login_device(user.id, country, short_user_agent)
 
 
 @csrf_protect
