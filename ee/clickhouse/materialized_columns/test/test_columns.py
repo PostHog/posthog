@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from freezegun import freeze_time
+from tenacity import retry, wait_exponential, stop_after_attempt
 
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
@@ -119,15 +120,19 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 ]
             ) == sorted(["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
 
-        # call once to kick off background refresh
-        get_enabled_materialized_columns("events", use_cache=True)
-        with freeze_time(base_time + timedelta(minutes=59)):
+        # The cache is updated in the background, so we need to poll for cache update with retry
+        # otherwise this flakes
+        @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=2), stop=stop_after_attempt(5))
+        def check_cache_updated():
             assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
                 ]
             ) == sorted(["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
+
+        with freeze_time(base_time + timedelta(minutes=59)):
+            check_cache_updated()
 
     @patch("secrets.choice", return_value="X")
     def test_materialized_column_naming(self, mock_choice):
