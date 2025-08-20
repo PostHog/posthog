@@ -430,7 +430,7 @@ async def test_assign_events_to_patterns_threshold_check(
         mock_call_llm.return_value = mock_llm_response
 
         # Should raise ApplicationError due to threshold failure
-        with pytest.raises(ApplicationError, match="Too many patterns failed to assign session events"):
+        with pytest.raises(ApplicationError, match="Too many patterns failed to enrich with session meta"):
             await assign_events_to_patterns_activity(activity_input)
 
     # Test 2: Should succeed when 3 out of 4 patterns get events (75% == 75% threshold)
