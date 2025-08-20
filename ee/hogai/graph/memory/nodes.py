@@ -349,7 +349,6 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
-        # This router only checks state, no CoreMemory needed
         if state.root_tool_insight_plan:
             return "insights"
         return "continue"
