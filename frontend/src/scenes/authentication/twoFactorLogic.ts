@@ -180,12 +180,13 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         disable2FA: async () => {
             try {
                 await api.create<any>('api/users/@me/two_factor_disable/')
-                lemonToast.success('2FA disabled successfully')
+                lemonToast.success('2FA disabled successfully. The page will reload.')
                 actions.loadStatus()
 
-                // Refresh user and members
-                actions.loadUser()
-                actions.loadAllMembers()
+                // Reload to avoid breaking calls on the page if enforce_2fa=True
+                setTimeout(() => {
+                    window.location.reload()
+                }, 3000)
             } catch (e) {
                 const { code, detail } = e as Record<string, any>
                 actions.setGeneralError(code, detail)
