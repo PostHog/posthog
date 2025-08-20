@@ -45,8 +45,8 @@ const hogFunctionTemplatesMock: MockSignature = (req, res, ctx) => {
     const results = req.url.searchParams.get('types')?.includes('transformation')
         ? _hogFunctionTemplatesTransformations
         : req.url.searchParams.get('types')?.includes('destination')
-        ? _hogFunctionTemplatesDestinations
-        : []
+          ? _hogFunctionTemplatesDestinations
+          : []
 
     return res(ctx.json(results))
 }

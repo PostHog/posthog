@@ -15,7 +15,6 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
