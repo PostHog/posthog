@@ -13,7 +13,7 @@ from freezegun import freeze_time
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, GroupTypeMapping
 from posthog.settings.utils import get_from_env
 from posthog.test.base import BaseTest
 from posthog.utils import (
@@ -579,3 +579,10 @@ class TestFlatten(TestCase):
             [4],
             [5, [6, 7]],
         ]
+
+
+def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
+    instance = GroupTypeMapping.objects.create(**kwargs)
+    GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
+    instance.refresh_from_db()
+    return instance

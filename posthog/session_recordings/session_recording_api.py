@@ -46,6 +46,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorC
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -53,7 +54,7 @@ from posthog.rate_limit import (
     PersonalApiKeyRateThrottle,
 )
 from posthog.renderers import ServerSentEventRenderer
-from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery
+from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery, RecordingPropertyFilter, PropertyOperator
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -74,6 +75,7 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from ..models.product_intent.product_intent import ProductIntent
 from posthog.models.activity_logging.activity_log import log_activity, Detail
@@ -126,6 +128,49 @@ LOADING_V2_LTS_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _get_session_ids_from_comment_search(
+    team: Team, comment_filter: RecordingPropertyFilter | None
+) -> list[str] | None:
+    """
+    Search for comments containing the given text and return the session IDs they're associated with.
+    an empty list means "no session can possibly match"
+    whereas None means "comment text does not restrict this search"
+    """
+    if not comment_filter:
+        return None
+
+    base_query = Comment.objects.filter(
+        team=team,
+        # TODO: discussions created `Replay` and comments create `recording`
+        # TODO: that's an unnecessary distinction but we'll ignore it for now
+        scope__in=["recording"],
+    ).exclude(deleted=True)
+
+    operator = comment_filter.operator
+    value = comment_filter.value
+
+    if operator == PropertyOperator.IS_SET:
+        base_query = base_query.filter(content__isnull=False).exclude(content="")
+    elif operator == PropertyOperator.EXACT:
+        # do the check here to help mypy
+        if value is None or value == "":
+            return None
+
+        # the exact matching query accepts an array of values
+        for v in value if isinstance(value, list) else [value]:
+            base_query = base_query.filter(content=v)
+    elif operator == PropertyOperator.ICONTAINS:
+        # do the check here to help mypy
+        if value is None or value == "":
+            return None
+
+        base_query = base_query.filter(content__icontains=value)
+    else:
+        raise ValidationError("Unsupported operator for comment search: " + str(operator))
+
+    return list(base_query.values_list("item_id", flat=True).distinct())
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -552,6 +597,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(request.GET.dict())
+
+                if query.comment_text:
+                    with tracer.start_as_current_span("search_comments"):
+                        comment_session_ids = _get_session_ids_from_comment_search(self.team, query.comment_text)
+                        query.session_ids = combine_session_id_filters(comment_session_ids, query.session_ids)
 
                 self._maybe_report_recording_list_filters_changed(request, team=self.team)
                 with tracer.start_as_current_span("query_for_recordings"):
