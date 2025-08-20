@@ -165,8 +165,6 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
-        this.kafkaConsumer.heartbeat()
-
         if (messages.length > 0) {
             logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
                 size: messages.length,
@@ -204,13 +202,9 @@ export class SessionRecordingIngester {
             return processedMessages
         })
 
-        this.kafkaConsumer.heartbeat()
-
         await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
             this.processMessages(processedMessages)
         )
-
-        this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
