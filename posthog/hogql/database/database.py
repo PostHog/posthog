@@ -40,6 +40,8 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.parser import parse_expr
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import (
     create_initial_channel_type,
@@ -105,9 +107,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
@@ -380,6 +380,46 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
+def _setup_group_key_fields(database: Database, team: "Team") -> None:
+    """
+    Set up group key fields as ExpressionFields that handle filtering based on GroupTypeMapping.created_at.
+    For $group_N fields, this returns:
+    - Empty string if no GroupTypeMapping exists for that index
+    - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
+    """
+    group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
+
+    for group_index in range(5):
+        field_name = f"$group_{group_index}"
+
+        group_mapping = group_mappings.get(group_index, None)
+        # If no mapping exists or the mapping predated this feature, leave the original field unchanged
+        if group_mapping and group_mapping.created_at:
+            # Store the original field as a "raw" version before replacing
+            original_field = database.events.fields[field_name]
+            raw_field_name = f"_{field_name}_raw"
+            database.events.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
+
+            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
+
+            database.events.fields[field_name] = ExpressionField(
+                name=field_name,
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["timestamp"]),
+                            op=ast.CompareOperationOp.Lt,
+                            right=ast.Constant(value=created_at_str),
+                        ),
+                        ast.Constant(value=""),
+                        ast.Field(chain=[raw_field_name]),
+                    ],
+                ),
+                isolate_scope=True,
+            )
+
+
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
     poe = cast(VirtualTable, database.events.fields["poe"])
 
@@ -515,6 +555,7 @@ def create_hogql_database(
         _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
+        _setup_group_key_fields(database, team)
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
