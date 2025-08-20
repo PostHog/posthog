@@ -80,7 +80,7 @@ def is_task_started_update(
     return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
 
 
-def prepare_reasoning_progress_message(content: str) -> AIMessageChunk | None:
+def prepare_reasoning_progress_message(content: str) -> AIMessageChunk:
     """Display progress as a reasoning message"""
     if not content:
         logger.warning("Content is required to prepare a reasoning progress message")
