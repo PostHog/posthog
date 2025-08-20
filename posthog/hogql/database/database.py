@@ -13,6 +13,7 @@ from typing import (
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
+from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
 from posthog.exceptions_capture import capture_exception
@@ -47,7 +48,6 @@ from posthog.hogql.database.schema.channel_type import (
     create_initial_channel_type,
     create_initial_domain_type,
 )
-from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -79,6 +79,7 @@ from posthog.hogql.database.schema.persons import (
     RawPersonsTable,
     join_with_persons_table,
 )
+from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
@@ -97,14 +98,14 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebStatsDailyTable,
-    WebBouncesDailyTable,
-    WebStatsHourlyTable,
-    WebBouncesHourlyTable,
-    WebStatsCombinedTable,
     WebBouncesCombinedTable,
-    WebPreAggregatedStatsTable,
+    WebBouncesDailyTable,
+    WebBouncesHourlyTable,
     WebPreAggregatedBouncesTable,
+    WebPreAggregatedStatsTable,
+    WebStatsCombinedTable,
+    WebStatsDailyTable,
+    WebStatsHourlyTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.timings import HogQLTimings
@@ -125,7 +126,6 @@ from posthog.schema import (
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from opentelemetry import trace
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
@@ -426,6 +426,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
         database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
+        database.groups.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
         poe.fields[field_name] = create_initial_domain_type(
             name=field_name,
             timings=timings,
@@ -434,6 +435,9 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     with timings.measure("initial_channel_type"):
         field_name = "$virt_initial_channel_type"
         database.persons.fields[field_name] = create_initial_channel_type(
+            name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
+        )
+        database.groups.fields[field_name] = create_initial_channel_type(
             name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
         )
         poe.fields[field_name] = create_initial_channel_type(
@@ -453,6 +457,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 chain = ["revenue_analytics", field]
 
                 database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
+                database.groups.fields[field_name] = ast.FieldTraverser(chain=chain)
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 

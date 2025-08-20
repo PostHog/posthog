@@ -1,15 +1,15 @@
+import datetime as dt
 import inspect
 import math
 import re
 import resource
 import threading
 import time
-import uuid
 import unittest
+import uuid
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
-import datetime as dt
 from typing import Any, Optional, Union
 from unittest.mock import patch
 
@@ -36,8 +36,8 @@ from posthog.clickhouse.adhoc_events_deletion import (
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.custom_metrics import (
-    CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+    CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
     CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW,
     CUSTOM_METRICS_REPLICATION_QUEUE_VIEW,
     CUSTOM_METRICS_TEST_VIEW,
@@ -46,7 +46,7 @@ from posthog.clickhouse.custom_metrics import (
 )
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_TABLE_SQL, QUERY_LOG_ARCHIVE_MV
+from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_MV, QUERY_LOG_ARCHIVE_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
@@ -59,12 +59,19 @@ from posthog.models.channel_type.sql import (
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
-    DROP_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+    DROP_EVENTS_TABLE_SQL,
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
 from posthog.models.event.util import bulk_create_events
+from posthog.models.exchange_rate.sql import (
+    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
+    DROP_EXCHANGE_RATE_TABLE_SQL,
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
+)
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
@@ -73,15 +80,24 @@ from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
     PERSONS_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
 from posthog.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
+)
+from posthog.models.raw_sessions.sql import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_RAW_SESSION_TABLE_SQL,
+    DROP_RAW_SESSION_VIEW_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
+    RAW_SESSIONS_TABLE_MV_SQL,
+    RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.models.sessions.sql import (
     DISTRIBUTED_SESSIONS_TABLE_SQL,
@@ -92,37 +108,21 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
-from posthog.models.exchange_rate.sql import (
-    EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_TABLE_SQL,
-    DROP_EXCHANGE_RATE_TABLE_SQL,
-    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+from posthog.models.web_preaggregated.sql import (
+    WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_HOURLY_SQL,
+    WEB_BOUNCES_SQL,
+    WEB_STATS_COMBINED_VIEW_SQL,
+    WEB_STATS_DAILY_SQL,
+    WEB_STATS_HOURLY_SQL,
+    WEB_STATS_SQL,
 )
 from posthog.models.web_preaggregated.team_selection import (
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
-    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
     DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
-)
-from posthog.models.raw_sessions.sql import (
-    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
-    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_RAW_SESSION_TABLE_SQL,
-    DROP_RAW_SESSION_VIEW_SQL,
-    RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
-    RAW_SESSIONS_TABLE_SQL,
-)
-from posthog.models.web_preaggregated.sql import (
-    WEB_BOUNCES_HOURLY_SQL,
-    WEB_STATS_HOURLY_SQL,
-    WEB_STATS_DAILY_SQL,
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_STATS_COMBINED_VIEW_SQL,
-    WEB_STATS_SQL,
-    WEB_BOUNCES_SQL,
+    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -135,9 +135,9 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
-    SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
@@ -1028,6 +1028,37 @@ def _warn_if_session_id_malformed(session_id: str):
 def _create_person(*args, **kwargs):
     """
     Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
+    Pass immediate=True to create immediately and get a pk back
+    """
+    global persons_ordering_int
+    if not (kwargs.get("uuid")):
+        kwargs["uuid"] = uuid.UUID(
+            int=persons_ordering_int, version=4
+        )  # make sure the ordering of uuids is always consistent
+    persons_ordering_int += 1
+    # If we've done freeze_time just create straight away
+    if kwargs.get("immediate") or (
+        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
+    ):
+        if kwargs.get("immediate"):
+            del kwargs["immediate"]
+        create_person(
+            team_id=kwargs.get("team_id") or kwargs["team"].pk,
+            properties=kwargs.get("properties"),
+            uuid=kwargs["uuid"],
+            version=kwargs.get("version", 0),
+        )
+        return Person.objects.create(**kwargs)
+    if len(args) > 0:
+        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
+
+    persons_cache_tests.append(kwargs)
+    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+
+
+def _create_group(*args, **kwargs):
+    """
+    Create a group in tests. NOTE: all groups get batched and only created when sync_execute is called
     Pass immediate=True to create immediately and get a pk back
     """
     global persons_ordering_int

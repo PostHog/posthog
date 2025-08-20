@@ -3,11 +3,11 @@ from typing import Optional, Union
 from posthog.constants import UNIQUE_GROUPS
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
+    BreakdownType,
     DataWarehouseNode,
     EventsNode,
-    BreakdownType,
     MultipleBreakdownType,
-    BaseMathType,
 )
 
 
@@ -34,7 +34,11 @@ def get_properties_chain(
 
     if breakdown_type == "group" and group_type_index is not None:
         group_type_index_int = int(group_type_index)
-        return [f"group_{group_type_index_int}", "properties", breakdown_field]
+        if breakdown_field.startswith("$virt_"):
+            # Virtual properties exist as expression fields on the groups table
+            return [f"groups_{group_type_index_int}", breakdown_field]
+        else:
+            return [f"groups_{group_type_index_int}", "properties", breakdown_field]
     elif breakdown_type == "group" and group_type_index is None:
         raise Exception("group_type_index missing from params")
 

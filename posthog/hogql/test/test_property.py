@@ -1,16 +1,16 @@
-from typing import Union, cast, Optional, Any, Literal
+from typing import Any, Literal, Optional, Union, cast
 from unittest.mock import MagicMock, patch
 
-from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
+    entity_to_expr,
     has_aggregation,
+    map_virtual_properties,
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
-    entity_to_expr,
-    map_virtual_properties,
 )
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
@@ -21,9 +21,9 @@ from posthog.models import (
 )
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, RetentionEntity, EmptyPropertyFilter
+from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
 from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -876,6 +876,15 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
         ) == self._parse_expr("$virt_revenue_last_30_days = 100")
 
+    def test_virtual_group_properties_on_group_scope(self):
+        assert self._property_to_expr(
+            {"type": "group", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="group"
+        ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
+
+        assert self._property_to_expr(
+            {"type": "group", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="group"
+        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
@@ -883,6 +892,14 @@ class TestProperty(BaseTest):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
         ) == self._parse_expr("person.$virt_revenue = 100")
+
+    def test_virtual_group_properties_on_event_scope(self):
+        assert self._property_to_expr(
+            {"type": "group", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
+        ) == self._parse_expr("group.$virt_initial_channel_type = 'Organic Search'")
+        assert self._property_to_expr(
+            {"type": "group", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
+        ) == self._parse_expr("group.$virt_revenue = 100")
 
     def test_map_virtual_properties(self):
         assert map_virtual_properties(

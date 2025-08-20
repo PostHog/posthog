@@ -37,8 +37,8 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
             description={
                 mode === 'revenue_analytics' ? (
                     <span>
-                        Define a join between the <code>persons</code> table and the <code>customer_revenue_view</code>{' '}
-                        Revenue analytics view. <br />
+                        Define a join between either the <code>persons</code> or <code>groups</code> table and the{' '}
+                        <code>customer_revenue_view</code> Revenue analytics view. <br />
                         <br />
                         <b>All</b> fields from the joined table or view will be accessible in queries at the top level
                         without needing to explicitly join the view. This will also enable you to see revenue for a
