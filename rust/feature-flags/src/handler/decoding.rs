@@ -29,7 +29,8 @@ pub fn decode_request(
     match base_content_type {
         "application/json" | "text/plain" => {
             let decoded_body = decode_body(body, query.compression, headers)?;
-            FlagRequest::from_bytes(decoded_body)
+
+            try_parse_with_fallbacks(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
         _ => {
@@ -100,11 +101,58 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
 }
 
 fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
-    let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
+    // Convert to string and apply URL decoding like base64_decode in Python decide
+    let body_str = String::from_utf8_lossy(&body);
+    let url_decoded = percent_decode(body_str.as_bytes())
+        .decode_utf8()
+        .map_err(|e| {
+            tracing::warn!("Failed to URL decode base64 data: {}", e);
+            FlagError::RequestDecodingError(format!("Failed to URL decode: {e}"))
+        })?;
+
+    // Remove whitespace and add padding if necessary
+    let mut cleaned = url_decoded.replace(" ", "");
+    let padding_needed = cleaned.len() % 4;
+    if padding_needed > 0 {
+        cleaned.push_str(&"=".repeat(4 - padding_needed));
+    }
+
+    let decoded = general_purpose::STANDARD.decode(cleaned).map_err(|e| {
         tracing::warn!("Base64 decoding error: {}", e);
         FlagError::RequestDecodingError(format!("Base64 decoding error: {e}"))
     })?;
     Ok(Bytes::from(decoded))
+}
+
+pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
+    // Strategy 1: Try parsing as JSON directly
+    if let Ok(request) = FlagRequest::from_bytes(body.clone()) {
+        return Ok(request);
+    }
+
+    // Strategy 2: Try base64 decode then JSON
+    // Even if compression is not specified, we still try to decode it as base64
+    tracing::warn!("Direct JSON parsing failed, trying base64 decode fallback");
+    match decode_base64(body.clone()) {
+        Ok(decoded) => match FlagRequest::from_bytes(decoded) {
+            Ok(request) => {
+                inc(
+                    FLAG_REQUEST_KLUDGE_COUNTER,
+                    &[("type".to_string(), "base64_fallback_success".to_string())],
+                    1,
+                );
+                return Ok(request);
+            }
+            Err(e) => {
+                tracing::warn!("Base64 decode succeeded but JSON parsing failed: {}", e);
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Base64 decode failed: {}", e);
+        }
+    }
+
+    Err(FlagError::RequestDecodingError("invalid JSON".to_string()))
 }
 
 pub fn decode_form_data(
@@ -280,5 +328,27 @@ mod tests {
         let request = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_base64_with_url_encoding() {
+        // This test verifies the fix for URL-encoded base64 data
+        // Base64 with padding: eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo=
+        // URL-encoded (= becomes %3D): eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo%3D
+        let url_encoded_base64 = "eyJ0b2tlbiI6ICJ0ZXN0IiwgImRpc3RpbmN0X2lkIjogInVzZXIifQo%3D";
+        let body = Bytes::from(url_encoded_base64);
+
+        let headers = HeaderMap::new();
+        let query = FlagsQueryParams {
+            compression: Some(Compression::Base64),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, body, &query);
+        assert!(result.is_ok());
+
+        let request = result.unwrap();
+        assert_eq!(request.distinct_id, Some("user".to_string()));
+        assert_eq!(request.token, Some("test".to_string()));
     }
 }

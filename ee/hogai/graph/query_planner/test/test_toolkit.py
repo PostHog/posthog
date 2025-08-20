@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime
 from textwrap import dedent
 
@@ -6,7 +7,6 @@ from freezegun import freeze_time
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
 from posthog.models import Action
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -82,7 +82,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "<properties><String><prop><name>test</name></prop></String></properties>",
         )
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
         )
         PropertyDefinition.objects.create(
@@ -152,10 +152,10 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         toolkit = DummyToolkit(self.team)
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
         PropertyDefinition.objects.create(
@@ -189,10 +189,10 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
     def test_group_names(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
         toolkit = DummyToolkit(self.team)
