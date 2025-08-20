@@ -183,7 +183,7 @@ dev = [
     "ipython>=9.3.0",
     "mypy~=1.17.1",
     "mypy-baseline~=0.7.3",
-    "mypy-extensions==1.1.0",
+    "mypy-extensions~=1.1.0",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",

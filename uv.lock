@@ -4308,7 +4308,7 @@ dev = [
     { name = "ipython", specifier = ">=9.3.0" },
     { name = "mypy", specifier = "~=1.17.1" },
     { name = "mypy-baseline", specifier = "~=0.7.3" },
-    { name = "mypy-extensions", specifier = "==1.1.0" },
+    { name = "mypy-extensions", specifier = "~=1.1.0" },
     { name = "openapi-spec-validator", specifier = "==0.7.1" },
     { name = "orjson", specifier = "==3.10.15" },
     { name = "packaging", specifier = "==24.1" },

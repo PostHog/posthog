@@ -2,7 +2,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.admin.sites import NotRegistered  # type: ignore
+from django.contrib.admin.sites import NotRegistered  # type: ignore[import]
 from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
