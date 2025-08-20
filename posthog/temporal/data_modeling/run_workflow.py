@@ -698,7 +698,6 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
 
 MB_50_IN_BYTES = 50 * 1000 * 1000
-MB_200_IN_BYTES = 200 * 1000 * 1000
 
 
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
@@ -822,7 +821,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
             batches_size = batches_size + batch.nbytes
             batches.append(batch)
 
-            if batches_size >= MB_200_IN_BYTES:
+            if batches_size >= MB_50_IN_BYTES:
                 await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
 
                 yield (
