@@ -28,9 +28,15 @@ type EditableBreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
     isTrends: boolean
+    disablePropertyInfo?: boolean
 }
 
-export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: EditableBreakdownTagProps): JSX.Element {
+export function EditableBreakdownTag({
+    breakdown,
+    breakdownType,
+    isTrends,
+    disablePropertyInfo,
+}: EditableBreakdownTagProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
@@ -69,7 +75,7 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
                                         setMenuOpen(visible)
                                     },
                                 }}
-                                disablePropertyInfo={filterOpen || menuOpen}
+                                disablePropertyInfo={disablePropertyInfo || filterOpen || menuOpen}
                             />
                         </PopoverReferenceContext.Provider>
                     </div>
@@ -83,7 +89,7 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
                             onClick={() => {
                                 setFilterOpen(!filterOpen)
                             }}
-                            disablePropertyInfo={filterOpen || menuOpen}
+                            disablePropertyInfo={disablePropertyInfo || filterOpen || menuOpen}
                         />
                     </div>
                 )}
