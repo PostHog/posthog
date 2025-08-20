@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
@@ -13,6 +14,7 @@ import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/D
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -29,6 +31,7 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
@@ -44,7 +47,7 @@ export function Dashboards(): JSX.Element {
     ]
 
     return (
-        <div>
+        <SceneContent>
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
@@ -66,17 +69,34 @@ export function Dashboards(): JSX.Element {
                     </AccessControlledLemonButton>
                 }
             />
-            <LemonTabs activeKey={currentTab} onChange={(newKey) => setCurrentTab(newKey)} tabs={enabledTabs} />
-            {currentTab === DashboardsTab.Templates ? (
-                <DashboardTemplatesTable />
-            ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                <DashboardsTableContainer />
-            ) : (
-                <div className="mt-4">
-                    <p>Create your first dashboard:</p>
-                    <DashboardTemplateChooser />
-                </div>
-            )}
-        </div>
+            <SceneTitleSection
+                name="Dashboards"
+                description="Create and manage your dashboards"
+                resourceType={{
+                    type: 'dashboard',
+                    typePlural: 'dashboards',
+                }}
+            />
+            <SceneDivider />
+            <LemonTabs
+                activeKey={currentTab}
+                onChange={(newKey) => setCurrentTab(newKey)}
+                tabs={enabledTabs}
+                sceneInset={newSceneLayout}
+            />
+
+            <div>
+                {currentTab === DashboardsTab.Templates ? (
+                    <DashboardTemplatesTable />
+                ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
+                    <DashboardsTableContainer />
+                ) : (
+                    <div className="mt-4">
+                        <p>Create your first dashboard:</p>
+                        <DashboardTemplateChooser />
+                    </div>
+                )}
+            </div>
+        </SceneContent>
     )
 }
