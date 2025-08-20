@@ -353,8 +353,8 @@ def DROP_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
     return f"DROP VIEW IF EXISTS query_log_archive_mv {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
-def RENAME_QUERY_LOG_ARCHIVE_TABLES(on_cluster=True):
-    return f"RENAME TABLE query_log_archive TO query_log_archive_old, query_log_archive_new TO query_log_archive {ON_CLUSTER_CLAUSE(on_cluster)}"
+def EXCHANGE_QUERY_LOG_ARCHIVE_TABLES(on_cluster=True):
+    return f"EXCHANGE TABLES query_log_archive_new AND query_log_archive {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
 def RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
@@ -362,7 +362,7 @@ def RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
 
 
 def DROP_QUERY_LOG_ARCHIVE_OLD_TABLE(on_cluster=True):
-    return f"DROP TABLE IF EXISTS query_log_archive_old {ON_CLUSTER_CLAUSE(on_cluster)}"
+    return f"DROP TABLE IF EXISTS query_log_archive_new {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_SQL(on_cluster=True):
