@@ -6,6 +6,7 @@ import { isAddonVisible } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
 import { BillingUsageResponse, billingUsageLogic } from 'scenes/billing/billingUsageLogic'
+import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -267,6 +268,8 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
             ['currentTeam'],
             featureFlagLogic,
             ['featureFlags'],
+            hogFunctionsListLogic({ type: 'destination' }),
+            ['hogFunctions'],
         ],
     })),
     selectors({
@@ -278,7 +281,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 s.isAdminOrOwner,
                 s.currentTeam,
                 s.featureFlags,
-                s.destinations,
+                s.hogFunctions,
             ],
             (
                 billing: BillingType | null,
