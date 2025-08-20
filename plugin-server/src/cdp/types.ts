@@ -194,6 +194,7 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'billable_invocation'
         | 'dropped'
+        | 'quota_limited'
         | 'email_sent'
         | 'email_failed'
         | 'email_opened'
