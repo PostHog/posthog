@@ -6,6 +6,7 @@ from enum import Enum
 import yaml
 import structlog
 from ee.hogai.session_summaries import SummaryValidationError
+from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import strip_raw_llm_content, unpack_full_event_id
@@ -398,9 +399,7 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
-    # TODO: Rever after testing
-    # if len(combined_patterns) < len(patterns.patterns) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO:
-    if not len(combined_patterns):
+    if len(combined_patterns) < len(patterns.patterns) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO:
         exception_message = (
             f"Too many patterns failed to assign session events, when summarizing {len(session_ids)} "
             f"sessions ({session_ids}) for user {user_id}"

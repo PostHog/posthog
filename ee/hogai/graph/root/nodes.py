@@ -15,6 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
+import posthoganalytics
 from pydantic import BaseModel
 
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
@@ -303,15 +304,13 @@ class RootNode(RootNodeUIContextMixin):
         """
         Check if the user has the session summarization feature flag enabled.
         """
-        return True
-        # TODO: Revert after tests
-        # return posthoganalytics.feature_enabled(
-        #     "max-session-summarization",
-        #     str(self._user.distinct_id),
-        #     groups={"organization": str(self._team.organization_id)},
-        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
-        #     send_feature_flag_events=False,
-        # )
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
     """
     Determines the maximum number of tokens allowed in the conversation window.
