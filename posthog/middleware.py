@@ -23,7 +23,6 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
 from statshog.defaults.django import statsd
-from two_factor.utils import default_device
 
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
@@ -32,8 +31,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.mfa_session import is_mfa_verified_in_session, set_mfa_verified_in_session
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Organization, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
@@ -630,96 +628,6 @@ class AutoLogoutImpersonateMiddleware:
                 return redirect("/admin/")
 
         return self.get_response(request)
-
-
-class ImpersonateMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request: HttpRequest):
-        if is_impersonated_session(request):
-            if request.user and request.user.is_authenticated and not is_mfa_verified_in_session(request):
-                set_mfa_verified_in_session(request)
-
-        return self.get_response(request)
-
-
-class MFAEnforcementMiddleware:
-    """
-    Enforces MFA requirements for organizations with enforce_2fa=True.
-    Only applies to session-based authentication (not API keys).
-    """
-
-    WHITELISTED_PATHS = [
-        "/static/",
-        "/api/users/@me/two_factor_start_setup/",
-        "/api/users/@me/two_factor_validate/",
-        "/api/users/@me/two_factor_status/",
-        "/api/users/@me/two_factor_backup_codes/",
-        "/api/users/@me/two_factor_disable/",
-        "/logout/",
-        "/admin/",
-        "/_health",
-    ]
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request: HttpRequest):
-        if not self._should_check_mfa(request):
-            return self.get_response(request)
-
-        user = cast(User, request.user)
-        organization = self._get_organization(user)
-
-        if not organization or not organization.enforce_2fa:
-            return self.get_response(request)
-
-        if is_impersonated_session(request):
-            return self.get_response(request)
-
-        if not default_device(user):
-            return self._handle_mfa_required_response(request, "2FA setup required")
-
-        if not is_mfa_verified_in_session(request):
-            return self._handle_mfa_required_response(request, "2FA verification required")
-
-        return self.get_response(request)
-
-    def _should_check_mfa(self, request: HttpRequest) -> bool:
-        if not request.user or not request.user.is_authenticated:
-            return False
-
-        # Skip for API key authentication
-        if hasattr(request, "successful_authenticator"):
-            if not hasattr(request.successful_authenticator, "__class__"):
-                return False
-            auth_class_name = request.successful_authenticator.__class__.__name__
-            if auth_class_name != "SessionAuthentication":
-                return False
-        else:
-            # If no successful_authenticator, assume it's not session auth and skip
-            return False
-
-        # Check if path is whitelisted
-        for path in self.WHITELISTED_PATHS:
-            if request.path.startswith(path):
-                return False
-
-        return True
-
-    def _get_organization(self, user: User) -> Optional[Organization]:
-        try:
-            return getattr(user, "organization", None)
-        except AttributeError:
-            return None
-
-    def _handle_mfa_required_response(self, request: HttpRequest, message: str) -> HttpResponse:
-        if request.path.startswith("/api/"):
-            return HttpResponse(message, status=403, content_type="application/json")
-        else:
-            # For non-API requests, redirect to a page that can handle MFA setup
-            return redirect("/")
 
 
 class Fix204Middleware:

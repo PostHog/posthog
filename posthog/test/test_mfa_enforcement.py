@@ -1,12 +1,11 @@
 import time
-from datetime import datetime
 from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
 from rest_framework.views import APIView
 
@@ -22,7 +21,6 @@ from posthog.helpers.mfa_session import (
     is_mfa_verified_in_session,
     set_mfa_verified_in_session,
 )
-from posthog.middleware import MFAEnforcementMiddleware
 from posthog.models import Organization, User
 from posthog.permissions import MFARequiredPermission
 
@@ -181,242 +179,267 @@ class TestMFARequiredPermission(TestCase):
             self.assertTrue(self.permission.has_permission(request, self.view))
 
 
-class TestMFAEnforcementMiddleware(TestCase):
+class TestSessionAuthenticationMFA(TestCase):
     def setUp(self):
-        self.factory = RequestFactory()
-        self.middleware = MFAEnforcementMiddleware(lambda request: HttpResponse("OK"))
+        self.factory = APIRequestFactory()
+        self.auth = SessionAuthentication()
 
         self.user = Mock(spec=User)
         self.user.is_authenticated = True
+        self.user.is_active = True
         self.organization = Mock(spec=Organization)
         self.organization.enforce_2fa = True
 
-    def _create_request(self, path="/test/", user=None, auth_class=None):
+    def _create_drf_request(self, path="/test/", user=None):
+        request_factory = RequestFactory()
+        http_request = request_factory.get(path)
+        http_request.user = user if user is not None else self.user
+
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(http_request)
+        http_request.session.save()
+
         request = self.factory.get(path)
-        request.user = user or self.user
-        if auth_class:
-            request.successful_authenticator = auth_class()
+        request._request = http_request
         return request
 
-    def test_middleware_skips_api_key_authentication(self):
-        request = self._create_request(auth_class=PersonalAPIKeyAuthentication)
-        response = self.middleware(request)
-        self.assertEqual(response.content.decode(), "OK")
-
-    def test_middleware_skips_whitelisted_paths(self):
-        whitelisted_paths = [
-            "/static/favicon.ico",
-            "/api/users/@me/two_factor_start_setup/",
-            "/api/users/@me/two_factor_validate/",
-            "/api/users/@me/two_factor_status/",
-            "/logout/",
-            "/admin/",
-            "/_health",
-        ]
-
-        for path in whitelisted_paths:
-            request = self._create_request(path=path, auth_class=SessionAuthentication)
-            response = self.middleware(request)
-            self.assertEqual(response.content.decode(), "OK", f"Path {path} should be whitelisted")
-
-    @patch("posthog.middleware.is_impersonated_session")
-    def test_middleware_skips_impersonated_sessions(self, mock_is_impersonated):
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    def test_authentication_skips_impersonated_sessions(self, mock_is_impersonated, mock_default_device):
         mock_is_impersonated.return_value = True
-        request = self._create_request(auth_class=SessionAuthentication)
+        mock_default_device.return_value = Mock()
+        request = self._create_drf_request()
 
-        with patch.object(self.middleware, "_get_organization", return_value=self.organization):
-            response = self.middleware(request)
-            self.assertEqual(response.content.decode(), "OK")
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            result = self.auth.authenticate(request)
+            self.assertEqual(result, (self.user, None))
 
-    def test_middleware_allows_when_organization_not_enforce_2fa(self):
+    @patch("loginas.utils.is_impersonated_session")
+    def test_authentication_allows_when_organization_not_enforce_2fa(self, mock_is_impersonated):
+        mock_is_impersonated.return_value = False
         org_no_2fa = Mock(spec=Organization)
         org_no_2fa.enforce_2fa = False
-        request = self._create_request(auth_class=SessionAuthentication)
+        request = self._create_drf_request()
 
-        with patch.object(self.middleware, "_get_organization", return_value=org_no_2fa):
-            response = self.middleware(request)
-            self.assertEqual(response.content.decode(), "OK")
+        with patch.object(self.user, "organization", org_no_2fa), patch.object(self.auth, "enforce_csrf"):
+            result = self.auth.authenticate(request)
+            self.assertEqual(result, (self.user, None))
 
-    @patch("posthog.middleware.default_device")
-    @patch("posthog.middleware.is_impersonated_session")
-    def test_middleware_blocks_when_no_2fa_device_api_request(self, mock_is_impersonated, mock_default_device):
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    def test_authentication_raises_permission_denied_when_no_2fa_device(
+        self, mock_is_impersonated, mock_default_device
+    ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
-        request = self._create_request(path="/api/test/", auth_class=SessionAuthentication)
+        request = self._create_drf_request()
 
-        with patch.object(self.middleware, "_get_organization", return_value=self.organization):
-            response = self.middleware(request)
-            self.assertEqual(response.status_code, 403)
-            self.assertIn("2FA setup required", response.content.decode())
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            with self.assertRaises(PermissionDenied) as cm:
+                self.auth.authenticate(request)
+            self.assertEqual(str(cm.exception.detail), "2FA setup required")
+            self.assertEqual(cm.exception.get_codes(), "mfa_setup_required")
 
-    @patch("posthog.middleware.default_device")
-    @patch("posthog.middleware.is_impersonated_session")
-    def test_middleware_blocks_when_no_2fa_device_non_api_request(self, mock_is_impersonated, mock_default_device):
-        mock_is_impersonated.return_value = False
-        mock_default_device.return_value = None
-        request = self._create_request(path="/dashboard/", auth_class=SessionAuthentication)
-
-        with patch.object(self.middleware, "_get_organization", return_value=self.organization):
-            response = self.middleware(request)
-            self.assertEqual(response.status_code, 302)
-
-    @patch("posthog.middleware.default_device")
-    @patch("posthog.middleware.is_impersonated_session")
-    @patch("posthog.middleware.is_mfa_verified_in_session")
-    def test_middleware_blocks_when_session_not_verified_api_request(
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    @patch("posthog.helpers.mfa_session.is_mfa_verified_in_session")
+    def test_authentication_raises_permission_denied_when_session_not_verified(
         self, mock_is_mfa_verified, mock_is_impersonated, mock_default_device
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = Mock()
         mock_is_mfa_verified.return_value = False
-        request = self._create_request(path="/api/test/", auth_class=SessionAuthentication)
+        request = self._create_drf_request()
 
-        with patch.object(self.middleware, "_get_organization", return_value=self.organization):
-            response = self.middleware(request)
-            self.assertEqual(response.status_code, 403)
-            self.assertIn("2FA verification required", response.content.decode())
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            with self.assertRaises(PermissionDenied) as cm:
+                self.auth.authenticate(request)
+            self.assertEqual(str(cm.exception.detail), "2FA verification required")
+            self.assertEqual(cm.exception.get_codes(), "mfa_verification_required")
 
-    @patch("posthog.middleware.default_device")
-    @patch("posthog.middleware.is_impersonated_session")
-    @patch("posthog.middleware.is_mfa_verified_in_session")
-    def test_middleware_allows_when_fully_verified(
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    @patch("posthog.helpers.mfa_session.is_mfa_verified_in_session")
+    def test_authentication_succeeds_when_fully_verified(
         self, mock_is_mfa_verified, mock_is_impersonated, mock_default_device
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = Mock()
         mock_is_mfa_verified.return_value = True
-        request = self._create_request(auth_class=SessionAuthentication)
+        request = self._create_drf_request()
 
-        with patch.object(self.middleware, "_get_organization", return_value=self.organization):
-            response = self.middleware(request)
-            self.assertEqual(response.content.decode(), "OK")
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            result = self.auth.authenticate(request)
+            self.assertEqual(result, (self.user, None))
 
-    def test_handle_mfa_required_response_api(self):
-        request = self._create_request(path="/api/test/")
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    def test_authentication_skips_whitelisted_paths(self, mock_is_impersonated, mock_default_device):
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
 
-        response = self.middleware._handle_mfa_required_response(request, "Test message")
+        whitelisted_paths = [
+            "/api/users/@me/two_factor_start_setup/",
+            "/api/users/@me/two_factor_validate/",
+            "/logout/",
+            "/api/logout/",
+            "/_health/",
+            "/decide/",
+            "/static/css/app.css",
+            "/uploaded_media/file.png",
+        ]
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.content.decode(), "Test message")
-        self.assertEqual(response["Content-Type"], "application/json")
+        for path in whitelisted_paths:
+            request = self._create_drf_request(path=path)
 
-    def test_handle_mfa_required_response_non_api(self):
-        request = self._create_request(path="/dashboard/")
+            with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+                result = self.auth.authenticate(request)
+                self.assertEqual(result, (self.user, None), f"Path {path} should be whitelisted")
 
-        response = self.middleware._handle_mfa_required_response(request, "Test message")
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    def test_authentication_enforces_mfa_on_non_whitelisted_paths(self, mock_is_impersonated, mock_default_device):
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/")
+        non_whitelisted_paths = [
+            "/api/users/@me/",
+            "/api/projects/1/insights/",
+            "/dashboard/123",
+            "/insights/abc123",
+        ]
+
+        for path in non_whitelisted_paths:
+            request = self._create_drf_request(path=path)
+
+            with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+                with self.assertRaises(PermissionDenied) as cm:
+                    self.auth.authenticate(request)
+                self.assertEqual(str(cm.exception.detail), "2FA setup required", f"Path {path} should require MFA")
+
+    def test_authentication_returns_none_for_inactive_user(self):
+        inactive_user = Mock(spec=User)
+        inactive_user.is_authenticated = True
+        inactive_user.is_active = False
+        request = self._create_drf_request(user=inactive_user)
+
+        result = self.auth.authenticate(request)
+        self.assertIsNone(result)
+
+    def test_authentication_returns_none_for_no_user(self):
+        request = self.factory.get("/test/")
+        http_request = Mock()
+        http_request.user = None
+        request._request = http_request
+
+        result = self.auth.authenticate(request)
+        self.assertIsNone(result)
 
 
 class TestMFAImpersonationIntegration(TestCase):
     def setUp(self):
-        self.factory = RequestFactory()
+        self.factory = APIRequestFactory()
+        self.auth = SessionAuthentication()
 
-    def _create_request(self, path="/test/", user=None):
-        request = self.factory.get(path)
-        request.user = user or Mock(is_authenticated=True)
+    def _create_drf_request(self, path="/test/", user=None):
+        request_factory = RequestFactory()
+        http_request = request_factory.get(path)
+        http_request.user = user if user is not None else Mock(is_authenticated=True, is_active=True)
 
         middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(request)
-        request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = datetime(2026, 1, 1).timestamp()
-        request.session.save()
+        middleware.process_request(http_request)
+        http_request.session.save()
 
+        request = self.factory.get(path)
+        request._request = http_request
         return request
 
-    @patch("posthog.middleware.is_impersonated_session")
-    def test_impersonate_mfa_middleware_sets_mfa_verified_for_impersonated_sessions(self, mock_is_impersonated):
-        from posthog.middleware import ImpersonateMiddleware
-
+    @patch("posthog.auth.is_impersonated_session")
+    def test_session_authentication_bypasses_mfa_for_impersonated_sessions(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
-        middleware = ImpersonateMiddleware(lambda req: HttpResponse("OK"))
-        request = self._create_request()
-
-        self.assertFalse(is_mfa_verified_in_session(request))
-
-        response = middleware(request)
-
-        self.assertTrue(is_mfa_verified_in_session(request))
-        self.assertEqual(response.content.decode(), "OK")
-
-    @patch("posthog.middleware.is_impersonated_session")
-    @patch("posthog.middleware.default_device")
-    def test_integration_admin_impersonating_user_in_2fa_org_without_2fa_setup(
-        self, mock_default_device, mock_is_impersonated
-    ):
-        from posthog.middleware import ImpersonateMiddleware
-
-        mock_is_impersonated.return_value = True
-        mock_default_device.return_value = None
-
-        def create_response(request):
-            return HttpResponse("Success")
-
-        mfa_middleware = MFAEnforcementMiddleware(create_response)
-        impersonate_middleware = ImpersonateMiddleware(mfa_middleware)
-
-        request = self._create_request(path="/dashboard/")
-        request.successful_authenticator = SessionAuthentication()
-
+        user = Mock(is_authenticated=True, is_active=True)
         org = Mock(spec=Organization)
         org.enforce_2fa = True
+        user.organization = org
 
-        with patch.object(mfa_middleware, "_get_organization", return_value=org):
-            response = impersonate_middleware(request)
+        request = self._create_drf_request(user=user)
 
-        self.assertEqual(response.content.decode(), "Success")
-        self.assertTrue(is_mfa_verified_in_session(request))
+        with patch.object(self.auth, "enforce_csrf"):
+            result = self.auth.authenticate(request)
+            self.assertEqual(result, (user, None))
+
+    @patch("posthog.auth.is_impersonated_session")
+    @patch("posthog.auth.default_device")
+    def test_session_authentication_enforces_mfa_for_non_impersonated_sessions(
+        self, mock_default_device, mock_is_impersonated
+    ):
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
+
+        user = Mock(is_authenticated=True, is_active=True)
+        org = Mock(spec=Organization)
+        org.enforce_2fa = True
+        user.organization = org
+
+        request = self._create_drf_request(user=user)
+
+        with patch.object(self.auth, "enforce_csrf"):
+            with self.assertRaises(PermissionDenied) as cm:
+                self.auth.authenticate(request)
+            self.assertEqual(str(cm.exception.detail), "2FA setup required")
 
 
 class TestAPIAuthenticationMFABypass(TestCase):
     def setUp(self):
-        self.factory = RequestFactory()
-        self.mfa_middleware = MFAEnforcementMiddleware(lambda request: None)
+        self.factory = APIRequestFactory()
 
-        self.user = Mock(spec=User)
-        self.user.is_authenticated = True
-        self.organization = Mock(spec=Organization)
-        self.organization.enforce_2fa = True
+    def test_session_authentication_enforces_mfa(self):
+        auth = SessionAuthentication()
 
-    def _create_request(self, auth_class=None):
-        request = self.factory.get("/api/users/@me/")
-        request.user = self.user
+        request_factory = RequestFactory()
+        http_request = request_factory.get("/api/users/@me/")
 
-        if auth_class:
-            request.successful_authenticator = auth_class()
+        user = Mock(is_authenticated=True, is_active=True)
+        org = Mock(spec=Organization)
+        org.enforce_2fa = True
+        user.organization = org
+        http_request.user = user
 
         middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(request)
-        request.session.save()
+        middleware.process_request(http_request)
+        http_request.session.save()
 
-        return request
+        request = self.factory.get("/api/users/@me/")
+        request._request = http_request
 
-    def test_session_authentication_requires_mfa_check(self):
-        request = self._create_request(SessionAuthentication)
+        with (
+            patch("posthog.auth.is_impersonated_session", return_value=False),
+            patch("posthog.auth.default_device", return_value=None),
+            patch.object(auth, "enforce_csrf"),
+        ):
+            with self.assertRaises(PermissionDenied):
+                auth.authenticate(request)
 
-        with patch.object(self.mfa_middleware, "_get_organization", return_value=self.organization):
-            with patch("posthog.middleware.default_device", return_value=None):
-                with patch("posthog.middleware.is_mfa_verified_in_session", return_value=False):
-                    should_check = self.mfa_middleware._should_check_mfa(request)
-                    self.assertTrue(should_check)
+    def test_personal_api_key_authentication_bypasses_mfa(self):
+        auth = PersonalAPIKeyAuthentication()
+        request = self.factory.get("/api/users/@me/")
 
-    def test_personal_api_key_authentication_bypasses_mfa_check(self):
-        request = self._create_request(PersonalAPIKeyAuthentication)
+        result = auth.authenticate(request)
+        self.assertIsNone(result)
 
-        should_check = self.mfa_middleware._should_check_mfa(request)
-        self.assertFalse(should_check)
+    def test_temporary_token_authentication_bypasses_mfa(self):
+        auth = TemporaryTokenAuthentication()
+        request = self.factory.get("/api/users/@me/")
 
-    def test_temporary_token_authentication_bypasses_mfa_check(self):
-        request = self._create_request(TemporaryTokenAuthentication)
+        result = auth.authenticate(request)
+        self.assertIsNone(result)
 
-        should_check = self.mfa_middleware._should_check_mfa(request)
-        self.assertFalse(should_check)
+    def test_project_secret_api_key_authentication_bypasses_mfa(self):
+        auth = ProjectSecretAPIKeyAuthentication()
+        request = self.factory.get("/api/users/@me/")
 
-    def test_project_secret_api_key_authentication_bypasses_mfa_check(self):
-        request = self._create_request(ProjectSecretAPIKeyAuthentication)
-
-        should_check = self.mfa_middleware._should_check_mfa(request)
-        self.assertFalse(should_check)
+        result = auth.authenticate(request)
+        self.assertIsNone(result)
 
 
 class TestUserMFASessionIntegration(TestCase):
@@ -439,8 +462,6 @@ class TestUserMFASessionIntegration(TestCase):
         session = self.client.session
         session["django_two_factor-hex"] = "1234567890abcdef1234"
         session.save()
-
-        from django.test import RequestFactory
 
         factory = RequestFactory()
         request = factory.post("/api/users/@me/two_factor_validate/", {"token": "123456"})
