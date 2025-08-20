@@ -1166,7 +1166,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             sources.append(
                                 {
                                     "source": "blob_v2",
-                                    "blob_key": urlparse(recording.full_recording_v2_path).path,
+                                    "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
                                 }
                             )
                         except Exception as e:
