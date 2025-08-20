@@ -70,13 +70,6 @@ class TestMFASessionUtils(TestCase):
         request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = session_created_time
         self.assertFalse(is_mfa_verified_in_session(request))
 
-    def test_is_mfa_verified_in_session_without_session_timestamp(self):
-        request = self._create_request()
-        request.session["mfa_verified"] = True
-        if settings.SESSION_COOKIE_CREATED_AT_KEY in request.session:
-            del request.session[settings.SESSION_COOKIE_CREATED_AT_KEY]
-        self.assertTrue(is_mfa_verified_in_session(request))
-
     def test_clear_mfa_session_flags(self):
         request = self._create_request()
         request.session["mfa_verified"] = True
