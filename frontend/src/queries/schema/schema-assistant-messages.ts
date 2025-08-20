@@ -159,7 +159,6 @@ export type AssistantContextualTool =
     | 'search_docs'
     | 'search_insights'
     | 'session_summarization'
-    | 'create_message_template'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

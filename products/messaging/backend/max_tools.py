@@ -53,7 +53,7 @@ The "templating" field should usually be set to "hog".
 Return ONLY the JSON object. Do not add any other text or explanation.
 """
         user_content = f"Create a template for these instructions: {instructions}"
-        messages = [SystemMessage(content=system_content)]
+        messages: list[SystemMessage | HumanMessage] = [SystemMessage(content=system_content)]
 
         if url:
             try:
