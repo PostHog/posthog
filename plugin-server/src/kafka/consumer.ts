@@ -16,6 +16,7 @@ import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
 import { isTestEnv } from '~/utils/env-utils'
+import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
 import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
@@ -28,7 +29,8 @@ import { getKafkaConfigFromEnv } from './config'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
-const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
+const CONSUMER_LOOP_STALL_THRESHOLD_MS = 120_000 // 2 minutes - consider loop stalled after this
+const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
 
 const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
@@ -133,15 +135,17 @@ interface RebalanceCoordination {
 
 export class KafkaConsumer {
     private isStopping = false
-    private lastHeartbeatTime = 0
     private rdKafkaConsumer: RdKafkaConsumer
     private consumerConfig: ConsumerGlobalConfig
     private fetchBatchSize: number
-    private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
+    // Health monitoring state
+    private lastConsumerLoopTime = 0
+    private consumerState: string | undefined
+    private lastStatsEmitTime = 0
     private rebalanceCoordination: RebalanceCoordination = {
         isRebalancing: false,
         rebalanceTimeoutMs: 20000,
@@ -161,8 +165,6 @@ export class KafkaConsumer {
         this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
-        this.maxHealthHeartbeatIntervalMs =
-            defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -185,6 +187,7 @@ export class KafkaConsumer {
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
+            'statistics.interval.ms': STATISTICS_INTERVAL_MS, // Enable internal metrics emission
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
@@ -207,16 +210,56 @@ export class KafkaConsumer {
         }
     }
 
-    public heartbeat(): void {
-        // Can be called externally to update the heartbeat time and keep the consumer alive
-        this.lastHeartbeatTime = Date.now()
-    }
-
     public isHealthy(): boolean {
-        // this is called as a readiness and a liveness probe
-        const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
-        const isConnected = this.rdKafkaConsumer.isConnected()
-        return isConnected && isWithinInterval
+        // Multi-dimensional health check
+
+        // 1. Basic connectivity check
+        if (!this.rdKafkaConsumer.isConnected()) {
+            logger.debug('🔴', 'Consumer health check failed: not connected')
+            return false
+        }
+
+        // 2. Consumer loop liveness check (ensure loop is not stalled)
+        const timeSinceLastLoop = Date.now() - this.lastConsumerLoopTime
+        if (this.lastConsumerLoopTime > 0 && timeSinceLastLoop > CONSUMER_LOOP_STALL_THRESHOLD_MS) {
+            logger.warn('🔴', 'Consumer health check failed: consumer loop appears stalled', {
+                lastLoopTime: this.lastConsumerLoopTime,
+                timeSinceLastLoop,
+                threshold: CONSUMER_LOOP_STALL_THRESHOLD_MS,
+            })
+            return false
+        }
+
+        // 3. Check librdkafka internal state if available
+        if (this.consumerState && this.consumerState !== 'up') {
+            logger.debug('🟡', 'Consumer state not optimal but still healthy', {
+                state: this.consumerState,
+            })
+            // Note: We still return true here as the consumer might be initializing or rebalancing
+        }
+
+        // 4. Check if statistics are being emitted (indicates librdkafka is responsive)
+        if (this.lastStatsEmitTime > 0) {
+            const timeSinceLastStats = Date.now() - this.lastStatsEmitTime
+            // Allow for 3x the statistics interval as buffer
+            if (timeSinceLastStats > STATISTICS_INTERVAL_MS * 3) {
+                logger.warn('🟡', 'Consumer health check warning: statistics not being emitted', {
+                    lastStatsEmitTime: this.lastStatsEmitTime,
+                    timeSinceLastStats,
+                })
+                // Not failing health check as this might be a transient issue
+            }
+        }
+
+        // 5. Rebalancing is normal operation, log but don't fail
+        if (this.rebalanceCoordination.isRebalancing) {
+            logger.info('🟡', 'Consumer is rebalancing but considered healthy', {
+                rebalanceStartTime: this.rebalanceCoordination.rebalanceStartTime,
+                duration: Date.now() - this.rebalanceCoordination.rebalanceStartTime,
+            })
+        }
+
+        return true
     }
 
     public assignments(): Assignment[] {
@@ -385,6 +428,28 @@ export class KafkaConsumer {
             })
         })
 
+        consumer.on('event.stats', (stats: any) => {
+            // Parse the statistics JSON
+            try {
+                const parsedStats = parseJSON(stats.message)
+
+                // Update internal health monitoring state
+                this.lastStatsEmitTime = Date.now()
+                this.consumerState = parsedStats.state
+
+                // Log key metrics for observability
+                logger.debug('📊', 'Kafka consumer statistics', {
+                    state: parsedStats.state,
+                    rebalance_state: parsedStats.rebalance_state,
+                    rx_msgs: parsedStats.rxmsgs, // Total messages received
+                    rx_bytes: parsedStats.rxbytes, // Total bytes received
+                    topics: Object.keys(parsedStats.topics || {}),
+                })
+            } catch (error) {
+                logger.error('📊', 'Failed to parse consumer statistics', { error })
+            }
+        })
+
         consumer.on('subscribed', (topics) => {
             logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
         })
@@ -443,7 +508,8 @@ export class KafkaConsumer {
             throw error
         }
 
-        this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
+        // Initialize health monitoring state
+        this.lastConsumerLoopTime = Date.now()
 
         if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
             // For hobby deploys we want to auto-create, but on cloud we don't
@@ -462,6 +528,8 @@ export class KafkaConsumer {
             let lastConsumeTime = 0
             try {
                 while (!this.isStopping) {
+                    // Track that the consumer loop is alive
+                    this.lastConsumerLoopTime = Date.now()
                     logger.debug('🔁', 'main_loop_consuming')
 
                     // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
@@ -493,9 +561,6 @@ export class KafkaConsumer {
                     const messages = await retryIfRetriable(() =>
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
-
-                    // After successfully pulling a batch, we can update our heartbeat time
-                    this.heartbeat()
 
                     gaugeBatchUtilization.labels({ groupId }).set(messages.length / this.fetchBatchSize)
 

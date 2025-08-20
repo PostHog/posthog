@@ -344,8 +344,6 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
-        this.kafkaConsumer.heartbeat()
-
         if (messages.length !== 0) {
             logger.info('🔁', `blob_ingester_consumer - handling batch`, {
                 size: messages.length,
@@ -387,7 +385,6 @@ export class SessionRecordingIngester {
                         }
                     },
                 })
-                this.kafkaConsumer.heartbeat()
 
                 await this.reportPartitionMetrics()
 
@@ -425,7 +422,6 @@ export class SessionRecordingIngester {
                             await this.replayEventsIngester!.consumeBatch(recordingMessages)
                         },
                     })
-                    this.kafkaConsumer.heartbeat()
                 }
 
                 if (this.consoleLogsIngester) {
@@ -435,7 +431,6 @@ export class SessionRecordingIngester {
                             await this.consoleLogsIngester!.consumeBatch(recordingMessages)
                         },
                     })
-                    this.kafkaConsumer.heartbeat()
                 }
             },
         })
@@ -685,8 +680,6 @@ export class SessionRecordingIngester {
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
             async ([key, sessionManager], ctx) => {
-                this.kafkaConsumer.heartbeat()
-
                 if (this.isStopping) {
                     // We can end up with a large number of flushes. We want to stop early if we hit shutdown
                     return ctx.break()
