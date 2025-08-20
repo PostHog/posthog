@@ -96,6 +96,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
+        limit?: number,
         tx?: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult>
 

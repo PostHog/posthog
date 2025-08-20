@@ -79,9 +79,10 @@ export class PersonsStoreTransaction {
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
-        distinctId: string
+        distinctId: string,
+        limit?: number
     ): Promise<MoveDistinctIdsResult> {
-        return await this.store.moveDistinctIds(source, target, distinctId, this.tx)
+        return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

@@ -491,10 +491,12 @@ export class PersonMergeService {
                             this.context.distinctId
                         )
 
+                        const perCallLimit = this.context.personMergeMoveDistinctIdLimit || undefined
                         const distinctIdResult = await tx.moveDistinctIds(
                             currentSourcePerson,
                             currentTargetPerson,
-                            this.context.distinctId
+                            this.context.distinctId,
+                            perCallLimit
                         )
 
                         if (!distinctIdResult.success) {

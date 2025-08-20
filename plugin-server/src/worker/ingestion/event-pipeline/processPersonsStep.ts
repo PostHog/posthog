@@ -27,7 +27,8 @@ export async function processPersonsStep(
         processPerson,
         runner.hub.db.kafkaProducer,
         personStoreBatch,
-        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE
+        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+        runner.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT
     )
 
     const processor = new PersonEventProcessor(
