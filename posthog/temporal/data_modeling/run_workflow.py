@@ -308,7 +308,7 @@ async def handle_model_ready(
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
+            await materialize_model(model.label, team, saved_query, job, shutdown_monitor)
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s", logger)
@@ -401,7 +401,6 @@ async def materialize_model(
     team: Team,
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
-    logger: FilteringBoundLogger,
     shutdown_monitor: ShutdownMonitor,
 ) -> tuple[str, DeltaTable, uuid.UUID]:
     """Materialize a given model by running its query and piping the results into a delta table.
@@ -414,6 +413,8 @@ async def materialize_model(
         saved_query: The saved query to materialize.
         job: The DataModelingJob record for this run that tracks the lifecycle and rows of the run.
     """
+    logger = await bind_temporal_worker_logger(team_id=team.pk)
+
     await logger.adebug(f"Starting materialize_model for {model_label}. saved_query.name={saved_query.name}")
 
     query_columns = saved_query.columns
