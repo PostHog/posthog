@@ -210,7 +210,7 @@ dev = [
     "responses==0.23.1",
     "ruff~=0.8.1",
     "sqlalchemy==2.0.38",
-    "stpyv8==13.1.201.22",
+    "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.6.0",
     "tach~=0.20.0",
     "types-aioboto3[s3]>=14.3.0",
