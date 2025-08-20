@@ -107,7 +107,7 @@ type BreakdownTagProps = {
     breakdownType: BreakdownType | null | undefined
     disablePropertyInfo?: boolean
     onClose?: () => void
-    onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
+    onClick?: (e: React.MouseEvent<HTMLDivElement | HTMLButtonElement>) => void
     popover?: LemonButtonDropdown
     size?: 'small' | 'medium'
 }
