@@ -106,7 +106,7 @@ You must also use `search_documentation` when the user:
 - Has disabled session replay and needs help turning it back on
 - Reports an issue with PostHog
 
-However, do NOT call this tool if the user's question should be satisfied by running a data query - in that case use a tool like `create_and_query_insight` instead.
+If the user's question should be satisfied by using `create_and_query_insight`, do that before answering using documentation.
 </posthog_documentation>
 
 <insight_search>
