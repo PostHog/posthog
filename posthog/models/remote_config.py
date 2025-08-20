@@ -341,9 +341,16 @@ class RemoteConfig(UUIDTModel):
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
         except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
+            # Try to find the team and create RemoteConfig if it exists
+            try:
+                from posthog.models.team import Team
+
+                team = Team.objects.get(api_token=token)
+                remote_config = cls(team=team)  # type: ignore[assignment]
+            except Team.DoesNotExist:
+                cache.set(key, "404", timeout=CACHE_TIMEOUT)
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
+                raise cls.DoesNotExist()
 
         data = remote_config.build_config()
         cache.set(key, data, timeout=CACHE_TIMEOUT)
