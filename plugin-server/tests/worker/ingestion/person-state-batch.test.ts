@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 
@@ -228,7 +228,8 @@ describe('PersonState.processEvent()', () => {
         customPersonRepository?: PostgresPersonRepository,
         processPerson = true,
         timestampParam = timestamp,
-        team = mainTeam
+        team = mainTeam,
+        moveLimit: number = 0
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -250,7 +251,8 @@ describe('PersonState.processEvent()', () => {
             processPerson,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
             personsStore,
-            0
+            0,
+            moveLimit
         )
         return new PersonMergeService(context)
     }
@@ -2392,6 +2394,55 @@ describe('PersonState.processEvent()', () => {
             await clickhouse.delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(person)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
+        })
+
+        it(`partial merge when move limit hit: skip delete and emit warning`, async () => {
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            // Add more distinct IDs to source so that limit < total
+            const repo = new PostgresPersonRepository(hub.db.postgres)
+            await repo.addDistinctId(second, 'second-2', 1)
+            await repo.addDistinctId(second, 'second-3', 1)
+
+            // Set a per-call limit of 2 via test hook on context
+            const mergeService: PersonMergeService = personMergeService(
+                {},
+                undefined,
+                undefined,
+                true,
+                timestamp,
+                mainTeam,
+                2
+            )
+
+            const [_, kafkaAcks] = await mergeService.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: { ...second },
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+
+            const context = mergeService.getContext()
+            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+            // Source should NOT be deleted due to partial move
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.find((p) => p.uuid === secondUserUuid)).toBeTruthy()
+
+            // Warning should be emitted
+            const warnings = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_INGESTION_WARNINGS)
+            expect(
+                warnings.some(
+                    (w) =>
+                        w.value?.type === 'merge_distinct_ids_over_limit' ||
+                        (typeof w.value === 'object' && (w.value as any).type === 'merge_distinct_ids_over_limit')
+                )
+            ).toBeTruthy()
         })
 
         it(`throws if postgres unavailable`, async () => {

@@ -131,6 +131,16 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     personPropertiesSize(personId: string): Promise<number>
 
     /**
+     * Fetch distinct ids for a person inside a transaction-aware wrapper
+     */
+    fetchPersonDistinctIds(
+        person: InternalPerson,
+        distinctId: string,
+        limit?: number,
+        tx?: PersonRepositoryTransaction
+    ): Promise<string[]>
+
+    /**
      * Reports metrics about person operations in batch
      */
     reportBatch(): void

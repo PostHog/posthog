@@ -1012,7 +1012,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
 
             // Step 4: Verify that cached merged properties are preserved
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -1066,7 +1066,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
 
             // Should create fresh cache from target person
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -1110,7 +1110,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
 
             // Verify source cache is cleared
             expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeUndefined()
@@ -1180,7 +1180,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
 
             // Step 4: Verify all merged properties are preserved
             const finalCache = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')

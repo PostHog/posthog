@@ -452,6 +452,7 @@ export class PersonMergeService {
                     })
                     .inc()
 
+                let partialMove = false
                 const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                     'mergePeople',
                     async (tx) => {
@@ -507,9 +508,25 @@ export class PersonMergeService {
                             }
                         }
 
-                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
-
                         const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
+
+                        // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
+                        const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
+                        const hitLimit = perCallLimit ? movedCount >= perCallLimit : false
+
+                        if (hitLimit) {
+                            const remaining = await tx.fetchPersonDistinctIds(
+                                currentSourcePerson,
+                                this.context.distinctId,
+                                1
+                            )
+                            if (remaining.length > 0) {
+                                partialMove = true
+                                return [person, [...updatePersonMessages, ...distinctIdMessages]]
+                            }
+                        }
+
+                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
                         return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
                     }
                 )
@@ -519,8 +536,23 @@ export class PersonMergeService {
                         call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
                         oldPersonIdentified: String(currentSourcePerson.is_identified),
                         newPersonIdentified: String(currentTargetPerson.is_identified),
+                        // TODO: add partial move flag
                     })
                     .inc()
+
+                if (partialMove) {
+                    await captureIngestionWarning(
+                        this.context.kafkaProducer,
+                        this.context.team.id,
+                        'merge_distinct_ids_over_limit',
+                        {
+                            sourcePersonDistinctId: sourceDistinctId,
+                            targetPersonDistinctId: targetDistinctId,
+                            eventUuid: this.context.event.uuid,
+                        },
+                        { alwaysSend: true }
+                    )
+                }
 
                 const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
 

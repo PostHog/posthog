@@ -103,4 +103,8 @@ export class PersonsStoreTransaction {
     async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
         return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx)
     }
+
+    async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {
+        return await this.store.fetchPersonDistinctIds(person, distinctId, limit, this.tx)
+    }
 }
