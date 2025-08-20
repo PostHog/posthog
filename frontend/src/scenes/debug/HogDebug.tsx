@@ -12,7 +12,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery
@@ -109,10 +109,16 @@ interface HogDebugProps {
     query: HogQuery
     setQuery: (query: HogQuery) => void
     debug?: boolean
+    modifiers?: HogQLQueryModifiers
 }
 
-export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): JSX.Element {
-    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
+export function HogDebug({ query, setQuery, queryKey, debug, modifiers }: HogDebugProps): JSX.Element {
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query,
+        key: queryKey,
+        dataNodeCollectionId: queryKey,
+        modifiers,
+    }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
     const response = _response as HogQueryResponse | null
     const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'coloredBytecode' | 'stdout')

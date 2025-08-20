@@ -4,7 +4,6 @@ from typing import Any, cast
 import pytest
 from dagster_aws.s3 import S3Resource
 from django.conf import settings
-from django.test import override_settings
 from fastavro import reader
 from pydantic_avro import AvroBase
 
@@ -12,6 +11,7 @@ from dags.max_ai.utils import (
     EVALS_S3_BUCKET,
     EVALS_S3_PREFIX,
     check_dump_exists,
+    compose_clickhouse_dump_path,
     compose_postgres_dump_path,
     dump_model,
     get_consistent_hash_suffix,
@@ -94,28 +94,60 @@ def test_compose_postgres_dump_path():
     dir_name = "test_dump"
     code_version = "v1.0"
 
-    with override_settings(DAGSTER_AI_EVALS_S3_BUCKET="test-bucket"):
-        result = compose_postgres_dump_path(project_id, dir_name, code_version)
+    result = compose_postgres_dump_path(project_id, dir_name, code_version)
 
-        # Should contain the project ID in path
-        assert f"/{project_id}/" in result
+    # Should contain the project ID in path
+    assert f"/{project_id}/" in result
 
-        # Should start with the mocked folder path
-        assert result.startswith(f"{EVALS_S3_PREFIX}/postgres_models/")
+    # Should start with the mocked folder path
+    assert result.startswith(f"{EVALS_S3_PREFIX}/postgres_models/")
 
-        # Should end with .avro extension
-        assert result.endswith(".avro")
+    # Should end with .avro extension
+    assert result.endswith(".avro")
 
-        # Should contain the file name and hash suffix
-        assert dir_name in result
+    # Should contain the file name and hash suffix
+    assert dir_name in result
 
-        # Should be deterministic - same inputs produce same output
-        result2 = compose_postgres_dump_path(project_id, dir_name, code_version)
-        assert result == result2
+    # Should be deterministic - same inputs produce same output
+    result2 = compose_postgres_dump_path(project_id, dir_name, code_version)
+    assert result == result2
 
-        # Different code version should produce different path
-        result_different_version = compose_postgres_dump_path(project_id, dir_name, "v2.0")
-        assert result != result_different_version
+    # Different code version should produce different path
+    result_different_version = compose_postgres_dump_path(project_id, dir_name, "v2.0")
+    assert result != result_different_version
+
+
+def test_compose_clickhouse_dump_path():
+    """Test that compose_clickhouse_dump_path generates correct S3 path with hash."""
+    project_id = 123
+    file_name = "test_dump"
+    code_version = "v1.0"
+
+    result = compose_clickhouse_dump_path(project_id, file_name, code_version)
+
+    # Should contain the project ID in path
+    assert f"/{project_id}/" in result
+
+    # Should start with the correct folder path
+    assert result.startswith(f"{EVALS_S3_PREFIX}/clickhouse_queries/")
+
+    # Should end with .avro extension
+    assert result.endswith(".avro")
+
+    # Should contain the file name and hash suffix
+    assert file_name in result
+
+    # Should be deterministic - same inputs produce same output
+    result2 = compose_clickhouse_dump_path(project_id, file_name, code_version)
+    assert result == result2
+
+    # Different code version should produce different path
+    result_different_version = compose_clickhouse_dump_path(project_id, file_name, "v2.0")
+    assert result != result_different_version
+
+    # Test without code version
+    result_no_version = compose_clickhouse_dump_path(project_id, file_name)
+    assert result != result_no_version
 
 
 # Test schema for dump_model tests
@@ -137,7 +169,10 @@ def test_dump_model_creates_avro_file(s3_resource):
     """Test that dump_model creates an Avro file with correct data in S3."""
     file_key = "test/path/data.avro"
 
-    test_models = [DummySchema(name="test1", value=1), DummySchema(name="test2", value=2)]
+    test_models = [
+        DummySchema(name="test1", value=1),
+        DummySchema(name="test2", value=2),
+    ]
 
     with dump_model(s3=s3_resource, schema=DummySchema, file_key=file_key) as dump:
         dump(test_models)
