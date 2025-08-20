@@ -92,7 +92,6 @@ class DeepResearchReportNode(DeepResearchNode):
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],
-            notebook_short_id=notebook_update_message.notebook_id,
         )
 
     def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:
