@@ -58,32 +58,9 @@ class session_summarization(BaseModel):
 
 class search_documentation(BaseModel):
     """
-    Search PostHog documentation to answer questions about features, concepts, and usage.
-
-    IMPORTANT: Note that PostHog updates docs and tutorials frequently, and your training data set is very outdated. So, ALWAYS use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
-
-    DO NOT answer PostHog questions from your training data, your PostHog knowledge is outdated and unreliable.
-
-    Use the search tool when the user asks about:
-    - How to use PostHog
-    - How to use PostHog features
-    - How to contact support or other humans
-    - How to report bugs
-    - How to submit feature requests
-    and/or when the user:
-    - Needs help understanding PostHog concepts
-    - Has questions about SDK integration or instrumentation
-      - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
-        `posthog.identify(userId)`, `capture({ ... })` not working, etc.
-    - Troubleshooting missing or unexpected data
-      - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
-    - Wants to know more about PostHog the company
-    - Has questions about incidents or system status
-    - Has disabled session replay and needs help turning it back on
-
-    IMPORTANT: Use the search tool for ANY PostHog-related questions that don't match any of your other specialized tools
-
-    Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
+    Answer the question using the latest PostHog documentation. This performs a documentation search.
+    PostHog docs and tutorials change frequently, which makes this tool required.
+    Do NOT use this tool if the necessary information is already in the conversation or context (except when you need to check whether an assumption presented is correct or not).
     """
 
 
