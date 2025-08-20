@@ -6,7 +6,9 @@ from dagster import OpExecutionContext
 from dagster_aws.s3.resources import S3Resource
 
 from dags.max_ai.snapshot_team_data import (
+    SnapshotUnrecoverableError,
     snapshot_actors_property_taxonomy,
+    snapshot_clickhouse_team_data,
     snapshot_events_taxonomy,
     snapshot_postgres_model,
     snapshot_postgres_team_data,
@@ -192,6 +194,44 @@ def test_snapshot_properties_taxonomy(mock_call_query_runner, mock_context, mock
     snapshot_properties_taxonomy(mock_context, mock_s3, file_key, team, events)
     assert mock_call_query_runner.call_count == 2
     mock_dump.assert_called_once()
+
+
+@patch("dags.max_ai.snapshot_team_data.snapshot_postgres_model")
+def test_snapshot_postgres_team_data_raises_failure_on_missing_team(mock_snapshot_postgres_model, mock_s3):
+    mock_snapshot_postgres_model.side_effect = Team.DoesNotExist()
+
+    context = dagster.build_op_context()
+
+    with pytest.raises(dagster.Failure) as exc:
+        snapshot_postgres_team_data(context=context, team_id=999999, s3=mock_s3)
+
+    assert getattr(exc.value, "allow_retries", None) is False
+    assert "Team 999999 does not exist" in str(exc.value)
+
+
+@pytest.mark.django_db
+def test_snapshot_clickhouse_team_data_raises_failure_on_missing_team(mock_s3):
+    context = dagster.build_op_context()
+
+    with pytest.raises(dagster.Failure) as exc:
+        snapshot_clickhouse_team_data(context=context, team_id=424242, s3=mock_s3)
+
+    assert getattr(exc.value, "allow_retries", None) is False
+    assert "Team 424242 does not exist" in str(exc.value)
+
+
+@pytest.mark.django_db
+@patch("dags.max_ai.snapshot_team_data.snapshot_events_taxonomy")
+def test_snapshot_clickhouse_team_data_raises_failure_on_unrecoverable_error(
+    mock_snapshot_events_taxonomy, mock_s3, team
+):
+    context = dagster.build_op_context()
+    mock_snapshot_events_taxonomy.side_effect = SnapshotUnrecoverableError("boom")
+
+    with pytest.raises(dagster.Failure) as exc:
+        snapshot_clickhouse_team_data(context=context, team_id=team.id, s3=mock_s3)
+
+    assert getattr(exc.value, "allow_retries", None) is False
 
 
 @patch("dags.max_ai.snapshot_team_data.check_dump_exists")

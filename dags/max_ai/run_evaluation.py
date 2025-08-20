@@ -8,7 +8,7 @@ from pydantic import Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from dags.common import JobOwners
-from dags.max_ai.snapshot_project_data import (
+from dags.max_ai.snapshot_team_data import (
     ClickhouseTeamDataSnapshot,
     PostgresTeamDataSnapshot,
     snapshot_clickhouse_team_data,
@@ -105,6 +105,8 @@ def spawn_evaluation_container(
         ],
     )
 
+    context.log.info(f"Running evaluation for the image: {config.image}")
+
     asset_result = docker_pipes_client.run(
         context=context,
         image=config.image,
@@ -126,7 +128,7 @@ def spawn_evaluation_container(
             "BRAINTRUST_API_KEY": settings.BRAINTRUST_API_KEY,
         },
         extras=evaluation_config.model_dump(exclude_unset=True),
-        registry=get_registry_credentials(),
+        # registry=get_registry_credentials(),
     ).get_materialize_result()
 
     context.log_event(
