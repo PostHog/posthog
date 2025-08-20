@@ -88,6 +88,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # so we have a custom object manager meaning people can't forget to load them
     # this also means we _always_ have two joins whenever we load tables
     objects = DataWarehouseTableManager()
+
+    # Use if it's certain externaldataschemas aren't needed
     raw_objects = models.Manager()
 
     class TableFormat(models.TextChoices):
