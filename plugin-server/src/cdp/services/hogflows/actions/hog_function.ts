@@ -102,11 +102,6 @@ export class HogFunctionHandler implements ActionHandler {
             person: invocation.person,
         }
 
-        if (action.type === 'function_email') {
-            const unsubscribeUrl = await this.recipientPreferencesService.buildUnsubscribeUrl(invocation, action)
-            globals.unsubscribe_url = unsubscribeUrl
-        }
-
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
@@ -115,6 +110,14 @@ export class HogFunctionHandler implements ActionHandler {
                 timings: [],
                 attempts: 0,
             },
+        }
+
+        if (action.type === 'function_email') {
+            const unsubscribeUrl = await this.recipientPreferencesService.buildUnsubscribeUrl(
+                hogFunctionInvocation,
+                action
+            )
+            globals.unsubscribe_url = unsubscribeUrl
         }
 
         if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
