@@ -67,19 +67,7 @@ def get_logger(name: str | None = None, write: bool = True, produce: bool = True
     return structlog.get_logger(name, write, produce)
 
 
-class NamedLogger(structlog.WriteLogger):
-    """A logger with support for naming."""
-
-    def __init__(
-        self,
-        name: str,
-        file: typing.TextIO | None = None,
-    ):
-        super().__init__(file=file)
-        self.name = name
-
-
-class Logger(NamedLogger):
+class Logger:
     """A logger with support for producing log messages as well as writing."""
 
     def __init__(
@@ -89,15 +77,16 @@ class Logger(NamedLogger):
         loop: asyncio.AbstractEventLoop | None = None,
         file: typing.TextIO | None = None,
     ):
-        super().__init__(name=name, file=file)
+        self.write_logger = structlog.WriteLogger(file=file)
+        self.name = name
         self.queue = queue
         self.loop = loop
 
     def __repr__(self) -> str:
-        return f"<Logger(name={self.name}, file={self._file!r}, queue={self.queue!r})>"
+        return f"<Logger(name={self.name}, file={self.write_logger._file!r}, queue={self.queue!r})>"
 
-    def process(self, write_message: str | None, produce_message: bytes | None) -> None:
-        """Handle messages."""
+    def process(self, write_message: str | None, produce_message: bytes | None = None) -> None:
+        """Handle messages by dispatching to write logger or production."""
         if write_message:
             self.write(write_message)
 
@@ -110,13 +99,11 @@ class Logger(NamedLogger):
             _ = asyncio.run_coroutine_threadsafe(self.queue.put(message), self.loop)
 
     def write(self, message: str) -> None:
-        """Write and flush message to `self.file`."""
-        with self._lock:
-            _ = self._write(message + "\n")
-            _ = self._flush()
+        """Write messages to file using write logger."""
+        self.write_logger.msg(message)
 
-    log = debug = info = warn = warning = process  # type: ignore
-    fatal = failure = err = error = critical = exception = process  # type: ignore
+    log = debug = info = warn = warning = process
+    fatal = failure = err = error = critical = exception = process
 
 
 class LogMessages(typing.TypedDict):
@@ -219,11 +206,11 @@ class LoggerFactory:
         self.file = file
         self.is_test_or_tty = is_test_or_tty
 
-    def __call__(self, name: str | None = None, write: bool = True, produce: bool = True) -> NamedLogger:
+    def __call__(self, name: str | None = None, write: bool = True, produce: bool = True) -> Logger:
         """Return a logger depending on configuration.
 
         In particular, when running in a TTY or during tests, this logger will be a
-        basic `NamedLogger`. This means that:
+        basic `WriteOnlyLogger`. This means that:
         * Rendering will be delegated to `structlog.dev.ConsoleRenderer`.
         * We will only write to a file (stdout by default), meaning no logs will be
             produced.
@@ -253,7 +240,7 @@ class LoggerFactory:
             _, resolved_name = _find_first_app_frame_and_name(["posthog.temporal.common.logger"])
 
         if self.is_test_or_tty:
-            return NamedLogger(resolved_name, file=self.file)
+            return WriteOnlyLogger(resolved_name, file=self.file)
 
         match (produce, write):
             case (True, True):
@@ -455,7 +442,7 @@ def merge_temporal_context(
     return event_dict
 
 
-def filter_by_level(logger: NamedLogger, method_name: str, event_dict: structlog.typing.EventDict):
+def filter_by_level(logger: Logger, method_name: str, event_dict: structlog.typing.EventDict):
     """Filter logs by level when appropiate.
 
     We only filter logs by level when going to a `WriteOnlyLogger`, as all log levels
