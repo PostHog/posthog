@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
-import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
+import { promisify } from 'node:util'
 import { gzip } from 'zlib'
 
 import { KafkaMessageParser } from './message-parser'

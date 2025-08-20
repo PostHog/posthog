@@ -1,17 +1,19 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
+import { encodeParams } from 'kea-router'
+import posthog from 'posthog-js'
+
 import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from '@posthog/products-error-tracking/frontend/configuration/rules/types'
-import { encodeParams } from 'kea-router'
+
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
-import posthog from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -77,9 +79,10 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EventDefinition,
+    EventDefinitionMetrics,
     EventDefinitionType,
-    EventsListQueryParams,
     EventType,
+    EventsListQueryParams,
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
@@ -102,9 +105,9 @@ import {
     IntegrationType,
     LineageGraph,
     LinearTeamType,
+    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
-    LinkType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
@@ -117,9 +120,9 @@ import {
     OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
-    PersonalAPIKeyType,
     PersonListParams,
     PersonType,
+    PersonalAPIKeyType,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
@@ -132,8 +135,8 @@ import {
     RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
-    RolesListParams,
     RoleType,
+    RolesListParams,
     ScheduledChangeType,
     SchemaIncrementalFieldsResponse,
     SearchListParams,
@@ -155,6 +158,11 @@ import {
     UserType,
 } from '~/types'
 
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
+import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
+
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
@@ -171,9 +179,6 @@ import {
     LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
-import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
-import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -890,6 +895,15 @@ export class ApiRequest {
         return this.userInterviews(teamId).addPathComponent(id)
     }
 
+    // # Tasks
+    public tasks(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('tasks')
+    }
+
+    public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.tasks(teamId).addPathComponent(id)
+    }
+
     // # Surveys
     public surveys(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('surveys')
@@ -1254,6 +1268,10 @@ export class ApiRequest {
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
+    }
+
+    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
@@ -1718,7 +1736,12 @@ const api = {
 
             // Opt into the new /activity_log API
             if (
-                [ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION, ActivityScope.EXPERIMENT].includes(scopes[0]) ||
+                [
+                    ActivityScope.PLUGIN,
+                    ActivityScope.HOG_FUNCTION,
+                    ActivityScope.EXPERIMENT,
+                    ActivityScope.TAG,
+                ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
                 return api.activity
@@ -1936,6 +1959,13 @@ const api = {
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
+        },
+        async getMetrics({
+            eventDefinitionId,
+        }: {
+            eventDefinitionId: EventDefinition['id']
+        }): Promise<EventDefinitionMetrics> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
@@ -3080,6 +3110,27 @@ const api = {
         },
     },
 
+    tasks: {
+        async list(): Promise<PaginatedResponse<Task>> {
+            return await new ApiRequest().tasks().get()
+        },
+        async get(id: Task['id']): Promise<Task> {
+            return await new ApiRequest().task(id).get()
+        },
+        async create(data: TaskUpsertProps): Promise<Task> {
+            return await new ApiRequest().tasks().create({ data })
+        },
+        async update(id: string, data: Partial<TaskUpsertProps>): Promise<Partial<Task>> {
+            return await new ApiRequest().task(id).update({ data })
+        },
+        async delete(id: Task['id']): Promise<void> {
+            return await new ApiRequest().task(id).delete()
+        },
+        async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
+            return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
+        },
+    },
+
     surveys: {
         async list(
             args: {
@@ -3323,6 +3374,21 @@ const api = {
                 .withAction('jobs')
                 .withQueryString({ before, after })
                 .get()
+        },
+    },
+
+    dataWarehouse: {
+        async total_rows_stats(options?: ApiMethodOptions): Promise<{
+            billingAvailable: boolean
+            billingInterval: string
+            billingPeriodEnd: string
+            billingPeriodStart: string
+            materializedRowsInBillingPeriod: number
+            totalRows: number
+            trackedBillingRows: number
+            pendingBillingRows: number
+        }> {
+            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
     },
 

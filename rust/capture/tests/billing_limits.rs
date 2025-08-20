@@ -891,7 +891,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
 
     // Configure set_nx_ex to return true (key was set successfully, first time seeing this submission)
-    let submission_key = format!("survey-submission:{}:submission_first", token);
+    let submission_key = format!("survey-submission:{token}:submission_first");
     redis_client = redis_client.set_nx_ex_ret(&submission_key, Ok(true));
 
     let redis = Arc::new(redis_client);
@@ -979,7 +979,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
 
     // Configure set_nx_ex to return false (key already exists, submission already processed)
-    let submission_key = format!("survey-submission:{}:submission_duplicate", token);
+    let submission_key = format!("survey-submission:{token}:submission_duplicate");
     redis_client = redis_client.set_nx_ex_ret(&submission_key, Ok(false));
 
     let redis = Arc::new(redis_client);
@@ -1066,7 +1066,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
 
     // Configure set_nx_ex to return an error (Redis failure)
-    let submission_key = format!("survey-submission:{}:submission_error", token);
+    let submission_key = format!("survey-submission:{token}:submission_error");
     redis_client = redis_client.set_nx_ex_ret(
         &submission_key,
         Err(common_redis::CustomRedisError::Timeout),

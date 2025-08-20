@@ -52,7 +52,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -105,7 +105,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -113,7 +113,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version: 3.11.9
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -131,7 +131,7 @@ jobs:
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
               with:
                   ref: master
 
@@ -150,7 +150,7 @@ jobs:
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
 
             - name: Install python dependencies for this PR
               run: |
@@ -431,7 +431,7 @@ jobs:
                   echo "Skipping backend tests - no backend changes detected"
                   exit 0
 
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: ${{ needs.changes.outputs.backend == 'true' }}
               with:
                   fetch-depth: 1
@@ -488,7 +488,7 @@ jobs:
 
             - name: Set up Python
               if: ${{ needs.changes.outputs.backend == 'true' }}
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version: ${{ matrix.python-version }}
                   cache: pip
@@ -523,7 +523,7 @@ jobs:
 
             - name: Set up Node.js
               if: ${{ needs.changes.outputs.backend == 'true' }}
-              uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -686,7 +686,7 @@ jobs:
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload updated timing data as artifacts
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.3.6.56' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
@@ -723,7 +723,7 @@ jobs:
                   exit 1
 
             - name: Archive email renders
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events
               with:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
@@ -758,7 +758,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 1
 
@@ -769,7 +769,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

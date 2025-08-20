@@ -67,7 +67,7 @@ class TestActivityLogModel(BaseTest):
             detail=Detail(),
         )
         with pytest.raises(ActivityLog.DoesNotExist):
-            ActivityLog.objects.latest("id")
+            ActivityLog.objects.filter(scope="dinglehopper").latest("id")
 
     def test_does_not_save_if_there_is_neither_a_team_id_nor_an_organisation_id(self) -> None:
         # even when there are logs with team id or org id saved

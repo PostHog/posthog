@@ -1,6 +1,8 @@
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'

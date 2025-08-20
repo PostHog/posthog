@@ -22,6 +22,26 @@
     --button-height-lg: 40px;
 }
 
+.button-padding-x-xxs {
+    padding-right: var(--button-padding-x-xxs);
+    padding-left: var(--button-padding-x-xxs);
+}
+
+.button-padding-x-xs {
+    padding-right: var(--button-padding-x-xs);
+    padding-left: var(--button-padding-x-xs);
+}
+
+.button-padding-x-sm {
+    padding-right: var(--button-padding-x-sm);
+    padding-left: var(--button-padding-x-sm);
+}
+
+.button-padding-x-lg {
+    padding-right: var(--button-padding-x-lg);
+    padding-left: var(--button-padding-x-lg);
+}
+
 .button-primitive {
     position: relative;
     display: inline-flex;

@@ -1,17 +1,19 @@
-import { IconSparkles, IconWrench } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import React, { useEffect } from 'react'
+
+import { IconSparkles, IconWrench } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import React, { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
-import { maxGlobalLogic } from './maxGlobalLogic'
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {

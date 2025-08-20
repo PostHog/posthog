@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.11.*"
 
 [[package]]
@@ -725,6 +725,18 @@ wheels = [
 ]
 
 [[package]]
+name = "claude-code-sdk"
+version = "0.0.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/50/489bd1cf9f448d9e06aa6af4a14db8e22ec5f7dbdb5fcc48821b1d8d1680/claude_code_sdk-0.0.14.tar.gz", hash = "sha256:a1c9384b6934c2b8351d7a35c0b7dcfd5fb657017fb456eb98bcf5e0b4f8eccd", size = 13403, upload-time = "2025-07-01T06:07:28.147Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/a4/6eb606ccb0988054ca52b9453045b2c2f1bc6fd9c915e0f6cd1f73d6ce2c/claude_code_sdk-0.0.14-py3-none-any.whl", hash = "sha256:83a23a260954bb84e78cf2dc42aaaa0eee778ca392e56f1661276f31ba64992c", size = 10589, upload-time = "2025-07-01T06:07:27.029Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.1.8"
 source = { registry = "https://pypi.org/simple" }
@@ -1289,6 +1301,18 @@ wheels = [
 ]
 
 [[package]]
+name = "django-admin-inline-paginator"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7e/ea/f599112f5a40d5876155aa0df8ec5013e7a1864a061323b9b7d2d675d988/django-admin-inline-paginator-0.4.0.tar.gz", hash = "sha256:e1558b468d347e965c4d25be7f546da6682ea03d95098ae37b90c926edd491b1", size = 7076, upload-time = "2023-04-26T18:11:09.556Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/1c/a32ec8947e0704624fe54e8dbb4efc8dc1f7afd9439fec79ac8bcb82da32/django_admin_inline_paginator-0.4.0-py3-none-any.whl", hash = "sha256:63b2e13dca6b0933f4b7a4d3262c7cb31db8cda19ad005bcbc1c29bba0e95a1a", size = 7398, upload-time = "2023-04-26T18:11:07.647Z" },
+]
+
+[[package]]
 name = "django-axes"
 version = "5.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1810,6 +1834,20 @@ wheels = [
 [package.optional-dependencies]
 lua = [
     { name = "lupa" },
+]
+
+[[package]]
+name = "fastavro"
+version = "1.12.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/ec/762dcf213e5b97ea1733b27d5a2798599a1fa51565b70a93690246029f84/fastavro-1.12.0.tar.gz", hash = "sha256:a67a87be149825d74006b57e52be068dfa24f3bfc6382543ec92cd72327fe152", size = 1025604, upload-time = "2025-07-31T15:16:42.933Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/51/6bd93f2c9f3bb98f84ee0ddb436eb46a308ec53e884d606b70ca9d6b132d/fastavro-1.12.0-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:56f78d1d527bea4833945c3a8c716969ebd133c5762e2e34f64c795bd5a10b3e", size = 962215, upload-time = "2025-07-31T15:16:58.173Z" },
+    { url = "https://files.pythonhosted.org/packages/32/37/3e2e429cefe03d1fa98cc4c4edae1d133dc895db64dabe84c17b4dc0921c/fastavro-1.12.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a7ce0d117642bb4265ef6e1619ec2d93e942a98f60636e3c0fbf1eb438c49026", size = 3412716, upload-time = "2025-07-31T15:17:00.301Z" },
+    { url = "https://files.pythonhosted.org/packages/33/28/eb37d9738ea3649bdcab1b6d4fd0facf9c36261623ea368554734d5d6821/fastavro-1.12.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:52e9d9648aad4cca5751bcbe2d3f98e85afb0ec6c6565707f4e2f647ba83ba85", size = 3439283, upload-time = "2025-07-31T15:17:02.505Z" },
+    { url = "https://files.pythonhosted.org/packages/57/6f/7aba4efbf73fd80ca20aa1db560936c222dd1b4e5cadbf9304361b9065e3/fastavro-1.12.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:6183875381ec1cf85a1891bf46696fd1ec2ad732980e7bccc1e52e9904e7664d", size = 3354728, upload-time = "2025-07-31T15:17:04.705Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/2d/b0d8539f4622ebf5355b7898ac7930b1ff638de85b6c3acdd0718e05d09e/fastavro-1.12.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:5ad00a2b94d3c8bf9239acf92d56e3e457e1d188687a8d80f31e858ccf91a6d6", size = 3442598, upload-time = "2025-07-31T15:17:06.986Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/33/882154b17e0fd468f1a5ae8cc903805531e1fcb699140315366c5f8ec20d/fastavro-1.12.0-cp311-cp311-win_amd64.whl", hash = "sha256:6c4d1c276ff1410f3830648bb43312894ad65709ca0cb54361e28954387a46ac", size = 451836, upload-time = "2025-07-31T15:17:08.219Z" },
 ]
 
 [[package]]
@@ -3879,6 +3917,7 @@ dependencies = [
     { name = "celery" },
     { name = "celery-redbeat" },
     { name = "chdb" },
+    { name = "claude-code-sdk" },
     { name = "clickhouse-connect" },
     { name = "clickhouse-driver" },
     { name = "clickhouse-pool" },
@@ -3894,6 +3933,7 @@ dependencies = [
     { name = "deltalake" },
     { name = "dj-database-url" },
     { name = "django" },
+    { name = "django-admin-inline-paginator" },
     { name = "django-axes" },
     { name = "django-cors-headers" },
     { name = "django-deprecate-fields" },
@@ -3918,6 +3958,7 @@ dependencies = [
     { name = "drf-spectacular" },
     { name = "elevenlabs" },
     { name = "emoji" },
+    { name = "fastavro" },
     { name = "geoip2" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
@@ -3966,6 +4007,7 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "pyarrow" },
     { name = "pydantic" },
+    { name = "pydantic-avro" },
     { name = "pyjwt" },
     { name = "pymongo" },
     { name = "pympler" },
@@ -4011,6 +4053,7 @@ dependencies = [
     { name = "tree-sitter-typescript" },
     { name = "types-cachetools" },
     { name = "tzlocal" },
+    { name = "user-agents" },
     { name = "webdriver-manager" },
     { name = "whitenoise" },
     { name = "xmlsec" },
@@ -4098,6 +4141,7 @@ requires-dist = [
     { name = "celery", specifier = "==5.3.4" },
     { name = "celery-redbeat", specifier = "==2.1.1" },
     { name = "chdb", specifier = ">=3.1.2" },
+    { name = "claude-code-sdk", specifier = ">=0.0.14" },
     { name = "clickhouse-connect", specifier = "==0.8.17" },
     { name = "clickhouse-driver", specifier = "==0.2.9" },
     { name = "clickhouse-pool", specifier = "==0.5.3" },
@@ -4113,6 +4157,7 @@ requires-dist = [
     { name = "deltalake", specifier = "==0.25.2" },
     { name = "dj-database-url", specifier = "==0.5.0" },
     { name = "django", specifier = "~=4.2.17" },
+    { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", specifier = "==5.9.0" },
     { name = "django-cors-headers", specifier = "==3.5.0" },
     { name = "django-deprecate-fields", specifier = "==0.1.1" },
@@ -4137,6 +4182,7 @@ requires-dist = [
     { name = "drf-spectacular", specifier = "==0.27.2" },
     { name = "elevenlabs", specifier = ">=1.58.1" },
     { name = "emoji", specifier = "==2.14.1" },
+    { name = "fastavro", specifier = ">=1.12.0" },
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "google-ads", specifier = "==26.1.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
@@ -4185,6 +4231,7 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = "==2.9.7" },
     { name = "pyarrow", specifier = "==18.1.0" },
     { name = "pydantic", specifier = "==2.10.3" },
+    { name = "pydantic-avro", specifier = ">=0.9.0" },
     { name = "pyjwt", specifier = "==2.4.0" },
     { name = "pymongo", specifier = "==4.13.2" },
     { name = "pympler", specifier = "==1.1" },
@@ -4230,6 +4277,7 @@ requires-dist = [
     { name = "tree-sitter-typescript", specifier = "==0.23.2" },
     { name = "types-cachetools", specifier = "==5.5.0.20240820" },
     { name = "tzlocal", specifier = "~=5.1" },
+    { name = "user-agents", specifier = ">=2.2.0" },
     { name = "webdriver-manager", specifier = "==4.0.2" },
     { name = "whitenoise", specifier = "==6.5.0" },
     { name = "xmlsec", specifier = "==1.3.14" },
@@ -4581,6 +4629,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/45/0f/27908242621b14e649a84e62b133de45f84c255eecb350ab02979844a788/pydantic-2.10.3.tar.gz", hash = "sha256:cb5ac360ce894ceacd69c403187900a02c4b20b693a9dd1d643e1effab9eadf9", size = 786486, upload-time = "2024-12-03T15:59:02.347Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/51/72c18c55cf2f46ff4f91ebcc8f75aa30f7305f3d726be3f4ebffb4ae972b/pydantic-2.10.3-py3-none-any.whl", hash = "sha256:be04d85bbc7b65651c5f8e6b9976ed9c6f41782a55524cef079a34a0bb82144d", size = 456997, upload-time = "2024-12-03T15:58:59.867Z" },
+]
+
+[[package]]
+name = "pydantic-avro"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/39/dd62ce59a02b7e72ec7bfc368d02b08145a782577a9b187110053cd25c47/pydantic_avro-0.9.0.tar.gz", hash = "sha256:5ceb1d8fca8d190db4a090217412cd176d7042f7d7e5f87306703ef70c8db933", size = 9479, upload-time = "2025-04-09T20:34:58.578Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/96/89e283f69228e8a64e09dc4f6083cbc96f64ef52f61615a87ea6ade3c7cd/pydantic_avro-0.9.0-py3-none-any.whl", hash = "sha256:d2de621922a4138f8af92b93eae4dbc6b708c09940e223c29be18be819233b5e", size = 11040, upload-time = "2025-04-09T20:34:57.257Z" },
 ]
 
 [[package]]
@@ -6508,6 +6568,26 @@ wheels = [
 ]
 
 [[package]]
+name = "ua-parser"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ua-parser-builtins" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/70/0e/ed98be735bc89d5040e0c60f5620d0b8c04e9e7da99ed1459e8050e90a77/ua_parser-1.0.1.tar.gz", hash = "sha256:f9d92bf19d4329019cef91707aecc23c6d65143ad7e29a233f0580fb0d15547d", size = 728106, upload-time = "2025-02-01T14:13:32.508Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/37/be6dfbfa45719aa82c008fb4772cfe5c46db765a2ca4b6f524a1fdfee4d7/ua_parser-1.0.1-py3-none-any.whl", hash = "sha256:b059f2cb0935addea7e551251cbbf42e9a8872f86134163bc1a4f79e0945ffea", size = 31410, upload-time = "2025-02-01T14:13:28.458Z" },
+]
+
+[[package]]
+name = "ua-parser-builtins"
+version = "0.18.0.post1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/d3/13adff37f15489c784cc7669c35a6c3bf94b87540229eedf52ef2a1d0175/ua_parser_builtins-0.18.0.post1-py3-none-any.whl", hash = "sha256:eb4f93504040c3a990a6b0742a2afd540d87d7f9f05fd66e94c101db1564674d", size = 86077, upload-time = "2024-12-05T18:44:36.732Z" },
+]
+
+[[package]]
 name = "unicodecsv"
 version = "0.14.1"
 source = { registry = "https://pypi.org/simple" }
@@ -6546,6 +6626,18 @@ wheels = [
 [package.optional-dependencies]
 socks = [
     { name = "pysocks" },
+]
+
+[[package]]
+name = "user-agents"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ua-parser" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e3/e1/63c5bfb485a945010c8cbc7a52f85573561737648d36b30394248730a7bc/user-agents-2.2.0.tar.gz", hash = "sha256:d36d25178db65308d1458c5fa4ab39c9b2619377010130329f3955e7626ead26", size = 9525, upload-time = "2020-08-23T06:01:56.382Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/1c/20bb3d7b2bad56d881e3704131ddedbb16eb787101306887dff349064662/user_agents-2.2.0-py3-none-any.whl", hash = "sha256:a98c4dc72ecbc64812c4534108806fb0a0b3a11ec3fd1eafe807cee5b0a942e7", size = 9614, upload-time = "2020-08-23T06:01:54.047Z" },
 ]
 
 [[package]]

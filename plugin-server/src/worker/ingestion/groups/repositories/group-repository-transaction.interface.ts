@@ -1,5 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
 

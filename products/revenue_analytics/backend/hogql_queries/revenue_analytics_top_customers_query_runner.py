@@ -10,8 +10,7 @@ from posthog.schema import (
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
 
 
 class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
@@ -119,7 +118,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
 
         return query
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("to_query"):
             query = self.to_query()
 

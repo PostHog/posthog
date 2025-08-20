@@ -133,7 +133,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify person performed events in database (should be deduplicated)
             const personResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM person_performed_events_partitioned WHERE team_id = $1 ORDER BY event_name',
+                'SELECT * FROM person_performed_events WHERE team_id = $1 ORDER BY event_name',
                 [team.id],
                 'test-read-person-events'
             )
@@ -153,7 +153,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify behavioural events in database (should be aggregated)
             const behaviouralResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM behavioural_filter_matched_events_partitioned WHERE team_id = $1 ORDER BY filter_hash',
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 ORDER BY filter_hash',
                 [team.id],
                 'test-read-behavioural-events'
             )
@@ -190,7 +190,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify no records were written
             const personResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT COUNT(*) as count FROM person_performed_events_partitioned WHERE team_id = $1',
+                'SELECT COUNT(*) as count FROM person_performed_events WHERE team_id = $1',
                 [team.id],
                 'test-count-person-events'
             )
@@ -198,7 +198,7 @@ describe('CdpAggregationWriterConsumer', () => {
 
             const behaviouralResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT COUNT(*) as count FROM behavioural_filter_matched_events_partitioned WHERE team_id = $1',
+                'SELECT COUNT(*) as count FROM behavioural_filter_matched_events WHERE team_id = $1',
                 [team.id],
                 'test-count-behavioural-events'
             )
@@ -236,7 +236,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify the counter was incremented correctly
             const result = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM behavioural_filter_matched_events_partitioned WHERE team_id = $1 AND filter_hash = $2',
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 AND filter_hash = $2',
                 [team.id, 'hash123'],
                 'test-read-upserted-events'
             )
@@ -263,7 +263,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify only one record exists
             const result = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM person_performed_events_partitioned WHERE team_id = $1 AND person_id = $2 AND event_name = $3',
+                'SELECT * FROM person_performed_events WHERE team_id = $1 AND person_id = $2 AND event_name = $3',
                 [team.id, personId, 'pageview'],
                 'test-read-duplicate-person-events'
             )
@@ -293,7 +293,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify person events were written
             const personResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM person_performed_events_partitioned WHERE team_id = $1 AND person_id = $2 ORDER BY event_name',
+                'SELECT * FROM person_performed_events WHERE team_id = $1 AND person_id = $2 ORDER BY event_name',
                 [team.id, personId],
                 'test-read-person-only-events'
             )
@@ -304,7 +304,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify no behavioral events were written
             const behavioralResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM behavioural_filter_matched_events_partitioned WHERE team_id = $1',
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1',
                 [team.id],
                 'test-read-no-behavioral-events'
             )
@@ -338,7 +338,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify behavioral events were written
             const behavioralResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM behavioural_filter_matched_events_partitioned WHERE team_id = $1 AND person_id = $2 ORDER BY filter_hash',
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 AND person_id = $2 ORDER BY filter_hash',
                 [team.id, personId],
                 'test-read-behavioral-only-events'
             )
@@ -351,7 +351,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify no person events were written
             const personResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM person_performed_events_partitioned WHERE team_id = $1 AND person_id = $2',
+                'SELECT * FROM person_performed_events WHERE team_id = $1 AND person_id = $2',
                 [team.id, personId],
                 'test-read-no-person-events'
             )
@@ -383,7 +383,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify events were written with cleaned names
             const result = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT event_name FROM person_performed_events_partitioned WHERE team_id = $1 AND person_id = $2 ORDER BY event_name',
+                'SELECT event_name FROM person_performed_events WHERE team_id = $1 AND person_id = $2 ORDER BY event_name',
                 [team.id, personId],
                 'test-read-cleaned-events'
             )
@@ -413,7 +413,7 @@ describe('CdpAggregationWriterConsumer', () => {
                 {
                     type: 'person-performed-event',
                     personId: validPersonId2,
-                    eventName: "event$with$dollars$and$1=1'); DROP TABLE person_performed_events_partitioned; --", // SQL injection attempt
+                    eventName: "event$with$dollars$and$1=1'); DROP TABLE person_performed_events; --", // SQL injection attempt
                     teamId: team.id,
                 },
             ]
@@ -443,14 +443,14 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify person events were written correctly with special characters preserved
             const personResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM person_performed_events_partitioned WHERE team_id = $1 ORDER BY event_name',
+                'SELECT * FROM person_performed_events WHERE team_id = $1 ORDER BY event_name',
                 [team.id],
                 'test-read-special-char-person-events'
             )
 
             expect(personResult.rows).toHaveLength(2)
             expect(personResult.rows[0].event_name).toBe(
-                "event$with$dollars$and$1=1'); DROP TABLE person_performed_events_partitioned; --"
+                "event$with$dollars$and$1=1'); DROP TABLE person_performed_events; --"
             )
             expect(personResult.rows[1].event_name).toBe(problematicEventName)
             expect(personResult.rows[1].person_id).toBe(validPersonId1)
@@ -458,7 +458,7 @@ describe('CdpAggregationWriterConsumer', () => {
             // Verify behavioral events were written correctly with special characters preserved
             const behavioralResult = await hub.postgres.query(
                 PostgresUse.COUNTERS_RW,
-                'SELECT * FROM behavioural_filter_matched_events_partitioned WHERE team_id = $1 ORDER BY person_id',
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 ORDER BY person_id',
                 [team.id],
                 'test-read-special-char-behavioral-events'
             )
@@ -476,7 +476,7 @@ describe('CdpAggregationWriterConsumer', () => {
                 PostgresUse.COUNTERS_RW,
                 `SELECT EXISTS (
                     SELECT FROM information_schema.tables 
-                    WHERE table_name = 'behavioural_filter_matched_events_partitioned'
+                    WHERE table_name = 'behavioural_filter_matched_events'
                 ) as table_exists`,
                 [],
                 'test-check-table-exists'

@@ -7,7 +7,8 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
+from posthog.warehouse.models import ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     RevenueAnalyticsGrowthRateQuery,
@@ -500,7 +501,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             team=self.team,
             should_sync=True,
             source__revenue_analytics_enabled=True,
-            source__source_type=ExternalDataSource.Type.STRIPE,
+            source__source_type=ExternalDataSourceType.STRIPE,
         )
 
         # If we can detect we're syncing Revenue data for the first time, cache for just 1 minute

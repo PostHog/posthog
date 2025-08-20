@@ -452,8 +452,10 @@ async def materialize_model(
 
         delta_table: deltalake.DeltaTable | None = None
 
-        async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+        async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+            batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
+            batch = _transform_date_and_datetimes(batch, ch_types)
 
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
@@ -493,6 +495,9 @@ async def materialize_model(
             delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
     except Exception as e:
         error_message = str(e)
+
+        await logger.aerror(f"Error materializing model {model_label}: {error_message}")
+
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -547,9 +552,14 @@ async def materialize_model(
             await logger.ainfo("Query exceeded memory limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
-        else:
-            error_message = f"Query failed to materialize. If this query ran for a long time, try optimizing it."
+        elif "Timeout exceeded" in error_message:
+            error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+        else:
+            saved_query.latest_error = f"Query failed to materialize: {error_message}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
@@ -718,36 +728,64 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         stack=[],
     )
 
-    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedWithNamesAndTypes"
-    unsupported_arrow_types = ["FIXED_SIZE_BINARY", "JSON", "UUID", "ENUM"]
+    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
+    arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
+        "FIXED_SIZE_BINARY": ("toString", ()),
+        "JSON": ("toString", ()),
+        "UUID": ("toString", ()),
+        "ENUM": ("toString", ()),
+        "IPv4": ("toString", ()),
+        "IPv6": ("toString", ()),
+        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
+    }
 
     # Query for types first, check for any types ArrowStream doesn't support
     # and rewrite the query wrapping those columns in a `toString(..)`
     async with get_client() as client:
-        table_describe_response = await client.read_query(query=table_describe_query, query_parameters=context.values)
-        query_typings: list[tuple[str, str, bool]] = []
+        query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
-        for line in table_describe_response.decode("utf-8").splitlines():
-            split_arr = line.strip().split("\t")
-            column_name = split_arr[0]
-            ch_type = split_arr[1]
 
-            if any(uat.lower() in ch_type.lower() for uat in unsupported_arrow_types):
-                has_type_to_convert = True
-                query_typings.append((column_name, ch_type, True))
-            else:
-                query_typings.append((column_name, ch_type, False))
+        async with client.apost_query(
+            query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
+        ) as ch_response:
+            table_describe_response = await ch_response.content.read()
+            for line in table_describe_response.decode("utf-8").splitlines():
+                split_arr = line.strip().split("\t")
+                column_name = split_arr[0]
+                ch_type = split_arr[1]
+
+                # Does the clickhouse type exist in our mapping of types to convert?
+                if any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()):
+                    # Find which type we need to convert
+                    call_tuples = [
+                        call_tuple
+                        for uat, call_tuple in arrow_type_conversion.items()
+                        if uat.lower() in ch_type.lower()
+                    ]
+
+                    # We can safely assume there is at least one element in this array due to the outer `if`
+                    call_tuple = call_tuples[0]
+
+                    has_type_to_convert = True
+                    query_typings.append((column_name, ch_type, call_tuple))
+                else:
+                    query_typings.append((column_name, ch_type, None))
 
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
 
         select_fields: list[ast.Expr] = []
-        for column_name, ch_type, should_convert in query_typings:
-            if should_convert:
-                await logger.adebug(f"Converting {column_name} of type {ch_type} to be wrapped with toString(..)")
+        for column_name, ch_type, call_tuple in query_typings:
+            if call_tuple:
+                await logger.adebug(
+                    f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                )
 
                 select_fields.append(
-                    ast.Alias(expr=ast.Call(name="toString", args=[ast.Field(chain=[column_name])]), alias=column_name)
+                    ast.Alias(
+                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                        alias=column_name,
+                    )
                 )
             else:
                 select_fields.append(ast.Field(chain=[column_name]))
@@ -774,7 +812,60 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     async with get_client() as client:
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
-            yield batch
+            yield batch, [(column_name, column_type) for column_name, column_type, _ in query_typings]
+
+
+def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
+    """Clickhouse can return date/datetimes as UInts. We need to transform the response back into a real date/datetime object
+
+    The return types from clickhouse are:
+    ```
+    Date/Date32 => UInt16 (days since 1970-01-01)
+    DateTime => UInt32 (seconds since 1970-01-01)
+    DateTime64 => Timestamp (no need to convert)
+    ```
+    """
+
+    new_columns: list[pa.Array] = []
+    new_fields: list[pa.Field] = []
+
+    types_to_transform = ["Date", "Date32", "DateTime"]
+    for column_name, type in types:
+        field = batch.schema.field(column_name)
+        column = batch.column(column_name)
+
+        if (
+            not any(t.lower() in type.lower() for t in types_to_transform)
+            or pa.types.is_timestamp(field.type)
+            or pa.types.is_date(field.type)
+        ):
+            new_columns.append(column)
+            new_fields.append(field)
+            continue
+
+        if "datetime" in type.lower():
+            new_field = field.with_type(pa.timestamp("us"))
+            # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
+            int64_col = pc.cast(column, pa.int64())
+            seconds_col = pc.cast(int64_col, pa.timestamp("s"))
+            new_column = pc.cast(seconds_col, new_field.type)
+
+            new_fields.append(new_field)
+            new_columns.append(new_column)
+        else:
+            new_field = field.with_type(pa.date32())
+            # Gotta upcast from uint16 to int32 first
+            int32_col = pc.cast(column, pa.int32())
+            new_column = pc.cast(int32_col, new_field.type)
+
+            new_fields.append(new_field)
+            new_columns.append(new_column)
+
+    new_metadata: dict[str | bytes, str | bytes] | None = (
+        typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
+    )
+
+    return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
@@ -798,11 +889,6 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     if not columns_to_cast:
         return batch
 
-    def _ensure_array(arr_like: pa.Array | pa.ChunkedArray) -> pa.Array:
-        if isinstance(arr_like, pa.ChunkedArray):
-            return pa.concat_arrays(arr_like.chunks)
-        return arr_like
-
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
@@ -812,7 +898,6 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
             decimal128_type = columns_to_cast[field.name]
             try:
                 cast_col = pc.cast(col, decimal128_type)
-                cast_col = _ensure_array(cast_col)
                 new_fields.append(field.with_type(decimal128_type))
                 new_columns.append(cast_col)
             except Exception:
@@ -820,12 +905,12 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 reduced_decimal_type = pa.decimal128(precision, scale)
                 string_col = pc.cast(col, pa.string())
                 truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
-                cast_reduced = _ensure_array(pc.cast(truncated, reduced_decimal_type))
+                cast_reduced = pc.cast(truncated, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
                 new_columns.append(cast_reduced)
         else:
             new_fields.append(field)
-            new_columns.append(_ensure_array(col))
+            new_columns.append(col)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None

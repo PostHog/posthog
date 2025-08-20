@@ -2,7 +2,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { fetch, FetchResponse } from '~/utils/request'
+import { FetchResponse, fetch } from '~/utils/request'
 
 import { createHogFunction } from '../_tests/fixtures'
 import { createExampleNativeInvocation } from '../_tests/fixtures-native'

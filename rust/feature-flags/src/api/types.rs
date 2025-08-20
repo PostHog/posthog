@@ -336,7 +336,7 @@ impl FromFeatureAndMatch for FlagDetails {
         match match_info.reason {
             FeatureFlagMatchReason::ConditionMatch => {
                 let set_number = match_info.condition_index.unwrap_or(0) + 1;
-                Some(format!("Matched condition set {}", set_number))
+                Some(format!("Matched condition set {set_number}"))
             }
             FeatureFlagMatchReason::NoConditionMatch => {
                 Some("No matching condition set".to_string())
@@ -387,7 +387,7 @@ pub struct SessionRecordingConfig {
 #[serde(untagged)]
 pub enum SessionRecordingField {
     Disabled(bool), // NB: this should only ever be false
-    Config(SessionRecordingConfig),
+    Config(Box<SessionRecordingConfig>),
 }
 
 impl Default for SessionRecordingField {

@@ -1,14 +1,18 @@
-import { lemonToast } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
-import { actionToUrl, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import equal from 'fast-deep-equal'
 
 const defaultQuery = {
     kind: NodeKind.DataTableNode,
@@ -22,11 +26,13 @@ const defaultQuery = {
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
     path(['scenes', 'persons', 'personsSceneLogic']),
+    tabAwareScene(),
 
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
         resetDeletedDistinctId: (distinct_id: string) => ({ distinct_id }),
     }),
+
     reducers({
         query: [defaultQuery, { setQuery: (_, { query }) => query }],
     }),
@@ -38,7 +44,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         },
     }),
 
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.persons(),
             {},
@@ -47,7 +53,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.persons()]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL

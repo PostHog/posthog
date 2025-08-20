@@ -1,9 +1,9 @@
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    Type4,
+    SourceFieldInputConfigType,
 )
 from posthog.temporal.data_imports.sources.doit.doit import doit_source, doit_list_reports, DOIT_INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
@@ -11,14 +11,14 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DoItSource(BaseSource[DoItSourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.DOIT
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.DOIT
 
     def get_schemas(self, config: DoItSourceConfig, team_id: int) -> list[SourceSchema]:
         reports = doit_list_reports(config)
@@ -47,14 +47,18 @@ class DoItSource(BaseSource[DoItSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.DO_IT,
+            name=SchemaExternalDataSourceType.DO_IT,
             label="DoIt",
             caption="",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="api_key", label="API key", type=Type4.TEXT, required=True, placeholder=""
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     )
                 ],
             ),

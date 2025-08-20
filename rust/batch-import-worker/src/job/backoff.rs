@@ -44,16 +44,11 @@ impl BackoffPolicy {
 /// If a date range is provided, include it in the display message.
 pub fn format_backoff_messages(date_range: Option<&str>, delay: Duration) -> (String, String) {
     let secs = delay.as_secs();
-    let status = format!(
-        "Rate limited (429). Scheduling retry in {}s. Waiting before next attempt.",
-        secs
-    );
+    let status =
+        format!("Rate limited (429). Scheduling retry in {secs}s. Waiting before next attempt.");
     let display = match date_range {
-        Some(dr) => format!(
-            "Rate limit hit. Will retry in {}s. Date range: {}",
-            secs, dr
-        ),
-        None => format!("Rate limit hit. Will retry in {}s.", secs),
+        Some(dr) => format!("Rate limit hit. Will retry in {secs}s. Date range: {dr}"),
+        None => format!("Rate limit hit. Will retry in {secs}s."),
     };
     (status, display)
 }
@@ -81,7 +76,7 @@ mod tests {
 
         for (attempt, expected_secs) in cases {
             let d = p.next_delay(attempt);
-            assert_eq!(d.as_secs(), expected_secs, "attempt {}", attempt);
+            assert_eq!(d.as_secs(), expected_secs, "attempt {attempt}");
         }
     }
 
@@ -97,7 +92,7 @@ mod tests {
         ];
         for (attempt, expected_secs) in cases {
             let d = p.next_delay(attempt);
-            assert_eq!(d.as_secs(), expected_secs, "attempt {}", attempt);
+            assert_eq!(d.as_secs(), expected_secs, "attempt {attempt}");
         }
     }
 

@@ -121,61 +121,32 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
     else:
         raise dagster.Failure(f"Unknown metric type: {metric_type}")
 
-    try:
-        timeseries_calculator = ExperimentTimeseries(experiment, metric_obj)
-        timeseries_results = timeseries_calculator.get_result()
+    timeseries_calculator = ExperimentTimeseries(experiment, metric_obj)
+    timeseries_results = timeseries_calculator.get_result()
 
-        # Add metadata for Dagster UI display
-        context.add_output_metadata(
-            metadata={
-                "experiment_id": experiment_id,
-                "metric_uuid": metric_uuid,
-                "metric_type": metric_type,
-                "metric_name": metric.get("name", f"Metric {metric_uuid}"),
-                "experiment_name": experiment.name,
-                "metric_definition": str(metric),
-                "computed_at": datetime.now(UTC).isoformat(),
-                "results_status": "success",
-                "results_count": len(timeseries_results),
-                "timeseries": timeseries_results,
-            }
-        )
-
-        results = {
+    # Add metadata for Dagster UI display
+    context.add_output_metadata(
+        metadata={
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
-            "metric_definition": metric,
+            "metric_type": metric_type,
+            "metric_name": metric.get("name", f"Metric {metric_uuid}"),
+            "experiment_name": experiment.name,
+            "metric_definition": str(metric),
+            "computed_at": datetime.now(UTC).isoformat(),
+            "results_status": "success",
+            "results_count": len(timeseries_results),
             "timeseries": timeseries_results,
-            "computed_at": datetime.now(UTC).isoformat(),
         }
+    )
 
-    except Exception as e:
-        context.log.exception("Failed to calculate timeseries")
-
-        # Add error metadata for Dagster UI display
-        context.add_output_metadata(
-            metadata={
-                "experiment_id": experiment_id,
-                "metric_uuid": metric_uuid,
-                "metric_type": metric_type,
-                "metric_name": metric.get("name", f"Metric {metric_uuid}"),
-                "experiment_name": experiment.name,
-                "metric_definition": str(metric),
-                "computed_at": datetime.now(UTC).isoformat(),
-                "results_status": "error",
-                "error_message": str(e),
-            }
-        )
-
-        results = {
-            "experiment_id": experiment_id,
-            "metric_uuid": metric_uuid,
-            "metric_definition": metric,
-            "error": str(e),
-            "computed_at": datetime.now(UTC).isoformat(),
-        }
-
-    return results
+    return {
+        "experiment_id": experiment_id,
+        "metric_uuid": metric_uuid,
+        "metric_definition": metric,
+        "timeseries": timeseries_results,
+        "computed_at": datetime.now(UTC).isoformat(),
+    }
 
 
 # =============================================================================

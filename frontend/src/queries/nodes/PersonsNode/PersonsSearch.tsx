@@ -1,4 +1,5 @@
 import { IconInfo } from '@posthog/icons'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -42,7 +43,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
         <div className="flex items-center gap-2">
             <LemonInput
                 type="search"
-                value={value}
+                value={value ?? ''}
                 placeholder={`Search for ${labels[target].label}`}
                 data-attr="persons-search"
                 disabled={!setQuery}

@@ -1,7 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { LemonSwitch as RawLemonSwitch, LemonSwitchProps } from './LemonSwitch'
+import { LemonSwitchProps, LemonSwitch as RawLemonSwitch } from './LemonSwitch'
 
 const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Element => {
     const [isChecked, setIsChecked] = useState(checked || false)

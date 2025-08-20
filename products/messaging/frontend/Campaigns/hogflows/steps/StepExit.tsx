@@ -1,5 +1,6 @@
-import { IconLeave } from '@posthog/icons'
 import { Node } from '@xyflow/react'
+
+import { IconLeave } from '@posthog/icons'
 
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'

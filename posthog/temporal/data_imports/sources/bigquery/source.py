@@ -1,12 +1,12 @@
 from datetime import datetime
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSwitchGroupConfig,
-    Type4,
+    SourceFieldInputConfigType,
     SourceFieldFileUploadJsonFormatConfig,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
@@ -22,7 +22,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -32,8 +32,8 @@ def build_destination_table_prefix(schema_id: str | None) -> str:
 @SourceRegistry.register
 class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.BIGQUERY
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.BIGQUERY
 
     def get_schemas(self, config: BigQuerySourceConfig, team_id: int) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
@@ -149,7 +149,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.BIG_QUERY,
+            name=SchemaExternalDataSourceType.BIG_QUERY,
             caption="",
             fields=cast(
                 list[FieldType],
@@ -164,7 +164,11 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                         required=True,
                     ),
                     SourceFieldInputConfig(
-                        name="dataset_id", label="Dataset ID", type=Type4.TEXT, required=True, placeholder=""
+                        name="dataset_id",
+                        label="Dataset ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="temporary-dataset",
@@ -177,7 +181,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                                 SourceFieldInputConfig(
                                     name="temporary_dataset_id",
                                     label="Dataset ID for temporary tables",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
                                 )
@@ -195,7 +199,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                                 SourceFieldInputConfig(
                                     name="dataset_project_id",
                                     label="Project ID for dataset",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
                                 )

@@ -1,18 +1,12 @@
-import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo, useState } from 'react'
+
+import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
-import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo, useState } from 'react'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
-import { AvailableFeature, TeamPublicType } from '~/types'
-
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
@@ -24,8 +18,16 @@ import {
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { AvailableFeature, TeamPublicType } from '~/types'
+
 import { globalModalsLogic } from '../GlobalModals'
-import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './environmentsSwitcherLogic'
+import { TeamBasicTypeWithProjectName, environmentSwitcherLogic } from './environmentsSwitcherLogic'
 
 /**
  * Regex matching a possible emoji (any emoji) at the beginning of the string.

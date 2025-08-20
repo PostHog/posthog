@@ -1,13 +1,15 @@
 import './EmptyDashboardComponent.scss'
 
-import { IconPlus } from '@posthog/icons'
 import { useActions } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'
 
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { IconPlus } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
