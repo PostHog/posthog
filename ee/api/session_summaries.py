@@ -77,7 +77,12 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         # The last item in the result should be the summary, if not - raise an exception
-        _, _, summary = results[-1]
+        last_result = results[-1]
+        if not isinstance(last_result, tuple) or len(last_result) != 3:
+            error_message = f"Unexpected result type ({type(last_result)}) when generating summaries (session ids: {session_ids}): {results}"
+            logger.exception(error_message)
+            raise exceptions.APIException(error_message)
+        _, _, summary = last_result
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
             error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {session_ids}): {results}"
             logger.exception(error_message)
