@@ -9,10 +9,10 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 from posthog.schema import HumanMessage, VisualizationMessage
 
-from .conftest import MaxEval
-from .scorers import (
-    InsightSearchOutput,
+from ..conftest import MaxEval
+from ..scorers import (
     InsightEvaluationAccuracy,
+    InsightSearchOutput,
 )
 
 

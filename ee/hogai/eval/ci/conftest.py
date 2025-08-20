@@ -90,12 +90,10 @@ def call_root_for_insight_generation(demo_org_team_user):
 @pytest.fixture(scope="package")
 def demo_org_team_user(setup_evals, django_db_blocker) -> Generator[tuple[Organization, Team, User], None, None]:  # noqa: F811
     with django_db_blocker.unblock():
-        team = Team.objects.order_by("-created_at").first()
+        team: Team | None = Team.objects.order_by("-created_at").first()
         today = datetime.date.today()
         # If there's no eval team or it's older than today, we need to create a new one with fresh data
-        should_create_new_team = not team or team.created_at.date() < today
-
-        if should_create_new_team:
+        if not team or team.created_at.date() < today:
             print(f"Generating fresh demo data for evals...")  # noqa: T201
 
             matrix = HedgeboxMatrix(
@@ -115,7 +113,9 @@ def demo_org_team_user(setup_evals, django_db_blocker) -> Generator[tuple[Organi
         else:
             print(f"Using existing demo data for evals...")  # noqa: T201
             org = team.organization
-            user = org.memberships.first().user
+            membership = org.memberships.first()
+            assert membership is not None
+            user = membership.user
 
         yield org, team, user
 

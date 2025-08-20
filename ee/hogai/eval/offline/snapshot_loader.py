@@ -2,7 +2,7 @@ import asyncio
 import os
 from collections.abc import Generator
 from io import BytesIO
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from unittest.mock import patch
 
 import aioboto3
@@ -166,8 +166,8 @@ class SnapshotLoader:
 
     def _load_actors_property_taxonomy(self, buffer: BytesIO, *, team: Team):
         for item in self._parse_snapshot_to_schema(ActorsPropertyTaxonomySnapshot, buffer):
-            key = item.group_type_index if isinstance(item.group_type_index, int) else "person"
-            ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id][key][item.property] = item.results
+            key: int | Literal["person"] = item.group_type_index if isinstance(item.group_type_index, int) else "person"
+            ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.pk][key][item.property] = item.results
 
     def _patch_query_runners(self):
         self.patches = [

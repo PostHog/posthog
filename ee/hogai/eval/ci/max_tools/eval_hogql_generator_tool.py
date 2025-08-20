@@ -1,8 +1,8 @@
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 from braintrust import EvalCase, Score
 from pydantic import BaseModel
 
@@ -72,7 +72,8 @@ async def database_schema(demo_org_team_user):
     return await serialize_database_schema(database, context)
 
 
-async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, metadata: dict) -> Score:
+async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **kwargs) -> Score:
+    metadata: dict = kwargs["metadata"]
     metric = SQLSemanticsCorrectness()
     return await metric.eval_async(
         input=input.instructions, expected=expected, output=output, database_schema=metadata["schema"]

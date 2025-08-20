@@ -5,7 +5,6 @@ from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
-from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -16,6 +15,12 @@ from posthog.schema import (
     AssistantTrendsQuery,
     NodeKind,
 )
+
+from .sql import SQLSemanticsCorrectness
+
+__all__ = [
+    "SQLSemanticsCorrectness",
+]
 
 
 class ToolRelevance(ScorerWithPartial):
@@ -61,7 +66,7 @@ QueryType = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQue
 
 class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
-    query: QueryType
+    query: QueryType | None
     query_generation_retry_count: int | None
 
 
@@ -69,7 +74,9 @@ def serialize_output(output: PlanAndQueryOutput | dict | None) -> PlanAndQueryOu
     if output:
         serialized_output: PlanAndQueryOutput = {
             **output,
-            "query": cast(QueryType, output.get("query")).model_dump(exclude_none=True),
+            "query": cast(QueryType, output.get("query")).model_dump(exclude_none=True)
+            if output.get("query")
+            else None,
         }
         return serialized_output
     return None
@@ -85,13 +92,14 @@ class QueryKindSelection(ScorerWithPartial):
         self._expected = expected
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
-        if not output.get("query"):
+        query = output.get("query")
+        if not query:
             return Score(name=self._name(), score=None, metadata={"reason": "No query present"})
-        score = 1 if output["query"].kind == self._expected else 0
+        score = 1 if query.kind == self._expected else 0
         return Score(
             name=self._name(),
             score=score,
-            metadata={"reason": f"Expected {self._expected}, got {output['query'].kind}"} if not score else {},
+            metadata={"reason": f"Expected {self._expected}, got {query.kind}"} if not score else {},
         )
 
 
@@ -99,21 +107,19 @@ class PlanCorrectness(LLMClassifier):
     """Evaluate if the generated plan correctly answers the user's question."""
 
     async def _run_eval_async(self, output: PlanAndQueryOutput, expected=None, **kwargs):
-        if not output.get("plan"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan present"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
+        plan = output.get("plan")
+        query = output.get("query")
+        if not plan or not query:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan or query present"})
+        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
         return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
-        if not output.get("plan"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan present"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
+        plan = output.get("plan")
+        query = output.get("query")
+        if not plan or not query:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan or query present"})
+        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
         return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, evaluation_criteria: str, **kwargs):
@@ -177,33 +183,31 @@ class QueryAndPlanAlignment(LLMClassifier):
     """Evaluate if the generated SQL query aligns with the plan generated in the previous step."""
 
     async def _run_eval_async(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
-        if not output.get("plan"):
+        plan = output.get("plan")
+        if not plan:
             return Score(
                 name=self._name(),
                 score=None,
                 metadata={"reason": "No plan present in the first place, skipping evaluation"},
             )
-        if not output.get("query"):
+        query = output.get("query")
+        if not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
+        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
         return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
-        if not output.get("plan"):
+        plan = output.get("plan")
+        if not plan:
             return Score(
                 name=self._name(),
                 score=None,
                 metadata={"reason": "No plan present in the first place, skipping evaluation"},
             )
-        if not output.get("query"):
+        query = output.get("query")
+        if not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
+        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
         return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, json_schema: dict, evaluation_criteria: str, **kwargs):

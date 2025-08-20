@@ -26,7 +26,7 @@ class PatchedTeamTaxonomyQueryRunner(TeamTaxonomyQueryRunner):
 
 
 # This is a global state that is used to store the patched results for the event taxonomy query.
-EVENT_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[str, list[EventTaxonomyItem]]] = defaultdict(dict)
+EVENT_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[str | int, list[EventTaxonomyItem]]] = defaultdict(dict)
 
 
 class PatchedEventTaxonomyQueryRunner(EventTaxonomyQueryRunner):
@@ -48,13 +48,17 @@ ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE: dict[
 
 class PatchedActorsPropertyTaxonomyQueryRunner(ActorsPropertyTaxonomyQueryRunner):
     def _calculate(self):
-        key = self.query.groupTypeIndex if isinstance(self.query.groupTypeIndex, int) else "person"
-        if snapshotted_query := ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.get(self.team.id, {}).get(key):
+        key: int | Literal["person"] = (
+            self.query.groupTypeIndex if isinstance(self.query.groupTypeIndex, int) else "person"
+        )
+        if (
+            self.team.id in ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE
+            and key in ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[self.team.id]
+        ):
+            data = ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[self.team.id][key]
             result: list[ActorsPropertyTaxonomyResponse] = []
             for prop in self.query.properties:
-                result.append(
-                    snapshotted_query.get(prop, ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0))
-                )
+                result.append(data.get(prop, ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)))
         else:
             result = [ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)]
         return ActorsPropertyTaxonomyQueryResponse(results=result, modifiers=self.modifiers)

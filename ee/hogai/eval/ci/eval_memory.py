@@ -3,6 +3,7 @@ from typing import Optional
 import pytest
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
+from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
@@ -81,9 +82,12 @@ def call_node(demo_org_team_user, core_memory):
         state = AssistantState.model_validate(raw_state)
         if not state.memory_collection_messages:
             return None
+        last_message = state.memory_collection_messages[-1]
+        if not isinstance(last_message, LangchainAIMessage):
+            return None
         return AssistantMessage(
-            content=state.memory_collection_messages[-1].content,
-            tool_calls=state.memory_collection_messages[-1].tool_calls,
+            content=last_message.content,
+            tool_calls=last_message.tool_calls,
         )
 
     return callable
