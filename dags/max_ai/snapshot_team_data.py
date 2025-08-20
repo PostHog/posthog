@@ -77,7 +77,7 @@ def snapshot_postgres_model(
         return file_key
     context.log.info(f"Dumping {file_key}")
     with dump_model(s3=s3, schema=model_type, file_key=file_key) as dump:
-        dump(model_type.serialize_for_team(team_id))
+        dump(model_type.serialize_for_team(team_id=team_id))
     return file_key
 
 

@@ -5,11 +5,11 @@ import pytest
 from dagster import OpExecutionContext
 from dagster_aws.s3.resources import S3Resource
 
-from dags.max_ai.snapshot_project_data import (
+from dags.max_ai.snapshot_team_data import (
     snapshot_actors_property_taxonomy,
     snapshot_events_taxonomy,
     snapshot_postgres_model,
-    snapshot_postgres_project_data,
+    snapshot_postgres_team_data,
     snapshot_properties_taxonomy,
 )
 from ee.hogai.eval.schema import PostgresTeamDataSnapshot, TeamSnapshot
@@ -60,7 +60,7 @@ def team():
 
 @pytest.fixture
 def mock_dump():
-    with patch("dags.max_ai.snapshot_project_data.dump_model") as mock_dump_model:
+    with patch("dags.max_ai.snapshot_team_data.dump_model") as mock_dump_model:
         mock_dump_context = MagicMock()
         mock_dump_function = MagicMock()
         mock_dump_context.__enter__ = MagicMock(return_value=mock_dump_function)
@@ -69,8 +69,8 @@ def mock_dump():
         yield mock_dump_function
 
 
-@patch("dags.max_ai.snapshot_project_data.compose_postgres_dump_path")
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.compose_postgres_dump_path")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 def test_snapshot_postgres_model_skips_when_file_exists(
     mock_check_dump_exists, mock_compose_path, mock_context, mock_s3
 ):
@@ -101,8 +101,8 @@ def test_snapshot_postgres_model_skips_when_file_exists(
     mock_context.log.info.assert_called_once_with(f"Skipping {file_key} because it already exists")
 
 
-@patch("dags.max_ai.snapshot_project_data.compose_postgres_dump_path")
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.compose_postgres_dump_path")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 def test_snapshot_postgres_model_dumps_when_file_not_exists(
     mock_check_dump_exists, mock_compose_path, mock_context, mock_s3, mock_dump
 ):
@@ -137,13 +137,13 @@ def test_snapshot_postgres_model_dumps_when_file_not_exists(
     mock_dump.assert_called_once_with(mock_serialized_data)
 
 
-@patch("dags.max_ai.snapshot_project_data.snapshot_postgres_model")
-def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgres_model, mock_s3):
-    """Test that snapshot_postgres_project_data exports all expected models."""
+@patch("dags.max_ai.snapshot_team_data.snapshot_postgres_model")
+def test_snapshot_postgres_team_data_exports_all_models(mock_snapshot_postgres_model, mock_s3):
+    """Test that snapshot_postgres_team_data exports all expected models."""
     # Setup
     team_id = 456
     mock_snapshot_postgres_model.side_effect = [
-        "path/to/project.avro",
+        "path/to/team.avro",
         "path/to/property_definitions.avro",
         "path/to/group_type_mappings.avro",
         "path/to/data_warehouse_tables.avro",
@@ -153,11 +153,11 @@ def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgre
     context = dagster.build_op_context()
 
     # Execute
-    result = snapshot_postgres_project_data(context, team_id, mock_s3)
+    result = snapshot_postgres_team_data(context, team_id, mock_s3)
 
     # Verify all expected models are in the result
     assert isinstance(result, PostgresTeamDataSnapshot)
-    assert result.project == "path/to/project.avro"
+    assert result.team == "path/to/team.avro"
     assert result.property_definitions == "path/to/property_definitions.avro"
     assert result.group_type_mappings == "path/to/group_type_mappings.avro"
     assert result.data_warehouse_tables == "path/to/data_warehouse_tables.avro"
@@ -167,7 +167,7 @@ def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgre
 
 
 @pytest.mark.django_db
-@patch("dags.max_ai.snapshot_project_data.call_query_runner")
+@patch("dags.max_ai.snapshot_team_data.call_query_runner")
 def test_snapshot_properties_taxonomy(mock_call_query_runner, mock_context, mock_s3, team, mock_dump):
     """Test that snapshot_properties_taxonomy correctly processes events and dumps results."""
     # Setup
@@ -192,9 +192,9 @@ def test_snapshot_properties_taxonomy(mock_call_query_runner, mock_context, mock
     mock_dump.assert_called_once()
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
-@patch("dags.max_ai.snapshot_project_data.EventTaxonomyQueryRunner.calculate")
-@patch("dags.max_ai.snapshot_project_data.TeamTaxonomyQueryRunner.calculate")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.EventTaxonomyQueryRunner.calculate")
+@patch("dags.max_ai.snapshot_team_data.TeamTaxonomyQueryRunner.calculate")
 @pytest.mark.django_db
 def test_snapshot_events_taxonomy(
     mock_team_taxonomy_query_runner,
@@ -230,7 +230,7 @@ def test_snapshot_events_taxonomy(
     assert mock_dump.call_count == 2
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 @pytest.mark.django_db
 def test_snapshot_events_taxonomy_can_be_skipped(mock_check_dump_exists, mock_context, mock_s3, team, mock_dump):
     """est that snapshot_events_taxonomy can be skipped when file already exists."""
@@ -243,7 +243,7 @@ def test_snapshot_events_taxonomy_can_be_skipped(mock_check_dump_exists, mock_co
     assert mock_dump.call_count == 0
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 @pytest.mark.django_db
 def test_snapshot_actors_property_taxonomy_can_be_skipped(
     mock_check_dump_exists, mock_context, mock_s3, team, mock_dump
@@ -265,8 +265,8 @@ def test_snapshot_actors_property_taxonomy_can_be_skipped(
     )
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
-@patch("dags.max_ai.snapshot_project_data.call_query_runner")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.call_query_runner")
 @pytest.mark.django_db
 def test_snapshot_actors_property_taxonomy_dumps_with_group_type_mapping(
     mock_call_query_runner, mock_check_dump_exists, mock_context, mock_s3, team, mock_dump
