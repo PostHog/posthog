@@ -2079,6 +2079,26 @@
       },
       "query_log": {
           "fields": {
+              "event_date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_date",
+                  "id": null,
+                  "name": "event_date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              },
+              "event_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_time",
+                  "id": null,
+                  "name": "event_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "query_id": {
                   "chain": null,
                   "fields": null,
@@ -3455,6 +3475,26 @@
       },
       "query_log": {
           "fields": {
+              "event_date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_date",
+                  "id": null,
+                  "name": "event_date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              },
+              "event_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_time",
+                  "id": null,
+                  "name": "event_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "query_id": {
                   "chain": null,
                   "fields": null,
