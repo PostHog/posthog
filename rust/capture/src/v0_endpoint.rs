@@ -288,7 +288,7 @@ async fn handle_event_payload(
 
 /// handle_deprecated is the request payload processor we're attempting to eliminate via
 /// consolidation with the handle_event_payload function.
-async fn handle_common(
+async fn handle_deprecated(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
     meta: &EventQuery,
@@ -341,9 +341,9 @@ async fn handle_common(
                     ))
                 })?;
 
-            // by setting compression "unsupported" here, we route handle_common
+            // by setting compression "unsupported" here, we route handle_deprecated
             // outputs into the old RawRequest hydration behavior, prior to adding
-            // handle_next shims. handle_common doesn't extract compression hints
+            // handle_next shims. handle_deprecated doesn't extract compression hints
             // as reliably as it should, and is probably losing some data due to
             // this. We'll circle back once the legacy shims ship
             RawRequest::from_bytes(
@@ -541,7 +541,7 @@ pub async fn recording(
     {
         handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await
     } else {
-        handle_common(&state, &ip, &params, &headers, &method, &path, body).await
+        handle_deprecated(&state, &ip, &params, &headers, &method, &path, body).await
     };
 
     match result {
