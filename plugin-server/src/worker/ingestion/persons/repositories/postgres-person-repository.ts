@@ -457,7 +457,8 @@ export class PostgresPersonRepository
     ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
-            const query = limit
+            const hasLimit = limit !== undefined
+            const query = hasLimit
                 ? `
                     WITH rows_to_update AS (
                         SELECT id
@@ -466,7 +467,7 @@ export class PostgresPersonRepository
                           AND team_id = $3
                         ORDER BY id
                         FOR UPDATE SKIP LOCKED
-                        LIMIT ${limit}
+                        LIMIT $4
                     )
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
@@ -481,10 +482,15 @@ export class PostgresPersonRepository
                     RETURNING *
                 `
 
+            const values = [target.id, source.id, target.team_id]
+            if (hasLimit) {
+                values.push(limit)
+            }
+
             movedDistinctIdResult = await this.postgres.query(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 query,
-                [target.id, source.id, target.team_id],
+                values,
                 'updateDistinctIdPerson'
             )
         } catch (error) {
@@ -550,19 +556,31 @@ export class PostgresPersonRepository
     }
 
     async fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]> {
-        const limitClause = limit ? `LIMIT ${limit}` : ''
-        const queryString = `
-            SELECT distinct_id
-            FROM posthog_persondistinctid
-            WHERE person_id = $1 AND team_id = $2
-            ORDER BY id
-            ${limitClause}
-        `
+        const hasLimit = limit !== undefined
+        const queryString = hasLimit
+            ? `
+                SELECT distinct_id
+                FROM posthog_persondistinctid
+                WHERE person_id = $1 AND team_id = $2
+                ORDER BY id
+                LIMIT $3
+            `
+            : `
+                SELECT distinct_id
+                FROM posthog_persondistinctid
+                WHERE person_id = $1 AND team_id = $2
+                ORDER BY id
+            `
+
+        const values = [person.id, person.team_id]
+        if (hasLimit) {
+            values.push(limit)
+        }
 
         const { rows } = await this.postgres.query<{ distinct_id: string }>(
             tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
-            [person.id, person.team_id],
+            values,
             'fetchPersonDistinctIds'
         )
 
