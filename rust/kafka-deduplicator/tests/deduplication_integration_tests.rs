@@ -335,12 +335,15 @@ async fn test_basic_deduplication() -> Result<()> {
     for (i, (_, headers)) in output_messages.iter().enumerate() {
         assert!(headers.is_some(), "Message {i} should have headers");
         let headers = headers.as_ref().unwrap();
-        
+
         // Use the iterator to check if our test header exists
         let has_test_header = headers.iter().any(|h| h.key == "test-header");
-        assert!(has_test_header, "test-header should be preserved in message {i}");
+        assert!(
+            has_test_header,
+            "test-header should be preserved in message {i}"
+        );
     }
-    
+
     Ok(())
 }
 
