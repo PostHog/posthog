@@ -177,3 +177,68 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "previous": prev_url,
             }
         )
+
+    @action(methods=["GET"], detail=False)
+    def breakdown_of_rows_synced_by_day_in_billing_period(self, request: Request, **kwargs) -> Response:
+        """
+        Returns a breakdown of external data source rows synced by day in the current billing period.
+        """
+        billing_period_start = None
+        billing_period_end = None
+        billing_available = False
+        breakdown_of_rows_by_day = []
+
+        try:
+            billing_manager = BillingManager(get_cached_instance_license())
+            org_billing = billing_manager.get_billing(organization=self.team.organization)
+
+            if org_billing and org_billing.get("billing_period"):
+                billing_period = org_billing["billing_period"]
+                billing_period_start = parser.parse(billing_period["current_period_start"])
+                billing_period_end = parser.parse(billing_period["current_period_end"])
+                billing_available = True
+
+                # Get only external data jobs within the billing period, grouped by day
+                from django.db.models.functions import TruncDate
+
+                daily_totals = (
+                    ExternalDataJob.objects.filter(
+                        team_id=self.team_id,
+                        created_at__gte=billing_period_start,
+                        created_at__lt=billing_period_end,
+                        status="Completed",
+                        rows_synced__gt=0,
+                    )
+                    .annotate(sync_date=TruncDate("created_at"))
+                    .values("sync_date")
+                    .annotate(total_rows_synced=Sum("rows_synced"))
+                    .order_by("sync_date")
+                )
+
+                breakdown_of_rows_by_day = [
+                    {
+                        "date": item["sync_date"].strftime("%Y-%m-%d"),
+                        "rows_synced": item["total_rows_synced"] or 0,
+                    }
+                    for item in daily_totals
+                ]
+
+            else:
+                logger.info("No billing period information available for daily breakdown")
+
+        except Exception as e:
+            logger.exception("Error retrieving daily breakdown", exc_info=e)
+            return Response(
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                data={"error": "An error occurred retrieving daily breakdown"},
+            )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "billing_available": billing_available,
+                "billing_period_start": billing_period_start,
+                "billing_period_end": billing_period_end,
+                "breakdown_of_rows_by_day": breakdown_of_rows_by_day,
+            },
+        )

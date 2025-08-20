@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, PipelineTab } from '~/types'
 
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehouseRowsSyncedGraph } from './DataWarehouseRowsSyncedGraph'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
@@ -232,6 +233,8 @@ export function DataWarehouseScene(): JSX.Element {
                     {runningCount > 0 && <div className="text-xs text-muted">{runningCount} running</div>}
                 </LemonCard>
             </div>
+
+            <DataWarehouseRowsSyncedGraph />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div className="lg:col-span-2 space-y-2">

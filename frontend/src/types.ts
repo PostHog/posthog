@@ -5671,6 +5671,16 @@ export interface DataWarehouseSourceRowCount {
     pending_billing_rows: number
 }
 
+export interface DataWarehouseDailyRowsBreakdown {
+    billing_available: boolean
+    billing_period_start: string | null
+    billing_period_end: string | null
+    breakdown_of_rows_by_day: Array<{
+        date: string
+        rows_synced: number
+    }>
+}
+
 export interface DataWarehouseActivityRecord {
     id: string
     type: string
