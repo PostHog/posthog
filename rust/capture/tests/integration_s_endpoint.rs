@@ -81,7 +81,7 @@ fn post_cases() -> Vec<TestCase> {
             Some("base64"),
             None,
             "application/json",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(base64_payload),
         ),
         // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
@@ -95,7 +95,7 @@ fn post_cases() -> Vec<TestCase> {
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(base64_payload),
         ),
         // GZIP'd JSON single event payload
@@ -187,7 +187,7 @@ fn get_cases() -> Vec<TestCase> {
             Some("base64"),
             None,
             "text/plain",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(base64_payload),
         ),
         // single event JSON payload submitted in urlencoded "data" GET param
@@ -201,7 +201,7 @@ fn get_cases() -> Vec<TestCase> {
             None,
             None,
             "text/plain",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(plain_json_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in urlencoded "data" GET param
