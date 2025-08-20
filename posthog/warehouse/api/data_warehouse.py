@@ -181,11 +181,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def breakdown_of_rows_synced_by_day_in_billing_period(self, request: Request, **kwargs) -> Response:
-        """
-        Returns a breakdown of external data source rows synced by day in the current billing period.
-        """
-        billing_period_start = None
-        billing_period_end = None
+        log = structlog.get_logger()
+        billing_period_start = billing_period_end = None
         billing_available = False
         breakdown_of_rows_by_day = []
 
@@ -194,13 +191,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             org_billing = billing_manager.get_billing(organization=self.team.organization)
 
             if org_billing and org_billing.get("billing_period"):
-                billing_period = org_billing["billing_period"]
-                billing_period_start = parser.parse(billing_period["current_period_start"])
-                billing_period_end = parser.parse(billing_period["current_period_end"])
+                bp = org_billing["billing_period"]
+                billing_period_start = parser.parse(bp["current_period_start"])
+                billing_period_end = parser.parse(bp["current_period_end"])
                 billing_available = True
 
-                # create a external data job object filtered by billing period and status completed and rows synced greater than 0
-                external_data_jobs = ExternalDataJob.objects.filter(
+                base_external_data_jobs = ExternalDataJob.objects.filter(
                     team_id=self.team_id,
                     created_at__gte=billing_period_start,
                     created_at__lt=billing_period_end,
@@ -208,30 +204,58 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     rows_synced__gt=0,
                 )
 
-                # now use the external_data_jobs object to create a breakdown of rows by day
                 daily_totals = (
-                    external_data_jobs.annotate(sync_date=TruncDate("created_at"))
+                    base_external_data_jobs.annotate(sync_date=TruncDate("created_at"))
                     .values("sync_date")
                     .annotate(total_rows_synced=Sum("rows_synced"))
                     .order_by("sync_date")
                 )
-                # get job details for each job in the daily_totals object using the external_data_jobs object
-                job_details = external_data_jobs.filter(id__in=daily_totals.values_list("id", flat=True))
+
+                per_job = (
+                    base_external_data_jobs.annotate(sync_date=TruncDate("created_at"))
+                    .values(
+                        "id",
+                        "sync_date",
+                        "rows_synced",
+                        "status",
+                        "created_at",
+                        "finished_at",
+                        "workflow_run_id",
+                        "schema__name",
+                        "pipeline__source_type",
+                    )
+                    .order_by("created_at")
+                )
+
+                jobs_by_date = {}
+                for j in per_job:
+                    key = j["sync_date"].strftime("%Y-%m-%d")
+                    jobs_by_date.setdefault(key, []).append(
+                        {
+                            "id": j["id"],
+                            "rows_synced": j["rows_synced"],
+                            "status": j["status"],
+                            "created_at": j["created_at"].isoformat() if j["created_at"] else None,
+                            "finished_at": j["finished_at"].isoformat() if j["finished_at"] else None,
+                            "workflow_run_id": j["workflow_run_id"],
+                            "schema_name": j["schema__name"],
+                            "source_type": j["pipeline__source_type"],
+                        }
+                    )
 
                 breakdown_of_rows_by_day = [
                     {
-                        "date": item["sync_date"].strftime("%Y-%m-%d"),
-                        "rows_synced": item["total_rows_synced"] or 0,
-                        "daily_totals": job_details,
+                        "date": row["sync_date"].strftime("%Y-%m-%d"),
+                        "rows_synced": row["total_rows_synced"] or 0,
+                        "runs": jobs_by_date.get(row["sync_date"].strftime("%Y-%m-%d"), []),
                     }
-                    for item in daily_totals
+                    for row in daily_totals
                 ]
-
             else:
-                logger.info("No billing period information available for daily breakdown")
+                log.info("no_billing_period_for_daily_breakdown")
 
         except Exception as e:
-            logger.exception("Error retrieving daily breakdown", exc_info=e)
+            log.exception("daily_breakdown_error", exc_info=e)
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 data={"error": "An error occurred retrieving daily breakdown"},
@@ -241,8 +265,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             status=status.HTTP_200_OK,
             data={
                 "billing_available": billing_available,
-                "billing_period_start": billing_period_start,
-                "billing_period_end": billing_period_end,
+                "billing_period_start": billing_period_start.isoformat() if billing_period_start else None,
+                "billing_period_end": billing_period_end.isoformat() if billing_period_end else None,
                 "breakdown_of_rows_by_day": breakdown_of_rows_by_day,
             },
         )
