@@ -5353,3 +5353,288 @@ async fn it_handles_boolean_query_params_as_truthy() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_user_with_77_days".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with production-like data - should match via days_since_paid_plan_start condition
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "name": "Test User",
+            "email": "test@example.com",
+            "org_id": "test-org-123", // Not in the allowed org list
+            "user_id": "test-user-456",
+            "days_since_paid_plan_start": 77, // < 365, should match this condition
+            "created_at_timestamp": 1747758893, // Set, would match this condition
+            "upgraded_at_timestamp": 1749058908, // Has upgrade timestamp - fails the not_regex condition in cohort 128293
+            "paid_plan_start_date": "2025-06-04",
+            "trial_start_date": "2025-05-20"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let mut conn = pg_client.get_connection().await.unwrap();
+
+    // Create first cohort (ID 128293) - users without upgraded_at_timestamp but with created_at_timestamp
+    let cohort_128293_filters = json!({
+        "properties": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "upgraded_at_timestamp",
+                        "type": "person",
+                        "value": ".+",
+                        "negation": false,
+                        "operator": "not_regex"
+                    }]
+                },
+                {
+                    "type": "AND",
+                    "values": [{
+                        "key": "created_at_timestamp",
+                        "type": "person",
+                        "value": ".+",
+                        "negation": false,
+                        "operator": "is_set"
+                    }]
+                }
+            ]
+        }
+    });
+
+    let cohort_128293_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Base Cohort 128293")
+    .bind("Users without upgraded_at_timestamp but with created_at_timestamp")
+    .bind(team.id)
+    .bind(cohort_128293_filters)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    // Create second cohort (ID 128397) - Session Recordings Enabled cohort that references the first cohort
+    let cohort_128397_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "org_id",
+                        "type": "person",
+                        "value": ["67756", "67454", "56258", "59205", "36297"],
+                        "negation": false,
+                        "operator": "exact"
+                    }]
+                },
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "days_since_paid_plan_start",
+                        "type": "person",
+                        "value": "365",
+                        "negation": false,
+                        "operator": "lt"
+                    }]
+                },
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "id",
+                        "type": "cohort",
+                        "value": cohort_128293_id,
+                        "negation": false
+                    }]
+                }
+            ]
+        }
+    });
+
+    let cohort_128397_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Session Recordings Enabled")
+    .bind("Cohort with multiple OR conditions including nested cohort reference")
+    .bind(team.id)
+    .bind(cohort_128397_filters)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    // Create feature flag (ID 124068) that targets the Session Recordings Enabled cohort
+    let flag_json = json!([{
+        "id": 124068,
+        "key": "session-recordings-flag",
+        "name": "Session Recordings Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "variant": null,
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort_128397_id,
+                    "operator": "in",
+                    "cohort_name": "Session Recordings Enabled"
+                }],
+                "rollout_percentage": 100
+            }],
+            "payloads": {},
+            "multivariate": null
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with production-like user data - SHOULD match because days_since_paid_plan_start = 77 < 365 (OR condition)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "session-recordings-flag": {
+                    "key": "session-recordings-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with user who SHOULD match - has low days_since_paid_plan_start and no upgraded_at_timestamp
+    let matching_distinct_id = "matching_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        matching_distinct_id.clone(),
+        Some(json!({
+            "days_since_paid_plan_start": 200, // < 365, matches this condition
+            "created_at_timestamp": 1747758893,
+            "org_id": "12345" // Not in special list, but should match via days condition
+            // No upgraded_at_timestamp - this allows them to match base cohort 128293
+        })),
+    )
+    .await
+    .unwrap();
+
+    let matching_payload = json!({
+        "token": token,
+        "distinct_id": matching_distinct_id,
+    });
+
+    let matching_res = server
+        .send_flags_request(matching_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, matching_res.status());
+
+    let matching_json = matching_res.json::<Value>().await?;
+    assert_json_include!(
+        actual: matching_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "session-recordings-flag": {
+                    "key": "session-recordings-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with user who should NOT match the cohort - high days_since_paid_plan_start and has upgraded_at_timestamp
+    let failing_distinct_id = "failing_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        failing_distinct_id.clone(),
+        Some(json!({
+            "days_since_paid_plan_start": "500", // > 365, fails the lt condition
+            "created_at_timestamp": "2024-01-01T00:00:00Z",
+            "upgraded_at_timestamp": "2024-02-01T00:00:00Z", // has upgrade timestamp, fails the not_regex condition
+            "org_id": "99999" // not in the specific org_id list
+        })),
+    )
+    .await
+    .unwrap();
+
+    let failing_payload = json!({
+        "token": token,
+        "distinct_id": failing_distinct_id,
+    });
+
+    let failing_res = server
+        .send_flags_request(failing_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, failing_res.status());
+
+    let failing_json = failing_res.json::<Value>().await?;
+    assert_json_include!(
+        actual: failing_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "session-recordings-flag": {
+                    "key": "session-recordings-flag",
+                    "enabled": false,
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
