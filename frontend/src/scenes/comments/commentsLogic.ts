@@ -276,9 +276,7 @@ export const commentsLogic = kea<commentsLogicType>([
         isMyComment: [
             (s) => [s.user],
             (user) => {
-                return (comment: CommentType): boolean => {
-                    return comment.created_by?.id === user?.uuid
-                }
+                return (comment: CommentType): boolean => comment.created_by?.uuid === user?.uuid
             },
         ],
     }),

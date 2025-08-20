@@ -90,8 +90,11 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                     key={emoji}
                                     type="tertiary"
                                     onClick={() => {
-                                        if (isMyComment(comment)) {
-                                            deleteComment(comment)
+                                        const existingCurrentUserReaction = commentList.find((emojiReaction) =>
+                                            isMyComment(emojiReaction)
+                                        )
+                                        if (existingCurrentUserReaction) {
+                                            deleteComment(existingCurrentUserReaction)
                                         } else {
                                             sendEmojiReaction(emoji, comment.id)
                                         }
@@ -102,8 +105,10 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                         <div className="flex flex-col gap-2">
                                             <div>
                                                 <SentenceList
-                                                    listParts={commentList.map(
-                                                        (c) => c.created_by?.first_name ?? 'Unknown user'
+                                                    listParts={commentList.map((c) =>
+                                                        isMyComment(c)
+                                                            ? 'you'
+                                                            : (c.created_by?.first_name ?? 'Unknown user')
                                                     )}
                                                 />
                                                 <div>reacted</div>
