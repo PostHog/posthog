@@ -9,6 +9,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
+import { personMergePartialCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
@@ -536,11 +537,11 @@ export class PersonMergeService {
                         call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
                         oldPersonIdentified: String(currentSourcePerson.is_identified),
                         newPersonIdentified: String(currentTargetPerson.is_identified),
-                        // TODO: add partial move flag
                     })
                     .inc()
 
                 if (partialMove) {
+                    personMergePartialCounter.labels({ call: this.context.event.event }).inc()
                     await captureIngestionWarning(
                         this.context.kafkaProducer,
                         this.context.team.id,
