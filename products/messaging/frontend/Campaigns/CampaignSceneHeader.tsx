@@ -1,6 +1,9 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
-import { useValues, useActions } from 'kea'
+
 import { campaignLogic } from './campaignLogic'
 import { CampaignSceneLogicProps } from './campaignSceneLogic'
 
@@ -55,8 +58,8 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                             !isCampaignValid
                                 ? 'Fill in all required fields'
                                 : campaignChanged
-                                ? undefined
-                                : 'No changes to save'
+                                  ? undefined
+                                  : 'No changes to save'
                         }
                     >
                         {props.id === 'new' ? 'Create' : 'Save'}

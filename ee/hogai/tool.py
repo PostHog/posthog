@@ -26,6 +26,7 @@ class create_and_query_insight(BaseModel):
         description=(
             "A description of the query to generate, encapsulating the details of the user's request. "
             "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+            "If an existing insight has been used as a starting point, include that insight's filters and query in the description. "
             "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
             "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
         )
@@ -39,7 +40,19 @@ class search_insights(BaseModel):
     """
 
     search_query: str = Field(
-        description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
+        description="The user's query to search for insights. "
+        "Include all relevant context from earlier messages too, as the tool won't see that conversation history."
+    )
+
+
+class session_summarization(BaseModel):
+    """
+    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
+    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    """
+
+    session_summarization_query: str = Field(
+        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
     )
 
 
@@ -55,11 +68,24 @@ class search_documentation(BaseModel):
     - How to submit feature requests
     and/or when the user:
     - Needs help understanding PostHog concepts
+    - Has questions about SDK integration or instrumentation
+      - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
+        `posthog.identify(userId)`, `capture({ ... })` not working, etc.
+    - Troubleshooting missing or unexpected data
+      - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
     - Wants to know more about PostHog the company
     - Has questions about incidents or system status
     - Has PostHog-related questions that don't match your other specialized tools
+    - Has disabled session replay and needs help turning it back on
 
     Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
+    """
+
+
+class retrieve_billing_information(BaseModel):
+    """
+    Retrieve detailed billing information for the current organization.
+    Use this tool when the user asks about billing, subscription, usage, or spending related questions.
     """
 
 
@@ -100,10 +126,9 @@ class MaxTool(AssistantContextMixin, BaseTool):
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]
-    _team: "Team"
-    _user: "User"
     _config: RunnableConfig
     _state: AssistantState
 

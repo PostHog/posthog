@@ -42,6 +42,9 @@ from django.test import override_settings
 from unittest.mock import patch
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.schema import PersonsArgMaxVersion
+from posthog.clickhouse.client import sync_execute
+from datetime import datetime, UTC
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -693,3 +696,58 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
 
         self.assertEqual(response.results[0][0], "Test User With Spaces")
+
+    def test_direct_actors_query_uses_latest_person_data_after_property_deletion(self):
+        """Test that direct ActorsQuery uses latest person data and doesn't show deleted properties."""
+        # Create a person with email property first
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user_with_email"],
+            properties={"email": "test@example.com", "name": "Test User"},
+        )
+        flush_persons_and_events()
+
+        # Simulate property deletion by directly inserting a newer version in ClickHouse
+        # This mimics what happens when a person property is deleted via the API
+
+        # Insert a newer version without the email property (simulating deletion)
+        sync_execute(
+            """
+            INSERT INTO person (
+                id, team_id, properties, is_identified, is_deleted, version, created_at
+            ) VALUES (
+                %(person_id)s, %(team_id)s, %(properties)s, 1, 0, %(version)s, %(created_at)s
+            )
+            """,
+            {
+                "person_id": str(person.uuid),
+                "team_id": self.team.pk,
+                "properties": '{"name": "Test User"}',  # email property removed
+                "version": 1,  # Newer version
+                "created_at": datetime.now(UTC),
+            },
+        )
+
+        # Test: Query for persons with email containing '@' should return NO results
+        # because the latest version doesn't have an email property
+        query = ActorsQuery(
+            select=["person_display_name -- Person ", "id", "created_at"],
+            search="@",  # This searches email property among others
+        )
+        runner = self._create_runner(query)
+        response = runner.calculate()
+
+        # Should return no results because latest version doesn't have email with @
+        person_ids_in_results = [row[1] for row in response.results]
+        self.assertNotIn(
+            str(person.uuid),
+            person_ids_in_results,
+            "Person with deleted email property should not appear in search results for '@'",
+        )
+
+        # Verify that direct ActorsQuery is using PersonsArgMaxVersion.V2
+        self.assertEqual(
+            runner.modifiers.personsArgMaxVersion,
+            PersonsArgMaxVersion.V2,
+            "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
+        )

@@ -1,18 +1,22 @@
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
+import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
+import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
 import { urls } from 'scenes/urls'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     CorrelationConfigType,
@@ -25,10 +29,6 @@ import {
 import { ThemeName } from '../dataThemeLogic'
 import { marketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/marketingAnalyticsConfigurationDescriber'
 import { revenueAnalyticsConfigurationDescriber } from './revenue_analytics_config/revenueAnalyticsConfigurationDescriber'
-import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
-import { CurrencyCode } from '~/queries/schema/schema-general'
-import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
-import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 
 const isNumberOrNull = (x: unknown): x is number | null => {
     if (typeof x === 'number') {
@@ -199,8 +199,8 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         }
     },
     recording_domains: (change) => {
-        const before: string[] | null = Array.isArray(change.before) ? change.before.map(String) ?? null : null
-        const after: string[] | null = Array.isArray(change.after) ? change.after.map(String) ?? null : null
+        const before: string[] | null = Array.isArray(change.before) ? (change.before.map(String) ?? null) : null
+        const after: string[] | null = Array.isArray(change.after) ? (change.after.map(String) ?? null) : null
         if (after === null && before === null) {
             return null
         }

@@ -16,19 +16,19 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     method: z.string(),
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
-    headers: z.record(z.string(), z.string()).optional(),
+    headers: z.record(z.string()).optional(),
 })
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
-    integrationId: z.number(),
     to: z.object({
         email: z.string(),
-        name: z.string(),
+        name: z.string().optional(),
     }),
     from: z.object({
         email: z.string(),
-        name: z.string(),
+        name: z.string().optional(),
+        integrationId: z.number(),
     }),
     subject: z.string(),
     text: z.string(),

@@ -1,4 +1,3 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
@@ -6,13 +5,16 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { LiquidRenderer } from 'lib/utils/liquid'
-import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -44,6 +46,7 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
+    HogWatcherState,
     PersonType,
     PipelineNodeTab,
     PipelineStage,
@@ -85,12 +88,12 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     description: '',
     inputs_schema: [],
     code_language: 'hog',
-    hog: "print('Hello, world!');",
+    code: "print('Hello, world!');",
     status: 'stable',
 }
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
-export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
+export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -121,11 +124,20 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
             sanitizedInputs[inputSchema.key] = {
                 value: value,
-                templating: templatingEnabled ? input?.templating ?? 'hog' : undefined,
+                templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
             }
         })
 
         return sanitizedInputs
+    }
+
+    const filters = data.filters ?? {}
+    filters.source = filters.source ?? 'events'
+
+    if (filters.source === 'person-updates') {
+        // Ensure we aren't passing in values that aren't supported
+        delete filters.actions
+        delete filters.events
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -154,16 +166,21 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         return inputs
     }
 
-    function getMappingInputs(
-        inputs_schema?: CyclotronJobInputSchemaType[] | null
-    ): Record<string, CyclotronJobInputType> {
-        const inputs: Record<string, CyclotronJobInputType> = {}
-        inputs_schema?.forEach((schema) => {
-            if (schema.default !== undefined) {
-                inputs[schema.key] = { value: schema.default }
-            }
-        })
-        return inputs
+    let mappings: HogFunctionMappingType[] | undefined
+
+    if (template?.mapping_templates) {
+        mappings = template.mapping_templates
+            .filter((t) => t.include_by_default)
+            .map((template) => ({
+                ...template,
+                inputs: template.inputs_schema?.reduce(
+                    (acc, input) => {
+                        acc[input.key] = { value: input.default }
+                        return acc
+                    },
+                    {} as Record<string, CyclotronJobInputType>
+                ),
+            }))
     }
 
     return {
@@ -172,13 +189,8 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
         filters: template.filters,
-        mappings: template.mappings?.map(
-            (mapping): HogFunctionMappingType => ({
-                ...mapping,
-                inputs: getMappingInputs(mapping.inputs_schema),
-            })
-        ),
-        hog: template.hog,
+        mappings: mappings,
+        hog: template.code,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
         enabled: true,
@@ -296,7 +308,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
@@ -474,7 +486,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as null | SparklineData,
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
+                    if (!TYPES_WITH_REAL_EVENTS.includes(values.type)) {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -648,10 +660,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         type === 'site_app'
                             ? 'Site apps'
                             : type === 'transformation'
-                            ? 'Transformations'
-                            : type === 'source_webhook'
-                            ? 'Sources'
-                            : 'Destinations'
+                              ? 'Transformations'
+                              : type === 'source_webhook'
+                                ? 'Sources'
+                                : 'Destinations'
                     payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
@@ -659,7 +671,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
-        logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
+        logicProps: [() => [(_, props) => props], (props: HogFunctionConfigurationLogicProps) => props],
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
@@ -804,7 +816,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         willReEnableOnSave: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
-                return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
+                const hogState = hogFunction?.status?.state ?? 0
+                return configuration?.enabled && hogState === HogWatcherState.disabled
             },
         ],
 
@@ -835,22 +848,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               },
                           }
                         : contextId === 'activity-log'
-                        ? {
-                              event: '$activity_log_entry_created',
-                              properties: {
-                                  activity: 'created',
-                                  scope: 'Insight',
-                                  item_id: 'abcdef',
-                              },
-                          }
-                        : {
-                              event: '$pageview',
-                              properties: {
-                                  $current_url: currentUrl,
-                                  $browser: 'Chrome',
-                                  this_is_an_example_event: true,
-                              },
-                          }),
+                          ? {
+                                event: '$activity_log_entry_created',
+                                properties: {
+                                    activity: 'created',
+                                    scope: 'Insight',
+                                    item_id: 'abcdef',
+                                },
+                            }
+                          : {
+                                event: '$pageview',
+                                properties: {
+                                    $current_url: currentUrl,
+                                    $browser: 'Chrome',
+                                    $ip: '89.160.20.129',
+                                    this_is_an_example_event: true,
+                                },
+                            }),
                 }
                 const globals: CyclotronJobInvocationGlobals = {
                     event,
@@ -1032,10 +1046,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        sourceUsesEvents: [
+            (s) => [s.configuration, s.type],
+            (configuration, type) => {
+                return TYPES_WITH_REAL_EVENTS.includes(type) && (configuration.filters?.source ?? 'events') === 'events'
+            },
+        ],
+
         sparklineQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.type],
-            (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (!TYPES_WITH_SPARKLINE.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.sourceUsesEvents],
+            (configuration, matchingFilters, sourceUsesEvents): TrendsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
                 return setLatestVersionsOnQuery({
@@ -1066,9 +1087,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         baseEventsQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
-            (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
-                if (!TYPES_WITH_GLOBALS.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.sourceUsesEvents],
+            (configuration, matchingFilters, groupTypes, sourceUsesEvents): EventsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
                 const query: EventsQuery = {
@@ -1126,7 +1147,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
             (hogFunction, configuration) => {
-                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+                return hogFunction?.template?.code && hogFunction.template.code !== configuration.hog
             },
         ],
         mappingTemplates: [
@@ -1182,6 +1203,38 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {
                 return !!lastEventQuery
+            },
+        ],
+
+        showFilters: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        showExpectedVolume: [
+            (s) => [s.type, s.sourceUsesEvents],
+            (type, sourceUsesEvents) => {
+                return sourceUsesEvents && ['destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        canEditSource: [
+            (s) => [s.type, s.template, s.hogFunction],
+            (type, template, hogFunction) => {
+                return (
+                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
+                    (type === 'destination' &&
+                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
+                )
+            },
+        ],
+
+        showTesting: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'transformation'].includes(type)
             },
         ],
     })),
@@ -1268,20 +1321,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 ...cache.configFromUrl,
             }
 
-            if (values.template?.mapping_templates) {
-                config.mappings = [
-                    ...(config.mappings ?? []),
-                    ...values.template.mapping_templates
-                        .filter((t) => t.include_by_default)
-                        .map((template) => ({
-                            ...template,
-                            inputs: template.inputs_schema?.reduce((acc, input) => {
-                                acc[input.key] = { value: input.default }
-                                return acc
-                            }, {} as Record<string, CyclotronJobInputType>),
-                        })),
-                ]
-            }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
                 (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
@@ -1345,7 +1384,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
                 actions.setConfigurationValues({
                     ...config,
+                    enabled: values.configuration.enabled,
                     filters: config.filters ?? values.configuration.filters,
+                    // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
+                    mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template
                     name: values.configuration.name,
                     description: values.configuration.description,

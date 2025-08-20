@@ -20,3 +20,4 @@ ch_18,1,100,charge,pending,"2025-03-06 11:45:00",in_18,1,usd,cus_3,0,0,,0,"Subsc
 ch_19,1,15000,charge,succeeded,"2025-04-01 12:54:00",in_19,1,eur,cus_4,0,0,,0,"Team plan upgrade","https://receipt.stripe.com/19",,,,customer19@test.com,pi_19,pm_19,15000,0,,,,UPGRADE,"POSTHOG*UPGRADE",,,
 ch_20,1,12000,charge,succeeded,"2025-04-02 07:36:00",in_20,1,usd,cus_5,0,0,,0,"Monthly subscription","https://receipt.stripe.com/20",,,,customer20@test.com,pi_20,pm_20,12000,0,,,,SUBSCRIPTION,"POSTHOG*SUBSCRIPTION",,,
 ch_21,1,18000,charge,succeeded,"2025-04-03 13:22:00",in_21,1,gbp,cus_1,0,0,,0,"Annual subscription","https://receipt.stripe.com/21",,,,customer21@test.com,pi_21,pm_21,18000,0,,,,ANNUAL,"POSTHOG*ANNUAL",,,
+ch_22,1,35000,charge,succeeded,"2025-04-04 13:22:00",,1,eur,cus_1,0,0,,0,"Annual subscription","https://receipt.stripe.com/22",,,,customer22@test.com,pi_22,pm_22,35000,0,,,,ANNUAL,"POSTHOG*ANNUAL",,,

@@ -1,5 +1,9 @@
 import './UnsubscribeSurveyModal.scss'
 
+import { useActions, useValues } from 'kea'
+import { SurveyEventProperties } from 'posthog-js'
+import { useState } from 'react'
+
 import {
     LemonBanner,
     LemonButton,
@@ -11,24 +15,22 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { HeartHog } from 'lib/components/hedgehogs'
+
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { SurveyEventProperties } from 'posthog-js'
-import { useState } from 'react'
+import { HeartHog } from 'lib/components/hedgehogs'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
+import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 import { billingLogic } from './billingLogic'
 import {
+    UNSUBSCRIBE_REASONS,
     billingProductLogic,
     isPlatformAndSupportAddon,
     randomizeReasons,
-    UNSUBSCRIBE_REASONS,
 } from './billingProductLogic'
-import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 
 export const UnsubscribeSurveyModal = ({
     product,
@@ -137,8 +139,8 @@ export const UnsubscribeSurveyModal = ({
                     isAddonProduct
                         ? action
                         : product.type === 'platform_and_support'
-                        ? `${action} your plan`
-                        : `${action} from ${product.name}`
+                          ? `${action} your plan`
+                          : `${action} from ${product.name}`
                 }
                 footer={
                     unsubscribeModalStep === 1 ? (
@@ -157,10 +159,10 @@ export const UnsubscribeSurveyModal = ({
                                     surveyResponse['$survey_response_2'].length === 0
                                         ? 'Please select a reason'
                                         : !textAreaNotEmpty
-                                        ? 'Please share your feedback'
-                                        : includesPipelinesAddon
-                                        ? unsubscribeDisabledReason
-                                        : undefined
+                                          ? 'Please share your feedback'
+                                          : includesPipelinesAddon
+                                            ? unsubscribeDisabledReason
+                                            : undefined
                                 }
                                 onClick={handleUnsubscribe}
                                 loading={billingLoading}

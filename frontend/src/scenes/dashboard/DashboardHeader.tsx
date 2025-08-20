@@ -1,5 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
+
+import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -7,6 +12,15 @@ import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/Expo
 import { FullScreen } from 'lib/components/FullScreen'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
@@ -16,15 +30,25 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import {
+    ScenePanel,
+    ScenePanelActions,
+    ScenePanelCommonActions,
+    ScenePanelDivider,
+    ScenePanelMetaInfo,
+} from '~/layout/scenes/SceneLayout'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -37,35 +61,13 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
-import { SceneNotificationDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneNotificationDropdownMenu'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneName } from 'lib/components/Scenes/SceneName'
-import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { useEffect, useState } from 'react'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import {
-    ScenePanel,
-    ScenePanelActions,
-    ScenePanelCommonActions,
-    ScenePanelDivider,
-    ScenePanelMetaInfo,
-} from '~/layout/scenes/SceneLayout'
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -148,6 +150,7 @@ export function DashboardHeader(): JSX.Element | null {
                         isOpen={dashboardMode === DashboardMode.Sharing}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
+                        userAccessLevel={dashboard.user_access_level}
                     />
                     {canEditDashboard && (
                         <TextCardModal
@@ -188,8 +191,8 @@ export function DashboardHeader(): JSX.Element | null {
                                     dashboardLoading
                                         ? 'Wait for dashboard to finish loading'
                                         : canEditDashboard
-                                        ? undefined
-                                        : 'Not privileged to edit this dashboard'
+                                          ? undefined
+                                          : 'Not privileged to edit this dashboard'
                                 }
                             >
                                 Save
@@ -449,37 +452,6 @@ export function DashboardHeader(): JSX.Element | null {
             />
 
             <ScenePanel>
-                <ScenePanelMetaInfo>
-                    <SceneName
-                        defaultValue={dashboard?.name || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        canEdit={canEditDashboard}
-                    />
-
-                    <SceneDescription
-                        defaultValue={dashboard?.description || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        canEdit={canEditDashboard}
-                    />
-
-                    <SceneTags
-                        onSave={(tags) => {
-                            triggerDashboardUpdate({ tags })
-                        }}
-                        canEdit={canEditDashboard}
-                        tags={dashboard?.tags}
-                        tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
-                        dataAttrKey={RESOURCE_TYPE}
-                    />
-
-                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
-
-                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
-                </ScenePanelMetaInfo>
-                <ScenePanelDivider />
                 <ScenePanelCommonActions>
                     <SceneCommonButtons
                         dataAttrKey={RESOURCE_TYPE}
@@ -522,6 +494,42 @@ export function DashboardHeader(): JSX.Element | null {
                         }
                     />
                 </ScenePanelCommonActions>
+                <ScenePanelMetaInfo>
+                    <SceneTextInput
+                        name="name"
+                        defaultValue={dashboard?.name || ''}
+                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                        dataAttrKey={RESOURCE_TYPE}
+                        canEdit={canEditDashboard}
+                        isLoading={dashboardLoading}
+                    />
+
+                    <SceneTextarea
+                        name="description"
+                        defaultValue={dashboard?.description || ''}
+                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
+                        dataAttrKey={RESOURCE_TYPE}
+                        optional
+                        canEdit={canEditDashboard}
+                        isLoading={dashboardLoading}
+                        markdown
+                    />
+
+                    <SceneTags
+                        onSave={(tags) => {
+                            triggerDashboardUpdate({ tags })
+                        }}
+                        canEdit={canEditDashboard}
+                        tags={dashboard?.tags}
+                        tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
+                        dataAttrKey={RESOURCE_TYPE}
+                    />
+
+                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
+
+                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
+                </ScenePanelMetaInfo>
+                <ScenePanelDivider />
 
                 <ScenePanelActions>
                     {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
@@ -562,7 +570,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
 
                     {dashboard && canEditDashboard && (
-                        <SceneNotificationDropdownMenu dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
+                        <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
                     )}
 
                     {dashboard && canEditDashboard && (

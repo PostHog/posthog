@@ -2,7 +2,7 @@
 
 from django.db import migrations, connection
 
-from posthog.temporal.data_imports.pipelines.salesforce.settings import INCREMENTAL_ENDPOINTS
+from posthog.temporal.data_imports.sources.salesforce.settings import INCREMENTAL_ENDPOINTS
 
 
 def salesforce_schemas(apps, schema_editor):

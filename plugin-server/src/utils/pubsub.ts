@@ -24,7 +24,10 @@ export class PubSub {
         if (this.redisSubscriber) {
             throw new Error('Started PubSub cannot be started again!')
         }
-        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion')
+        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion').catch((error) => {
+            logger.error('🛑', 'Failed to create Redis subscriber', { error })
+            throw error
+        })
 
         this.redisSubscriber.on('message', (channel: string, message: string) => {
             this.eventEmitter.emit(channel, message)
@@ -34,7 +37,8 @@ export class PubSub {
 
     public async stop(): Promise<void> {
         if (!this.redisSubscriber) {
-            throw new Error('Unstarted PubSub cannot be stopped!')
+            logger.error('🛑', 'Unstarted PubSub cannot be stopped!')
+            return
         }
 
         await this.promises.waitForAll()

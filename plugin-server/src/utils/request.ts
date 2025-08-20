@@ -5,22 +5,23 @@ import net from 'node:net'
 import { Counter } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
-    type HeadersInit,
     Agent,
-    errors,
-    fetch as undiciFetch,
-    request,
+    type HeadersInit,
     RequestInfo,
     RequestInit,
     Response,
+    errors,
+    request,
+    fetch as undiciFetch,
 } from 'undici'
-// eslint-disable-next-line no-restricted-imports
-export { Response } from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
+
+// eslint-disable-next-line no-restricted-imports
+export { Response } from 'undici'
 
 const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
@@ -103,18 +104,19 @@ function isGlobalIPv4(ip: ipaddr.IPv4): boolean {
 }
 
 function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
-    return addr.kind() === 'ipv4'
+    return addr.kind().toLowerCase() === 'ipv4'
 }
 
-async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
+async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     let addrinfo: LookupAddress[]
+    const validAddrinfo: LookupAddress[] = []
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
     } catch (err) {
         throw new ResolutionError('Invalid hostname')
     }
-    for (const { address } of addrinfo) {
-        const parsed = ipaddr.parse(address)
+    for (const addrInfo of addrinfo) {
+        const parsed = ipaddr.parse(addrInfo.address)
         // We don't support IPv6 for now
         if (!isIPv4(parsed)) {
             continue
@@ -128,19 +130,20 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
             throw new SecureRequestError('Hostname is not allowed')
         }
+        validAddrinfo.push(addrInfo)
     }
-    if (addrinfo.length === 0) {
+    if (validAddrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
         throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
-    return addrinfo[0]
+    return validAddrinfo
 }
 
 export const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
     try {
         const addrinfo = await staticLookupAsync(hostname)
-        cb(null, addrinfo.address, addrinfo.family)
+        cb(null, addrinfo)
     } catch (err) {
         cb(err as Error, '', 4)
     }
@@ -161,6 +164,7 @@ class SecureAgent extends Agent {
             connections: 500,
             connect: {
                 lookup: httpStaticLookup,
+                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
         })
     }

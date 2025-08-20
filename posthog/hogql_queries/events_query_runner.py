@@ -15,7 +15,7 @@ from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr, map_virtual_properties
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
@@ -37,7 +37,7 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 ]
 
 
-class EventsQueryRunner(QueryRunner):
+class EventsQueryRunner(AnalyticsQueryRunner):
     query: EventsQuery
     response: EventsQueryResponse
     cached_response: CachedEventsQueryResponse
@@ -276,7 +276,7 @@ class EventsQueryRunner(QueryRunner):
 
                 return stmt
 
-    def calculate(self) -> EventsQueryResponse:
+    def _calculate(self) -> EventsQueryResponse:
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,

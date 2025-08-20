@@ -40,6 +40,7 @@ pub fn match_property(
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
     if partial_props && !matching_property_values.contains_key(&property.key) {
+        tracing::warn!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
             property.key
@@ -234,6 +235,9 @@ pub fn match_property(
         // filter into multiple property filters
         OperatorType::In | OperatorType::NotIn => Err(FlagMatchingError::ValidationError(
             "In/NotIn operators should be handled by cohort matching".to_string(),
+        )),
+        OperatorType::FlagEvaluatesTo => Err(FlagMatchingError::ValidationError(
+            "FlagEvaluatesTo operator should be handled by flag dependency matching".to_string(),
         )),
     }
 }

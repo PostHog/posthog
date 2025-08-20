@@ -16,11 +16,27 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
+                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
+                cdpApi: true,
+            }
+
+        case PluginServerMode.local_cdp:
+            return {
+                ingestionV2: true,
+                cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
+                cdpInternalEvents: true,
+                cdpLegacyOnEvent: true,
+                cdpCyclotronWorker: true,
+                cdpCyclotronWorkerHogFlow: true,
+                cdpBehaviouralEvents: true,
+                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
                 cdpApi: true,
             }
 
@@ -55,6 +71,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpProcessedEvents: true,
             }
+        case PluginServerMode.cdp_person_updates:
+            return {
+                cdpPersonUpdates: true,
+            }
         case PluginServerMode.cdp_internal_events:
             return {
                 cdpInternalEvents: true,
@@ -70,6 +90,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_behavioural_events:
             return {
                 cdpBehaviouralEvents: true,
+            }
+        case PluginServerMode.cdp_aggregation_writer:
+            return {
+                cdpAggregationWriter: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {

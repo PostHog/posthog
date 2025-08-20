@@ -1,14 +1,15 @@
-import { LemonTagType } from '@posthog/lemon-ui'
-import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
-import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
+import { type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -37,6 +38,7 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     status: 'all',
     created_by_id: undefined,
     page: 1,
+    order: undefined,
 }
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
@@ -100,15 +102,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     listeners(({ actions }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
+            /**
+             * this debounces the search input. Yeah, I know.
+             */
             await breakpoint(300)
             actions.loadExperiments()
-        },
-        setExperimentsTab: ({ tabKey }) => {
-            if (tabKey === ExperimentsTabs.SharedMetrics) {
-                // Saved Metrics is a fake tab that we use to redirect to the shared metrics page
-                actions.setExperimentsTab(ExperimentsTabs.All)
-                router.actions.push('/experiments/shared-metrics')
-            }
         },
     })),
     loaders(({ values }) => ({
@@ -180,7 +178,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments, s.filters],
             (experimentsLoading, experiments, filters): boolean => {
-                return !experimentsLoading && experiments.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                return !experimentsLoading && experiments.results.length === 0 && objectsEqual(filters, DEFAULT_FILTERS)
             },
         ],
         pagination: [
@@ -222,7 +220,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const searchParams: Record<string, string | number> = {

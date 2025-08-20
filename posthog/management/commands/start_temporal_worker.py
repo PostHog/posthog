@@ -23,7 +23,6 @@ from posthog.constants import (
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.common.logger import configure_logger_async, get_logger
 from posthog.temporal.common.worker import create_worker
@@ -41,6 +40,10 @@ from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIE
 from posthog.temporal.quota_limiting import (
     ACTIVITIES as QUOTA_LIMITING_ACTIVITIES,
     WORKFLOWS as QUOTA_LIMITING_WORKFLOWS,
+)
+from posthog.temporal.salesforce_enrichment import (
+    ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
+    WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
 from posthog.temporal.session_recordings import (
     ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
@@ -66,6 +69,7 @@ WORKFLOWS_DICT = {
     + USAGE_REPORTS_WORKFLOWS
     + SESSION_RECORDINGS_WORKFLOWS
     + QUOTA_LIMITING_WORKFLOWS
+    + SALESFORCE_ENRICHMENT_WORKFLOWS
     + PRODUCT_ANALYTICS_WORKFLOWS
     + SUBSCRIPTION_WORKFLOWS,
     MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
@@ -82,6 +86,7 @@ ACTIVITIES_DICT = {
     + USAGE_REPORTS_ACTIVITIES
     + SESSION_RECORDINGS_ACTIVITIES
     + QUOTA_LIMITING_ACTIVITIES
+    + SALESFORCE_ENRICHMENT_ACTIVITIES
     + PRODUCT_ANALYTICS_ACTIVITIES
     + SUBSCRIPTION_ACTIVITIES,
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
@@ -180,8 +185,6 @@ class Command(BaseCommand):
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
-
-        initialize_otel()
 
         metrics_port = int(options["metrics_port"])
 

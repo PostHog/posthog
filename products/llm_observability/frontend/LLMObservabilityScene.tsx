@@ -1,8 +1,10 @@
-import { IconArchive } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+
+import { IconArchive } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
+
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -11,6 +13,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -20,11 +23,14 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
-import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
 import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
+import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { CompatMessage } from './types'
+import { normalizeMessages } from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -104,7 +110,7 @@ function LLMObservabilityDashboard(): JSX.Element {
 }
 
 function LLMObservabilityGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery } =
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery, setGenerationsColumns } =
         useActions(llmObservabilityLogic)
     const { generationsQuery } = useValues(llmObservabilityLogic)
 
@@ -118,6 +124,11 @@ function LLMObservabilityGenerations(): JSX.Element {
                 setDates(query.source.after || null, query.source.before || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
                 setPropertyFilters(query.source.properties || [])
+
+                if (query.source.select) {
+                    setGenerationsColumns(query.source.select)
+                }
+
                 setGenerationsQuery(query)
             }}
             context={{
@@ -127,21 +138,71 @@ function LLMObservabilityGenerations(): JSX.Element {
                     uuid: {
                         title: 'ID',
                         render: ({ record, value }) => {
-                            const traceId = (record as any[])[1]
+                            const traceId = (record as unknown[])[1]
                             if (!value) {
                                 return <></>
                             }
-                            // show only first 4 and last 4 characters of the trace id
-                            const visualValue = (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+
+                            const visualValue: string =
+                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
                             }
+
                             return (
                                 <strong>
-                                    <Link to={`/llm-observability/traces/${traceId}?event=${value as string}`}>
-                                        {visualValue}
-                                    </Link>
+                                    <Tooltip title={value as string}>
+                                        <Link to={`/llm-observability/traces/${traceId}?event=${value as string}`}>
+                                            {visualValue}
+                                        </Link>
+                                    </Tooltip>
                                 </strong>
+                            )
+                        },
+                    },
+                    'properties.$ai_input[-1]': {
+                        title: 'Input',
+                        render: ({ value }) => {
+                            let inputNormalized: CompatMessage[] | undefined
+                            if (typeof value === 'string') {
+                                try {
+                                    inputNormalized = normalizeMessages(JSON.parse(value), 'user')
+                                } catch (e) {
+                                    console.warn('Error parsing properties.$ai_input[-1] as JSON', e)
+                                }
+                            }
+                            if (!inputNormalized?.length) {
+                                return <>–</>
+                            }
+                            return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+                        },
+                    },
+                    'properties.$ai_output_choices': {
+                        title: 'Output',
+                        render: ({ value }) => {
+                            let outputNormalized: CompatMessage[] | undefined
+                            if (typeof value === 'string') {
+                                try {
+                                    outputNormalized = normalizeMessages(JSON.parse(value), 'assistant')
+                                } catch (e) {
+                                    console.warn('Error parsing properties.$ai_output_choices as JSON', e)
+                                }
+                            }
+                            if (!outputNormalized?.length) {
+                                return <>–</>
+                            }
+                            return (
+                                <div>
+                                    {outputNormalized.map(
+                                        (
+                                            message,
+                                            index // All output choices, if multiple
+                                        ) => (
+                                            <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
+                                        )
+                                    )}
+                                </div>
                             )
                         },
                     },
@@ -151,8 +212,15 @@ function LLMObservabilityGenerations(): JSX.Element {
                             if (!value) {
                                 return <></>
                             }
-                            const visualValue = (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
-                            return <Link to={`/llm-observability/traces/${value as string}`}>{visualValue}</Link>
+
+                            const visualValue: string =
+                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+
+                            return (
+                                <Tooltip title={value as string}>
+                                    <Link to={`/llm-observability/traces/${value as string}`}>{visualValue}</Link>
+                                </Tooltip>
+                            )
                         },
                     },
                 },

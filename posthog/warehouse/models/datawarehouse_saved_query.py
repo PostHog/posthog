@@ -2,6 +2,7 @@ from datetime import datetime
 import re
 from typing import Any, Optional, Union
 import uuid
+from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -11,7 +12,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.schema import HogQLQueryModifiers
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -25,9 +26,9 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
-    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", value):
+    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_.$]*$", value):
         raise ValidationError(
-            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', or '$' ",
+            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', '.', or '$' ",
             params={"value": value},
         )
 
@@ -43,7 +44,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
 
@@ -162,6 +163,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     @property
     def url_pattern(self):
+        if settings.USE_LOCAL_SETUP:
+            parsed = urlparse(settings.BUCKET_URL)
+            bucket_name = parsed.netloc
+
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     @property

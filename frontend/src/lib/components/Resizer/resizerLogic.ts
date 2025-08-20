@@ -70,7 +70,7 @@ export const resizerLogic = kea<resizerLogicType>([
         desiredSize: [
             (s) => [s.size, s.resizingSize, s.isResizeInProgress],
             (size, resizingSize, isResizeInProgress) => {
-                return isResizeInProgress ? resizingSize ?? size : size
+                return isResizeInProgress ? (resizingSize ?? size) : size
             },
         ],
         isVertical: [(_, p) => [p.placement], (placement) => ['left', 'right'].includes(placement)],

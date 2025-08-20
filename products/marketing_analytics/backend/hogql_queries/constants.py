@@ -30,10 +30,6 @@ TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 # Fallback query when no valid adapters are found
 FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST} WHERE 1=0"
 
-
-# Final output columns
-DEFAULT_MARKETING_ANALYTICS_COLUMNS = list(MarketingAnalyticsBaseColumns)
-
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
     MarketingAnalyticsBaseColumns.CAMPAIGN: ast.Alias(

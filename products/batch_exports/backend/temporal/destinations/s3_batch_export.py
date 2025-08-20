@@ -42,7 +42,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 )
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import (
-    Consumer as ConsumerFromStage,
+    Consumer,
     run_consumer_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import (
@@ -127,7 +127,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     use_virtual_style_addressing: bool = False
 
 
-def get_allowed_template_variables(inputs) -> dict[str, str]:
+def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
     """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
     export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
     return {
@@ -137,7 +137,7 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "day": f"{export_datetime:%d}",
         "month": f"{export_datetime:%m}",
         "year": f"{export_datetime:%Y}",
-        "data_interval_start": inputs.data_interval_start,
+        "data_interval_start": inputs.data_interval_start or "START",
         "data_interval_end": inputs.data_interval_end,
         "table": inputs.batch_export_model.name if inputs.batch_export_model is not None else "events",
     }
@@ -145,7 +145,13 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
 
 def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
     template_variables = get_allowed_template_variables(inputs)
-    return inputs.prefix.format(**template_variables)
+    try:
+        return inputs.prefix.format(**template_variables)
+    except KeyError as e:
+        EXTERNAL_LOGGER.warning(
+            f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
+        )
+        return inputs.prefix
 
 
 def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
@@ -368,10 +374,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         # NOTE: we don't support resuming from heartbeats for this activity for 2 reasons:
         # - resuming from old heartbeats doesn't play nicely with S3 multipart uploads
         # - we don't order the events in the query to ClickHouse
-        data_interval_start = (
-            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-        )
-        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
@@ -404,8 +406,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         )
 
         consumer = ConcurrentS3Consumer(
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
             s3_inputs=inputs,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
@@ -424,7 +424,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         )
 
 
-class ConcurrentS3Consumer(ConsumerFromStage):
+class ConcurrentS3Consumer(Consumer):
     """A consumer that uploads chunks of data to S3 concurrently.
 
     It uses a memory buffer to store the data and upload it in parts. It uses 2 semaphores to limit the number of
@@ -438,13 +438,11 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
     def __init__(
         self,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
     ):
-        super().__init__(data_interval_start, data_interval_end)
+        super().__init__()
 
         self.s3_inputs = s3_inputs
         self.part_size = part_size

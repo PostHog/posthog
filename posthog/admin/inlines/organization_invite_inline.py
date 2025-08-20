@@ -1,11 +1,13 @@
-from django.contrib import admin
+from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.models.organization_invite import OrganizationInvite
 
 
-class OrganizationInviteInline(admin.TabularInline):
+class OrganizationInviteInline(TabularInlinePaginated):
     extra = 0
     model = OrganizationInvite
+    per_page = 20
+    pagination_key = "page-invite"
     readonly_fields = ("created_at", "updated_at", "emailing_attempt_made", "private_project_access")
     autocomplete_fields = ("organization",)
 

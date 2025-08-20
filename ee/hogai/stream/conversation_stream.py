@@ -125,7 +125,7 @@ class ConversationStreamManager:
             # Wait for stream to be created
             is_stream_available = await self._redis_stream.wait_for_stream()
             if not is_stream_available:
-                raise StreamError("Stream not available")
+                raise StreamError("Stream for this conversation not available - Temporal workflow might have failed")
 
             async for chunk in self._redis_stream.read_stream():
                 message = await self._redis_stream_to_assistant_output(chunk)

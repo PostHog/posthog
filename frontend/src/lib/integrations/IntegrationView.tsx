@@ -1,9 +1,15 @@
-import { LemonBanner } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+
+import { IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+
+import { integrationsLogic } from './integrationsLogic'
 
 export function IntegrationView({
     integration,
@@ -14,7 +20,22 @@ export function IntegrationView({
     suffix?: JSX.Element
     schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
+    const { deleteIntegration } = useActions(integrationsLogic)
+
     const errors = (integration.errors && integration.errors?.split(',')) || []
+
+    suffix = suffix || (
+        <div className="flex flex-row gap-2">
+            <LemonButton
+                type="secondary"
+                status="danger"
+                onClick={() => deleteIntegration(integration.id)}
+                icon={<IconTrash />}
+            >
+                Disconnect
+            </LemonButton>
+        </div>
+    )
 
     return (
         <div className="rounded border bg-surface-primary">
@@ -22,8 +43,10 @@ export function IntegrationView({
                 <div className="flex gap-4 items-center ml-2">
                     <img src={integration.icon_url} className="w-10 h-10 rounded" />
                     <div>
-                        <div>
-                            Connected to <strong>{integration.display_name}</strong>
+                        <div className="flex gap-2">
+                            <span>
+                                Connected to <strong>{integration.display_name}</strong>
+                            </span>
                         </div>
                         {integration.created_by ? (
                             <UserActivityIndicator

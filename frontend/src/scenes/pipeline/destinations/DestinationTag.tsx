@@ -1,4 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HogFunctionTemplateStatus } from '~/types'
@@ -16,7 +17,7 @@ export function DestinationTag({ status }: DestinationTagProps): JSX.Element | n
         case 'stable':
             return null
         case 'coming_soon':
-            return <LemonTag type="muted">Coming soon</LemonTag>
+            return <LemonTag type="muted">Roadmap</LemonTag>
         case 'hidden':
             return <LemonTag type="muted">Hidden</LemonTag>
         default:

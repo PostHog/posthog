@@ -12,7 +12,6 @@ from .june.template_june import template as june
 from .make.template_make import template as make
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
-from .twillio.template_twilio import template as twilio
 from .discord.template_discord import template as discord
 from .salesforce.template_salesforce import template_create as salesforce_create, template_update as salesforce_update
 from .mailjet.template_mailjet import (
@@ -62,7 +61,6 @@ HOG_FUNCTION_TEMPLATES = [
     attio,
     avo,
     aws_kinesis,
-    twilio,
     braze,
     brevo,
     clearbit,

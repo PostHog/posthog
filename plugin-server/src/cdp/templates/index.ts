@@ -1,14 +1,20 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
+import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
+import { template as emailTemplate } from './_destinations/email/email.template'
+import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
+import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
-import { template as nativeWebhook } from './_destinations/native-webhook/webhook.template'
+import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
+import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
+import { template as stripeWebhookTemplate } from './_sources/stripe/stripe_webhook.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
@@ -31,6 +37,11 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     linearTemplate,
     googleAdsTemplate,
     redditAdsTemplate,
+    twilioTemplate,
+    googleSheetsTemplate,
+    googleTagManagerTemplate,
+    emailTemplate,
+    clickupTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -47,10 +58,10 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
-export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [nativeWebhook].map((plugin) => ({
+export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
     ...plugin,
     code_language: 'javascript',
-    hog: 'return event;',
+    code: 'return event;',
     inputs_schema: [
         ...plugin.inputs_schema,
         {
@@ -63,7 +74,7 @@ export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [nativeWebhook].map((plugi
     ],
 }))
 
-export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
+export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate, stripeWebhookTemplate]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(
     (x) => x.template
@@ -77,10 +88,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
-export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce((acc, plugin) => {
-    acc[plugin.id] = plugin
-    return acc
-}, {} as Record<string, NativeTemplate>)
+export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.id] = plugin
+        return acc
+    },
+    {} as Record<string, NativeTemplate>
+)
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
@@ -90,5 +104,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
-    ...(NATIVE_HOG_FUNCTIONS as unknown as HogFunctionTemplate[]),
+    ...NATIVE_HOG_FUNCTIONS,
 ]

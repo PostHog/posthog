@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 // NOTE: This is a deprecated plugin and should never be shown to new users
 export const posthogAppUnduplicator: LegacyTransformationPlugin = {
@@ -14,7 +15,7 @@ export const posthogAppUnduplicator: LegacyTransformationPlugin = {
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: ['Custom'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'dedupMode',

@@ -1,11 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
@@ -40,13 +41,13 @@ export const userLogic = kea<userLogicType>([
                 first_name: !first_name
                     ? 'You need to have a name.'
                     : first_name.length > 150
-                    ? 'This name is too long. Please keep it under 151 characters.'
-                    : null,
+                      ? 'This name is too long. Please keep it under 151 characters.'
+                      : null,
                 email: !email
                     ? 'You need to have an email.'
                     : email.length > 254
-                    ? 'This email is too long. Please keep it under 255 characters.'
-                    : null,
+                      ? 'This email is too long. Please keep it under 255 characters.'
+                      : null,
             }),
             submit: (user) => {
                 actions.updateUser(user)

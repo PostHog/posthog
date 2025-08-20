@@ -3,7 +3,7 @@
         margin-top: 0.5rem;
         margin-right: 0.5rem;
         font-size: 0.875rem;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
         white-space: nowrap;
     }
 
@@ -29,22 +29,22 @@
         border-radius: 0.5rem;
 
         &--assistant {
-            color: var(--text-primary);
-            background: var(--bg-light);
+            color: var(--color-text-primary);
+            background: var(--color-bg-light);
 
             .dark & {
-                color: var(--text-primary);
-                background: var(--bg-depth);
+                color: var(--color-text-primary);
+                background: var(--color-bg-depth);
             }
         }
 
         &--user {
-            color: var(--text-primary);
-            background: var(--bg-surface-primary);
+            color: var(--color-text-primary);
+            background: var(--color-bg-surface-primary);
 
             .dark & {
-                color: var(--text-primary);
-                background: var(--bg-side);
+                color: var(--color-text-primary);
+                background: var(--color-bg-side);
             }
         }
     }
@@ -53,11 +53,11 @@
         padding: 0.125rem 0.25rem;
         font-family: var(--font-mono);
         font-size: 0.75rem;
-        background: color-mix(in sRGB, var(--bg-light) 85%, var(--primary) 15%);
+        background: color-mix(in sRGB, var(--color-bg-light) 85%, var(--primary) 15%);
         border-radius: 0.25rem;
 
         .dark & {
-            background: color-mix(in sRGB, var(--bg-depth) 85%, var(--primary) 15%);
+            background: color-mix(in sRGB, var(--color-bg-depth) 85%, var(--primary) 15%);
         }
     }
 }

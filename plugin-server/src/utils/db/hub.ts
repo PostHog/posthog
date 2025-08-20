@@ -1,9 +1,6 @@
-import ClickHouse from '@posthog/clickhouse'
-import * as fs from 'fs'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
-import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
@@ -20,6 +17,8 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { RustyHook } from '../../worker/rusty-hook'
 import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
@@ -77,26 +76,6 @@ export async function createHub(
     }
     const instanceId = new UUIDT()
 
-    logger.info('🤔', `Connecting to ClickHouse...`)
-    const clickhouse = new ClickHouse({
-        // We prefer to run queries on the offline cluster.
-        host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
-        port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
-        protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
-        user: serverConfig.CLICKHOUSE_USER,
-        password: serverConfig.CLICKHOUSE_PASSWORD || undefined,
-        dataObjects: true,
-        queryOptions: {
-            database: serverConfig.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-        ca: serverConfig.CLICKHOUSE_CA
-            ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
-            : undefined,
-        rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
-    })
-    logger.info('👍', `ClickHouse ready`)
-
     logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
@@ -107,9 +86,13 @@ export async function createHub(
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     logger.info('👍', `Postgres Router ready`)
 
-    logger.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to ingestion Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    logger.info('👍', `Redis ready`)
+    logger.info('👍', `Ingestion Redis ready`)
+
+    logger.info('🤔', `Connecting to cookieless Redis...`)
+    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    logger.info('👍', `Cookieless Redis ready`)
 
     logger.info('🤔', `Connecting to object storage...`)
 
@@ -123,8 +106,8 @@ export async function createHub(
     const db = new DB(
         postgres,
         redisPool,
+        cookielessRedisPool,
         kafkaProducer,
-        clickhouse,
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
@@ -138,7 +121,9 @@ export async function createHub(
     const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const groupRepository = new PostgresGroupRepository(postgres)
+    const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig)
@@ -151,7 +136,7 @@ export async function createHub(
         db,
         postgres,
         redisPool,
-        clickhouse,
+        cookielessRedisPool,
         kafka,
         kafkaProducer,
         objectStorage: objectStorage,
@@ -169,6 +154,8 @@ export async function createHub(
         rootAccessManager,
         rustyHook,
         actionMatcher,
+        groupRepository,
+        clickhouseGroupRepository,
         actionManager,
         actionManagerCDP,
         geoipService,
@@ -198,6 +185,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     await hub.pubSub.stop()
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 

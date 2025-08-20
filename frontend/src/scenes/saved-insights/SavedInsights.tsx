@@ -1,5 +1,7 @@
 import './SavedInsights.scss'
 
+import { useActions, useValues } from 'kea'
+
 import {
     IconAI,
     IconBrackets,
@@ -26,7 +28,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
@@ -34,17 +36,17 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -52,8 +54,8 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -198,6 +200,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.StickinessActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight.',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.FunnelsActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions, derived from an insight.',
@@ -276,21 +284,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsArpuQuery]: {
-        name: 'Revenue Analytics ARPU',
-        description: 'View revenue analytics ARPU data.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
-    [NodeKind.RevenueAnalyticsCustomerCountQuery]: {
-        name: 'Revenue Analytics Customer Count',
-        description: 'View revenue analytics customer and subscription count.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
         name: 'Revenue Analytics Growth Rate',
         description: 'View revenue analytics growth rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsMetricsQuery]: {
+        name: 'Revenue Analytics Metrics',
+        description: 'View revenue analytics customer, subscription count, ARPU, and LTV.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -382,6 +384,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Error Tracking',
         description: 'List and explore exception groups.',
         icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingIssueCorrelationQuery]: {
+        name: 'Error Tracking Correlation',
+        description: 'Explore issues affecting other events.',
+        icon: IconCorrelationAnalysis,
         inMenu: false,
     },
     [NodeKind.RecordingsQuery]: {
@@ -609,8 +617,9 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId } =
+    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
+
     const { hasTagging } = useValues(organizationLogic)
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -823,7 +832,7 @@ export function SavedInsights(): JSX.Element {
                         </div>
                     </div>
                     {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState />
+                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
                         <>
                             <ReloadInsight />

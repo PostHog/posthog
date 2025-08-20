@@ -192,10 +192,10 @@
 
 .funnel-significance-highlight {
     display: inline-flex;
-    color: var(--bg-surface-primary);
-    background: var(--accent);
+    color: var(--color-bg-surface-primary);
+    background: var(--color-accent);
 
     .LemonIcon {
-        color: var(--bg-surface-primary);
+        color: var(--color-bg-surface-primary);
     }
 }

@@ -1,6 +1,9 @@
-import { IconServer } from '@posthog/icons'
-import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { IconServer } from '@posthog/icons'
+
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -15,7 +18,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
-import posthog from 'posthog-js'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -26,6 +28,7 @@ import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWare
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
@@ -47,7 +50,6 @@ import {
     Experiment,
     FeatureFlagType,
     Group,
-    NotebookType,
     PersonProperty,
     PersonType,
     PropertyDefinition,
@@ -619,11 +621,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Feature Flags',
                         searchPlaceholder: 'feature flags',
-                        type: TaxonomicFilterGroupType.FeatureFlags,
+                        type: TaxonomicFilterGroupType.FeatureFlags, // Feature flag dependencies
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
+                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags],
                     },
                     {
                         name: 'Experiments',
@@ -944,7 +947,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             // Open the next tab if no results on an active tab.
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
             const onReplayTabWithSomeSearchResults =
-                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0
+                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0 && values.searchQuery
 
             if (activeTabHasNoResults || onReplayTabWithSomeSearchResults) {
                 actions.tabRight()

@@ -1,5 +1,6 @@
-import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
 import crypto from 'crypto'
+
+import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
 
 import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'

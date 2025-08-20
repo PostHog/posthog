@@ -22,10 +22,11 @@ from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import HumanMessage
+from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
 from posthog.utils import get_instance_region
 from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -41,6 +42,7 @@ class MessageSerializer(serializers.Serializer):
     )  # this either retrieves an existing conversation or creates a new one
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
+    billing_context = serializers.JSONField(required=False)
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
 
@@ -57,6 +59,15 @@ class MessageSerializer(serializers.Serializer):
             # NOTE: If content is empty, it means we're resuming streaming or continuing generation with only the contextual_tools potentially different
             # Because we intentionally don't add a HumanMessage, we are NOT updating ui_context here
             data["message"] = None
+        billing_context = data.get("billing_context")
+        if billing_context:
+            try:
+                billing_context = MaxBillingContext.model_validate(billing_context)
+                data["billing_context"] = billing_context
+            except pydantic.ValidationError as e:
+                capture_exception(e)
+                # billing data relies on a lot of legacy code, this might break and we don't want to block the conversation
+                data["billing_context"] = None
         return data
 
 
@@ -151,6 +162,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             mode=AssistantMode.ASSISTANT,
+            billing_context=serializer.validated_data.get("billing_context"),
         )
 
         async def async_stream(

@@ -69,29 +69,31 @@ export function ExperimentMetricConversionWindowFilter({
                         },
                     ]}
                 />
-                <div className="flex items-center gap-2">
+                {metric.conversion_window_unit !== undefined && (
                     <div className="flex items-center gap-2">
-                        <LemonInput
-                            type="number"
-                            className="max-w-20"
-                            fullWidth={false}
-                            min={intervalBounds[0]}
-                            max={intervalBounds[1]}
-                            value={metric.conversion_window_unit === undefined ? 14 : metric.conversion_window || 1}
-                            onChange={(value) => {
-                                handleSetMetric({ ...metric, conversion_window: value || undefined })
-                            }}
-                        />
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            value={metric.conversion_window_unit || FunnelConversionWindowTimeUnit.Day}
-                            onChange={(value) =>
-                                handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
-                            }
-                            options={options}
-                        />
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                type="number"
+                                className="max-w-20"
+                                fullWidth={false}
+                                min={intervalBounds[0]}
+                                max={intervalBounds[1]}
+                                value={metric.conversion_window || 1}
+                                onChange={(value) => {
+                                    handleSetMetric({ ...metric, conversion_window: value || undefined })
+                                }}
+                            />
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                value={metric.conversion_window_unit}
+                                onChange={(value) =>
+                                    handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
+                                }
+                                options={options}
+                            />
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     )

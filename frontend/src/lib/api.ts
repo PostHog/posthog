@@ -1,17 +1,19 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
+import { encodeParams } from 'kea-router'
+import posthog from 'posthog-js'
+
 import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from '@posthog/products-error-tracking/frontend/configuration/rules/types'
-import { encodeParams } from 'kea-router'
+
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
-import posthog from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -71,14 +73,16 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EventDefinition,
+    EventDefinitionMetrics,
     EventDefinitionType,
-    EventsListQueryParams,
     EventType,
+    EventsListQueryParams,
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
@@ -101,17 +105,14 @@ import {
     IntegrationType,
     LineageGraph,
     LinearTeamType,
+    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
-    LinkType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
-    NotebookListItemType,
-    NotebookNodeResource,
-    NotebookType,
     type OAuthApplicationPublicMetadata,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
@@ -119,9 +120,9 @@ import {
     OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
-    PersonalAPIKeyType,
     PersonListParams,
     PersonType,
+    PersonalAPIKeyType,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
@@ -134,8 +135,8 @@ import {
     RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
-    RolesListParams,
     RoleType,
+    RolesListParams,
     ScheduledChangeType,
     SchemaIncrementalFieldsResponse,
     SearchListParams,
@@ -151,10 +152,15 @@ import {
     Survey,
     SurveyStatsResponse,
     TeamType,
+    TwilioPhoneNumberType,
     UserBasicType,
     UserInterviewType,
     UserType,
 } from '~/types'
+
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
+import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
@@ -218,7 +224,12 @@ export class ApiError extends Error {
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
 
-    constructor(message?: string, public status?: number, public headers?: Headers, public data?: any) {
+    constructor(
+        message?: string,
+        public status?: number,
+        public headers?: Headers,
+        public data?: any
+    ) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
@@ -974,6 +985,14 @@ export class ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
 
+    public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_drafts')
+    }
+
+    public dataWarehouseSavedQueryDraft(id: DataWarehouseSavedQueryDraft['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueryDrafts(teamId).addPathComponent(id)
+    }
+
     public dataWarehouseSavedQueryActivity(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQuery(id, teamId).addPathComponent('activity')
     }
@@ -1052,6 +1071,17 @@ export class ApiRequest {
             .withQueryString({ channel_id: channelId })
     }
 
+    public integrationTwilioPhoneNumbers(
+        id: IntegrationType['id'],
+        forceRefresh: boolean,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('twilio_phone_numbers')
+            .withQueryString({ force_refresh: forceRefresh })
+    }
+
     public integrationLinearTeams(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
     }
@@ -1088,6 +1118,28 @@ export class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('linkedin_ads_conversion_rules')
             .withQueryString({ accountId })
+    }
+
+    public integrationClickUpSpaces(
+        id: IntegrationType['id'],
+        workspaceId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('clickup_spaces')
+            .withQueryString({ workspaceId })
+    }
+
+    public integrationClickUpLists(id: IntegrationType['id'], spaceId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('clickup_lists')
+            .withQueryString({ spaceId })
+    }
+
+    public integrationClickUpWorkspaces(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('clickup_workspaces')
     }
 
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1208,6 +1260,10 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
+    }
+
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -1318,6 +1374,18 @@ export class ApiRequest {
 
     public messagingCategory(categoryId: string): ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
+    }
+
+    public messagingPreferences(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences')
+    }
+
+    public messagingPreferencesLink(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+    }
+
+    public messagingPreferencesOptOuts(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
     public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
@@ -1658,7 +1726,12 @@ const api = {
 
             // Opt into the new /activity_log API
             if (
-                [ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION, ActivityScope.EXPERIMENT].includes(scopes[0]) ||
+                [
+                    ActivityScope.PLUGIN,
+                    ActivityScope.HOG_FUNCTION,
+                    ActivityScope.EXPERIMENT,
+                    ActivityScope.TAG,
+                ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
                 return api.activity
@@ -1759,6 +1832,10 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+
+        async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
+            return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
         },
     },
 
@@ -1872,6 +1949,13 @@ const api = {
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
+        },
+        async getMetrics({
+            eventDefinitionId,
+        }: {
+            eventDefinitionId: EventDefinition['id']
+        }): Promise<EventDefinitionMetrics> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
@@ -2287,10 +2371,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
-                ? new ApiRequest().insightSharing(insightId).get()
-                : recordingId
-                ? new ApiRequest().recordingSharing(recordingId).get()
-                : null
+                  ? new ApiRequest().insightSharing(insightId).get()
+                  : recordingId
+                    ? new ApiRequest().recordingSharing(recordingId).get()
+                    : null
         },
 
         async update(
@@ -2308,10 +2392,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
                 : insightId
-                ? new ApiRequest().insightSharing(insightId).update({ data })
-                : recordingId
-                ? new ApiRequest().recordingSharing(recordingId).update({ data })
-                : null
+                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  : recordingId
+                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    : null
         },
     },
 
@@ -2518,7 +2602,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name' | 'description'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
@@ -2633,9 +2717,10 @@ const api = {
         },
         async get(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {}
+            params: Record<string, any> = {},
+            headers: Record<string, string> = {}
         ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
+            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get({ headers })
         },
         async update(
             recordingId: SessionRecordingType['id'],
@@ -2669,23 +2754,29 @@ const api = {
 
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {}
+            params: Record<string, any> = {},
+            headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
             if (params.source) {
                 throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
             }
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+            return await new ApiRequest()
+                .recording(recordingId)
+                .withAction('snapshots')
+                .withQueryString(params)
+                .get({ headers })
         },
 
         async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: SessionRecordingSnapshotParams
+            params: SessionRecordingSnapshotParams,
+            headers: Record<string, string> = {}
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
                 .withQueryString(params)
-                .getResponse()
+                .getResponse({ headers })
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             try {
@@ -2793,6 +2884,28 @@ const api = {
             return await new ApiRequest()
                 .recordings()
                 .withAction('bulk_delete')
+                .create({ data: { session_recording_ids } })
+        },
+
+        async bulkViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            viewed_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_viewed')
+                .create({ data: { session_recording_ids } })
+        },
+
+        async bulkNotViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            not_viewed_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_not_viewed')
                 .create({ data: { session_recording_ids } })
         },
     },
@@ -3155,6 +3268,28 @@ const api = {
             },
         },
     },
+
+    dataWarehouseSavedQueryDrafts: {
+        async list(): Promise<PaginatedResponse<DataWarehouseSavedQueryDraft>> {
+            return await new ApiRequest().dataWarehouseSavedQueryDrafts().get()
+        },
+        async get(id: DataWarehouseSavedQueryDraft['id']): Promise<DataWarehouseSavedQueryDraft> {
+            return await new ApiRequest().dataWarehouseSavedQueryDraft(id).get()
+        },
+        async create(data: Partial<DataWarehouseSavedQueryDraft>): Promise<DataWarehouseSavedQueryDraft> {
+            return await new ApiRequest().dataWarehouseSavedQueryDrafts().create({ data })
+        },
+        async delete(id: DataWarehouseSavedQueryDraft['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQueryDraft(id).delete()
+        },
+        async update(
+            id: DataWarehouseSavedQueryDraft['id'],
+            data: Partial<DataWarehouseSavedQueryDraft>
+        ): Promise<DataWarehouseSavedQueryDraft> {
+            return await new ApiRequest().dataWarehouseSavedQueryDraft(id).update({ data })
+        },
+    },
+
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
@@ -3208,6 +3343,21 @@ const api = {
                 .withAction('jobs')
                 .withQueryString({ before, after })
                 .get()
+        },
+    },
+
+    dataWarehouse: {
+        async total_rows_stats(options?: ApiMethodOptions): Promise<{
+            billingAvailable: boolean
+            billingInterval: string
+            billingPeriodEnd: string
+            billingPeriodStart: string
+            materializedRowsInBillingPeriod: number
+            totalRows: number
+            trackedBillingRows: number
+            pendingBillingRows: number
+        }> {
+            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
     },
 
@@ -3374,6 +3524,12 @@ const api = {
         ): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
         },
+        async twilioPhoneNumbers(
+            id: IntegrationType['id'],
+            forceRefresh: boolean
+        ): Promise<{ phone_numbers: TwilioPhoneNumberType[]; lastRefreshedAt: string }> {
+            return await new ApiRequest().integrationTwilioPhoneNumbers(id, forceRefresh).get()
+        },
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
@@ -3399,6 +3555,26 @@ const api = {
             accountId: string
         ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
             return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
+        },
+        async clickUpSpaces(
+            id: IntegrationType['id'],
+            workspaceId: string,
+            teamId?: TeamType['id']
+        ): Promise<{ spaces: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationClickUpSpaces(id, workspaceId, teamId).get()
+        },
+        async clickUpLists(
+            id: IntegrationType['id'],
+            spaceId: string,
+            teamId?: TeamType['id']
+        ): Promise<{ lists: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationClickUpLists(id, spaceId, teamId).get()
+        },
+        async clickUpWorkspaces(
+            id: IntegrationType['id'],
+            teamId?: TeamType['id']
+        ): Promise<{ workspaces: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationClickUpWorkspaces(id, teamId).get()
         },
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()
@@ -3446,6 +3622,9 @@ const api = {
         },
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
+        },
+        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
         },
     },
 
@@ -3538,6 +3717,22 @@ const api = {
         },
         async deleteCategory(categoryId: string): Promise<void> {
             return await new ApiRequest().messagingCategory(categoryId).delete()
+        },
+        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
+            const response = await new ApiRequest().messagingPreferencesLink().create({
+                data: {
+                    recipient,
+                },
+            })
+            return response.preferences_url || null
+        },
+        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
+            return await new ApiRequest()
+                .messagingPreferencesOptOuts()
+                .withQueryString({
+                    category_key: categoryKey,
+                })
+                .get()
         },
     },
     oauthApplication: {
@@ -3648,6 +3843,7 @@ const api = {
                 content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxUIContext
+                billing_context?: MaxBillingContext
                 conversation?: string | null
                 trace_id: string
             },

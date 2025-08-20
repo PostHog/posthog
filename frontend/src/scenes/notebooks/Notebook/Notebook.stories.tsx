@@ -1,10 +1,11 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NotebookType } from '~/types'
 
+import { NotebookType } from '../types'
 import notebook12345Json from './__mocks__/notebook-12345.json'
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
 

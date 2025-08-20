@@ -1,5 +1,6 @@
-import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
+
+import { VMState } from '@posthog/hogvm'
 
 import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
@@ -44,6 +45,7 @@ export type HogFunctionMasking = {
 }
 
 export interface HogFunctionFilters {
+    source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     filter_test_accounts?: boolean
@@ -95,6 +97,7 @@ export type HogFunctionInvocationGlobals = {
         headers: Record<string, string | undefined>
         ip?: string
         body: Record<string, any>
+        stringBody: string
     }
 }
 
@@ -177,7 +180,7 @@ export type MinimalAppMetric = {
     team_id: number
     app_source_id: string // The main item (like the hog function or hog flow ID)
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
-    metric_kind: 'failure' | 'success' | 'other' | 'email'
+    metric_kind: 'failure' | 'success' | 'other' | 'email' | 'billing'
     metric_name:
         | 'succeeded'
         | 'failed'
@@ -189,13 +192,12 @@ export type MinimalAppMetric = {
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
-        | 'event_triggered_destination'
-        | 'destination_invoked'
+        | 'billable_invocation'
         | 'dropped'
         | 'email_sent'
         | 'email_failed'
         | 'email_opened'
-        | 'email_clicked'
+        | 'email_link_clicked'
         | 'email_bounced'
         | 'email_blocked'
         | 'email_spam'
@@ -213,7 +215,7 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'segment', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hog_overflow', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -292,6 +294,7 @@ export type HogFunctionInputSchemaType = {
         | 'integration'
         | 'integration_field'
         | 'email'
+        | 'native_email'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -308,7 +311,12 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'source_webhook'
+    | 'site_destination'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -350,7 +358,7 @@ export type HogFunctionTemplate = {
     id: string
     name: string
     description: string
-    hog: string
+    code: string
     inputs_schema: HogFunctionInputSchemaType[]
     category: string[]
     filters?: HogFunctionFilters
@@ -399,7 +407,7 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
+export type NativeTemplate = Omit<HogFunctionTemplate, 'code' | 'code_language'> & {
     perform: (
         request: (
             url: string,

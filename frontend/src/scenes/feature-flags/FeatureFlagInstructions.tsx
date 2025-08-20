@@ -1,12 +1,14 @@
 import './FeatureFlagInstructions.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
 import { FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
@@ -15,12 +17,12 @@ import {
     BOOTSTRAPPING_OPTIONS,
     FF_ANCHOR,
     InstructionOption,
-    LibraryType,
-    LOCAL_EVAL_ANCHOR,
     LOCAL_EVALUATION_LIBRARIES,
+    LOCAL_EVAL_ANCHOR,
+    LibraryType,
     OPTIONS,
-    PAYLOAD_LIBRARIES,
     PAYLOADS_ANCHOR,
+    PAYLOAD_LIBRARIES,
     REMOTE_CONFIGURATION_LIBRARIES,
 } from './FeatureFlagCodeOptions'
 
@@ -149,7 +151,7 @@ export function CodeInstructions({
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
-    }, [selectedLanguage, featureFlag])
+    }, [selectedLanguage, featureFlag]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const groups = featureFlag?.filters?.groups || []
     // return first non-instant property in group

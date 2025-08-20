@@ -778,3 +778,13 @@ class TestResolver(BaseTest):
         self.database.__setattr__("nested", table_group)
         query = "SELECT * FROM nested.events.some.other.table"
         resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_lambda_scope(self):
+        query = "SELECT arrayMap(a -> e.timestamp, [1]) as a FROM events e"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+        resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+    def test_lambda_scope_mixed_scopes(self):
+        query = "SELECT arrayMap(a -> concat(a, e.event), ['str']) FROM events e"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+        resolve_types(self._select(query), self.context, dialect="clickhouse")

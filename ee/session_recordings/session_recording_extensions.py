@@ -13,8 +13,14 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks
 
 logger = structlog.get_logger(__name__)
 
+# in the debug dev environment, we want to persist recordings immediately since we are only interested in few LTS recordings for testing
+# in production, we wait for 24 hours, since we don't want to persist recordings that are still being ingested
 MINIMUM_AGE_FOR_RECORDING = timedelta(
-    minutes=int(settings.get_from_env("SESSION_RECORDING_MINIMUM_AGE_MINUTES", 24 * 60))
+    minutes=int(
+        settings.get_from_env(
+            "SESSION_RECORDING_MINIMUM_AGE_MINUTES", 2 if settings.DEBUG and not settings.TEST else 24 * 60
+        )
+    )
 )
 
 MAXIMUM_AGE_FOR_RECORDING_V2 = timedelta(

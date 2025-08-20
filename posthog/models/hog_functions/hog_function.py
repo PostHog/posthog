@@ -8,14 +8,13 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
 import structlog
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import (
     get_hog_function_status,
     patch_hog_function_status,
@@ -23,11 +22,12 @@ from posthog.plugins.plugin_server_api import (
 )
 from posthog.utils import absolute_uri
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
+DEFAULT_STATE = {"state": 0, "tokens": 0}
 
 logger = structlog.get_logger(__name__)
 
@@ -36,8 +36,9 @@ class HogFunctionState(enum.Enum):
     UNKNOWN = 0
     HEALTHY = 1
     DEGRADED = 2
-    DISABLED_TEMPORARILY = 3
-    DISABLED_PERMANENTLY = 4
+    DISABLED = 3
+    FORCEFULLY_DEGRADED = 11
+    FORCEFULLY_DISABLED = 12
 
 
 class HogFunctionType(models.TextChoices):
@@ -59,7 +60,7 @@ TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionTy
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 
-class HogFunction(FileSystemSyncMixin, UUIDModel):
+class HogFunction(FileSystemSyncMixin, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
@@ -139,17 +140,13 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.api.hog_function_template import HogFunctionTemplates
+        if self.hog_function_template:
+            return self.hog_function_template
 
         if not self.template_id:
             return None
 
-        template = HogFunctionTemplates.template(self.template_id)
-
-        if template:
-            return template
-
-        return None
+        return HogFunctionTemplate.get_template(self.template_id)
 
     @property
     def filter_action_ids(self) -> list[int]:

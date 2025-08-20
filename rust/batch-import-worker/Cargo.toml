@@ -41,6 +41,8 @@ bytes.workspace = true
 futures-util = "0.3.31"
 zip = "4.0.0"
 flate2.workspace = true
+httpdate = "1"
+metrics = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }

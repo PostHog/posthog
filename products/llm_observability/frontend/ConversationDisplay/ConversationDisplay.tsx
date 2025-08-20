@@ -1,12 +1,15 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { EventType } from '~/types'
 
 import { llmObservabilityPlaygroundLogic } from '../llmObservabilityPlaygroundLogic'
+import { normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
@@ -52,9 +55,12 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                 )}
             </header>
             <ConversationMessagesDisplay
-                input={eventProperties.$ai_input}
-                output={eventProperties.$ai_output_choices ?? eventProperties.$ai_output ?? eventProperties.$ai_error}
-                tools={eventProperties.$ai_tools}
+                inputNormalized={normalizeMessages(eventProperties.$ai_input, 'user', eventProperties.$ai_tools)}
+                outputNormalized={normalizeMessages(
+                    eventProperties.$ai_output_choices ?? eventProperties.$ai_output,
+                    'assistant'
+                )}
+                errorData={eventProperties.$ai_error}
                 httpStatus={eventProperties.$ai_http_status}
                 raisedError={eventProperties.$ai_is_error}
                 bordered

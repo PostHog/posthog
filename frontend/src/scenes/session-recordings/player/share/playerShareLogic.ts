@@ -1,6 +1,7 @@
 import { kea, key, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { combineUrl } from 'kea-router'
+
 import { colonDelimitedDuration, reverseColonDelimitedDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +18,7 @@ function makePrivateLinkQueryParams(formWithTime: FormWithTime): Record<string, 
     }
 }
 
-function makePrivateLink(id: string, formWithTime: FormWithTime): string {
+export function makePrivateLink(id: string, formWithTime: FormWithTime): string {
     return combineUrl(
         urls.absolute(urls.currentProject(urls.replaySingle(id))),
         makePrivateLinkQueryParams(formWithTime)

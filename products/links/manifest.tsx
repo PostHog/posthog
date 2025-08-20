@@ -1,4 +1,5 @@
 import { IconExternal } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -37,7 +38,7 @@ export const manifest: ProductManifest = {
             name: 'Link',
             icon: <IconExternal />,
             href: (ref: string) => urls.link(ref),
-            iconColor: ['var(--product-links-light)'],
+            iconColor: ['var(--color-product-links-light)'],
             filterKey: 'link',
             flag: FEATURE_FLAGS.LINKS,
         },

@@ -11,7 +11,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/reading-hog.png',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 
 // Function to normalize a path segment
 fun normalizePathSegment(segment) {

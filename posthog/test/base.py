@@ -46,6 +46,7 @@ from posthog.clickhouse.custom_metrics import (
 )
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
+from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_TABLE_SQL, QUERY_LOG_ARCHIVE_MV
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
@@ -98,6 +99,13 @@ from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
 )
+from posthog.models.web_preaggregated.team_selection import (
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
+    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
+    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
+)
 from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
@@ -113,6 +121,8 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_DAILY_SQL,
     WEB_BOUNCES_DAILY_SQL,
     WEB_STATS_COMBINED_VIEW_SQL,
+    WEB_STATS_SQL,
+    WEB_BOUNCES_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -148,12 +158,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # :TRICKY: team_id changes every test, avoid it messing with snapshots.
     if replace_all_numbers:
         query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
-        query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
-        query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
+        query = re.sub(r"(\"?) (in|IN) \(\d+(, ?\d+)*\)", r"\1 \2 (1, 2, 3, 4, 5 /* ... */)", query)
+        query = re.sub(r"(\"?) (in|IN) \[\d+(, ?\d+)*\]", r"\1 \2 [1, 2, 3, 4, 5 /* ... */]", query)
         # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
         query = re.sub(
-            r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
-            r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
+            r"\"uuid\" (in|IN) \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
+            r""""uuid" \1 ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
         query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
@@ -166,27 +176,30 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(
             r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
         )
-
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
         query = re.sub(
-            r"(team|project|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query
+            r"(team|project|cohort)_id(\"?) (in|IN) \(\d+(, ?\d+)*\)", r"\1_id\2 \3 (1, 2, 3, 4, 5 /* ... */)", query
         )
         query = re.sub(
-            r"(team|project|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query
+            r"(team|project|cohort)_id(\"?) (in|IN) \[\d+(, ?\d+)*\]", r"\1_id\2 \3 [1, 2, 3, 4, 5 /* ... */]", query
         )
-        query = re.sub(r"\d+ as (team|project|cohort)_id(\"?)", r"99999 as \1_id\2", query)
+        query = re.sub(r"\d+ (as|AS) (team|project|cohort)_id(\"?)", r"99999 \1 \2_id\3", query)
+
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
+
     # hog ql checks some ids differently
     query = re.sub(
         r"equals\(([^.]+\.)?((team|project|cohort)_id)?, \d+\)",
         r"equals(\1\2, 99999)",
         query,
     )
+
     # replace survey uuids
     # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
     query = re.sub(
@@ -194,12 +207,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
         query,
     )
+
     # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
     query = re.sub(
         r"\"posthog_survey_actions\"\.\"survey_id\" IN \('[^']+'::uuid(, '[^']+'::uuid)*\)",
         r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid, /* ... */])",
         query,
     )
+
     # replace session uuids
     # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
     query = re.sub(
@@ -207,6 +222,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
         query,
     )
+
     #### Cohort replacements
     # replace cohort id lists in queries too
     query = re.sub(
@@ -241,12 +257,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r"toDateTime64('explicit_redacted_timestamp', 6, '\1')",
             query,
         )
+
     # replace cohort generated conditions
     query = re.sub(
         r"_condition_\d+_level",
         r"_condition_X_level",
         query,
     )
+
     # replace cohort tuples
     # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
     query = re.sub(
@@ -255,6 +273,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
     #### Cohort replacements end
+
     # Replace organization_id and notebook_id lookups, for postgres
     query = re.sub(
         rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") = '[^']+'::uuid""",
@@ -266,12 +285,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
         query,
     )
+
     # Replace notebook short_id lookups, for postgres
     query = re.sub(
         r"\"posthog_notebook\".\"short_id\" = '[a-zA-Z0-9]{8}'",
         '"posthog_notebook"."short_id" = \'00000000\'',
         query,
     )
+
     # Replace person id (when querying session recording replay events)
     query = re.sub(
         "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
@@ -279,6 +300,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
         flags=re.IGNORECASE,
     )
+
     # HogQL person id in session recording queries
     # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
     # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
@@ -288,6 +310,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"equals(\1person_id, '00000000-0000-0000-0000-000000000000')",
         query,
     )
+
     # equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '0176be33-0398-0090-a0e7-7cd9139f8089')
     query = re.sub(
         r"events__override.person_id, events.person_id\), '[0-9a-f-]{36}'\)",
@@ -300,6 +323,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
         flags=re.IGNORECASE,
     )
+
     # Replace tag id lookups for postgres
     query = re.sub(
         rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
@@ -316,6 +340,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"""user_id:0""",
         query,
     )
+
     # ee license check has varying datetime
     # e.g. WHERE "ee_license"."valid_until" >= '2023-03-02T21:13:59.298031+00:00'::timestamptz
     query = re.sub(
@@ -323,14 +348,17 @@ def clean_varying_query_parts(query, replace_all_numbers):
         '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
         query,
     )
+
     # insight cache key varies with team id
     query = re.sub(
         r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
         """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
         query,
     )
+
     # replace Savepoint numbers
     query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
     # test_formula has some values that change on every run
     query = re.sub(
         r"\SELECT \[\d+, \d+] as breakdown_value",
@@ -1115,6 +1143,7 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
+            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
@@ -1122,6 +1151,7 @@ def reset_clickhouse_database() -> None:
         [
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
             DROP_EXCHANGE_RATE_TABLE_SQL(),
+            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
@@ -1159,6 +1189,12 @@ def reset_clickhouse_database() -> None:
             WEB_BOUNCES_HOURLY_SQL(),
             WEB_STATS_DAILY_SQL(),
             WEB_STATS_HOURLY_SQL(),
+            WEB_STATS_SQL(),
+            WEB_BOUNCES_SQL(),
+            WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
+            WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
+            QUERY_LOG_ARCHIVE_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1175,6 +1211,8 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
+            QUERY_LOG_ARCHIVE_MV(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1188,6 +1226,7 @@ def reset_clickhouse_database() -> None:
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_STATS_COMBINED_VIEW_SQL(),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
         ]
     )
 

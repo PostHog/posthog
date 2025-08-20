@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'

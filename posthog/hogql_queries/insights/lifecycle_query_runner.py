@@ -12,7 +12,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
@@ -31,7 +31,7 @@ from posthog.schema import (
 )
 
 
-class LifecycleQueryRunner(QueryRunner):
+class LifecycleQueryRunner(AnalyticsQueryRunner):
     query: LifecycleQuery
     response: LifecycleQueryResponse
     cached_response: CachedLifecycleQueryResponse
@@ -142,7 +142,7 @@ class LifecycleQueryRunner(QueryRunner):
             ],
         )
 
-    def calculate(self) -> LifecycleQueryResponse:
+    def _calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
@@ -315,6 +315,13 @@ class LifecycleQueryRunner(QueryRunner):
             return ast.Field(chain=["events", f"$group_{self.group_type_index}"])
         return ast.Field(chain=["person_id"])
 
+    @property
+    def created_at_field(self):
+        """Returns the correct created_at field to use based on aggregation type."""
+        if self.has_group_type:
+            return ast.Field(chain=["events", f"group_{self.group_type_index}", "created_at"])
+        return ast.Field(chain=["events", "person", "created_at"])
+
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
@@ -330,7 +337,7 @@ class LifecycleQueryRunner(QueryRunner):
             events_query = parse_select(
                 f"""
                     SELECT
-                        min(events.person.created_at) AS created_at,
+                        min({{created_at_field}}) AS created_at,
                         arraySort(groupUniqArray({{trunc_timestamp}})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {{trunc_created_at}})) as previous_activity,
                         arrayPopFront(arrayPushBack(all_activity, {{trunc_epoch}})) as following_activity,
@@ -350,6 +357,7 @@ class LifecycleQueryRunner(QueryRunner):
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                     "target": ast.Alias(alias="actor_id", expr=self.target_field),
+                    "created_at_field": self.created_at_field,
                     "event_filter": self.event_filter,
                     "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Field(chain=["events", "timestamp"])

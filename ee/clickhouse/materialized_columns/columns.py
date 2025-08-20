@@ -194,7 +194,7 @@ class CreateColumnOnDataNodesTask:
     def execute(self, client: Client) -> None:
         expression, parameters = self.column.get_expression_and_parameters()
         actions = [
-            f"ADD COLUMN IF NOT EXISTS {self.column.name} {self.column.type} MATERIALIZED {expression}",
+            f"ADD COLUMN IF NOT EXISTS {self.column.name} {self.column.type} DEFAULT {expression}",
         ]
 
         if self.add_column_comment:
@@ -405,20 +405,6 @@ class BackfillColumnTask:
     test_settings: dict[str, Any] | None
 
     def execute(self, client: Client) -> None:
-        # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
-        # Note that for this to work all inserts should list columns explicitly
-        # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
-        for column in self.columns:
-            expression, parameters = column.get_expression_and_parameters()
-            client.execute(
-                f"""
-                ALTER TABLE {self.table}
-                MODIFY COLUMN {column.name} {column.type} DEFAULT {expression}
-                """,
-                parameters,
-                settings=self.test_settings,
-            )
-
         # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
         assignments = ", ".join(f"{column.name} = {column.name}" for column in self.columns)
 

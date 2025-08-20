@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import posthog from 'posthog-js'
+
 import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils'
-import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -398,6 +399,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
+        // Group view Shortcuts
+        reportGroupViewSaved: (groupTypeIndex: number, shortcutName: string) => ({
+            groupTypeIndex,
+            shortcutName,
+        }),
         reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
             type,
             loadTime,
@@ -1096,6 +1102,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('role custom added to a resource', {
                 resource_type: resourceType,
                 roles_length: rolesLength,
+            })
+        },
+        reportGroupViewSaved: ({ groupTypeIndex, shortcutName }) => {
+            posthog.capture('group view saved', {
+                group_type_index: groupTypeIndex,
+                shortcut_name: shortcutName,
             })
         },
         reportFlagsCodeExampleInteraction: ({ optionType }) => {

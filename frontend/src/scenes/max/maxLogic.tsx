@@ -1,10 +1,13 @@
-import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
 import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
+
+import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconSurveys } from 'lib/lemon-ui/icons'
 import { objectsEqual, uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
@@ -555,6 +558,23 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
+    },
+    {
+        label: 'Surveys',
+        icon: <IconSurveys />,
+        suggestions: [
+            {
+                content: 'Create a survey to collect NPS responses from users',
+            },
+            {
+                content: 'Create a survey to CSAT responses from users',
+            },
+            {
+                content: 'Create a survey to measure product market fit',
+            },
+        ],
+        url: urls.surveys(),
+        tooltip: 'Max can help you create surveys to collect feedback from your users.',
     },
     {
         label: 'Docs',

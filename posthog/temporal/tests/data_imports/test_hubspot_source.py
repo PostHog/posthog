@@ -29,7 +29,7 @@ from unittest.mock import patch
 import pytest
 import structlog
 
-from posthog.temporal.data_imports.pipelines.hubspot import (
+from posthog.temporal.data_imports.sources.hubspot.hubspot import (
     PROPERTY_LENGTH_LIMIT,
     _get_properties_str,
 )
@@ -117,7 +117,7 @@ async def test_hubspot_source_full_refresh(team, external_data_source, external_
 
 
 def test_hubspot_get_properties():
-    with patch("posthog.temporal.data_imports.pipelines.hubspot._get_property_names") as mock_get_property_names:
+    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
         mock_get_property_names.return_value = [
             "address",
             "email",
@@ -147,7 +147,7 @@ def test_hubspot_get_properties_without_custom_props():
 
 
 def test_hubspot_get_properties_when_no_custom_props_exist():
-    with patch("posthog.temporal.data_imports.pipelines.hubspot._get_property_names") as mock_get_property_names:
+    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
         mock_get_property_names.return_value = [
             "id",
             "name",
@@ -163,7 +163,7 @@ def test_hubspot_get_properties_when_no_custom_props_exist():
 
 
 def test_hubspot_get_properties_when_no_default_props_exist():
-    with patch("posthog.temporal.data_imports.pipelines.hubspot._get_property_names") as mock_get_property_names:
+    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
         mock_get_property_names.return_value = [
             "id",
             "name",
@@ -182,7 +182,7 @@ def test_hubspot_get_properties_url_length_limit():
     # Create a list of property names that will exceed the URL length limit
     long_props = [f"custom_property_{i}" for i in range(1000)]
 
-    with patch("posthog.temporal.data_imports.pipelines.hubspot._get_property_names") as mock_get_property_names:
+    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
         mock_get_property_names.return_value = long_props
 
         # Capture the warning log
