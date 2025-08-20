@@ -441,7 +441,7 @@ describe('PostgresPersonRepository', () => {
             // Add another distinct ID to source person
             await repository.addDistinctId(sourcePerson, 'source-distinct-id-2', 1)
 
-            const result = await repository.moveDistinctIds(sourcePerson, targetPerson)
+            const result = await repository.moveDistinctIds(sourcePerson, targetPerson, undefined)
 
             expect(result.success).toBe(true)
             if (result.success) {
@@ -480,7 +480,7 @@ describe('PostgresPersonRepository', () => {
                 is_identified: false,
             }
 
-            const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson)
+            const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson, undefined)
 
             expect(result.success).toBe(false)
             if (!result.success) {
@@ -504,7 +504,7 @@ describe('PostgresPersonRepository', () => {
                 is_identified: false,
             }
 
-            const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson)
+            const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson, undefined)
 
             expect(result.success).toBe(false)
             if (!result.success) {
@@ -570,7 +570,7 @@ describe('PostgresPersonRepository', () => {
             await repository.addDistinctId(sourcePerson, 'source-unlimited-3', 1)
             await repository.addDistinctId(sourcePerson, 'source-unlimited-4', 1)
 
-            const result = await unlimitedRepository.moveDistinctIds(sourcePerson, targetPerson)
+            const result = await unlimitedRepository.moveDistinctIds(sourcePerson, targetPerson, undefined)
 
             expect(result.success).toBe(true)
             if (result.success) {
