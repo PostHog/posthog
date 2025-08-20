@@ -40,8 +40,6 @@ export interface PostgresPersonRepositoryOptions {
     personPropertiesDbConstraintLimitBytes: number
     /** Target JSON size (stringified) to trim down to when remediating oversized properties */
     personPropertiesTrimTargetBytes: number
-    /** Limit used when moving distinct ids to prevent expensive move queries */
-    moveDistinctIdsLimit?: number
 }
 
 const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
@@ -454,11 +452,12 @@ export class PostgresPersonRepository
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
+        limit?: number,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
-            const query = this.options.moveDistinctIdsLimit
+            const query = limit
                 ? `
                     WITH rows_to_update AS (
                         SELECT id
@@ -467,7 +466,7 @@ export class PostgresPersonRepository
                           AND team_id = $3
                         ORDER BY id
                         FOR UPDATE SKIP LOCKED
-                        LIMIT ${this.options.moveDistinctIdsLimit}
+                        LIMIT ${limit}
                     )
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1

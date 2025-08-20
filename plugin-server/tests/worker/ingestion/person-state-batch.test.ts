@@ -2815,7 +2815,7 @@ describe('PersonState.processEvent()', () => {
                         // Simulate the race condition: move firstUserDistinctId to person3
                         // This simulates another process moving the distinct ID during the merge
                         await personRepository.inRawTransaction('test', async (tx) => {
-                            await personRepository.moveDistinctIds(person1, person3, tx)
+                            await personRepository.moveDistinctIds(person1, person3, undefined, tx)
                             await personRepository.deletePerson(person1, tx)
                         })
 

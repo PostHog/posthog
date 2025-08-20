@@ -29,7 +29,7 @@ export interface PersonRepositoryTransaction {
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
 
-    moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult>
+    moveDistinctIds(source: InternalPerson, target: InternalPerson, limit?: number): Promise<MoveDistinctIdsResult>
 
     fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]>
 

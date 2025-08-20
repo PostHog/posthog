@@ -49,6 +49,7 @@ export interface RawPostgresPersonRepository {
     moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
+        limit?: number,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
 

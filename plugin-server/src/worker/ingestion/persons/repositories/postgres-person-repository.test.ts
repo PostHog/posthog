@@ -512,9 +512,9 @@ describe('PostgresPersonRepository', () => {
             }
         })
 
-        it('should respect moveDistinctIdsLimit when configured', async () => {
+        it('should respect per-call move limit when provided', async () => {
             const team = await getFirstTeam(hub)
-            const limitedRepository = new PostgresPersonRepository(postgres, { moveDistinctIdsLimit: 2 })
+            const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
@@ -524,7 +524,7 @@ describe('PostgresPersonRepository', () => {
             await repository.addDistinctId(sourcePerson, 'source-distinct-id-3', 1)
             await repository.addDistinctId(sourcePerson, 'source-distinct-id-4', 1)
 
-            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson)
+            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson, 2)
 
             expect(result.success).toBe(true)
             if (result.success) {
@@ -589,9 +589,9 @@ describe('PostgresPersonRepository', () => {
             }
         })
 
-        it('should move distinct IDs in deterministic order when limit is set', async () => {
+        it('should move distinct IDs in deterministic order when per-call limit is set', async () => {
             const team = await getFirstTeam(hub)
-            const limitedRepository = new PostgresPersonRepository(postgres, { moveDistinctIdsLimit: 2 })
+            const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-deterministic', { name: 'Source Person' })
             const targetPerson = await createTestPerson(team.id, 'target-deterministic', { name: 'Target Person' })
@@ -612,7 +612,7 @@ describe('PostgresPersonRepository', () => {
             // Should have 4 total distinct IDs (1 from createTestPerson + 3 added)
             expect(allDistinctIdsBeforeMove.rows).toHaveLength(4)
 
-            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson)
+            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson, 2)
             expect(result.success).toBe(true)
             if (result.success) {
                 expect(result.distinctIdsMoved).toHaveLength(2)
@@ -644,9 +644,9 @@ describe('PostgresPersonRepository', () => {
             }
         })
 
-        it('should move all distinct IDs when person has fewer than the limit', async () => {
+        it('should move all distinct IDs when person has fewer than the per-call limit', async () => {
             const team = await getFirstTeam(hub)
-            const limitedRepository = new PostgresPersonRepository(postgres, { moveDistinctIdsLimit: 5 }) // Limit is 5
+            const limitedRepository = new PostgresPersonRepository(postgres, {}) // Limit is 5
 
             const sourcePerson = await createTestPerson(team.id, 'source-below-limit', { name: 'Source Person' })
             const targetPerson = await createTestPerson(team.id, 'target-below-limit', { name: 'Target Person' })
@@ -655,7 +655,7 @@ describe('PostgresPersonRepository', () => {
             await repository.addDistinctId(sourcePerson, 'source-below-limit-2', 1)
             await repository.addDistinctId(sourcePerson, 'source-below-limit-3', 1)
 
-            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson)
+            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson, 5)
 
             expect(result.success).toBe(true)
             if (result.success) {
