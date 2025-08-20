@@ -13,9 +13,8 @@ from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
 
 
-class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsTopCustomersQueryResponse]):
     query: RevenueAnalyticsTopCustomersQuery
-    response: RevenueAnalyticsTopCustomersQueryResponse
     cached_response: CachedRevenueAnalyticsTopCustomersQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
