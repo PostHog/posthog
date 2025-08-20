@@ -1,5 +1,7 @@
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
+
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'

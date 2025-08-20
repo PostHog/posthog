@@ -1,8 +1,9 @@
 import { Meta, Story } from '@storybook/react'
 
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
 import { VerifyEmail } from './VerifyEmail'
 import { verifyEmailLogic } from './verifyEmailLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Verify Email',
@@ -13,7 +14,7 @@ const meta: Meta = {
 }
 export default meta
 export const VerifyEmailPending: Story = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         verifyEmailLogic.actions.setView('pending')
         verifyEmailLogic.actions.setUuid('12345678')
     })
@@ -22,7 +23,7 @@ export const VerifyEmailPending: Story = () => {
 }
 
 export const VerifyingEmail: Story = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         verifyEmailLogic.actions.setView('verify')
     })
 
@@ -35,7 +36,7 @@ VerifyingEmail.parameters = {
 }
 
 export const VerifyEmailSuccess: Story = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         verifyEmailLogic.actions.setView('success')
     })
 
@@ -43,7 +44,7 @@ export const VerifyEmailSuccess: Story = () => {
 }
 
 export const VerifyEmailInvalid: Story = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         verifyEmailLogic.actions.setView('invalid')
         verifyEmailLogic.actions.setUuid('12345678')
     })

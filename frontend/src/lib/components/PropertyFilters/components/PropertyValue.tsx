@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useCallback, useEffect } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
@@ -5,7 +8,7 @@ import {
     AssigneeResolver,
 } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeSelect'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -13,7 +16,6 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useCallback, useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -60,6 +62,8 @@ export function PropertyValue({
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+    const propertyOptions = options[propertyKey]
+    const isFlagDependencyProperty = type === PropertyFilterType.Flag
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -88,18 +92,18 @@ export function PropertyValue({
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     useEffect(() => {
-        if (preloadValues) {
+        if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
-    }, [preloadValues, load])
+    }, [preloadValues, load, propertyOptions?.status])
 
     useEffect(() => {
-        if (!isDateTimeProperty) {
+        if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, load])
+    }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
-    const displayOptions = options[propertyKey]?.values || []
+    const displayOptions = propertyOptions?.values || []
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -200,14 +204,25 @@ export function PropertyValue({
         )
     }
 
+    function formatLabelContent(value: any): JSX.Element {
+        const name = toString(value)
+        if (name === '') {
+            return <i>(empty string)</i>
+        }
+        if (isFlagDependencyProperty && typeof value === 'boolean') {
+            return <code>{name}</code>
+        }
+        return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
+    }
+
     return (
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
-            loading={options[propertyKey]?.status === 'loading'}
+            loading={propertyOptions?.status === 'loading'}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues={options[propertyKey]?.allowCustomValues ?? true}
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
@@ -225,13 +240,10 @@ export function PropertyValue({
                 return {
                     key: name,
                     label: name,
+                    value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? (
-                                <i>(empty string)</i>
-                            ) : (
-                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
-                            )}
+                            {formatLabelContent(isFlagDependencyProperty ? _name : name)}
                         </span>
                     ),
                 }

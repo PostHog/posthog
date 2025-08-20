@@ -27,8 +27,8 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.visitor import clone_expr
 from posthog.models.organization import Organization
 from posthog.schema import PersonsArgMaxVersion
-from posthog.hogql.database.schema.revenue_analytics import (
-    RawPersonsRevenueAnalyticsTable,
+from posthog.hogql.database.schema.persons_revenue_analytics import (
+    PersonsRevenueAnalyticsTable,
     join_with_persons_revenue_analytics_table,
 )
 
@@ -47,7 +47,7 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
     ),
     "revenue_analytics": LazyJoin(
         from_field=["id"],
-        join_table=RawPersonsRevenueAnalyticsTable(),
+        join_table=PersonsRevenueAnalyticsTable(),
         join_function=join_with_persons_revenue_analytics_table,
     ),
 }

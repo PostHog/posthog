@@ -2887,7 +2887,7 @@ export const billingJson: BillingType = {
                             key: 'ingestion_taxonomy',
                             name: 'Ingestion taxonomy',
                             description:
-                                'Mark events as verified or unverified to help you understand the quality of your data.',
+                                'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2952,7 +2952,16 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'advanced_permissions',
-                            name: 'Advanced permissions',
+                            name: 'Access control',
+                            description:
+                                'Control who can access and modify data and features within your organization.',
+                            unit: null,
+                            limit: null,
+                            note: null,
+                        },
+                        {
+                            key: 'access_control',
+                            name: 'Access control',
                             description:
                                 'Control who can access and modify data and features within your organization.',
                             unit: null,
@@ -3167,12 +3176,21 @@ export const billingJson: BillingType = {
                                 },
                                 {
                                     key: 'advanced_permissions',
-                                    name: 'Advanced permissions',
+                                    name: 'Access control',
                                     description:
                                         'Control who can access and modify data and features within your organization.',
                                     unit: null,
                                     limit: null,
-                                    note: 'Project-based only',
+                                    note: null,
+                                },
+                                {
+                                    key: 'access_control',
+                                    name: 'Access control',
+                                    description:
+                                        'Control who can access and modify data and features within your organization.',
+                                    unit: null,
+                                    limit: null,
+                                    note: null,
                                 },
                                 {
                                     key: 'audit_logs',
@@ -3204,7 +3222,7 @@ export const billingJson: BillingType = {
                                     key: 'ingestion_taxonomy',
                                     name: 'Ingestion taxonomy',
                                     description:
-                                        'Mark events as verified or unverified to help you understand the quality of your data.',
+                                        'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                                     unit: null,
                                     limit: null,
                                     note: null,
@@ -3309,7 +3327,16 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'advanced_permissions',
-                            name: 'Advanced permissions',
+                            name: 'Access control',
+                            description:
+                                'Control who can access and modify data and features within your organization.',
+                            images: null,
+                            icon_key: null,
+                            type: null,
+                        },
+                        {
+                            key: 'access_control',
+                            name: 'Access control',
                             description:
                                 'Control who can access and modify data and features within your organization.',
                             images: null,
@@ -3337,7 +3364,7 @@ export const billingJson: BillingType = {
                             key: 'ingestion_taxonomy',
                             name: 'Ingestion taxonomy',
                             description:
-                                'Mark events as verified or unverified to help you understand the quality of your data.',
+                                'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                             images: null,
                             icon_key: null,
                             type: null,
@@ -3463,7 +3490,15 @@ export const billingJson: BillingType = {
                 },
                 {
                     key: 'advanced_permissions',
-                    name: 'Advanced permissions',
+                    name: 'Access control',
+                    description: 'Control who can access and modify data and features within your organization.',
+                    images: null,
+                    icon_key: null,
+                    type: null,
+                },
+                {
+                    key: 'access_control',
+                    name: 'Access control',
                     description: 'Control who can access and modify data and features within your organization.',
                     images: null,
                     icon_key: null,
@@ -3631,7 +3666,7 @@ export const billingJson: BillingType = {
                     key: 'ingestion_taxonomy',
                     name: 'Ingestion taxonomy',
                     description:
-                        'Mark events as verified or unverified to help you understand the quality of your data.',
+                        'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                     images: null,
                     icon_key: null,
                     type: null,

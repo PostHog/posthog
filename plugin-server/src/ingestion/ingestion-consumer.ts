@@ -28,14 +28,15 @@ import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
+import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
-import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
+    applyForceOverflowRestrictions,
     applyPersonProcessingRestrictions,
     parseKafkaMessage,
     resolveTeam,
@@ -154,6 +155,8 @@ export class IngestionConsumer {
         this.personStore = new BatchWritingPersonsStore(
             new PostgresPersonRepository(this.hub.db.postgres, {
                 calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+                personPropertiesDbConstraintLimitBytes: this.hub.PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES,
+                personPropertiesTrimTargetBytes: this.hub.PERSON_PROPERTIES_TRIM_TARGET_BYTES,
             }),
             this.hub.db.kafkaProducer,
             {
@@ -164,7 +167,7 @@ export class IngestionConsumer {
             }
         )
 
-        this.groupStore = new BatchWritingGroupStore(this.hub.db, {
+        this.groupStore = new BatchWritingGroupStore(this.hub, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
@@ -249,7 +252,7 @@ export class IngestionConsumer {
                 if ('kafka-consumer-breadcrumbs' in header) {
                     try {
                         const headerValue = header['kafka-consumer-breadcrumbs']
-                        const valueString = headerValue instanceof Buffer ? headerValue.toString() : headerValue
+                        const valueString = headerValue instanceof Buffer ? headerValue.toString() : String(headerValue)
                         const parsedValue = parseJSON(valueString)
                         if (Array.isArray(parsedValue)) {
                             const validatedBreadcrumbs = z.array(KafkaConsumerBreadcrumbSchema).safeParse(parsedValue)
@@ -627,6 +630,19 @@ export class IngestionConsumer {
         for (const message of messages) {
             const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
             if (!filteredMessage) {
+                continue
+            }
+
+            const forceOverflowDecision = applyForceOverflowRestrictions(
+                filteredMessage,
+                this.eventIngestionRestrictionManager
+            )
+            if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
+                ingestionEventOverflowed.inc(1)
+                forcedOverflowEventsCounter.inc()
+                void this.promiseScheduler.schedule(
+                    this.emitToOverflow([filteredMessage], forceOverflowDecision.preservePartitionLocality)
+                )
                 continue
             }
 

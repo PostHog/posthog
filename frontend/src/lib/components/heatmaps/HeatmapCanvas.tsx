@@ -1,9 +1,10 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
+import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
+
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
-import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { useMousePosition } from './useMousePosition'
 

@@ -1,12 +1,16 @@
+import { useActions, useValues } from 'kea'
+import Papa from 'papaparse'
+
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     shouldOptimizeForExport,
@@ -23,15 +27,14 @@ import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
     isPersonsNode,
 } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
-import { dataTableLogic, DataTableRow } from './dataTableLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { DataTableRow, dataTableLogic } from './dataTableLogic'
 
 // Sync with posthog/hogql/constants.py
 export const MAX_SELECT_RETURNED_ROWS = 50000
@@ -67,7 +70,9 @@ export async function startDownload(
 
     if (onlySelectedColumns) {
         let columns = (
-            (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
+            (isEventsQuery(query.source) || isActorsQuery(query.source) || isGroupsQuery(query.source)
+                ? query.source.select
+                : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')

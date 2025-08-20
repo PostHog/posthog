@@ -1,15 +1,17 @@
-import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
+import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { useEffect, useRef } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
 
-import { commentsLogic, CommentWithRepliesType } from './commentsLogic'
+import { CommentWithRepliesType, commentsLogic } from './commentsLogic'
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType

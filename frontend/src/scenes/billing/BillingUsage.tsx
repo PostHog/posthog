@@ -1,20 +1,26 @@
 import './BillingUsage.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import { ExporterFormat } from '~/types'
+
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { BillingNoAccess } from './BillingNoAccess'
+import { buildBillingCsv } from './billing-utils'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
 
@@ -39,7 +45,9 @@ export function BillingUsage(): JSX.Element {
         showSeries,
         showEmptyState,
         teamOptions,
+        billingPeriodMarkers,
     } = useValues(logic)
+    const { startExport } = useActions(exportsLogic)
     const {
         setFilters,
         setDateRange,
@@ -52,6 +60,22 @@ export function BillingUsage(): JSX.Element {
 
     if (restrictionReason) {
         return <BillingNoAccess title="Usage" reason={restrictionReason} />
+    }
+
+    const onExportCsv = (): void => {
+        const csv = buildBillingCsv({
+            series,
+            dates,
+            hiddenSeries: finalHiddenSeries,
+        })
+        const filename = `posthog_usage_${dateFrom}_${dateTo}_${filters.interval || 'day'}.csv`
+        startExport({
+            export_format: ExporterFormat.CSV,
+            export_context: {
+                localData: csv,
+                filename,
+            },
+        })
     }
 
     return (
@@ -155,13 +179,18 @@ export function BillingUsage(): JSX.Element {
                         </div>
                     </div>
 
-                    {/* Clear Filters */}
+                    {/* Clear Filters / Export */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>&nbsp;</LemonLabel>
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-2">
                             <LemonButton type="secondary" size="medium" onClick={resetFilters}>
                                 Clear filters
                             </LemonButton>
+                            {showSeries && (
+                                <LemonButton type="secondary" size="medium" onClick={onExportCsv}>
+                                    Export CSV
+                                </LemonButton>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -174,6 +203,7 @@ export function BillingUsage(): JSX.Element {
                         hiddenSeries={finalHiddenSeries}
                         showLegend={false}
                         interval={filters.interval}
+                        billingPeriodMarkers={billingPeriodMarkers}
                     />
                 )}
                 {showEmptyState && (

@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 
 import {
     ConsoleLogEntry,
+    SummarizedSessionRecordingEvent,
     createSessionReplayEvent,
     gatherConsoleLogEvents,
     getTimestampsFrom,
-    SummarizedSessionRecordingEvent,
 } from '../../../../src/main/ingestion-queues/session-recording/process-event'
 import { RRWebEvent, TimestampFormat } from '../../../../src/types'
 import { castTimestampToClickhouseFormat } from '../../../../src/utils/utils'
@@ -588,7 +588,7 @@ describe('session recording process event', () => {
                 null,
                 null
             )
-        }).toThrowError()
+        }).toThrow()
     })
 
     it(`snapshot event with no event summary timestamps is ignored`, () => {
@@ -618,7 +618,7 @@ describe('session recording process event', () => {
                 null,
                 null
             )
-        }).toThrowError()
+        }).toThrow()
     })
 
     test.each([

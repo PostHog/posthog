@@ -1,5 +1,6 @@
 import { kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
+
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'

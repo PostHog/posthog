@@ -1,11 +1,11 @@
+import { PropertiesTable as PropertiesTableComponent } from '.'
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 
 import { PropertyDefinitionType } from '~/types'
-
-import { PropertiesTable as PropertiesTableComponent } from '.'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta<typeof PropertiesTableComponent> = {
     title: 'Components/Properties Table',
@@ -65,7 +65,7 @@ export const DollarPropertiesOnPersonSearchable: StoryFn = () => {
 export const DollarPropertiesOnPersonHidden: StoryFn = () => {
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
-    useOnMountEffect(() => setHidePostHogPropertiesInTable(true))
+    useDelayedOnMountEffect(() => setHidePostHogPropertiesInTable(true))
 
     const properties = {
         pineapple_enjoyment_score: 3,

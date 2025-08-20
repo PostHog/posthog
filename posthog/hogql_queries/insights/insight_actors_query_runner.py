@@ -11,7 +11,7 @@ from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner, QueryRunner
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -30,7 +30,7 @@ from posthog.schema import (
 from posthog.types import InsightActorsQueryNode
 
 
-class InsightActorsQueryRunner(QueryRunner):
+class InsightActorsQueryRunner(AnalyticsQueryRunner):
     query: InsightActorsQueryNode
 
     def __init__(
@@ -161,7 +161,7 @@ class InsightActorsQueryRunner(QueryRunner):
 
         return None
 
-    def calculate(self) -> HogQLQueryResponse:
+    def _calculate(self) -> HogQLQueryResponse:
         settings = None
 
         # Funnel queries require the experimental analyzer to run correctly

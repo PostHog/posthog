@@ -1,9 +1,3 @@
-jest.mock('~/utils/posthog', () => {
-    return {
-        captureTeamEvent: jest.fn(),
-    }
-})
-
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
@@ -12,6 +6,8 @@ import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
+
+jest.mock('~/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
@@ -346,6 +342,25 @@ describe('HogWatcher', () => {
                 expect(res?.[1]?.[1]).toBeGreaterThan(hub.CDP_WATCHER_STATE_LOCK_TTL - 5) // The ttl
                 expect(res?.[1]?.[1]).toBeLessThan(hub.CDP_WATCHER_STATE_LOCK_TTL + 5) // The ttl
             })
+
+            it('should not transition to a different state if forcefully set', async () => {
+                await watcher.doStageChanges([[hogFunction, HogWatcherState.forcefully_degraded]], true)
+                await watcher.clearLock(hogFunctionId)
+                expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
+                    {
+                      "state": 11,
+                      "tokens": 0,
+                    }
+                `)
+                await watcher.observeResults(Array(1000).fill(createResult({ duration: 1, kind: 'hog' })))
+
+                expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
+                    {
+                      "state": 11,
+                      "tokens": 0,
+                    }
+                `)
+            })
         })
     })
 
@@ -401,6 +416,41 @@ describe('HogWatcher', () => {
             expectMockCaptureTeamEvent('disabled', 'degraded')
             await watcher.doStageChanges([[hogFunction, HogWatcherState.disabled]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('observeResultsBuffered', () => {
+        let observeResultsSpy: jest.SpyInstance
+        beforeEach(() => {
+            observeResultsSpy = jest.spyOn(watcher, 'observeResults')
+            hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS = 3
+        })
+
+        it('should buffer results and observe them', async () => {
+            const result1 = createResult({})
+            const result2 = createResult({})
+            const result3 = createResult({})
+
+            await Promise.all([
+                watcher.observeResultsBuffered(result1),
+                watcher.observeResultsBuffered(result2),
+                watcher.observeResultsBuffered(result3),
+            ])
+            expect(observeResultsSpy).toHaveBeenCalledTimes(1)
+            expect(observeResultsSpy).toHaveBeenCalledWith([result1, result2, result3])
+        })
+
+        it('should buffer results and flush them when the buffer is full', async () => {
+            const results = [createResult({}), createResult({}), createResult({}), createResult({})]
+            await Promise.all([
+                watcher.observeResultsBuffered(results[0]),
+                watcher.observeResultsBuffered(results[1]),
+                watcher.observeResultsBuffered(results[2]),
+                watcher.observeResultsBuffered(results[3]),
+            ])
+            expect(observeResultsSpy).toHaveBeenCalledTimes(2)
+            expect(observeResultsSpy).toHaveBeenCalledWith([results[0], results[1], results[2]])
+            expect(observeResultsSpy).toHaveBeenCalledWith([results[3]])
         })
     })
 })

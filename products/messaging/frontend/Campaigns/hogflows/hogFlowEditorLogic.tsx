@@ -1,28 +1,31 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import {
-    applyEdgeChanges,
-    applyNodeChanges,
     EdgeChange,
-    getOutgoers,
-    getSmoothStepPath,
     MarkerType,
     NodeChange,
     Position,
     ReactFlowInstance,
+    applyEdgeChanges,
+    applyNodeChanges,
+    getOutgoers,
 } from '@xyflow/react'
 import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import type { DragEvent } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { uuid } from 'lib/utils'
 
-import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
+import { getSmartStepPath } from './steps/SmartEdge'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
-import type { DragEvent } from 'react'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
@@ -33,10 +36,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'edgesByActionId'],
+            optOutCategoriesLogic(),
+            ['categories', 'categoriesLoading'],
+        ],
         actions: [
             campaignLogic(props),
             ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            optOutCategoriesLogic(),
+            ['loadCategories'],
         ],
     })),
     actions({
@@ -142,26 +152,38 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
         resetFlowFromHogFlow: ({ hogFlow }) => {
             try {
-                const edges: Edge[] = hogFlow.edges.map((edge) => ({
-                    // Only these values are set by the user
-                    source: edge.from,
-                    target: edge.to,
+                const edges: Edge[] = hogFlow.edges.map((edge) => {
+                    const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
 
-                    // All other values are derived
-                    id: getEdgeId(edge),
-                    type: 'smoothstep',
-                    deletable: false,
-                    reconnectable: false,
-                    selectable: false,
-                    focusable: false,
-                    markerEnd: {
-                        type: MarkerType.ArrowClosed,
-                    },
-                    labelShowBg: false,
-                    targetHandle: `target_${edge.to}`,
-                    sourceHandle:
-                        edge.type === 'continue' ? `continue_${edge.from}` : `branch_${edge.from}_${edge.index}`,
-                }))
+                    return {
+                        // Only these values are set by the user
+                        source: edge.from,
+                        target: edge.to,
+
+                        // All other values are derived
+                        id: getEdgeId(edge),
+                        type: 'smart',
+                        deletable: false,
+                        reconnectable: false,
+                        selectable: false,
+                        focusable: false,
+                        markerEnd: {
+                            type: MarkerType.ArrowClosed,
+                        },
+                        data: {
+                            edge,
+                            label: isOnlyEdgeForNode
+                                ? undefined
+                                : edge.type === 'continue'
+                                  ? `No match`
+                                  : `If condition #${(edge.index || 0) + 1} matches`,
+                        },
+                        labelShowBg: false,
+                        targetHandle: `target_${edge.to}`,
+                        sourceHandle:
+                            edge.type === 'continue' ? `continue_${edge.from}` : `branch_${edge.from}_${edge.index}`,
+                    }
+                })
 
                 const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
 
@@ -202,7 +224,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         position: { x: 0, y: 0 },
                         handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
                         deletable: !['trigger', 'exit'].includes(action.type),
-                        selectable: true,
+                        selectable: !['exit'].includes(action.type),
                         draggable: false,
                         connectable: false,
                     }
@@ -273,13 +295,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
                     const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
 
-                    const [, labelX, labelY] = getSmoothStepPath({
+                    const [, labelX, labelY] = getSmartStepPath({
                         sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
                         sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                         targetX: targetNode.position.x + (targetHandle?.x || 0),
                         targetY: targetNode.position.y + (targetHandle?.y || 0),
-                        sourcePosition: sourceHandle?.position || Position.Bottom,
-                        targetPosition: targetHandle?.position || Position.Top,
+                        edges,
+                        currentEdgeId: edge.id,
                     })
 
                     dropzoneNodes.push({

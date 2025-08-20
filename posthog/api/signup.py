@@ -1,7 +1,9 @@
+import json
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
 import structlog
+import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -543,6 +545,7 @@ def social_create_user(
     *args,
     **kwargs,
 ):
+    posthoganalytics.tag("details", json.dumps(details))
     invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
@@ -582,6 +585,8 @@ def social_create_user(
 
     if not email or not full_name:
         missing_attr = "email" if not email else "name"
+        posthoganalytics.tag("email", email)
+        posthoganalytics.tag("name", full_name)
         raise ValidationError(
             {missing_attr: "This field is required and was not provided by the IdP."},
             code="required",

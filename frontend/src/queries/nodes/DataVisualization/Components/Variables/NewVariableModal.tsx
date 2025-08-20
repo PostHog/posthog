@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import {
     LemonButton,
     LemonDialog,
@@ -7,7 +9,7 @@ import {
     LemonSegmentedButton,
     LemonSelect,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 

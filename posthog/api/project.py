@@ -58,6 +58,8 @@ from posthog.utils import (
 )
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET
 
+MAX_ALLOWED_PROJECTS_PER_ORG = 1500
+
 
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
@@ -801,7 +803,7 @@ class RootProjectViewSet(ProjectViewSet):
 class PremiumMultiProjectPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and manage more projects."
+    message = "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
@@ -819,10 +821,16 @@ class PremiumMultiProjectPermission(BasePermission):
 
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
         projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+
         if projects_feature:
             allowed_project_count = projects_feature.get("limit")
             # If allowed_project_count is None then the user is allowed unlimited projects
             if allowed_project_count is None:
+                # We have a hard limit of MAX_ALLOWED_PROJECTS_PER_ORG projects per organization
+                # We don't want to block updates if a customer is already over the max allowed
+                if current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG and view.action == "create":
+                    self.message = f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support if you'd like access to more projects."
+                    return False
                 return True
             # Check current limit against allowed limit
             if current_non_demo_project_count >= allowed_project_count:

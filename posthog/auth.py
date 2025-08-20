@@ -25,20 +25,13 @@ from posthog.models.personal_api_key import (
 )
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from posthog.metrics import LABEL_TEAM_ID
 from django.contrib.auth.models import AnonymousUser
 from zxcvbn import zxcvbn
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
-    labelnames=["user_uuid", "extra_data"],
-)
-
-PROJECT_SECRET_API_KEY_QUERY_PARAM_COUNTER = Counter(
-    "api_auth_project_secret_api_key_query_param",
-    "Requests where the project secret api key is specified in a query parameter",
-    labelnames=[LABEL_TEAM_ID],
+    labelnames=["user_uuid"],
 )
 
 
@@ -108,9 +101,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
-        if extra_data and "personal_api_key" in extra_data:
-            # compatibility with /capture endpoint
-            return extra_data["personal_api_key"], "query string data"
         return None
 
     @classmethod
@@ -157,9 +147,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.save(update_fields=["secure_value"])
 
         if source == "query string":
-            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid, False).inc()
-        elif source == "query string data":
-            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid, True).inc()
+            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
 
@@ -206,7 +194,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
     2. Request body.
-    3. Request query string.
     """
 
     keyword = "Bearer"
@@ -215,12 +202,12 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_secret_api_token(
         cls,
         request: Union[HttpRequest, Request],
-    ) -> Optional[tuple[str, str]]:
+    ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                return authorization_match.group(1).strip(), "header"
+                return authorization_match.group(1).strip()
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -229,20 +216,16 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
-            return data["secret_api_key"], "body"
-
-        if "secret_api_key" in request.GET:
-            return request.GET["secret_api_key"], "query"
+            return data["secret_api_key"]
 
         return None
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        secret_api_token_with_source = self.find_secret_api_token(request)
+        secret_api_token = self.find_secret_api_token(request)
 
-        if not secret_api_token_with_source:
+        if not secret_api_token:
             return None
 
-        secret_api_token, source = secret_api_token_with_source
         # get the team from the secret api key
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
@@ -250,9 +233,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
             if team is None:
                 return None
-
-            if source == "query":
-                PROJECT_SECRET_API_KEY_QUERY_PARAM_COUNTER.labels(team.id).inc()
 
             # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
             # and attach the team. The team is the important part here.

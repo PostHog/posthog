@@ -47,6 +47,7 @@ struct BulkUploadFinishRequest {
 pub fn upload(
     host: Option<String>,
     directory: &PathBuf,
+    ignore_globs: &[String],
     project: Option<String>,
     version: Option<String>,
     delete_after: bool,
@@ -62,7 +63,7 @@ pub fn upload(
         host, token.env_id
     );
 
-    let pairs = read_pairs(directory)?;
+    let pairs = read_pairs(directory, ignore_globs)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.path.clone())
@@ -184,10 +185,10 @@ fn start_upload(
 
     let res = client
         .post(&start_upload_url)
-        .header("Authorization", format!("Bearer {}", auth_token))
+        .header("Authorization", format!("Bearer {auth_token}"))
         .json(&request)
         .send()
-        .context(format!("While starting upload to {}", start_upload_url))?;
+        .context(format!("While starting upload to {start_upload_url}"))?;
 
     if !res.status().is_success() {
         bail!("Failed to start upload: {:?}", res);
@@ -243,11 +244,11 @@ fn finish_upload(
 
     let res = client
         .post(finish_upload_url)
-        .header("Authorization", format!("Bearer {}", auth_token))
+        .header("Authorization", format!("Bearer {auth_token}"))
         .header("Content-Type", "application/json")
         .json(&request)
         .send()
-        .context(format!("While finishing upload to {}", base_url))?;
+        .context(format!("While finishing upload to {base_url}"))?;
 
     if !res.status().is_success() {
         bail!("Failed to finish upload: {:?}", res);

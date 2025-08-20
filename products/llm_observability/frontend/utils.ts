@@ -3,7 +3,6 @@ import { dayjs } from 'lib/dayjs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import type { SpanAggregation } from './llmObservabilityTraceDataLogic'
-
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,
@@ -15,6 +14,8 @@ import {
     OpenAICompletionMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
+    VercelSDKInputImageMessage,
+    VercelSDKInputTextMessage,
     VercelSDKTextMessage,
 } from './types'
 
@@ -52,8 +53,15 @@ export function formatLLMUsage(
     return null
 }
 
-export function formatLLMLatency(latency: number): string {
-    return `${Math.round(latency * 100) / 100} s`
+export const LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS = 90
+
+export function formatLLMLatency(latency: number, showMinutes?: boolean): string {
+    const roundedLatency = Math.round(latency * 100) / 100
+    if (showMinutes && latency > LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS) {
+        const minutes = (latency / 60).toFixed(2)
+        return `${roundedLatency} s (${minutes} m)`
+    }
+    return `${roundedLatency} s`
 }
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
@@ -115,7 +123,7 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
         typeof output === 'object' &&
         'role' in output &&
         'content' in output &&
-        typeof output.content === 'string'
+        (typeof output.content === 'string' || output.content === null)
     )
 }
 
@@ -184,6 +192,28 @@ export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImage
         typeof input.content.image === 'string'
     )
 }
+
+export function isVercelSDKInputImageMessage(input: unknown): input is VercelSDKInputImageMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'input_image' &&
+        'image_url' in input &&
+        typeof input.image_url === 'string'
+    )
+}
+
+export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKInputTextMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'input_text' &&
+        'text' in input &&
+        typeof input.text === 'string'
+    )
+}
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Observability schema.
  *
@@ -192,7 +222,33 @@ export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImage
  * @returns The normalized message.
  */
 export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
-    const role = defaultRole || 'assistant'
+    const role = defaultRole || 'user'
+
+    // Handle new array-based content format (unified format with structured objects)
+    // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
+    if (
+        output &&
+        typeof output === 'object' &&
+        'role' in output &&
+        'content' in output &&
+        typeof output.role === 'string' &&
+        Array.isArray(output.content) &&
+        output.content.length > 0 &&
+        output.content.every(
+            (item) =>
+                item &&
+                typeof item === 'object' &&
+                'type' in item &&
+                (item.type === 'text' || item.type === 'function' || item.type === 'image')
+        )
+    ) {
+        return [
+            {
+                role: output.role === 'user' ? 'user' : 'assistant',
+                content: output.content,
+            },
+        ]
+    }
 
     // Vercel SDK
     if (isVercelSDKTextMessage(output)) {
@@ -200,6 +256,31 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             {
                 role,
                 content: output.content,
+            },
+        ]
+    }
+
+    // Vercel SDK Input Image
+    if (isVercelSDKInputImageMessage(output)) {
+        return [
+            {
+                role,
+                content: [
+                    {
+                        type: 'image',
+                        image: output.image_url,
+                    },
+                ],
+            },
+        ]
+    }
+
+    // Vercel SDK Input Text
+    if (isVercelSDKInputTextMessage(output)) {
+        return [
+            {
+                role,
+                content: output.text,
             },
         ]
     }
@@ -292,13 +373,21 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         ]
     }
     // Unsupported message.
-    console.warn('Unsupported AI message type', output)
-    return [
-        {
-            role: 'user',
-            content: typeof output === 'string' ? output : JSON.stringify(output),
-        },
-    ]
+    console.warn("AI message isn't in a shape of any known AI provider", output)
+    let cajoledContent: string // Let's do what we can
+    if (typeof output === 'string') {
+        cajoledContent = output
+    } else if (
+        typeof output === 'object' &&
+        output !== null &&
+        'content' in output &&
+        typeof output.content === 'string'
+    ) {
+        cajoledContent = output.content
+    } else {
+        cajoledContent = JSON.stringify(output)
+    }
+    return [{ role, content: cajoledContent }]
 }
 
 export function normalizeMessages(messages: unknown, defaultRole?: string, tools?: unknown): CompatMessage[] {
@@ -306,7 +395,7 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
 
     if (tools) {
         normalizedMessages.push({
-            role: 'tools',
+            role: 'available tools',
             content: '',
             tools,
         })
@@ -314,17 +403,15 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
 
     if (Array.isArray(messages)) {
         normalizedMessages.push(...messages.map((message) => normalizeMessage(message, defaultRole)).flat())
-    }
-
-    if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
+    } else if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
-    }
-
-    if (typeof messages === 'string') {
+    } else if (typeof messages === 'string') {
         normalizedMessages.push({
-            role: 'user',
+            role: defaultRole || 'user',
             content: messages,
         })
+    } else if (typeof messages === 'object' && messages !== null) {
+        normalizedMessages.push(...normalizeMessage(messages, defaultRole))
     }
 
     return normalizedMessages
@@ -349,8 +436,48 @@ export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
             return title
         }
 
+        if (event.event === '$ai_embedding') {
+            const spanName = event.properties.$ai_span_name
+            if (spanName) {
+                return `${spanName}`
+            }
+            const title = event.properties.$ai_model || 'Embedding'
+            if (event.properties.$ai_provider) {
+                return `${title} (${event.properties.$ai_provider})`
+            }
+
+            return title
+        }
+
         return event.properties.$ai_span_name ?? 'Span'
     }
 
     return event.traceName ?? 'Trace'
+}
+
+/**
+ * Lightweight XML-ish content detector for UI toggles.
+ * - NOTE: Scans only the first 2KB for signals (to avoid performance issues with regex)
+ */
+export function looksLikeXml(input: unknown): boolean {
+    if (typeof input !== 'string') {
+        return false
+    }
+
+    const sampleLimit = 2048
+    const sample = input.length > sampleLimit ? input.slice(0, sampleLimit) : input
+
+    if (sample.indexOf('<') === -1 || sample.indexOf('>') === -1) {
+        return false
+    }
+
+    if (sample.includes('</') || sample.includes('/>') || sample.includes('<?xml') || sample.includes('<!DOCTYPE')) {
+        return true
+    }
+
+    const lt = sample.indexOf('<')
+    const next = sample[lt + 1]
+    const isNameStart =
+        !!next && ((next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || next === '_' || next === ':')
+    return isNameStart
 }

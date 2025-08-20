@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 
@@ -22,6 +23,10 @@ export enum HogWatcherState {
     healthy = 1,
     degraded = 2,
     disabled = 3,
+
+    // These are states that we do not auto transition into - can only be modified by the admin tool
+    forcefully_degraded = 11,
+    forcefully_disabled = 12,
 }
 
 export type HogWatcherFunctionState = {
@@ -29,7 +34,7 @@ export type HogWatcherFunctionState = {
     state: HogWatcherState
 }
 
-export const hogFunctionStateChange = new Counter({
+const hogFunctionStateChange = new Counter({
     name: 'cdp_hog_function_state_change',
     help: 'Number of times a transformation state changed',
     labelNames: ['state', 'kind'],
@@ -50,6 +55,17 @@ export const isHogFunctionResult = (
     return 'hogFunction' in result.invocation
 }
 
+// Helper if you don't care about the forced side of things
+export const effectiveState = (state: HogWatcherState) => {
+    if (state === HogWatcherState.forcefully_degraded) {
+        return HogWatcherState.degraded
+    }
+    if (state === HogWatcherState.forcefully_disabled) {
+        return HogWatcherState.disabled
+    }
+    return state
+}
+
 type PipelineResults = [Error | null, any][]
 
 const getPipelineResults = (res: PipelineResults, index: number, numOperations: number) => {
@@ -59,6 +75,14 @@ const getPipelineResults = (res: PipelineResults, index: number, numOperations: 
 
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
+    private lazyLoader: LazyLoader<HogWatcherFunctionState>
+
+    private queuedResults: {
+        results: CyclotronJobInvocationResult[]
+        promise: Promise<void>
+        timeout: NodeJS.Timeout
+        complete: () => void
+    } | null = null
 
     constructor(
         private hub: Hub,
@@ -84,6 +108,13 @@ export class HogWatcherService {
                 )
             }
         }
+
+        this.lazyLoader = new LazyLoader({
+            name: 'hog_watcher_lazy_loader',
+            refreshAgeMs: 30_000, // Cache for 30 seconds
+            refreshJitterMs: 10_000,
+            loader: async (ids) => await this.getPersistedStates(ids),
+        })
     }
 
     private async onStateChange({
@@ -104,7 +135,7 @@ export class HogWatcherService {
             previousState,
         })
 
-        if (team && process.env.CDP_HOG_WATCHER_2_CAPTURE_ENABLED === 'true') {
+        if (team && this.hub.CDP_WATCHER_SEND_EVENTS) {
             captureTeamEvent(team, 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
@@ -142,6 +173,9 @@ export class HogWatcherService {
         return HogWatcherState.healthy
     }
 
+    /**
+     * Get the persisted states of a list of hog functions
+     */
     public async getPersistedStates(
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
@@ -171,9 +205,48 @@ export class HogWatcherService {
         )
     }
 
+    /**
+     * Like getPersistedStates but returns the state of a single hog function
+     */
     public async getPersistedState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
         const res = await this.getPersistedStates([id])
         return res[id]
+    }
+
+    public async getCachedPersistedState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState | null> {
+        return await this.lazyLoader.get(id)
+    }
+
+    /**
+     * Like getPersistedStates but returns the effective state (i.e. ignores forcefully set states)
+     */
+    public async getEffectiveStates(
+        ids: HogFunctionType['id'][]
+    ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
+        const states = await this.getPersistedStates(ids)
+        return Object.fromEntries(
+            Object.entries(states).map(([id, state]) => [
+                id,
+                { state: effectiveState(state.state), tokens: state.tokens },
+            ])
+        )
+    }
+
+    /**
+     * Like getPersistedState but returns the effective state (i.e. ignores forcefully set states)
+     */
+    public async getEffectiveState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
+        const res = await this.getEffectiveStates([id])
+        return res[id]
+    }
+
+    public async getCachedEffectiveState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState | null> {
+        const res = await this.lazyLoader.get(id)
+        if (!res) {
+            return null
+        }
+
+        return { state: effectiveState(res.state), tokens: res.tokens }
     }
 
     public async getAllFunctionStates(): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
@@ -213,8 +286,14 @@ export class HogWatcherService {
         forceReset: boolean = false
     ): Promise<void> {
         logger.info('[HogWatcherService] Performing state changes', { changes, forceReset })
+
         const res = await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
             for (const [hogFunction, state] of changes) {
+                hogFunctionStateChange.inc({
+                    state: HogWatcherState[state],
+                    kind: hogFunction.type,
+                })
+
                 const id = hogFunction.id
                 const newScore =
                     state === HogWatcherState.healthy
@@ -260,10 +339,6 @@ export class HogWatcherService {
     }
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
-        if (process.env.CDP_HOG_WATCHER_2_ENABLED !== 'true') {
-            return
-        }
-
         const functionCosts: Record<
             CyclotronJobInvocation['functionId'],
             {
@@ -313,30 +388,76 @@ export class HogWatcherService {
             return
         }
 
-        await Promise.all(
-            Object.values(functionCosts).map(async (functionCost, index) => {
-                const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
+        const changes: [HogFunctionType, HogWatcherState][] = []
 
-                const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
-                const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
-                const newState = this.calculateNewState(tokens)
+        // Calculate all those that have changed state
+        Object.values(functionCosts).map((functionCost, index) => {
+            const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
 
-                if (currentState !== newState) {
-                    if (lockResult[1]) {
-                        // We don't want to change the state of a function that is being locked (i.e. recently changed state)
-                        return
-                    }
+            const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
+            const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
+            const newState = this.calculateNewState(tokens)
 
-                    if (currentState === HogWatcherState.disabled) {
-                        // We never modify the state of a disabled function automatically
-                        return
-                    }
-
-                    if (functionCost.hogFunction) {
-                        await this.forceStateChange(functionCost.hogFunction, newState)
-                    }
+            if (currentState !== newState) {
+                if (lockResult[1]) {
+                    // We don't want to change the state of a function that is being locked (i.e. recently changed state)
+                    return
                 }
+
+                if (currentState === HogWatcherState.disabled || currentState >= HogWatcherState.forcefully_degraded) {
+                    // We never modify the state of a disabled function automatically, or a forcefully set value
+                    return
+                }
+
+                if (functionCost.hogFunction) {
+                    changes.push([functionCost.hogFunction, newState])
+                }
+            }
+        })
+
+        if (changes.length > 0) {
+            await this.doStageChanges(changes)
+        }
+    }
+
+    public async observeResultsBuffered(result: CyclotronJobInvocationResult): Promise<void> {
+        // This can be called a bunch of times and will queue up results to be processed
+        // We need to make sure that we only process the results once
+        if (!this.queuedResults) {
+            let resolvePromise: () => void
+            const promise = new Promise<void>((resolve) => {
+                resolvePromise = resolve
             })
-        )
+
+            this.queuedResults = {
+                results: [],
+                promise,
+                complete: resolvePromise!,
+                timeout: setTimeout(
+                    () => this.flushBufferedResults(),
+                    this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS
+                ),
+            }
+        }
+
+        this.queuedResults.results.push(result)
+
+        if (this.queuedResults.results.length >= this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS) {
+            await this.flushBufferedResults()
+        } else {
+            await this.queuedResults.promise
+        }
+    }
+
+    private async flushBufferedResults() {
+        if (!this.queuedResults) {
+            return
+        }
+
+        const { results, timeout, complete } = this.queuedResults
+        clearTimeout(timeout)
+        this.queuedResults = null
+        await this.observeResults(results)
+        complete()
     }
 }

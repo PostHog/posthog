@@ -5,7 +5,7 @@ import { DateTime, Settings } from 'luxon'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'
 import { CyclotronInputType } from '~/schema/cyclotron'
-import { GeoIp, GeoIPService } from '~/utils/geoip'
+import { GeoIPService, GeoIp } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
@@ -45,7 +45,7 @@ const compileObject = async (obj: any): Promise<any> => {
     } else if (typeof obj === 'string') {
         return await compileHog(`return f'${obj}'`)
     } else {
-        return undefined
+        return obj
     }
 }
 
@@ -146,6 +146,7 @@ export class TemplateTester {
     the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
     */
     async beforeEach() {
+        Settings.defaultZone = 'UTC'
         if (!this.geoipService) {
             this.geoipService = new GeoIPService(defaultConfig)
         }
@@ -160,6 +161,10 @@ export class TemplateTester {
         }
 
         this.executor = new HogExecutorService(this.mockHub)
+    }
+
+    afterEach() {
+        Settings.defaultZone = 'system'
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
@@ -290,7 +295,15 @@ export class TemplateTester {
             body: response.body,
         })
 
-        return this.executor.execute(modifiedInvocation)
+        const result = await this.executor.execute(modifiedInvocation)
+
+        result.logs.forEach((x) => {
+            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
+                x.message = 'Function completed in [REPLACED]'
+            }
+        })
+
+        return result
     }
 }
 

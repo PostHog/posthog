@@ -1,10 +1,13 @@
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
+
 import { humanFriendlyNumber } from 'lib/utils'
-import posthog from 'posthog-js'
 import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
 import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
+import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
 import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
@@ -12,15 +15,14 @@ import { urls } from 'scenes/urls'
 import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
-import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
 import {
-    formatPValue,
+    ExperimentVariantResult,
     formatChanceToWin,
+    formatPValue,
+    getIntervalLabel,
+    getVariantInterval,
     isBayesianResult,
     isFrequentistResult,
-    getVariantInterval,
-    getIntervalLabel,
-    ExperimentVariantResult,
 } from '../shared/utils'
 
 export function ResultDetails({

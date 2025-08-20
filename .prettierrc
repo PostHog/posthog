@@ -3,5 +3,22 @@
     "tabWidth": 4,
     "semi": false,
     "singleQuote": true,
-    "printWidth": 120
+    "printWidth": 120,
+    "plugins": ["@trivago/prettier-plugin-sort-imports"],
+    "importOrder": [
+        "~/styles$",
+        "\\.s?css$",
+        "\\.mocks?$",
+        "\\.spy$",
+        "<THIRD_PARTY_MODULES>",
+        "^@posthog.*$",
+        "^lib/(.*)$|^scenes/(.*)$",
+        "^~/(.*)$",
+        "^public/(.*)$",
+        "^products/(.*)$",
+        "^storybook/(.*)$",
+        "^\\.+/"
+    ],
+    "importOrderSeparation": true,
+    "importOrderSortSpecifiers": true
 }

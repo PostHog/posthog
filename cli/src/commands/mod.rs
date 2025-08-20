@@ -45,9 +45,38 @@ pub enum SourcemapCommand {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
         directory: PathBuf,
+
+        /// One or more directory glob patterns to ignore
+        #[arg(short, long)]
+        ignore: Vec<String>,
     },
     /// Upload the bundled chunks to PostHog
     Upload {
+        /// The directory containing the bundled chunks
+        #[arg(short, long)]
+        directory: PathBuf,
+
+        /// One or more directory glob patterns to ignore
+        #[arg(short, long)]
+        ignore: Vec<String>,
+
+        /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
+        /// a specific release, auto-discovered from git information on disk if not provided.
+        #[arg(long)]
+        project: Option<String>,
+
+        /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
+        /// to have the uploaded chunks associated with a specific release. Auto-discovered from git information on
+        /// disk if not provided.
+        #[arg(long)]
+        version: Option<String>,
+
+        /// Whether to delete the source map files after uploading them
+        #[arg(long, default_value = "false")]
+        delete_after: bool,
+    },
+    /// Run inject and upload in one command
+    Process {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
         directory: PathBuf,
@@ -83,16 +112,33 @@ impl Cli {
                 login::login()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
-                SourcemapCommand::Inject { directory } => {
-                    sourcemap::inject::inject(directory)?;
+                SourcemapCommand::Inject { directory, ignore } => {
+                    sourcemap::inject::inject(directory, ignore)?;
                 }
                 SourcemapCommand::Upload {
+                    directory,
+                    ignore,
+                    project,
+                    version,
+                    delete_after,
+                } => {
+                    sourcemap::upload::upload(
+                        command.host,
+                        directory,
+                        ignore,
+                        project.clone(),
+                        version.clone(),
+                        *delete_after,
+                    )?;
+                }
+                SourcemapCommand::Process {
                     directory,
                     project,
                     version,
                     delete_after,
                     skip_ssl_verification,
                 } => {
+                    sourcemap::inject::inject(directory)?;
                     sourcemap::upload::upload(
                         command.host,
                         directory,

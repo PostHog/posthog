@@ -5,7 +5,7 @@ import pydantic_core
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets, status
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -15,6 +15,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -38,9 +39,42 @@ from posthog.utils import filters_override_requested_by_client, variables_overri
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from contextlib import nullcontext
 import posthoganalytics
+from opentelemetry import trace
 
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+
+def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
+    """
+    Serialize a single tile with error handling. Returns (order, tile_data) tuple.
+    This function is designed to be thread-safe and used with ThreadPoolExecutor.
+    """
+    # Create a copy of context to avoid thread conflicts
+    tile_context = context.copy()
+    tile_context.update(
+        {
+            "dashboard_tile": tile,
+            "order": order,
+        }
+    )
+
+    if isinstance(tile.layouts, str):
+        tile.layouts = json.loads(tile.layouts)
+
+    try:
+        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
+        return order, tile_data
+    except pydantic_core.ValidationError as e:
+        if not tile.insight:
+            raise
+        query = tile.insight.query
+        tile.insight.query = None
+        tile_data = DashboardTileSerializer(tile, context=tile_context).data
+        tile_data["insight"]["query"] = query
+        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+        return order, tile_data
 
 
 class CanEditDashboard(BasePermission):
@@ -80,6 +114,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "insight"]
         depth = 1
 
+    @tracer.start_as_current_span("DashboardTileSerializer.to_representation")
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
@@ -425,6 +460,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 insights_to_undelete.append(tile.insight)
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
+    @tracer.start_as_current_span("DashboardSerializer.get_tiles")
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
         if self.context["view"].action == "list":
             return None
@@ -432,7 +468,7 @@ class DashboardSerializer(DashboardBasicSerializer):
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        serialized_tiles = []
+        serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
             Prefetch(
@@ -462,34 +498,13 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+            # Handle case where there are no tiles
+            if not sorted_tiles:
+                return []
+
             for order, tile in enumerate(sorted_tiles):
-                self.context.update(
-                    {
-                        "dashboard_tile": tile,
-                        "order": order,
-                    }
-                )
-
-                if isinstance(tile.layouts, str):
-                    tile.layouts = json.loads(tile.layouts)
-
-                try:
-                    tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-                    serialized_tiles.append(tile_data)
-                # A single broken query object has the potential to crash the entire dashboard
-                # Here we catch it and handle it gracefully
-                except pydantic_core.ValidationError as e:
-                    if not tile.insight:
-                        raise
-                    query = tile.insight.query
-                    tile.insight.query = None
-                    # If this throws with no query, it will still crash the dashboard. We could attempt to handle this
-                    # general case gracefully, but it gets increasingly complicated to handle the tile in a graceful
-                    # way if we don't have insight information attached.
-                    tile_data = DashboardTileSerializer(tile, context=self.context).data
-                    tile_data["insight"]["query"] = query
-                    tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
-                    serialized_tiles.append(tile_data)
+                order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                serialized_tiles.append(cast(ReturnDict, tile_data))
 
         return serialized_tiles
 
@@ -532,6 +547,7 @@ class DashboardsViewSet(
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
 
+    @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
@@ -541,6 +557,7 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
+    @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):
         # Dashboards are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
@@ -591,6 +608,10 @@ class DashboardsViewSet(
         # Add access level filtering for list actions
         queryset = self._filter_queryset_by_access_level(queryset)
 
+        # Filter out generated dashboards if requested (for list action only)
+        if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
+            queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
+
         return queryset
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
@@ -600,6 +621,25 @@ class DashboardsViewSet(
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    # ******************************************
+    # /projects/:id/dashboard/:id/viewed
+    # ******************************************
+    @action(methods=["POST"], detail=True)
+    def viewed(self, *args: Any, **kwargs: Any) -> Response:
+        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
+
+        insights = (
+            Insight.objects.filter(dashboard_tiles__dashboard=self.get_object()).distinct().only("query_metadata")
+        )
+        for insight in insights.iterator(chunk_size=100):
+            log_event_usage_from_insight(
+                insight,
+                team_id=self.team_id,
+                user_id=self.request.user.pk,
+            )
+
+        return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["PATCH"], detail=True)
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -635,7 +675,7 @@ class DashboardsViewSet(
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
             creation_context = request.data.get("creation_context")
-            create_from_template(dashboard, dashboard_template)
+            create_from_template(dashboard, dashboard_template, cast(User, request.user))
 
             report_user_action(
                 cast(User, request.user),

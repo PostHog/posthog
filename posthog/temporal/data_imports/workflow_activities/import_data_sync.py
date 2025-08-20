@@ -7,6 +7,7 @@ from django.db.models import Prefetch
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -16,6 +17,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from posthog.warehouse.types import ExternalDataSourceType
 
 from posthog.temporal.data_imports.sources import SourceRegistry
 
@@ -57,6 +59,7 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()
@@ -68,7 +71,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         logger.debug("Running *SYNC* import_data")
 
-        source_type = ExternalDataSource.Type(model.pipeline.source_type)
+        source_type = ExternalDataSourceType(model.pipeline.source_type)
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,

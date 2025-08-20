@@ -32,7 +32,9 @@ class TestSummarizeSession:
         """
         # Mock DB/LLM dependencies
         with (
-            patch("posthog.temporal.ai.session_summary.summarize_session._start_workflow") as mock_workflow,
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream"
+            ) as mock_workflow,
             patch("posthog.temporal.ai.session_summary.summarize_session.asyncio.run") as mock_asyncio_run,
         ):
             # Mock workflow handle

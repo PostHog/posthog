@@ -158,7 +158,7 @@ impl AppContext {
 
             // Second pass: apply resolved group types to updates
             for (idx, group_name, team_id) in to_resolve {
-                let cache_key = format!("{}:{}", team_id, group_name);
+                let cache_key = format!("{team_id}:{group_name}");
 
                 if let Some(&index) = resolved_map.get(&(group_name.clone(), team_id)) {
                     metrics::counter!(GROUP_TYPE_CACHE, &[("action", "miss")]).increment(1);
@@ -171,8 +171,7 @@ impl AppContext {
                 } else {
                     metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
                     warn!(
-                        "Failed to resolve group type index for group name: {} and team id: {}",
-                        group_name, team_id
+                        "Failed to resolve group type index for group name: {group_name} and team id: {team_id}"
                     );
 
                     if let Update::Property(update) = &mut updates[idx] {
