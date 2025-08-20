@@ -2,8 +2,7 @@ package com.example.backend.services;
 
 import java.text.DecimalFormat;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -13,8 +12,6 @@ import org.springframework.stereotype.Service;
 import com.example.backend.model.*;
 
 import java.sql.*;
-import java.util.Map;
-import java.util.Objects;
 
 /**
  * eventsService
@@ -40,6 +37,7 @@ public class EventsService {
     }
 
     public List<ApiHeatmapGetDTO> getAllHeatmap(String type, String date, String urlExact) {
+        Map<KeyMap, Integer> heatmapResult = new HashMap<>();
         List<ApiHeatmapGetDTO> results = new ArrayList<>();
         try {
             urlExact = getUrlExact(urlExact);
@@ -61,44 +59,57 @@ public class EventsService {
                     if(values.getFirst().charAt(0) == '"') {
                         values.set(0, values.getFirst().substring(1, values.getFirst().length() - 1));
                     }
-                    if(values.getFirst().isEmpty() || values.getFirst().isBlank()) continue;
+                    if(values.getFirst().isBlank()) continue;
+                    if(values.getFirst().equals("$viewport_width")) {
+                        viewPortWidth = Integer.parseInt(values.get(1));
+                    }
+                }
+                for (String property : listProp) {
+                    List<String> values = splitOnCommaOutsideBraces(property, ':');
+                    if(values.getFirst().charAt(0) == '"') {
+                        values.set(0, values.getFirst().substring(1, values.getFirst().length() - 1));
+                    }
+                    if(values.getFirst().isBlank()) continue;
                     if(values.getFirst().equals("$heatmap_data")) {
-                        if(values.get(1).isBlank()) continue;
-                        if(values.get(1).charAt(0) == '{') {
-                            values.set(1,values.get(1).substring(1, values.get(1).length() - 1));
+                        if (values.get(1).isBlank()) continue;
+                        if (values.get(1).charAt(0) == '{') {
+                            values.set(1, values.get(1).substring(1, values.get(1).length() - 1));
                         }
                         List<String> dataValues = splitUrlAndProps(values.get(1));
                         dataValues.set(0, dataValues.get(0).substring(1, dataValues.get(0).length() - 1));
-                        if(dataValues.get(0).isBlank() || !urlExact.equals(dataValues.get(0))) continue;
-                        if(dataValues.get(1).isBlank()) continue;
+                        if (dataValues.get(0).isBlank() || !urlExact.equals(dataValues.get(0))) continue;
+                        if (dataValues.get(1).isBlank()) continue;
                         dataValues.set(1, dataValues.get(1).substring(1, dataValues.get(1).length() - 1));
                         List<String> eachMouseValues = splitOnCommaOutsideBraces(dataValues.get(1), ',');
                         for (String value : eachMouseValues) {
                             value = value.substring(1, value.length() - 1);
                             String[] mouseValues = value.split(",");
-                            if(!mouseValues[1].split(":")[1].equals('"' + type + '"')) {
+                            if (!mouseValues[1].split(":")[1].equals('"' + type + '"')) {
                                 continue;
                             }
-                            ApiHeatmapGetDTO heatmapDTO = new ApiHeatmapGetDTO();
-                            heatmapDTO.setPointer_y(Integer.parseInt(mouseValues[3].split(":")[1]));
-                            heatmapDTO.setPointer_relative_x(Integer.parseInt(mouseValues[2].split(":")[1]));
-                            heatmapDTO.setPointer_target_fixed(false);
-                            heatmapDTO.setCount(1);
-                            heatmap.add(heatmapDTO);
+                            KeyMap keyMap = new KeyMap();
+                            keyMap.y = (toNearestFive(Integer.parseInt(mouseValues[3].split(":")[1])));
+                            keyMap.x = (toNearestFive(Integer.parseInt(mouseValues[2].split(":")[1]))) / viewPortWidth;
+                            DecimalFormat df = new DecimalFormat("#.00");
+                            keyMap.x = (Float.parseFloat(df.format(keyMap.x)));
+                            keyMap.fixed = (false);
+                            if (!heatmapResult.containsKey(keyMap)) {
+                                heatmapResult.put(keyMap, 1);
+                            } else {
+                                heatmapResult.replace(keyMap, heatmapResult.get(keyMap) + 1);
+                            }
                         }
-                    } else if(values.getFirst().equals("$viewport_width")) {
-                        viewPortWidth = Integer.parseInt(values.get(1));
                     }
-                }
-                for(ApiHeatmapGetDTO heatmapData : heatmap) {
-                    DecimalFormat df = new DecimalFormat("#.00");
-                    heatmapData.setPointer_relative_x(heatmapData.getPointer_relative_x() / viewPortWidth);
-                    heatmapData.setPointer_relative_x(Float.parseFloat(df.format(heatmapData.getPointer_relative_x())));
-                    results.add(heatmapData);
+
                 }
             }
         } catch (Exception ex) {
             System.out.println(ex);
+        }
+        for(Map.Entry<KeyMap, Integer> entry : heatmapResult.entrySet()) {
+            ApiHeatmapGetDTO heatmapDTO = new ApiHeatmapGetDTO();
+            heatmapDTO.setKeyMap(entry.getKey(), entry.getValue());
+            results.add(heatmapDTO);
         }
         return results;
     }
@@ -185,5 +196,14 @@ public class EventsService {
         }
         if (!cur.isEmpty()) parts.add(cur.toString().trim());
         return parts;
+    }
+
+    private static int toNearestFive(int val) {
+        int mod = val % 5;
+        if(mod < 3) {
+            return val - mod;
+        } else {
+            return val + (5 - mod);
+        }
     }
 }

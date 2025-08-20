@@ -34,7 +34,6 @@ public class PosthogController {
             @RequestParam(name = "date_from", defaultValue = "7d") String date,
             @RequestParam(name = "url_exact", required = false) String urlExact
     ) {
-        System.out.println("getAllHeatmap");
         List<ApiHeatmapGetDTO> results;
         results = eventsService.getAllHeatmap(type, date, urlExact);
         return new ResponseEntity<>(new HeatmapResponse(results), HttpStatus.OK);
