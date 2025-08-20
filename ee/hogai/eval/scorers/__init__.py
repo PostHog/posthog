@@ -1,5 +1,5 @@
 import json
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
@@ -70,15 +70,20 @@ class PlanAndQueryOutput(TypedDict, total=False):
     query_generation_retry_count: int | None
 
 
-def serialize_output(output: PlanAndQueryOutput | dict | None) -> PlanAndQueryOutput | None:
+class SerializedPlanAndQueryOutput(TypedDict):
+    plan: str | None
+    query: dict[str, Any] | None
+    query_generation_retry_count: int | None
+
+
+def serialize_output(output: PlanAndQueryOutput | dict | None) -> SerializedPlanAndQueryOutput | None:
     if output:
-        serialized_output: PlanAndQueryOutput = {
+        query = output.get("query")
+        serialized_output = {
             **output,
-            "query": cast(QueryType, output.get("query")).model_dump(exclude_none=True)
-            if output.get("query")
-            else None,
+            "query": query.model_dump(exclude_none=True) if query else None,
         }
-        return serialized_output
+        return cast(SerializedPlanAndQueryOutput, serialized_output)
     return None
 
 
@@ -111,16 +116,14 @@ class PlanCorrectness(LLMClassifier):
         query = output.get("query")
         if not plan or not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No plan or query present"})
-        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
-        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
+        return await super()._run_eval_async(serialize_output(output), serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
         plan = output.get("plan")
         query = output.get("query")
         if not plan or not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No plan or query present"})
-        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
-        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
+        return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, evaluation_criteria: str, **kwargs):
         super().__init__(
@@ -193,8 +196,7 @@ class QueryAndPlanAlignment(LLMClassifier):
         query = output.get("query")
         if not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
-        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
-        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
+        return await super()._run_eval_async(serialize_output(output), serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
         plan = output.get("plan")
@@ -207,8 +209,7 @@ class QueryAndPlanAlignment(LLMClassifier):
         query = output.get("query")
         if not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
-        output = PlanAndQueryOutput(plan=plan, query=query.model_dump_json(exclude_none=True))
-        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
+        return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, json_schema: dict, evaluation_criteria: str, **kwargs):
         json_schema_str = json.dumps(json_schema)
@@ -284,15 +285,15 @@ Details matter greatly here - including math types or property types - so be har
 class TimeRangeRelevancy(LLMClassifier):
     """Evaluate if the generated query's time range, interval, or period correctly answers the user's question."""
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
+    async def _run_eval_async(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
         if not output.get("query"):
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
+        return await super()._run_eval_async(serialize_output(output), serialize_output(expected), **kwargs)
 
-    def _run_eval_sync(self, output, expected=None, **kwargs):
+    def _run_eval_sync(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
         if not output.get("query"):
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check"})
-        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
+        return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, **kwargs):
         super().__init__(
