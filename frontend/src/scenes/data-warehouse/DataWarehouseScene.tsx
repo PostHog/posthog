@@ -18,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, PipelineTab } from '~/types'
 
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
+import { DataWarehouseSourceIcon } from './settings/DataWarehouseSourceIcon'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 
@@ -195,7 +196,7 @@ export function DataWarehouseScene(): JSX.Element {
     const runningCount = materializedViews.filter((v) => v.status?.toLowerCase() === 'running').length
     const connectedSourceTypes = computedAllSources
         .filter((source) => source.name && !source.name.startsWith('self-managed'))
-        .map((source) => source.name.toLowerCase())
+        .map((source) => source.name)
 
     const quickActions = connectedSourceTypes.slice(0, 4)
 
@@ -309,10 +310,10 @@ export function DataWarehouseScene(): JSX.Element {
                                         className="group relative block px-4 py-3 bg-gradient-to-r from-bg-light to-transparent border border-border rounded-lg hover:border-primary/20 hover:shadow-sm transition-all duration-200 hover:scale-[1.02] overflow-hidden"
                                     >
                                         <div className="flex items-center justify-between">
-                                            <span className="text-sm font-medium text-default transition-colors">
-                                                Connect another{' '}
-                                                {sourceType.charAt(0).toUpperCase() + sourceType.slice(1)} source
-                                            </span>
+                                            <div className="text-sm font-medium text-default transition-colors flex items-center gap-1">
+                                                <DataWarehouseSourceIcon type={sourceType} size="xsmall" />
+                                                Connect another {sourceType} source
+                                            </div>
                                             <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 transition-all duration-200">
                                                 <span className="text-primary">→</span>
                                             </div>
