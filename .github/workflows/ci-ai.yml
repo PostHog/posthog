@@ -69,7 +69,7 @@ jobs:
                   AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
 
             - name: Post eval summary to PR
-              # always() because we want to post even if `pytest` existed with an error (likely just one eval suite errored)
+              # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
               if: always() && github.event_name == 'pull_request'
               uses: actions/github-script@v6
               with:
