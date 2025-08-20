@@ -1,7 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+
 import { LemonModal } from '@posthog/lemon-ui'
+
 import { AddPersonToCohortModalBody } from './AddPersonToCohortModalBody'
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { CohortLogicProps } from './cohortEditLogic'
 
 export function AddPersonToCohortModal({ id }: CohortLogicProps): JSX.Element {
