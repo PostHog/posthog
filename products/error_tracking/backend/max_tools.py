@@ -188,7 +188,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
 
         if type(result["output"]) is not ErrorTrackingIssueImpactToolOutput:
             content = "❌ I need to know what events you are looking to understand the impact for."
-            events = []
+            events = ErrorTrackingIssueImpactToolOutput(events=[])
         else:
             try:
                 content = "✅ Relevant events found. Searching for impacting issues."
