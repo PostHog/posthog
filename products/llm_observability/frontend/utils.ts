@@ -56,11 +56,12 @@ export function formatLLMUsage(
 export const LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS = 90
 
 export function formatLLMLatency(latency: number, showMinutes?: boolean): string {
+    const roundedLatency = Math.round(latency * 100) / 100
     if (showMinutes && latency > LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS) {
         const minutes = (latency / 60).toFixed(2)
-        return `${Math.round(latency * 100) / 100} s (${minutes} m)`
+        return `${roundedLatency} s (${minutes} m)`
     }
-    return `${Math.round(latency * 100) / 100} s`
+    return `${roundedLatency} s`
 }
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
