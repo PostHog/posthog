@@ -1288,7 +1288,9 @@ export type FunnelTimeToConvertResults = {
 }
 export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
-    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+    // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+    // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
+    results: any
     isUdf?: boolean
 }
 
@@ -2120,12 +2122,16 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
-export interface ErrorTrackingSceneToolOutput
+export interface ErrorTrackingIssueFilteringToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
     newFilters?: AnyPropertyFilter[]
     removedFilterIndexes?: integer[]
     dateRange?: DateRange
     filterTestAccounts?: boolean
+}
+
+export interface ErrorTrackingIssueImpactToolOutput {
+    events: string[]
 }
 
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'

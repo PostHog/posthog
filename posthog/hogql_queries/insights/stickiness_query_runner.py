@@ -51,9 +51,8 @@ class SeriesWithExtras:
         self.is_previous_period_series = is_previous_period_series
 
 
-class StickinessQueryRunner(AnalyticsQueryRunner):
+class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
     query: StickinessQuery
-    response: StickinessQueryResponse
     cached_response: CachedStickinessQueryResponse
     series: list[SeriesWithExtras]
 

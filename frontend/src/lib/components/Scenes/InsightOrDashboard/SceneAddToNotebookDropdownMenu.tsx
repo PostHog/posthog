@@ -37,7 +37,7 @@ export function SceneAddToNotebookDropdownMenu({
                     <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" matchTriggerWidth>
+            <DropdownMenuContent align="end" matchTriggerWidth className="min-w-none max-w-none">
                 <SceneNotebookMenuItems
                     notebookSelectButtonProps={{
                         resource: {

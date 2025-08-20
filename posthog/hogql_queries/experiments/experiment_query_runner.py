@@ -62,7 +62,6 @@ MAX_EXECUTION_TIME = 600
 
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
-    response: ExperimentQueryResponse
     cached_response: CachedExperimentQueryResponse
 
     def __init__(self, *args, **kwargs):
