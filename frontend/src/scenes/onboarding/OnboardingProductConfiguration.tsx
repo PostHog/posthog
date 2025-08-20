@@ -51,30 +51,28 @@ export const OnboardingProductConfiguration = ({
         setConfigOptions(options.filter((option): option is ProductConfigOption => !!option))
     })
 
-    const combinedList: ConfigOption[] = [
-        ...configOptions
-            .filter((option) => option.visible)
-            .map((option) => ({
-                title: option.title,
-                description: option.description,
-                type: option.type as ConfigType,
-                selectOptions: option.selectOptions,
-                value: option.value,
-                onChange: (newValue: boolean | string | number) => {
-                    // Use the current value from the ref to ensure that onChange always accesses
-                    // the latest state of configOptions, preventing the closure from using stale data.
-                    const updatedConfigOptions = configOptionsRef.current.map((o) => {
-                        if (o.teamProperty === option.teamProperty) {
-                            return { ...o, value: newValue }
-                        }
+    const combinedList: ConfigOption[] = configOptions
+        .filter((option) => option.visible)
+        .map((option) => ({
+            title: option.title,
+            description: option.description,
+            type: option.type as ConfigType,
+            selectOptions: option.selectOptions,
+            value: option.value,
+            onChange: (newValue: boolean | string | number) => {
+                // Use the current value from the ref to ensure that onChange always accesses
+                // the latest state of configOptions, preventing the closure from using stale data.
+                const updatedConfigOptions = configOptionsRef.current.map((o) => {
+                    if (o.teamProperty === option.teamProperty) {
+                        return { ...o, value: newValue }
+                    }
 
-                        return o
-                    })
+                    return o
+                })
 
-                    setConfigOptions(updatedConfigOptions)
-                },
-            })),
-    ]
+                setConfigOptions(updatedConfigOptions)
+            },
+        }))
 
     return combinedList.length > 0 ? (
         <OnboardingStep title="Set up your configuration" stepKey={stepKey} onContinue={saveConfiguration}>
