@@ -115,6 +115,11 @@ from posthog.models.raw_sessions.sql import (
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_SQL,
 )
+from posthog.models.raw_sessions.migrations import (
+    BASE_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL,
+    WRITABLE_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL,
+    DISTRIBUTED_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL,
+)
 from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_HOURLY_SQL,
     WEB_STATS_HOURLY_SQL,
@@ -1213,6 +1218,13 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             QUERY_LOG_ARCHIVE_NEW_MV(view_name="query_log_archive_mv", dest_table="query_log_archive"),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            BASE_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL(on_cluster=False),
+            WRITABLE_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL(on_cluster=False),
+            DISTRIBUTED_RAW_SESSIONS_ADD_MAX_INSERTED_AT_COLUMN_SQL(on_cluster=False),
         ]
     )
     run_clickhouse_statement_in_parallel(
