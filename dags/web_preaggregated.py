@@ -6,8 +6,8 @@ import dagster
 from dagster import DailyPartitionsDefinition, BackfillPolicy
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
-    CLICKHOUSE_SETTINGS,
-    DAGSTER_DAILY_JOB_TIMEOUT,
+    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
+    DAGSTER_WEB_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
     drop_partitions_for_date_range,
@@ -41,7 +41,7 @@ def pre_aggregate_web_analytics_data(
     config = context.op_config
     team_ids = config.get("team_ids")
     extra_settings = config.get("extra_clickhouse_settings", "")
-    ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, extra_settings)
+    ch_settings = merge_clickhouse_settings(WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS, extra_settings)
 
     if not context.partition_time_window:
         raise dagster.Failure("This asset should only be run with a partition_time_window")
@@ -138,7 +138,7 @@ web_pre_aggregate_job = dagster.define_asset_job(
     selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
+        "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
     },
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
