@@ -697,6 +697,10 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         return count
 
 
+MB_50_IN_BYTES = 50 * 1000 * 1000
+MB_200_IN_BYTES = 200 * 1000 * 1000
+
+
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     """A HogQL table given by a HogQL query."""
 
@@ -794,18 +798,18 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Re-print the query with `FORMAT = ArrowStream`
     context.output_format = "ArrowStream"
+    # Set the preferred record batch size to be 50 MB
+    settings.preferred_block_size_bytes = MB_50_IN_BYTES
+
     arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
     if arrow_prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
     arrow_printed = await database_sync_to_async(print_prepared_ast)(
-        arrow_prepared_hogql_query,
-        context=context,
-        dialect="clickhouse",
-        stack=[],
+        arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
@@ -817,7 +821,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
             batches_size = batches_size + batch.nbytes
             batches.append(batch)
 
-            if batches_size >= 200 / 1000 / 1000:  # 200 MB
+            if batches_size >= MB_200_IN_BYTES:
                 await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
 
                 yield (
