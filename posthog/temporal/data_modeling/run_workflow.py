@@ -879,9 +879,8 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
                 ts_type: pa.TimestampType = typing.cast(pa.TimestampType, field.type)
 
                 if ts_type.tz is not None:
-                    normalized = pc.cast(column, pa.timestamp("us"))
-                    new_column = pc.cast(normalized, pa.timestamp("us", tz="UTC"))
-                    new_field = field.with_type(pa.timestamp("us", tz="UTC"))
+                    new_column = pc.cast(column, pa.timestamp("us", tz=ts_type.tz))
+                    new_field = field.with_type(pa.timestamp("us", tz=ts_type.tz))
                 else:
                     new_column = pc.cast(column, pa.timestamp("us"))
                     new_field = field.with_type(pa.timestamp("us"))
