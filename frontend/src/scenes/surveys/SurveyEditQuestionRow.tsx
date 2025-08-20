@@ -22,12 +22,7 @@ import {
 
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
-import {
-    NewSurvey,
-    SCALE_OPTIONS,
-    SURVEY_RATING_SCALE,
-    SurveyQuestionLabel,
-} from './constants'
+import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
 import { surveyLogic } from './surveyLogic'
 
 type SurveyQuestionHeaderProps = {
@@ -125,10 +120,6 @@ function canQuestionSkipSubmitButton(
     )
 }
 
-function isMultipleChoiceQuestion(type: SurveyQuestionType): boolean {
-    return type === SurveyQuestionType.MultipleChoice || type === SurveyQuestionType.SingleChoice
-}
-
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
@@ -185,9 +176,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <LemonSelect
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
-                            const isCurrentMultipleChoice = isMultipleChoiceQuestion(question.type)
-
-                            const isNewMultipleChoice = isMultipleChoiceQuestion(newType)
+                            const isCurrentMultipleChoice =
+                                question.type === SurveyQuestionType.MultipleChoice ||
+                                question.type === SurveyQuestionType.SingleChoice
+                            const isNewMultipleChoice =
+                                newType === SurveyQuestionType.MultipleChoice ||
+                                newType === SurveyQuestionType.SingleChoice
 
                             // Same multiple choice type - just update type
                             if (isCurrentMultipleChoice && isNewMultipleChoice) {
