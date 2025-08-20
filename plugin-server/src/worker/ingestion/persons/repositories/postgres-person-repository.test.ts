@@ -646,7 +646,7 @@ describe('PostgresPersonRepository', () => {
 
         it('should move all distinct IDs when person has fewer than the per-call limit', async () => {
             const team = await getFirstTeam(hub)
-            const limitedRepository = new PostgresPersonRepository(postgres, {}) // Limit is 5
+            const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-below-limit', { name: 'Source Person' })
             const targetPerson = await createTestPerson(team.id, 'target-below-limit', { name: 'Target Person' })
