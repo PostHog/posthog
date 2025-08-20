@@ -23,7 +23,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     """
 
     query: EventTaxonomyQuery
-    response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse
 
     def _calculate(self):

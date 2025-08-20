@@ -33,7 +33,6 @@ BREAKDOWN_NULL_DISPLAY = "(none)"
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryResponse]):
     query: WebStatsTableQuery
-    response: WebStatsTableQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
     preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder

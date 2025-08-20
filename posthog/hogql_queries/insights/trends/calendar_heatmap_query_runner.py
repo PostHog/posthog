@@ -114,7 +114,6 @@ FROM (
 
 class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
     query: CalendarHeatmapQuery
-    response: CalendarHeatmapResponse
     cached_response: CachedCalendarHeatmapQueryResponse
     series: list[SeriesWithExtras]
 

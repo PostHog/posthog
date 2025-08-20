@@ -50,7 +50,6 @@ class TracesQueryDateRange(QueryDateRange):
 
 class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     query: TracesQuery
-    response: TracesQueryResponse
     cached_response: CachedTracesQueryResponse
     paginator: HogQLHasMorePaginator
 

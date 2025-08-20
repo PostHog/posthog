@@ -24,7 +24,6 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
     """
 
     query: TeamTaxonomyQuery
-    response: TeamTaxonomyQueryResponse
     cached_response: CachedTeamTaxonomyQueryResponse
 
     def _calculate(self):

@@ -53,7 +53,6 @@ class SeriesWithExtras:
 
 class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
     query: StickinessQuery
-    response: StickinessQueryResponse
     cached_response: CachedStickinessQueryResponse
     series: list[SeriesWithExtras]
 

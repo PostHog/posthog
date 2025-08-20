@@ -91,7 +91,6 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
     MIN_PERSON_PERCENTAGE = 0.02
 
     query: FunnelCorrelationQuery
-    response: FunnelCorrelationResponse
     cached_response: CachedFunnelCorrelationResponse
 
     funnels_query: FunnelsQuery

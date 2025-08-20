@@ -34,7 +34,6 @@ class VolumeOptions:
 
 class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
     query: ErrorTrackingQuery
-    response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
     date_from: datetime.datetime

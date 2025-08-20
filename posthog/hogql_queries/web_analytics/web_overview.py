@@ -26,7 +26,6 @@ logger = structlog.get_logger(__name__)
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
     query: WebOverviewQuery
-    response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
     preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
 

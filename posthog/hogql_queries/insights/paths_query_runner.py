@@ -44,7 +44,6 @@ EDGE_LIMIT_DEFAULT = 50
 
 class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
     query: PathsQuery
-    response: PathsQueryResponse
     cached_response: CachedPathsQueryResponse
 
     def __init__(

@@ -19,7 +19,6 @@ CONSTANT_ZERO = ast.Constant(value=0)
 
 class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsOverviewQueryResponse]):
     query: RevenueAnalyticsOverviewQuery
-    response: RevenueAnalyticsOverviewQueryResponse
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery:

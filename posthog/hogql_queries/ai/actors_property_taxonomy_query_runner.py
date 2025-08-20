@@ -16,7 +16,6 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner
     MAX_PROPERTY_LIMIT = 200
 
     query: ActorsPropertyTaxonomyQuery
-    response: ActorsPropertyTaxonomyQueryResponse
     cached_response: CachedActorsPropertyTaxonomyQueryResponse
 
     def _calculate(self):

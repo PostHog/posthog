@@ -37,7 +37,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
     EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
-    response: SessionsTimelineQueryResponse
     cached_response: CachedSessionsTimelineQueryResponse
 
     def _get_events_subquery(self) -> ast.SelectQuery:

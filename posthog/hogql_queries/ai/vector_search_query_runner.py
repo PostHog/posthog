@@ -17,7 +17,6 @@ LATEST_ACTIONS_EMBEDDING_VERSION: int = 2
 
 class VectorSearchQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[VectorSearchQueryResponse]):
     query: VectorSearchQuery
-    response: VectorSearchQueryResponse
     cached_response: CachedVectorSearchQueryResponse
 
     def _calculate(self):

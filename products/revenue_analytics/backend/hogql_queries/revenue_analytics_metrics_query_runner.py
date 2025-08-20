@@ -31,7 +31,6 @@ KINDS = [
 
 class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsMetricsQueryResponse]):
     query: RevenueAnalyticsMetricsQuery
-    response: RevenueAnalyticsMetricsQueryResponse
     cached_response: CachedRevenueAnalyticsMetricsQueryResponse
 
     def to_query(self) -> ast.SelectQuery:

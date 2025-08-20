@@ -23,7 +23,6 @@ from posthog.schema import (
 
 class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner[WebExternalClicksTableQueryResponse]):
     query: WebExternalClicksTableQuery
-    response: WebExternalClicksTableQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
 

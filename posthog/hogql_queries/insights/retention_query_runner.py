@@ -51,7 +51,6 @@ DEFAULT_ENTITY = RetentionEntity(
 
 class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     query: RetentionQuery
-    response: RetentionQueryResponse
     cached_response: CachedRetentionQueryResponse
     start_event: RetentionEntity
     return_event: RetentionEntity

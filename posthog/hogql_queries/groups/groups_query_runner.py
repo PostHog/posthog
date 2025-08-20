@@ -9,7 +9,6 @@ from posthog.schema import GroupsQuery, GroupsQueryResponse, CachedGroupsQueryRe
 
 class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
     query: GroupsQuery
-    response: GroupsQueryResponse
     cached_response: CachedGroupsQueryResponse
 
     def __init__(self, *args, **kwargs):
