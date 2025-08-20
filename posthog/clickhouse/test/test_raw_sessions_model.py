@@ -1,3 +1,5 @@
+import datetime
+
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client import sync_execute
 from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
@@ -350,4 +352,23 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         sync_execute(
             "INSERT INTO raw_sessions" + RAW_SESSION_TABLE_BACKFILL_SELECT_SQL() + "AND team_id = %(team_id)s",
             {"team_id": self.team.id},
+        )
+
+    def test_max_inserted_at(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        now = datetime.datetime.now(datetime.UTC)
+
+        result = self.select_by_session_id(session_id)
+        max_inserted_at = result[0]["max_inserted_at"]
+        # assert that it's close to now, allowing for a small margin of error because we're running this on CI in the cloud somewhere with preempting
+        self.assertTrue(
+            abs((max_inserted_at - now).total_seconds()) < 10,
         )

@@ -1,10 +1,11 @@
+from posthog.models import GroupTypeMapping
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from django.utils import timezone
 from datetime import timedelta
 from django.test import override_settings
 from freezegun import freeze_time
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
 from posthog.models.group.util import create_group, raw_create_group_ch
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import GroupsQuery, PropertyOperator, GroupPropertyFilter
 from posthog.test.base import (
@@ -17,10 +18,10 @@ from posthog.test.base import (
 @override_settings(IN_UNIT_TESTING=True)
 class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def create_standard_test_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
         )
 
@@ -360,7 +361,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
     def test_groups_query_runner_normalize_multiple_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 

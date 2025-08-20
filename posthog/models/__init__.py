@@ -41,6 +41,7 @@ from .error_tracking import (
     ErrorTrackingGroupingRule,
     ErrorTrackingSuppressionRule,
 )
+from products.tasks.backend.models import Task
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition

@@ -23,17 +23,6 @@ Max will be talking with a user named {{{user_name}}}.
 
 Based on PostHog's style preferences, evaluate if this response matches their target tone:
 
-Target style characteristics:
-- Friendly but not overly enthusiastic
-- Direct without corporate hedge words like "unfortunately"
-- Natural conversation flow with contractions where appropriate
-- Professional with light personality, not whimsical or flowery
-- Casual offers like "want me to" instead of formal "would you like me to"
-- Natural emphasis words like "actually" and "likely" are good
-- Avoid overly apologetic language like "no worries"
-- Never use stereotypes about gender, nationality, race, culture, or demographics in humor or commentary
-- While Max is a hedgehog, it should avoid forcing this fact or related puns (like saying "prickly"), unless brought up by the user
-
 <user_message>
 {{{input}}}
 </user_message>
@@ -43,17 +32,19 @@ Target style characteristics:
 </max_response>
 
 Evaluate this response's style quality. Choose one:
-- professional-but-approachable: Perfect PostHog tone - friendly, direct, professional but personable, avoids stereotypes
-- visibly-corporate: Too formal, uses hedge words, lacks warmth and personality
-- visibly-whimsical: Too flowery, overly enthusiastic, cutesy language, or cringey humor
+- perfectly-professional-but-approachable: Perfect PostHog tone - direct, helpful, friendly but not fluffy, gets straight to the point.
+- visibly-corporate: Visibly formal, uses hedge words like "unfortunately", lacks warmth and personality, uses overly apologetic language like "no worries". Uses the em-dash (—). Doesn't use natural contractions (like "I'll").
+- visibly-whimsical: Visibly flowery, overly enthusiastic, cutesy language, or cringey humor. Forces hedgehog puns/facts without user prompt.
+- visibly-fluffy: Uses redundant casual commentary, filler phrases like "Great question!", verbose language that doesn't add value to helping the user, overly casual language that doesn't add value ("I hear you", "You're absolutely right!", "Let's get this sorted out", "Thanks for reaching out", etc.).
 - empty: No response
 
-Focus specifically on tone and writing style, not content accuracy.
+Focus specifically on tone and writing style, not content accuracy. BE EXTREMELY HARSH.
 """.strip(),
             choice_scores={
-                "professional-but-approachable": 1.0,
+                "perfectly-professional-but-approachable": 1.0,
                 "visibly-corporate": 0.0,
                 "visibly-whimsical": 0.0,
+                "visibly-fluffy": 0.0,
                 "empty": None,
             },
             model="gpt-4.1",
@@ -71,6 +62,10 @@ def call_root(demo_org_team_user):
                 # Some requests will go via Inkeep, and this is realistic! Inkeep needs to adhere to our intended style too
                 "search_documentation": AssistantNodeName.INKEEP_DOCS,
                 "root": AssistantNodeName.ROOT,
+                "billing": AssistantNodeName.BILLING,
+                "insights": AssistantNodeName.END,
+                "insights_search": AssistantNodeName.END,
+                "session_summarization": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }
         )
@@ -146,6 +141,40 @@ async def eval_root_style(call_root, pytestconfig):
             EvalCase(
                 input="Can you make this analytics meeting more fun with a joke?",
                 expected="Response should avoid stereotypical jokes about any demographic groups or cultures",
+            ),
+            # Critical: Test cases that previously triggered problematic responses
+            EvalCase(
+                input="my posthog is slow how to optimize performance",
+                expected="Response should be direct and helpful, addressing performance optimization without fluffy language like 'I hear you' or unnecessary commentary",
+            ),
+            EvalCase(
+                input="ph not tracking events???",
+                expected="Response should get straight to troubleshooting tracking issues without fluffy preambles or verbose explanations",
+            ),
+            EvalCase(
+                input="posthog broken",
+                expected="Response should immediately focus on systematic troubleshooting without unnecessary casual commentary",
+            ),
+            EvalCase(
+                input="cant see recordings",
+                expected="Response should directly address session recording issues without fluffy language or verbose explanations",
+            ),
+            EvalCase(
+                input="help feature flag setup",
+                expected="Response should provide concise setup assistance without verbose preambles or overly casual language",
+            ),
+            # Test cases for various communication styles that should get direct responses
+            EvalCase(
+                input="sdk integration issues react native",
+                expected="Response should provide direct technical help without verbose preambles or fluffy language",
+            ),
+            EvalCase(
+                input="Why are my PostHog cohorts not updating automatically?",
+                expected="Response should directly explain cohort behavior without unnecessary casual commentary or verbose explanations",
+            ),
+            EvalCase(
+                input="PostHog feature flags not working in production environment",
+                expected="Response should get straight to troubleshooting production issues without fluffy language or verbose setup",
             ),
         ],
         pytestconfig=pytestconfig,

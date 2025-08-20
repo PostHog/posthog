@@ -903,7 +903,8 @@
                 "create_hog_function_inputs",
                 "create_message_template",
                 "navigate",
-                "search_error_tracking_issues",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
                 "search_docs",
@@ -3656,22 +3657,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -9696,6 +9682,7 @@
                     "type": "string"
                 },
                 "last_seen": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "library": {
@@ -10031,6 +10018,58 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "ErrorTrackingIssueFilteringToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "newFilters": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "orderBy": {
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "removedFilterIndexes": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ErrorTrackingIssueImpactToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10204,45 +10243,6 @@
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
-            "type": "object"
-        },
-        "ErrorTrackingSceneToolOutput": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "newFilters": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
-                },
-                "orderDirection": {
-                    "enum": ["ASC", "DESC"],
-                    "type": "string"
-                },
-                "removedFilterIndexes": {
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "searchQuery": {
-                    "type": "string"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-                    "type": "string"
-                }
-            },
             "type": "object"
         },
         "EventDefinition": {
@@ -12922,22 +12922,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -19791,22 +19776,7 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/FunnelStepsResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTimeToConvertResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTrendsResults"
-                                }
-                            ]
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -20711,6 +20681,10 @@
                         {
                             "const": "visited_page",
                             "type": "string"
+                        },
+                        {
+                            "const": "comment_text",
+                            "type": "string"
                         }
                     ]
                 },
@@ -20739,6 +20713,9 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "comment_text": {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 "console_log_filters": {
                     "items": {

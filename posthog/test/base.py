@@ -46,7 +46,7 @@ from posthog.clickhouse.custom_metrics import (
 )
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_TABLE_SQL, QUERY_LOG_ARCHIVE_MV
+from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_NEW_TABLE_SQL, QUERY_LOG_ARCHIVE_NEW_MV
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
@@ -1194,7 +1194,7 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_TABLE_SQL(),
+            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive"),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1212,7 +1212,7 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            QUERY_LOG_ARCHIVE_MV(),
+            QUERY_LOG_ARCHIVE_NEW_MV(view_name="query_log_archive_mv", dest_table="query_log_archive"),
         ]
     )
     run_clickhouse_statement_in_parallel(

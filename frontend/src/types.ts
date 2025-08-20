@@ -1211,7 +1211,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page'
+    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
     operator: PropertyOperator
 }
 
@@ -1527,6 +1527,11 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+}
+
+export enum GroupsTabType {
+    NOTES = 'notes',
+    OVERVIEW = 'overview',
 }
 
 export enum LayoutView {

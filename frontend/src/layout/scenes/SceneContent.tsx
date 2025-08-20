@@ -35,7 +35,7 @@ export function SceneContent({
 }
 
 interface SceneSectionProps {
-    title: React.ReactNode
+    title?: React.ReactNode
     description?: React.ReactNode
     isLoading?: boolean
     children: React.ReactNode
@@ -82,10 +82,12 @@ export function SceneSection({
 
     return (
         <div className={cn('scene-section--new-layout flex flex-col gap-y-4', className)}>
-            <div className="flex flex-col gap-y-0">
-                <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
-                {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
-            </div>
+            {(title || description) && (
+                <div className="flex flex-col gap-y-0">
+                    <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
+                    {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                </div>
+            )}
             {children}
         </div>
     )
@@ -154,6 +156,7 @@ export function SceneTitleSection({
                             className: 'rounded-sm h-[var(--button-height-lg)]',
                             inert: true,
                         })}
+                        aria-hidden
                     >
                         {icon}
                     </span>
@@ -276,6 +279,7 @@ export function SceneDescription({
                 }
             }}
             markdown
+            placeholder="Enter description (optional)"
         />
     ) : (
         <>
