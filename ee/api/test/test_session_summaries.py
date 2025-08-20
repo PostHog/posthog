@@ -144,7 +144,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         # Verify create_notebook_from_summary_content was called
         mock_create_notebook.assert_called_once_with(
-            session_ids=["session1", "session2"],
             user=self.user,
             team=self.team,
             summary_content=mock_generate_content.return_value,
@@ -199,7 +198,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         # Verify create_notebook_from_summary_content was called
         mock_create_notebook.assert_called_once_with(
-            session_ids=["session1", "session2"],
             user=self.user,
             team=self.team,
             summary_content=mock_generate_content.return_value,
@@ -435,7 +433,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         # Verify create_notebook_from_summary_content was called
         mock_create_notebook.assert_called_once_with(
-            session_ids=["single_session"],
             user=self.user,
             team=self.team,
             summary_content=mock_generate_content.return_value,

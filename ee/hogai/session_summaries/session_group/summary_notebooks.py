@@ -210,9 +210,7 @@ async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
     return notebook
 
 
-async def create_notebook_from_summary_content(
-    session_ids: list[str], user: User, team: Team, summary_content: TipTapNode
-) -> Notebook:
+async def create_notebook_from_summary_content(user: User, team: Team, summary_content: TipTapNode) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook = await Notebook.objects.acreate(
         team=team,

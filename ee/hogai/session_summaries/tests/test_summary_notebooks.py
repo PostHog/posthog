@@ -98,7 +98,7 @@ class TestNotebookCreation(APIBaseTest):
 
         # Generate content first
         content = generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
-        notebook = await create_notebook_from_summary_content(session_ids, self.user, self.team, content)
+        notebook = await create_notebook_from_summary_content(self.user, self.team, content)
 
         # Verify the notebook was created
         assert notebook is not None

@@ -128,7 +128,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 summary=summary, session_ids=session_ids, project_name=self.team.name, team_id=self.team.id
             )
             async_to_sync(create_notebook_from_summary_content)(
-                session_ids=session_ids, user=user, team=self.team, summary_content=summary_content
+                user=user, team=self.team, summary_content=summary_content
             )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
