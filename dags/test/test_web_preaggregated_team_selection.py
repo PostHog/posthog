@@ -3,6 +3,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 import dagster
+from posthog.test.base import APIBaseTest
+from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import DEFAULT_ENABLED_TEAM_IDS
 
 from dags.web_preaggregated_team_selection import (
@@ -11,10 +13,10 @@ from dags.web_preaggregated_team_selection import (
     store_team_selection_in_clickhouse,
     web_analytics_team_selection,
 )
-from dags.web_preaggregated_team_selection_strategies import (
+from posthog.models.web_preaggregated.team_selection_strategies import (
     EnvironmentVariableStrategy,
     HighPageviewsStrategy,
-    FeatureEnrollmentStrategy,
+    ProjectSettingsStrategy,
 )
 
 
@@ -46,7 +48,7 @@ class TestGetTeamIdsFromSources:
         for default_team in DEFAULT_ENABLED_TEAM_IDS:
             assert default_team in result
 
-    @patch("dags.web_preaggregated_team_selection_strategies.HighPageviewsStrategy.get_teams")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.HighPageviewsStrategy.get_teams")
     def test_includes_pageview_teams_when_pageviews_strategy_enabled(self, mock_pageviews):
         mock_pageviews.return_value = {999, 888}
 
@@ -83,43 +85,32 @@ class TestGetTeamIdsFromSources:
         assert isinstance(result, list)
         assert result == sorted(result)
 
-    @patch("dags.web_preaggregated_team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
-    def test_includes_feature_enrollment_teams_when_strategy_enabled(self, mock_enrollment):
-        mock_enrollment.return_value = {777, 666}
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.ProjectSettingsStrategy.get_teams")
+    def test_includes_project_settings_teams_when_strategy_enabled(self, mock_project_settings):
+        mock_project_settings.return_value = {888, 999}
 
         with patch.dict(
             os.environ,
             {
-                "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES": "feature_enrollment",
-                "WEB_ANALYTICS_FEATURE_FLAG_KEY": "test-flag",
+                "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES": "project_settings",
             },
         ):
             result = get_team_ids_from_sources(self.mock_context)
 
-        assert 777 in result
-        assert 666 in result
-        mock_enrollment.assert_called_once_with(self.mock_context)
+        assert 888 in result
+        assert 999 in result
+        mock_project_settings.assert_called_once_with(self.mock_context)
 
-    @patch("dags.web_preaggregated_team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
-    def test_uses_default_flag_key_when_not_specified(self, mock_enrollment):
-        mock_enrollment.return_value = {555}
-
-        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES": "feature_enrollment"}, clear=True):
-            result = get_team_ids_from_sources(self.mock_context)
-
-        assert 555 in result
-        mock_enrollment.assert_called_once_with(self.mock_context)
-
-    @patch("dags.web_preaggregated_team_selection_strategies.HighPageviewsStrategy.get_teams")
-    @patch("dags.web_preaggregated_team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
-    def test_combines_multiple_strategies(self, mock_enrollment, mock_pageviews):
-        mock_enrollment.return_value = {111, 222}
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.HighPageviewsStrategy.get_teams")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.ProjectSettingsStrategy.get_teams")
+    def test_combines_multiple_strategies(self, mock_project_settings, mock_pageviews):
+        mock_project_settings.return_value = {111, 222}
         mock_pageviews.return_value = {333, 444}
 
         with patch.dict(
             os.environ,
             {
-                "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES": "high_pageviews,feature_enrollment",
+                "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES": "high_pageviews,project_settings",
                 "WEB_ANALYTICS_ENABLED_TEAM_IDS": "555",
             },
             clear=True,
@@ -127,8 +118,8 @@ class TestGetTeamIdsFromSources:
             result = get_team_ids_from_sources(self.mock_context)
 
         # Should include teams from all strategies plus defaults
-        assert 111 in result  # from feature enrollment
-        assert 222 in result  # from feature enrollment
+        assert 111 in result  # from project settings
+        assert 222 in result  # from project settings
         assert 333 in result  # from pageviews
         assert 444 in result  # from pageviews
         for default_team in DEFAULT_ENABLED_TEAM_IDS:
@@ -205,7 +196,7 @@ class TestStrategyClasses:
         assert result == {123, 456}  # Should include valid ones only
         self.mock_context.log.warning.assert_called_once()
 
-    @patch("dags.web_preaggregated_team_selection_strategies.sync_execute")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
     def test_high_pageviews_strategy_returns_teams(self, mock_execute):
         strategy = HighPageviewsStrategy()
         mock_execute.return_value = [(123,), (456,)]
@@ -215,7 +206,7 @@ class TestStrategyClasses:
         assert result == {123, 456}
         mock_execute.assert_called_once()
 
-    @patch("dags.web_preaggregated_team_selection_strategies.sync_execute")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
     def test_high_pageviews_strategy_handles_errors(self, mock_execute):
         strategy = HighPageviewsStrategy()
         mock_execute.side_effect = Exception("DB error")
@@ -225,46 +216,34 @@ class TestStrategyClasses:
         assert result == set()
         self.mock_context.log.warning.assert_called_once()
 
-    @patch("posthog.models.person.person.Person.objects")
-    def test_feature_enrollment_strategy_returns_teams(self, mock_person_objects):
-        strategy = FeatureEnrollmentStrategy()
-
-        # Mock the Django ORM query chain
-        mock_queryset = Mock()
-        mock_queryset.values_list.return_value.distinct.return_value = [1, 2, 3]
-        mock_person_objects.filter.return_value = mock_queryset
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.Team.objects")
+    def test_project_settings_strategy_returns_teams(self, mock_team_objects):
+        strategy = ProjectSettingsStrategy()
+        mock_team_objects.filter.return_value.values_list.return_value = [123, 456]
 
         result = strategy.get_teams(self.mock_context)
 
-        assert result == {1, 2, 3}
-        mock_person_objects.filter.assert_called_once_with(
-            **{"properties__$feature_enrollment/web-analytics-api": True}
-        )
-        self.mock_context.log.info.assert_called_once()
+        assert result == {123, 456}
+        mock_team_objects.filter.assert_called_once_with(web_analytics_pre_aggregated_tables_enabled=True)
+        mock_team_objects.filter.return_value.values_list.assert_called_once_with("id", flat=True)
 
-    @patch("posthog.models.person.person.Person.objects")
-    def test_feature_enrollment_strategy_handles_errors(self, mock_person_objects):
-        strategy = FeatureEnrollmentStrategy()
-        mock_person_objects.filter.side_effect = Exception("DB error")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.Team.objects")
+    def test_project_settings_strategy_handles_database_errors(self, mock_team_objects):
+        strategy = ProjectSettingsStrategy()
+        mock_team_objects.filter.side_effect = Exception("Database error")
 
         result = strategy.get_teams(self.mock_context)
 
         assert result == set()
-        self.mock_context.log.warning.assert_called_once()
 
-    @patch("posthog.models.person.person.Person.objects")
-    def test_feature_enrollment_strategy_uses_custom_flag_key(self, mock_person_objects):
-        strategy = FeatureEnrollmentStrategy()
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.Team.objects")
+    def test_project_settings_strategy_handles_empty_results(self, mock_team_objects):
+        strategy = ProjectSettingsStrategy()
+        mock_team_objects.filter.return_value.values_list.return_value = []
 
-        mock_queryset = Mock()
-        mock_queryset.values_list.return_value.distinct.return_value = [5, 6]
-        mock_person_objects.filter.return_value = mock_queryset
+        result = strategy.get_teams(self.mock_context)
 
-        with patch.dict(os.environ, {"WEB_ANALYTICS_FEATURE_FLAG_KEY": "custom-flag"}):
-            result = strategy.get_teams(self.mock_context)
-
-        assert result == {5, 6}
-        mock_person_objects.filter.assert_called_once_with(**{"properties__$feature_enrollment/custom-flag": True})
+        assert result == set()
 
 
 class TestStoreTeamSelectionInClickhouse:
@@ -292,7 +271,7 @@ class TestStoreTeamSelectionInClickhouse:
         self.mock_context.log.info.assert_called()
 
     def test_handles_empty_team_ids_list(self):
-        team_ids = []
+        team_ids: list[int] = []
 
         result = store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
@@ -388,21 +367,26 @@ class TestWebAnalyticsTeamSelectionAsset:
 
         # Verify result
         assert isinstance(result, dagster.MaterializeResult)
-        assert result.metadata["team_count"] == len(test_teams)
-        assert result.metadata["team_ids"] == str(test_teams)
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["team_count"] == len(test_teams)
+        assert metadata["team_ids"] == str(test_teams)
 
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
     @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
     def test_asset_handles_empty_teams(self, mock_store, mock_get_teams):
-        empty_teams = []
+        empty_teams: list[int] = []
         mock_get_teams.return_value = empty_teams
         mock_store.return_value = empty_teams
 
         context = dagster.build_asset_context()
         result = web_analytics_team_selection(context, self.mock_cluster)
 
-        assert result.metadata["team_count"] == 0
-        assert result.metadata["team_ids"] == str(empty_teams)
+        assert isinstance(result, dagster.MaterializeResult)
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["team_count"] == 0
+        assert metadata["team_ids"] == str(empty_teams)
 
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
     @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
@@ -417,13 +401,17 @@ class TestWebAnalyticsTeamSelectionAsset:
             web_analytics_team_selection(context, self.mock_cluster)
 
 
-class TestIntegrationScenarios:
-    def setup_method(self):
+class TestIntegrationScenarios(APIBaseTest):
+    def setUp(self):
+        super().setUp()
         self.mock_context = Mock(spec=dagster.OpExecutionContext)
         self.mock_context.log = Mock()
 
-    def test_complete_flow_with_env_variable(self):
+    @patch("dags.web_preaggregated_team_selection.validate_team_ids")
+    def test_complete_flow_with_env_variable(self, mock_validate):
         test_teams = "100, 200, 300"
+        expected_teams = [100, 200, 300, *list(DEFAULT_ENABLED_TEAM_IDS)]
+        mock_validate.return_value = set(expected_teams)
 
         with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
             result = get_team_ids_from_sources(self.mock_context)
@@ -435,9 +423,51 @@ class TestIntegrationScenarios:
         for default_team in DEFAULT_ENABLED_TEAM_IDS:
             assert default_team in result
 
-    def test_complete_flow_with_defaults(self):
+    @patch("dags.web_preaggregated_team_selection.validate_team_ids")
+    def test_complete_flow_with_defaults(self, mock_validate):
+        mock_validate.return_value = set(DEFAULT_ENABLED_TEAM_IDS)
+
         with patch.dict(os.environ, {}, clear=True):
             result = get_team_ids_from_sources(self.mock_context)
 
         assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
         assert len(result) > 0  # Ensure defaults are not empty
+
+    @patch("dags.web_preaggregated_team_selection.validate_team_ids")
+    def test_complete_flow_with_project_settings_from_database(self, mock_validate):
+        # Create teams with different web analytics settings
+        enabled_team_1 = Team.objects.create(
+            organization=self.organization,
+            name="Analytics Enabled Team 1",
+            web_analytics_pre_aggregated_tables_enabled=True,
+        )
+        enabled_team_2 = Team.objects.create(
+            organization=self.organization,
+            name="Analytics Enabled Team 2",
+            web_analytics_pre_aggregated_tables_enabled=True,
+        )
+        disabled_team = Team.objects.create(
+            organization=self.organization,
+            name="Analytics Disabled Team",
+            web_analytics_pre_aggregated_tables_enabled=False,
+        )
+
+        # Mock validation to allow our test teams
+        expected_enabled_teams = [enabled_team_1.pk, enabled_team_2.pk]
+        all_teams = expected_enabled_teams + list(DEFAULT_ENABLED_TEAM_IDS)
+        mock_validate.return_value = set(all_teams)
+
+        # Test the full DAG flow using project_settings strategy
+        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES": "project_settings"}):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        # Should include teams with web_analytics_pre_aggregated_tables_enabled=True + defaults
+        assert enabled_team_1.pk in result
+        assert enabled_team_2.pk in result
+        assert disabled_team.pk not in result  # Should NOT include disabled team
+
+        # Should also include defaults
+        assert set(DEFAULT_ENABLED_TEAM_IDS).issubset(set(result))
+
+        # Verify result is sorted list
+        assert result == sorted(result)

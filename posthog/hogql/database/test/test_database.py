@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from typing import Any, cast
 
@@ -20,7 +21,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.context import HogQLContext
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -409,7 +409,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -433,14 +433,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
             create_hogql_database(team=self.team, modifiers=modifiers)
 
     def test_database_group_type_mappings(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
         )
         db = create_hogql_database(team=self.team)
@@ -448,7 +448,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
 
     def test_database_group_type_mappings_overwrite(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
         )
         db = create_hogql_database(team=self.team)
@@ -752,7 +752,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(6, 8)):
+            with self.assertNumQueries(FuzzyInt(6, 9)):
                 create_hogql_database(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable

@@ -17,6 +17,7 @@ export function createTooltipData(
                 id: idx,
                 dataIndex: dp.dataIndex,
                 datasetIndex: dp.datasetIndex,
+                seriesIndex: dp.dataIndex,
                 dotted: !!pointDataset?.dotted,
                 breakdown_value:
                     pointDataset?.breakdown_value ??
