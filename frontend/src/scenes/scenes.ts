@@ -211,24 +211,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
     },
-    [Scene.PipelineNodeNew]: {
-        projectBased: true,
-        name: 'Pipeline new step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.PipelineNode]: {
-        projectBased: true,
-        name: 'Pipeline step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.Pipeline]: {
-        projectBased: true,
-        name: 'Pipeline',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
