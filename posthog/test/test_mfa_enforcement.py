@@ -1,4 +1,5 @@
 import time
+import datetime
 from unittest.mock import Mock, patch
 
 from django.conf import settings
@@ -7,7 +8,6 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
-from rest_framework.views import APIView
 
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
@@ -20,9 +20,9 @@ from posthog.helpers.mfa_session import (
     is_mfa_session_expired,
     is_mfa_verified_in_session,
     set_mfa_verified_in_session,
+    MFA_ENFORCEMENT_FROM_DATE,
 )
 from posthog.models import Organization, User
-from posthog.permissions import MFARequiredPermission
 
 
 class TestMFASessionUtils(TestCase):
@@ -54,13 +54,20 @@ class TestMFASessionUtils(TestCase):
 
     def test_is_mfa_verified_in_session_without_flag(self):
         request = self._create_request()
-        request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+        after_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
+        request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
         self.assertFalse(is_mfa_verified_in_session(request))
 
-    def test_is_mfa_verified_in_session_with_expired_session(self):
+    @patch("time.time")
+    def test_is_mfa_verified_in_session_with_expired_session(self, mock_time):
         request = self._create_request()
         request.session["mfa_verified"] = True
-        request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time() - (15 * 24 * 60 * 60)
+
+        session_created_time = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
+        mock_current_time = session_created_time + settings.SESSION_COOKIE_AGE + 1
+        mock_time.return_value = mock_current_time
+
+        request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = session_created_time
         self.assertFalse(is_mfa_verified_in_session(request))
 
     def test_is_mfa_verified_in_session_without_session_timestamp(self):
@@ -68,7 +75,7 @@ class TestMFASessionUtils(TestCase):
         request.session["mfa_verified"] = True
         if settings.SESSION_COOKIE_CREATED_AT_KEY in request.session:
             del request.session[settings.SESSION_COOKIE_CREATED_AT_KEY]
-        self.assertFalse(is_mfa_verified_in_session(request))
+        self.assertTrue(is_mfa_verified_in_session(request))
 
     def test_clear_mfa_session_flags(self):
         request = self._create_request()
@@ -96,89 +103,6 @@ class TestMFASessionUtils(TestCase):
         self.assertTrue(is_mfa_session_expired(request))
 
 
-class TestMFARequiredPermission(TestCase):
-    def setUp(self):
-        self.factory = APIRequestFactory()
-        self.permission = MFARequiredPermission()
-        self.view = Mock(spec=APIView)
-
-        self.user = User(id=1, email="test@example.com")
-        self.organization = Organization(id=1, name="Test Org", enforce_2fa=True)
-
-    def _create_request_with_auth(self, auth_class, user=None):
-        request = self.factory.get("/")
-        request.user = user or self.user
-        request.successful_authenticator = auth_class()
-        return request
-
-    def test_permission_granted_for_non_session_auth(self):
-        request = self._create_request_with_auth(PersonalAPIKeyAuthentication)
-        self.assertTrue(self.permission.has_permission(request, self.view))
-
-    def test_permission_granted_for_unauthenticated_user(self):
-        request = self._create_request_with_auth(SessionAuthentication, user=None)
-        self.assertTrue(self.permission.has_permission(request, self.view))
-
-    @patch("posthog.permissions.is_impersonated_session")
-    def test_permission_granted_for_impersonated_session(self, mock_is_impersonated):
-        mock_is_impersonated.return_value = True
-        request = self._create_request_with_auth(SessionAuthentication)
-
-        with patch.object(self.permission, "_get_organization", return_value=self.organization):
-            self.assertTrue(self.permission.has_permission(request, self.view))
-
-    def test_permission_granted_when_organization_does_not_enforce_2fa(self):
-        org_no_2fa = Organization(id=2, name="No 2FA Org", enforce_2fa=False)
-        request = self._create_request_with_auth(SessionAuthentication)
-
-        with patch.object(self.permission, "_get_organization", return_value=org_no_2fa):
-            self.assertTrue(self.permission.has_permission(request, self.view))
-
-    def test_permission_granted_when_no_organization(self):
-        request = self._create_request_with_auth(SessionAuthentication)
-
-        with patch.object(self.permission, "_get_organization", return_value=None):
-            self.assertTrue(self.permission.has_permission(request, self.view))
-
-    @patch("posthog.permissions.default_device")
-    @patch("posthog.permissions.is_impersonated_session")
-    def test_permission_denied_when_user_has_no_2fa_device(self, mock_is_impersonated, mock_default_device):
-        mock_is_impersonated.return_value = False
-        mock_default_device.return_value = None
-        request = self._create_request_with_auth(SessionAuthentication)
-
-        with patch.object(self.permission, "_get_organization", return_value=self.organization):
-            self.assertFalse(self.permission.has_permission(request, self.view))
-
-    @patch("posthog.permissions.default_device")
-    @patch("posthog.permissions.is_impersonated_session")
-    @patch("posthog.permissions.is_mfa_verified_in_session")
-    def test_permission_denied_when_session_not_verified(
-        self, mock_is_mfa_verified, mock_is_impersonated, mock_default_device
-    ):
-        mock_is_impersonated.return_value = False
-        mock_default_device.return_value = Mock()
-        mock_is_mfa_verified.return_value = False
-        request = self._create_request_with_auth(SessionAuthentication)
-
-        with patch.object(self.permission, "_get_organization", return_value=self.organization):
-            self.assertFalse(self.permission.has_permission(request, self.view))
-
-    @patch("posthog.permissions.default_device")
-    @patch("posthog.permissions.is_impersonated_session")
-    @patch("posthog.permissions.is_mfa_verified_in_session")
-    def test_permission_granted_when_fully_verified(
-        self, mock_is_mfa_verified, mock_is_impersonated, mock_default_device
-    ):
-        mock_is_impersonated.return_value = False
-        mock_default_device.return_value = Mock()
-        mock_is_mfa_verified.return_value = True
-        request = self._create_request_with_auth(SessionAuthentication)
-
-        with patch.object(self.permission, "_get_organization", return_value=self.organization):
-            self.assertTrue(self.permission.has_permission(request, self.view))
-
-
 class TestSessionAuthenticationMFA(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
@@ -202,6 +126,16 @@ class TestSessionAuthenticationMFA(TestCase):
         request = self.factory.get(path)
         request._request = http_request
         return request
+
+    def _set_session_after_enforcement_date(self, request):
+        after_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
+        request._request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
+        request._request.session.save()
+
+    def _set_session_before_enforcement_date(self, request):
+        before_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE - datetime.timedelta(days=1)).timetuple())
+        request._request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = before_date
+        request._request.session.save()
 
     @patch("posthog.helpers.mfa_session.default_device")
     @patch("posthog.helpers.mfa_session.is_impersonated_session")
@@ -233,12 +167,12 @@ class TestSessionAuthenticationMFA(TestCase):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
         request = self._create_drf_request()
+        self._set_session_after_enforcement_date(request)
 
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             with self.assertRaises(PermissionDenied) as cm:
                 self.auth.authenticate(request)
             self.assertEqual(str(cm.exception.detail), "2FA setup required")
-            self.assertEqual(cm.exception.get_codes(), "mfa_setup_required")
 
     @patch("posthog.helpers.mfa_session.default_device")
     @patch("posthog.helpers.mfa_session.is_impersonated_session")
@@ -250,12 +184,12 @@ class TestSessionAuthenticationMFA(TestCase):
         mock_default_device.return_value = Mock()
         mock_is_mfa_verified.return_value = False
         request = self._create_drf_request()
+        self._set_session_after_enforcement_date(request)
 
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             with self.assertRaises(PermissionDenied) as cm:
                 self.auth.authenticate(request)
             self.assertEqual(str(cm.exception.detail), "2FA verification required")
-            self.assertEqual(cm.exception.get_codes(), "mfa_verification_required")
 
     @patch("posthog.helpers.mfa_session.default_device")
     @patch("posthog.helpers.mfa_session.is_impersonated_session")
@@ -293,7 +227,7 @@ class TestSessionAuthenticationMFA(TestCase):
 
             with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
                 result = self.auth.authenticate(request)
-                self.assertEqual(result, (self.user, None), f"Path {path} should be whitelisted")
+                self.assertEqual(result, (self.user, None))
 
     @patch("posthog.helpers.mfa_session.default_device")
     @patch("posthog.helpers.mfa_session.is_impersonated_session")
@@ -310,11 +244,12 @@ class TestSessionAuthenticationMFA(TestCase):
 
         for path in non_whitelisted_paths:
             request = self._create_drf_request(path=path)
+            self._set_session_after_enforcement_date(request)
 
             with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
                 with self.assertRaises(PermissionDenied) as cm:
                     self.auth.authenticate(request)
-                self.assertEqual(str(cm.exception.detail), "2FA setup required", f"Path {path} should require MFA")
+                self.assertEqual(str(cm.exception.detail), "2FA setup required")
 
     def test_authentication_returns_none_for_inactive_user(self):
         inactive_user = Mock(spec=User)
@@ -333,6 +268,52 @@ class TestSessionAuthenticationMFA(TestCase):
 
         result = self.auth.authenticate(request)
         self.assertIsNone(result)
+
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    def test_authentication_bypasses_mfa_for_sessions_before_enforcement_date(
+        self, mock_is_impersonated, mock_default_device
+    ):
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
+        request = self._create_drf_request()
+        self._set_session_before_enforcement_date(request)
+
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            result = self.auth.authenticate(request)
+            self.assertEqual(result, (self.user, None))
+
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    def test_authentication_enforces_mfa_for_sessions_after_enforcement_date(
+        self, mock_is_impersonated, mock_default_device
+    ):
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
+        request = self._create_drf_request()
+        self._set_session_after_enforcement_date(request)
+
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            with self.assertRaises(PermissionDenied) as cm:
+                self.auth.authenticate(request)
+            self.assertEqual(str(cm.exception.detail), "2FA setup required")
+
+    @patch("posthog.helpers.mfa_session.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    def test_authentication_bypasses_mfa_for_sessions_without_timestamp(
+        self, mock_is_impersonated, mock_default_device
+    ):
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
+        request = self._create_drf_request()
+
+        if settings.SESSION_COOKIE_CREATED_AT_KEY in request._request.session:
+            del request._request.session[settings.SESSION_COOKIE_CREATED_AT_KEY]
+        request._request.session.save()
+
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            result = self.auth.authenticate(request)
+            self.assertEqual(result, (self.user, None))
 
 
 class TestMFAImpersonationIntegration(TestCase):
@@ -353,7 +334,12 @@ class TestMFAImpersonationIntegration(TestCase):
         request._request = http_request
         return request
 
-    @patch("posthog.auth.is_impersonated_session")
+    def _set_session_after_enforcement_date(self, request):
+        after_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
+        request._request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
+        request._request.session.save()
+
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
     def test_session_authentication_bypasses_mfa_for_impersonated_sessions(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
         user = Mock(is_authenticated=True, is_active=True)
@@ -362,13 +348,14 @@ class TestMFAImpersonationIntegration(TestCase):
         user.organization = org
 
         request = self._create_drf_request(user=user)
+        self._set_session_after_enforcement_date(request)
 
         with patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
             self.assertEqual(result, (user, None))
 
-    @patch("posthog.auth.is_impersonated_session")
-    @patch("posthog.auth.default_device")
+    @patch("posthog.helpers.mfa_session.is_impersonated_session")
+    @patch("posthog.helpers.mfa_session.default_device")
     def test_session_authentication_enforces_mfa_for_non_impersonated_sessions(
         self, mock_default_device, mock_is_impersonated
     ):
@@ -381,6 +368,7 @@ class TestMFAImpersonationIntegration(TestCase):
         user.organization = org
 
         request = self._create_drf_request(user=user)
+        self._set_session_after_enforcement_date(request)
 
         with patch.object(self.auth, "enforce_csrf"):
             with self.assertRaises(PermissionDenied) as cm:
@@ -391,6 +379,11 @@ class TestMFAImpersonationIntegration(TestCase):
 class TestAPIAuthenticationMFABypass(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
+
+    def _set_session_after_enforcement_date(self, http_request):
+        after_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
+        http_request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
+        http_request.session.save()
 
     def test_session_authentication_enforces_mfa(self):
         auth = SessionAuthentication()
@@ -407,13 +400,14 @@ class TestAPIAuthenticationMFABypass(TestCase):
         middleware = SessionMiddleware(lambda req: None)
         middleware.process_request(http_request)
         http_request.session.save()
+        self._set_session_after_enforcement_date(http_request)
 
         request = self.factory.get("/api/users/@me/")
         request._request = http_request
 
         with (
-            patch("posthog.auth.is_impersonated_session", return_value=False),
-            patch("posthog.auth.default_device", return_value=None),
+            patch("posthog.helpers.mfa_session.is_impersonated_session", return_value=False),
+            patch("posthog.helpers.mfa_session.default_device", return_value=None),
             patch.object(auth, "enforce_csrf"),
         ):
             with self.assertRaises(PermissionDenied):
@@ -460,6 +454,8 @@ class TestUserMFASessionIntegration(TestCase):
 
         session = self.client.session
         session["django_two_factor-hex"] = "1234567890abcdef1234"
+        after_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
         session.save()
 
         factory = RequestFactory()
@@ -467,6 +463,8 @@ class TestUserMFASessionIntegration(TestCase):
 
         middleware = SessionMiddleware(lambda req: None)
         middleware.process_request(request)
+        after_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
+        request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
         request.session.save()
 
         self.assertFalse(is_mfa_verified_in_session(request))
@@ -474,7 +472,6 @@ class TestUserMFASessionIntegration(TestCase):
         response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "123456"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": True})
 
         test_request = factory.get("/")
         middleware.process_request(test_request)

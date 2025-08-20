@@ -1,9 +1,13 @@
+import datetime
 import time
 from django.http import HttpRequest
 from django.conf import settings
 from loginas.utils import is_impersonated_session
 from two_factor.utils import default_device
 from rest_framework.exceptions import PermissionDenied
+
+# Enforce MFA only on sessions created after this date
+MFA_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 8, 25)
 
 MFA_VERIFIED_SESSION_KEY = "mfa_verified"
 
@@ -65,6 +69,9 @@ def enforce_mfa(request, user):
 
     organization = getattr(user, "organization", None)
     if organization and organization.enforce_2fa:
+        if not is_mfa_enforcement_in_effect(request._request):
+            return
+
         if is_impersonated_session(request._request):
             return
 
@@ -79,13 +86,20 @@ def is_path_whitelisted(path):
     """
     Check if the request path should bypass MFA enforcement.
     """
-    # Exact path matches
     if path in WHITELISTED_PATHS:
         return True
 
-    # Prefix matches
     for prefix in WHITELISTED_PREFIXES:
         if path.startswith(prefix):
             return True
 
     return False
+
+
+def is_mfa_enforcement_in_effect(request: HttpRequest):
+    session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+    if not session_created_at:
+        return False
+
+    return datetime.datetime.fromtimestamp(session_created_at) >= MFA_ENFORCEMENT_FROM_DATE
