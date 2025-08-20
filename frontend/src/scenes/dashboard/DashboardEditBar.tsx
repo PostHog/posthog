@@ -140,6 +140,7 @@ export function DashboardEditBar(): JSX.Element {
                             }}
                             updateDisplay={() => {}}
                             disablePropertyInfo
+                            size="small"
                         />
                     </BindLogic>
                 </div>

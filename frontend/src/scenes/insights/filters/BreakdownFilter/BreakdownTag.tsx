@@ -29,6 +29,7 @@ type EditableBreakdownTagProps = {
     breakdownType: BreakdownType
     isTrends: boolean
     disablePropertyInfo?: boolean
+    size?: 'small' | 'medium'
 }
 
 export function EditableBreakdownTag({
@@ -36,6 +37,7 @@ export function EditableBreakdownTag({
     breakdownType,
     isTrends,
     disablePropertyInfo,
+    size = 'medium',
 }: EditableBreakdownTagProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const [filterOpen, setFilterOpen] = useState(false)
@@ -76,6 +78,7 @@ export function EditableBreakdownTag({
                                     },
                                 }}
                                 disablePropertyInfo={disablePropertyInfo || filterOpen || menuOpen}
+                                size={size}
                             />
                         </PopoverReferenceContext.Provider>
                     </div>
@@ -90,6 +93,7 @@ export function EditableBreakdownTag({
                                 setFilterOpen(!filterOpen)
                             }}
                             disablePropertyInfo={disablePropertyInfo || filterOpen || menuOpen}
+                            size={size}
                         />
                     </div>
                 )}
@@ -105,6 +109,7 @@ type BreakdownTagProps = {
     onClose?: () => void
     onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
     popover?: LemonButtonDropdown
+    size?: 'small' | 'medium'
 }
 
 export function BreakdownTag({
@@ -114,6 +119,7 @@ export function BreakdownTag({
     onClose,
     onClick,
     popover,
+    size = 'medium',
 }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { groupTypes } = useValues(groupsModel)
@@ -141,7 +147,7 @@ export function BreakdownTag({
 
     return (
         <ButtonComponent
-            className={clsx('BreakdownTag', {
+            className={clsx('BreakdownTag', `BreakdownTag--${size}`, {
                 'BreakdownTag--clickable': clickable,
             })}
             type={ButtonComponent === 'button' ? 'button' : undefined}

@@ -23,6 +23,7 @@ export interface TaxonomicBreakdownFilterProps {
     updateDisplay: (display: ChartDisplayType | undefined) => void
     showLabel?: boolean
     disablePropertyInfo?: boolean
+    size?: 'small' | 'medium'
 }
 
 export function TaxonomicBreakdownFilter({
@@ -35,6 +36,7 @@ export function TaxonomicBreakdownFilter({
     updateDisplay,
     showLabel = true,
     disablePropertyInfo,
+    size = 'medium',
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
         insightProps,
@@ -57,6 +59,7 @@ export function TaxonomicBreakdownFilter({
                 breakdownType={breakdown.type ?? 'event'}
                 isTrends={isTrends}
                 disablePropertyInfo={disablePropertyInfo}
+                size={size}
             />
         ) : (
             <EditableBreakdownTag
@@ -65,6 +68,7 @@ export function TaxonomicBreakdownFilter({
                 breakdownType={breakdownFilter?.breakdown_type ?? 'event'}
                 isTrends={isTrends}
                 disablePropertyInfo={disablePropertyInfo}
+                size={size}
             />
         )
     )
@@ -96,7 +100,7 @@ export function TaxonomicBreakdownFilter({
             )}
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!isAddBreakdownDisabled && <TaxonomicBreakdownButton disabledReason={disabledReason} />}
+                {!isAddBreakdownDisabled && <TaxonomicBreakdownButton disabledReason={disabledReason} size={size} />}
             </div>
         </BindLogic>
     )

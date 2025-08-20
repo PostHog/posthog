@@ -3,8 +3,8 @@
     gap: 0.125rem;
     align-items: center;
     white-space: nowrap;
-    height: 2rem;
-    padding: 0.25rem 0.625rem;
+    height: 2.25rem;
+    padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
     font-weight: 400;
     line-height: 1rem;
@@ -14,6 +14,11 @@
     border: 1px solid hsla(19, 80%, 48%, 14%);
     border-radius: 9999px;
     outline: 0;
+
+    &.BreakdownTag--small {
+        height: 2rem;
+        padding: 0.25rem 0.625rem;
+    }
 
     &:hover,
     &:focus {
