@@ -18,12 +18,6 @@ from posthog.models.comment import Comment
 class CommentSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     deleted = ClassicBehaviorBooleanFieldSerializer()
-    exclude_emoji_reactions = serializers.BooleanField(
-        write_only=True,
-        default=False,
-        required=False,
-        help_text="Exclude emoji reactions from the results. Only applies to counting comments",
-    )
 
     class Meta:
         model = Comment
