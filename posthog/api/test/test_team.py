@@ -1608,65 +1608,55 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
-        def test_filters_null_values_from_app_urls(self):
-            response = self.client.patch(
-                "/api/environments/@current/", {"app_urls": ["https://example.com", None, "https://test.com", None]}
-            )
+        @parameterized.expand(
+            [
+                (
+                    "app_urls_mixed_nulls",
+                    "app_urls",
+                    ["https://example.com", None, "https://test.com", None],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("app_urls_all_nulls", "app_urls", [None, None, None], [], None),
+                (
+                    "app_urls_mixed_valid_and_null",
+                    "app_urls",
+                    ["https://new.com", None, "https://another.com"],
+                    ["https://new.com", "https://another.com"],
+                    ["https://existing.com"],
+                ),
+                (
+                    "recording_domains_mixed_nulls",
+                    "recording_domains",
+                    [None, "https://example.com", None, "https://test.com"],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("recording_domains_none_field", "recording_domains", None, None, None),
+            ]
+        )
+        def test_filters_null_values(self, name, field_name, input_data, expected_output, setup_data):
+            if setup_data is not None:
+                setattr(self.team, field_name, setup_data)
+                self.team.save()
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response = self.client.patch("/api/environments/@current/", {field_name: input_data})
+
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
-            self.assertEqual(response_data["app_urls"], ["https://example.com", "https://test.com"])
+
+            if expected_output is None:
+                assert response_data[field_name] is None
+            else:
+                assert response_data[field_name] == expected_output
 
             self.team.refresh_from_db()
-            self.assertEqual(self.team.app_urls, ["https://example.com", "https://test.com"])
+            actual_value = getattr(self.team, field_name)
 
-        def test_handles_all_null_app_urls(self):
-            response = self.client.patch("/api/environments/@current/", {"app_urls": [None, None, None]})
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-            self.assertEqual(response_data["app_urls"], [])
-
-            self.team.refresh_from_db()
-            self.assertEqual(self.team.app_urls, [])
-
-        def test_handles_mixed_valid_and_null_values(self):
-            self.team.app_urls = ["https://existing.com"]
-            self.team.save()
-
-            response = self.client.patch(
-                "/api/environments/@current/", {"app_urls": ["https://new.com", None, "https://another.com"]}
-            )
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-            self.assertEqual(response_data["app_urls"], ["https://new.com", "https://another.com"])
-
-            self.team.refresh_from_db()
-            self.assertEqual(self.team.app_urls, ["https://new.com", "https://another.com"])
-
-        def test_filters_null_values_from_recording_domains(self):
-            response = self.client.patch(
-                "/api/environments/@current/",
-                {"recording_domains": [None, "https://example.com", None, "https://test.com"]},
-            )
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-            self.assertEqual(response_data["recording_domains"], ["https://example.com", "https://test.com"])
-
-            self.team.refresh_from_db()
-            self.assertEqual(self.team.recording_domains, ["https://example.com", "https://test.com"])
-
-        def test_preserves_none_for_recording_domains_field(self):
-            response = self.client.patch("/api/environments/@current/", {"recording_domains": None})
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-            self.assertIsNone(response_data["recording_domains"])
-
-            self.team.refresh_from_db()
-            self.assertIsNone(self.team.recording_domains)
+            if expected_output is None:
+                assert actual_value is None
+            else:
+                assert actual_value == expected_output
 
     return TestTeamAPI
 
