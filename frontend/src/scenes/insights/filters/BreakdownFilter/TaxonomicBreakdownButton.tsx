@@ -14,10 +14,7 @@ interface TaxonomicBreakdownButtonProps {
     size?: 'small' | 'medium'
 }
 
-export function TaxonomicBreakdownButton({
-    disabledReason,
-    size = 'medium',
-}: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton({ disabledReason, size }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
