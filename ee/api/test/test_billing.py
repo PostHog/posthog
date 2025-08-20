@@ -44,15 +44,6 @@ def create_usage_summary(**kwargs) -> dict[str, Any]:
     return data
 
 
-def create_usage_summary_response(**kwargs) -> dict[str, Any]:
-    data = {}
-    for resource in QuotaResource:
-        data[resource.value] = {"limit": None, "usage": 0}
-
-    data.update(kwargs)
-    return data
-
-
 def create_billing_response(**kwargs) -> dict[str, Any]:
     data: Any = {"license": {"type": "cloud"}}
     data.update(kwargs)
@@ -731,11 +722,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
         TestCase().assertDictEqual(
             self.organization.usage,
-            create_usage_summary(
-                {
-                    "events": {"usage": 1000, "limit": None, "todays_usage": 0},
-                }
-            ),
+            create_usage_summary(events={"usage": 1000, "limit": None, "todays_usage": 0}),
         )
 
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
