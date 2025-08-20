@@ -73,6 +73,8 @@ import { teamLogic } from '../teamLogic'
 import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { createScheduleReleaseConditionsLogicKey } from './featureFlagUtils'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
     variants?: MultivariateFlagVariant[]
