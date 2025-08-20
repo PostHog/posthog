@@ -123,7 +123,7 @@ async def _get_session_summaries_str_from_inputs(
 def get_patterns_from_redis_outside_workflow(
     redis_output_keys: list[str],
     redis_client: Redis,
-) -> list[RawSessionGroupSummaryPattern] | None:
+) -> list[RawSessionGroupSummaryPattern]:
     """Sync function to get patterns from Redis outside of the workflow."""
     extracted_patterns = []
     for redis_output_key in redis_output_keys:
