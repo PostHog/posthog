@@ -94,7 +94,7 @@ Now, create a template for these instructions: {instructions}
 
         if parsed_result is None:
             raise PydanticOutputParserException(
-                llm_output=result.content, validation_message="The model did not return a valid template."
+                llm_output=result.content, validation_message="The model did not return valid structured output."
             )
 
         template_json = json.dumps(parsed_result.model_dump(), indent=2)
