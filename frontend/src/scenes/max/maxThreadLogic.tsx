@@ -354,9 +354,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     })
                                 }
                             }
-                            if (isNotebookUpdateMessage(parsedResponse)) {
-                                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
-                            }
                         } else if (event === AssistantEventType.Status) {
                             const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
                             if (!parsedResponse) {
