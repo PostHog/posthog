@@ -8,7 +8,6 @@ import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.jso
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import batchExports from '~/mocks/fixtures/api/organizations/@current/batchExports.json'
-import exportsUnsubscribeConfigs from '~/mocks/fixtures/api/organizations/@current/plugins/exportsUnsubscribeConfigs.json'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -148,7 +147,6 @@ export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
             '/api/billing/': {
                 ...billingJson,
             },
-            '/api/organizations/@current/plugins/exports_unsubscribe_configs/': exportsUnsubscribeConfigs,
             '/api/organizations/@current/batch_exports': batchExports,
             '/api/organizations/@current/': {
                 ...organizationCurrent,
