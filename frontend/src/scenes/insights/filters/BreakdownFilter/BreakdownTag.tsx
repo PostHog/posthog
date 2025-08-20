@@ -5,7 +5,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconEllipsis, IconX } from '@posthog/icons'
-import { LemonButton, LemonButtonWithDropdown, LemonTagProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonDropdown, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
@@ -28,15 +28,9 @@ type EditableBreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
     isTrends: boolean
-    size?: 'small' | 'medium'
 }
 
-export function EditableBreakdownTag({
-    breakdown,
-    breakdownType,
-    isTrends,
-    size = 'medium',
-}: EditableBreakdownTagProps): JSX.Element {
+export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: EditableBreakdownTagProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
@@ -65,8 +59,6 @@ export function EditableBreakdownTag({
                                 breakdown={breakdown}
                                 breakdownType={breakdownType}
                                 // display remove button only if we can edit and don't have a separate menu
-                                closable={false}
-                                onClose={removeBreakdown}
                                 onClick={() => {
                                     setFilterOpen(!filterOpen)
                                 }}
@@ -78,7 +70,6 @@ export function EditableBreakdownTag({
                                     },
                                 }}
                                 disablePropertyInfo={filterOpen || menuOpen}
-                                size={size}
                             />
                         </PopoverReferenceContext.Provider>
                     </div>
@@ -88,13 +79,11 @@ export function EditableBreakdownTag({
                         <BreakdownTag
                             breakdown={breakdown}
                             breakdownType={breakdownType}
-                            closable
                             onClose={removeBreakdown}
                             onClick={() => {
                                 setFilterOpen(!filterOpen)
                             }}
                             disablePropertyInfo={filterOpen || menuOpen}
-                            size={size}
                         />
                     </div>
                 )}
@@ -107,14 +96,15 @@ type BreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType | null | undefined
     disablePropertyInfo?: boolean
-} & Omit<LemonTagProps, 'children'>
+    onClose?: () => void
+    onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
+    popover?: LemonButtonDropdown
+}
 
 export function BreakdownTag({
     breakdown,
     breakdownType = 'event',
     disablePropertyInfo,
-    size,
-    closable,
     onClose,
     onClick,
     popover,
@@ -140,11 +130,12 @@ export function BreakdownTag({
     }
 
     const clickable = onClick !== undefined
+    const closeable = onClose !== undefined
     const ButtonComponent = clickable ? 'button' : 'div'
 
     return (
         <ButtonComponent
-            className={clsx('BreakdownTag', `BreakdownTag--size-${size}`, {
+            className={clsx('BreakdownTag', {
                 'BreakdownTag--clickable': clickable,
             })}
             type={ButtonComponent === 'button' ? 'button' : undefined}
@@ -175,7 +166,7 @@ export function BreakdownTag({
                 />
             )}
 
-            {closable && onClose && (
+            {closeable && onClose && (
                 <LemonButton
                     size="xsmall"
                     icon={<IconX />}

@@ -43,7 +43,6 @@ export const BreakdownTag: Story = {
                 <BreakdownTagComponent
                     breakdownType="event"
                     breakdown="$browser"
-                    closable
                     onClose={() => alert('Closed!')}
                     onClick={() => alert('Clicked!')}
                 />
@@ -63,7 +62,6 @@ export const BreakdownTag: Story = {
                     breakdownType="event"
                     breakdown="$browser"
                     size="small"
-                    closable
                     onClose={() => alert('Closed!')}
                     onClick={() => alert('Clicked!')}
                 />

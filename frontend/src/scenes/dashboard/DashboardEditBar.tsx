@@ -139,7 +139,6 @@ export function DashboardEditBar(): JSX.Element {
                                 setBreakdownFilter(saved_breakdown_filter)
                             }}
                             updateDisplay={() => {}}
-                            size="small"
                         />
                     </BindLogic>
                 </div>
