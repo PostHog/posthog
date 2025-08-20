@@ -114,7 +114,7 @@ async def _get_session_summaries_str_from_inputs(
         if result is None:
             single_session_input = inputs.single_session_summaries_inputs[i]
             raise ValueError(
-                f"Stingified session summary not found in Redis for session {single_session_input.session_id}"
+                f"Stringified session summary not found in Redis for session {single_session_input.session_id}"
             )
         results.append(result)
     return results
