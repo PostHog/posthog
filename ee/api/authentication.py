@@ -363,7 +363,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
             return system_claims
 
     def _validate_user_claims(self, payload: dict[str, Any]) -> None:
-        self._require_claims(payload, ["account_id", "installation_id", "user_id", "user_role"], "User")
+        self._require_claims(payload, ["account_id", "installation_id", "user_id", "user_role"], "user")
 
         if not self.USER_SUB_RE.match(payload["sub"]):
             raise jwt.InvalidTokenError(f"Invalid User auth sub format: {payload['sub']}")
@@ -372,7 +372,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
             raise jwt.InvalidTokenError(f"Invalid user_role: {payload.get('user_role')}")
 
     def _validate_system_claims(self, payload: dict[str, Any]) -> None:
-        self._require_claims(payload, ["account_id", "installation_id"], "System auth")
+        self._require_claims(payload, ["account_id", "installation_id"], "system")
 
         sub = payload.get("sub", "")
         if sub and not self.SYSTEM_SUB_RE.match(sub):
