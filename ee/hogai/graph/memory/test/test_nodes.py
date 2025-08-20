@@ -408,10 +408,8 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
 
     def test_router_with_no_core_memory(self):
         self.core_memory.delete()
-        # Should not raise an error, but create a new core memory and return "continue"
         result = self.node.router(AssistantState(messages=[]))
         self.assertEqual(result, "continue")
-        # Verify that a new CoreMemory was created as fallback
         self.assertTrue(CoreMemory.objects.filter(team=self.team).exists())
 
     def test_router_with_no_onboarding_question(self):
