@@ -252,8 +252,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 actions.loadSources(null)
 
                 posthog.capture('source reloaded', { sourceType: source.source_type })
-            } catch {
-                lemonToast.error("Can't refresh source at this time")
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error('Cant refresh source at this time')
+                }
             }
             actions.sourceLoadingFinished(source)
         },

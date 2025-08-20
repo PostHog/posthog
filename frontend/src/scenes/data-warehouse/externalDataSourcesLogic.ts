@@ -70,7 +70,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             1 as number,
             {
                 setActivityCurrentPage: (_, { page }) => page,
-                loadRecentActivity: () => 1, // Reset to first page when loading fresh data
+                loadRecentActivity: () => 1,
             },
         ],
         recentActivity: [
@@ -120,7 +120,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             }
         },
         setActivityCurrentPage: () => {
-            // Trigger auto-load check when page changes
             actions.checkAutoLoadMore()
         },
         checkAutoLoadMore: () => {
@@ -128,18 +127,9 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             const { isOnLastPage, hasDataOnCurrentPage } = paginationState
             const { recentActivityHasMore, recentActivityLoading } = values
 
-            // Auto-load more activities when user reaches the last page and there's more data available
             if (isOnLastPage && hasDataOnCurrentPage && recentActivityHasMore && !recentActivityLoading) {
                 actions.loadMoreRecentActivity()
             }
-        },
-        loadRecentActivitySuccess: () => {
-            // Check if we need to auto-load more after loading data
-            actions.checkAutoLoadMore()
-        },
-        loadMoreRecentActivitySuccess: () => {
-            // Check if we need to auto-load more after loading more data
-            actions.checkAutoLoadMore()
         },
         loadRecentActivity: async () => {
             try {
