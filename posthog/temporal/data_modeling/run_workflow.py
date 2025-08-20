@@ -456,7 +456,6 @@ async def materialize_model(
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-            # batch = _normalize_timestamps(batch)
 
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
@@ -740,7 +739,6 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "ENUM": ("toString", ()),
         "IPv4": ("toString", ()),
         "IPv6": ("toString", ()),
-        # "DateTime64(3": ("toDateTime64", (ast.Constant(value=6), ast.Constant(value="UTC"),)),
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
     }
 
