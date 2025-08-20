@@ -23,11 +23,14 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
 import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { CompatMessage } from './types'
+import { normalizeMessages } from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -155,6 +158,51 @@ function LLMObservabilityGenerations(): JSX.Element {
                                         </Link>
                                     </Tooltip>
                                 </strong>
+                            )
+                        },
+                    },
+                    'properties.$ai_input[-1]': {
+                        title: 'Input',
+                        render: ({ value }) => {
+                            let inputNormalized: CompatMessage[] | undefined
+                            if (typeof value === 'string') {
+                                try {
+                                    inputNormalized = normalizeMessages(JSON.parse(value), 'user')
+                                } catch (e) {
+                                    console.warn('Error parsing properties.$ai_input[-1] as JSON', e)
+                                }
+                            }
+                            if (!inputNormalized?.length) {
+                                return <>–</>
+                            }
+                            return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+                        },
+                    },
+                    'properties.$ai_output_choices': {
+                        title: 'Output',
+                        render: ({ value }) => {
+                            let outputNormalized: CompatMessage[] | undefined
+                            if (typeof value === 'string') {
+                                try {
+                                    outputNormalized = normalizeMessages(JSON.parse(value), 'assistant')
+                                } catch (e) {
+                                    console.warn('Error parsing properties.$ai_output_choices as JSON', e)
+                                }
+                            }
+                            if (!outputNormalized?.length) {
+                                return <>–</>
+                            }
+                            return (
+                                <div>
+                                    {outputNormalized.map(
+                                        (
+                                            message,
+                                            index // All output choices, if multiple
+                                        ) => (
+                                            <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
+                                        )
+                                    )}
+                                </div>
                             )
                         },
                     },

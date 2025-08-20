@@ -98,7 +98,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     )
 
     return (
-        <SceneContent>
+        <SceneContent forceNewSpacing>
             <Form
                 logic={actionEditLogic}
                 props={logicProps}
@@ -318,7 +318,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 </ScenePanel>
 
                 <SceneTitleSection
-                    name={action.name}
+                    name={action?.name || ''}
                     description={action.description}
                     resourceType={{
                         to: urls.actions(),

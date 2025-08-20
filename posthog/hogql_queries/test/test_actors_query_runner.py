@@ -1,12 +1,12 @@
 from typing import cast
 
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import pytest
 
 from posthog.hogql import ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.group.util import create_group
 from posthog.models.utils import UUIDT
 from posthog.schema import (
@@ -514,7 +514,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 3
 
     def test_default_group_actors_query(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 

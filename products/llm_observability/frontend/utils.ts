@@ -53,8 +53,15 @@ export function formatLLMUsage(
     return null
 }
 
-export function formatLLMLatency(latency: number): string {
-    return `${Math.round(latency * 100) / 100} s`
+export const LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS = 90
+
+export function formatLLMLatency(latency: number, showMinutes?: boolean): string {
+    const roundedLatency = Math.round(latency * 100) / 100
+    if (showMinutes && latency > LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS) {
+        const minutes = (latency / 60).toFixed(2)
+        return `${roundedLatency} s (${minutes} m)`
+    }
+    return `${roundedLatency} s`
 }
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
@@ -366,13 +373,21 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         ]
     }
     // Unsupported message.
-    console.warn('Unsupported AI message type', output)
-    return [
-        {
-            role: role,
-            content: typeof output === 'string' ? output : JSON.stringify(output),
-        },
-    ]
+    console.warn("AI message isn't in a shape of any known AI provider", output)
+    let cajoledContent: string // Let's do what we can
+    if (typeof output === 'string') {
+        cajoledContent = output
+    } else if (
+        typeof output === 'object' &&
+        output !== null &&
+        'content' in output &&
+        typeof output.content === 'string'
+    ) {
+        cajoledContent = output.content
+    } else {
+        cajoledContent = JSON.stringify(output)
+    }
+    return [{ role, content: cajoledContent }]
 }
 
 export function normalizeMessages(messages: unknown, defaultRole?: string, tools?: unknown): CompatMessage[] {

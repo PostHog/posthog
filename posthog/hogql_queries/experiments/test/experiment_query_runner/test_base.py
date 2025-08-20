@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime, timedelta
 
 from django.test import override_settings
@@ -16,7 +17,6 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
@@ -989,7 +989,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             )
             filter["value"] = cohort.pk
         elif name == "group":
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
             create_group(

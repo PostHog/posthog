@@ -106,7 +106,7 @@ export function ProjectDropdownMenu({
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 
-                        <Combobox.Group>
+                        <Combobox.Group value={[currentTeam.name]}>
                             <ButtonGroupPrimitive fullWidth>
                                 <Combobox.Item asChild>
                                     <ButtonPrimitive
@@ -140,10 +140,15 @@ export function ProjectDropdownMenu({
                             </ButtonGroupPrimitive>
                         </Combobox.Group>
 
-                        <Label intent="menu" className="px-2 mt-2">
-                            Other projects
-                        </Label>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        {currentOrganization &&
+                            currentOrganization?.teams?.filter((team) => team.id !== currentTeam?.id).length > 0 && (
+                                <>
+                                    <Label intent="menu" className="px-2 mt-2">
+                                        Other projects
+                                    </Label>
+                                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                                </>
+                            )}
 
                         {currentOrganization?.teams
                             .filter((team) => team.id !== currentTeam?.id)

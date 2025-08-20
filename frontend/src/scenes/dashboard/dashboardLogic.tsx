@@ -11,6 +11,7 @@ import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -122,6 +123,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            variableDataLogic,
+            ['variables'],
+            dataThemeLogic,
+            ['getTheme'],
             featureFlagLogic,
             ['featureFlags'],
             variableDataLogic,
@@ -1110,35 +1117,39 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard],
-            (dashboard, error404, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
-                {
-                    key: Scene.Dashboards,
-                    name: 'Dashboards',
-                    path: urls.dashboards(),
-                },
-                {
-                    key: [Scene.Dashboard, dashboard?.id || 'new'],
-                    name: dashboard?.id
-                        ? dashboard.name
-                        : dashboardFailedToLoad
-                          ? 'Could not load'
-                          : error404
-                            ? 'Not found'
-                            : '...',
-                    onRename: canEditDashboard
-                        ? async (name) => {
-                              if (dashboard) {
-                                  await dashboardsModel.asyncActions.updateDashboard({
-                                      id: dashboard.id,
-                                      name,
-                                      allowUndo: true,
-                                  })
-                              }
-                          }
-                        : undefined,
-                },
-            ],
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard, s.featureFlags],
+            (dashboard, error404, dashboardFailedToLoad, canEditDashboard, featureFlags): Breadcrumb[] => {
+                const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                return [
+                    {
+                        key: Scene.Dashboards,
+                        name: 'Dashboards',
+                        path: urls.dashboards(),
+                    },
+                    {
+                        key: [Scene.Dashboard, dashboard?.id || 'new'],
+                        name: dashboard?.id
+                            ? dashboard.name
+                            : dashboardFailedToLoad
+                              ? 'Could not load'
+                              : error404
+                                ? 'Not found'
+                                : '...',
+                        onRename:
+                            canEditDashboard && !newSceneLayout
+                                ? async (name) => {
+                                      if (dashboard) {
+                                          await dashboardsModel.asyncActions.updateDashboard({
+                                              id: dashboard.id,
+                                              name,
+                                              allowUndo: true,
+                                          })
+                                      }
+                                  }
+                                : undefined,
+                    },
+                ]
+            },
         ],
         projectTreeRef: [
             () => [(_, props: DashboardLogicProps) => props.id],

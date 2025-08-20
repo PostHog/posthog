@@ -18,6 +18,8 @@ import {
     Webhook,
 } from '@posthog/plugin-scaffold'
 
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
@@ -152,6 +154,8 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
     HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
+
+    CDP_EMAIL_TRACKING_URL: string
 }
 
 export type IngestionConsumerConfig = {
@@ -419,6 +423,7 @@ export interface Hub extends PluginsServerConfig {
     cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
+    quotaLimiting: QuotaLimiting
 }
 
 export interface PluginServerCapabilities {

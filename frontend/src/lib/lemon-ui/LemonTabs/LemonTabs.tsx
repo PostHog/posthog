@@ -37,6 +37,7 @@ export interface LemonTabsProps<T extends string | number> {
     'data-attr'?: string
     barClassName?: string
     className?: string
+    sceneInset?: boolean
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -52,6 +53,7 @@ export function LemonTabs<T extends string | number>({
     size = 'medium',
     className,
     'data-attr': dataAttr,
+    sceneInset = false,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -64,7 +66,13 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={cn('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`, className)}
+            className={cn(
+                'LemonTabs',
+                transitioning && 'LemonTabs--transitioning',
+                `LemonTabs--${size}`,
+                sceneInset && '-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0',
+                className
+            )}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {

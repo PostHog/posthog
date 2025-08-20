@@ -1,13 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { IconLive, IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
@@ -15,6 +16,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
 
@@ -75,9 +77,10 @@ const columns: LemonTableColumns<LiveEvent> = [
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <div data-attr="manage-events-table">
+        <SceneContent data-attr="manage-events-table">
             <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.LiveEvents}
@@ -93,7 +96,18 @@ export function LiveEventsTable(): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
+                sceneInset={newSceneLayout}
             />
+            <SceneTitleSection
+                name="Live events"
+                description="Real-time events from your app or website."
+                resourceType={{
+                    type: 'live events',
+                    typePlural: 'live events',
+                    forceIcon: <IconLive />,
+                }}
+            />
+            <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
@@ -162,7 +176,7 @@ export function LiveEventsTable(): JSX.Element {
                 }
                 nouns={['event', 'events']}
             />
-        </div>
+        </SceneContent>
     )
 }
 

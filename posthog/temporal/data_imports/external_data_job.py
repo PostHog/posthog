@@ -81,7 +81,6 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "Name or service not known",
         "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
         "InsufficientPrivilege",
-        "Unable to connect to the database. Please check your connection details and network access",
     ],
     ExternalDataSourceType.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSourceType.MYSQL: [
@@ -439,18 +438,6 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
     if source_type == ExternalDataSourceType.HUBSPOT and "missing or invalid refresh token" in error_lower:
         return "Your HubSpot connection is invalid or expired. Please reconnect it."
 
-    # Database connection errors
-    if source_type in [ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL, ExternalDataSourceType.MSSQL]:
-        if any(
-            keyword in error_lower
-            for keyword in ["authentication failed", "password authentication failed", "access denied"]
-        ):
-            return "Database authentication failed. Please check your username and password."
-        if any(keyword in error_lower for keyword in ["connection refused", "could not connect", "timeout"]):
-            return "Unable to connect to the database. Please check your connection details and network access."
-        if "does not exist" in error_lower or "database" in error_lower and "not found" in error_lower:
-            return "Database or table not found. Please verify your database name and table names."
-
     # Snowflake account issues
     if source_type == ExternalDataSourceType.SNOWFLAKE:
         if any(keyword in error_lower for keyword in ["account suspended", "trial ended", "decommission"]):
@@ -474,16 +461,5 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
     if source_type == ExternalDataSourceType.CHARGEBEE:
         if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
             return "Chargebee authentication failed. Please check your API key and site name."
-
-    # Cloud storage errors (S3, GCS, R2, Azure)
-    if source_type in ["aws", "google-cloud", "cloudflare-r2", "azure"]:
-        if any(keyword in error_lower for keyword in ["access denied", "forbidden", "403", "unauthorized", "401"]):
-            return "Access denied to cloud storage. Please check your credentials and bucket permissions."
-        if any(keyword in error_lower for keyword in ["bucket not found", "container not found", "no such bucket"]):
-            return "Storage bucket/container not found. Please verify your bucket name and region."
-        if any(keyword in error_lower for keyword in ["invalid credentials", "authentication failed"]):
-            return "Cloud storage authentication failed. Please check your access keys or service account."
-        if any(keyword in error_lower for keyword in ["network error", "connection timeout", "timeout"]):
-            return "Unable to connect to cloud storage. Please check your network connection and region settings."
 
     return raw_error

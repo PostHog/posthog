@@ -12,7 +12,12 @@ from posthog.schema import (
 )
 
 
-class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
+class ActorsPropertyTaxonomyQueryRunner(
+    TaxonomyCacheMixin,
+    AnalyticsQueryRunner[  # type: ignore
+        ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyQueryResponse, CachedActorsPropertyTaxonomyQueryResponse
+    ],
+):
     MAX_PROPERTY_LIMIT = 200
 
     query: ActorsPropertyTaxonomyQuery

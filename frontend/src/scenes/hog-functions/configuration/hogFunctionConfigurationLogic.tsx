@@ -134,7 +134,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     const filters = data.filters ?? {}
     filters.source = filters.source ?? 'events'
 
-    if (filters.source === 'person-updates') {
+    if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events

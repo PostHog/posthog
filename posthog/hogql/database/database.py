@@ -40,6 +40,8 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.parser import parse_expr
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import (
     create_initial_channel_type,
@@ -105,9 +107,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
@@ -125,9 +125,13 @@ from posthog.schema import (
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from opentelemetry import trace
+from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+tracer = trace.get_tracer(__name__)
 
 
 class Database(BaseModel):
@@ -376,6 +380,46 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
+def _setup_group_key_fields(database: Database, team: "Team") -> None:
+    """
+    Set up group key fields as ExpressionFields that handle filtering based on GroupTypeMapping.created_at.
+    For $group_N fields, this returns:
+    - Empty string if no GroupTypeMapping exists for that index
+    - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
+    """
+    group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
+
+    for group_index in range(5):
+        field_name = f"$group_{group_index}"
+
+        group_mapping = group_mappings.get(group_index, None)
+        # If no mapping exists or the mapping predated this feature, leave the original field unchanged
+        if group_mapping and group_mapping.created_at:
+            # Store the original field as a "raw" version before replacing
+            original_field = database.events.fields[field_name]
+            raw_field_name = f"_{field_name}_raw"
+            database.events.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
+
+            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
+
+            database.events.fields[field_name] = ExpressionField(
+                name=field_name,
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["timestamp"]),
+                            op=ast.CompareOperationOp.Lt,
+                            right=ast.Constant(value=created_at_str),
+                        ),
+                        ast.Constant(value=""),
+                        ast.Field(chain=[raw_field_name]),
+                    ],
+                ),
+                isolate_scope=True,
+            )
+
+
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
     poe = cast(VirtualTable, database.events.fields["poe"])
 
@@ -415,6 +459,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 TableStore = dict[str, Table | TableGroup]
 
 
+@tracer.start_as_current_span("create_hogql_database")
 def create_hogql_database(
     team_id: Optional[int] = None,
     *,
@@ -426,9 +471,6 @@ def create_hogql_database(
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
-    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-        RevenueAnalyticsBaseView,
-    )
 
     if timings is None:
         timings = HogQLTimings()
@@ -445,6 +487,10 @@ def create_hogql_database(
 
         # Team is definitely not None at this point, make mypy believe that
         team = cast("Team", team)
+
+        # Set team_id for the create_hogql_database tracing span
+        span = trace.get_current_span()
+        span.set_attribute("team_id", team.pk)
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -509,6 +555,7 @@ def create_hogql_database(
         _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
+        _setup_group_key_fields(database, team)
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
@@ -520,7 +567,12 @@ def create_hogql_database(
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
-            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True))
+            saved_queries = list(
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .select_related("table", "table__credential")
+            )
+
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)
@@ -530,7 +582,7 @@ def create_hogql_database(
     with timings.measure("revenue_analytics_views"):
         revenue_views = []
         try:
-            revenue_views = RevenueAnalyticsBaseView.for_team(team, timings)
+            revenue_views = list(build_all_revenue_analytics_views(team, timings))
         except Exception as e:
             capture_exception(e)
 
@@ -546,6 +598,16 @@ def create_hogql_database(
             except Exception as e:
                 capture_exception(e)
                 continue
+
+    class WarehousePropertiesVirtualTable(VirtualTable):
+        fields: dict[str, FieldOrTable]
+        parent_table: S3Table
+
+        def to_printed_hogql(self):
+            return self.parent_table.to_printed_hogql()
+
+        def to_printed_clickhouse(self, context):
+            return self.parent_table.to_printed_clickhouse(context)
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
@@ -566,18 +628,9 @@ def create_hogql_database(
 
                 # If the warehouse table has no _properties_ field, then set it as a virtual table
                 if s3_table.fields.get("properties") is None:
-
-                    class WarehouseProperties(VirtualTable):
-                        fields: dict[str, FieldOrTable] = s3_table.fields
-                        parent_table: S3Table = s3_table
-
-                        def to_printed_hogql(self):
-                            return self.parent_table.to_printed_hogql()
-
-                        def to_printed_clickhouse(self, context):
-                            return self.parent_table.to_printed_clickhouse(context)
-
-                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
+                    s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                        fields=s3_table.fields, parent_table=s3_table, hidden=True
+                    )
 
                 if table.external_data_source:
                     warehouse_tables[table.name] = s3_table
@@ -895,12 +948,8 @@ DatabaseSchemaTable: TypeAlias = (
 def serialize_database(
     context: HogQLContext,
 ) -> dict[str, DatabaseSchemaTable]:
-    from posthog.warehouse.models.datawarehouse_saved_query import (
-        DataWarehouseSavedQuery,
-    )
-    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-        RevenueAnalyticsBaseView,
-    )
+    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
     tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -1046,7 +1095,7 @@ def serialize_database(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
-                kind=view.get_database_schema_table_kind(),
+                kind=view.DATABASE_SCHEMA_TABLE_KIND,
                 source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )
