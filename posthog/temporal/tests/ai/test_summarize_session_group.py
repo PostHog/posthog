@@ -164,8 +164,17 @@ async def test_extract_session_group_patterns_activity_standalone(
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
+        patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        mock_activity_info.return_value.workflow_run_id = "test_run_id"
+
+        # Mock the workflow handle with signal method
+        mock_workflow_handle = MagicMock()
+        mock_workflow_handle.signal = AsyncMock()
+        mock_client = MagicMock()
+        mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
+        mock_async_connect.return_value = mock_client
         # Mock the LLM response with valid YAML patterns
         mock_llm_response = ChatCompletion(
             id="test_id",
@@ -268,8 +277,17 @@ async def test_assign_events_to_patterns_activity_standalone(
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
+        patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        mock_activity_info.return_value.workflow_run_id = "test_run_id"
+
+        # Mock the workflow handle with signal method
+        mock_workflow_handle = MagicMock()
+        mock_workflow_handle.signal = AsyncMock()
+        mock_client = MagicMock()
+        mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
+        mock_async_connect.return_value = mock_client
         # Mock the LLM response for pattern assignment
         mock_llm_response = ChatCompletion(
             id="test_id",
@@ -375,8 +393,17 @@ async def test_assign_events_to_patterns_threshold_check(
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
+        patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        mock_activity_info.return_value.workflow_run_id = "test_run_id"
+
+        # Mock the workflow handle with signal method
+        mock_workflow_handle = MagicMock()
+        mock_workflow_handle.signal = AsyncMock()
+        mock_client = MagicMock()
+        mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
+        mock_async_connect.return_value = mock_client
         # Mock LLM response that only assigns events to 2 patterns
         patterns_assignment_fail = """patterns:
   - pattern_id: 1
@@ -410,8 +437,17 @@ async def test_assign_events_to_patterns_threshold_check(
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
+        patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        mock_activity_info.return_value.workflow_run_id = "test_run_id"
+
+        # Mock the workflow handle with signal method
+        mock_workflow_handle = MagicMock()
+        mock_workflow_handle.signal = AsyncMock()
+        mock_client = MagicMock()
+        mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
+        mock_async_connect.return_value = mock_client
         # Mock LLM response that assigns events to 3 patterns
         patterns_assignment_success = """patterns:
   - pattern_id: 1
@@ -476,6 +512,12 @@ class TestSummarizeSessionGroupWorkflow:
             + [mock_call_llm(custom_content=mock_patterns_extraction_yaml_response)]  # Pattern extraction
             + [mock_call_llm(custom_content=mock_patterns_assignment_yaml_response)]  # Pattern assignment
         )
+        # Mock the workflow handle for progress signals
+        mock_workflow_handle = MagicMock()
+        mock_workflow_handle.signal = AsyncMock()
+        mock_client = MagicMock()
+        mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
+
         with (
             # Mock LLM call
             patch(
@@ -498,6 +540,8 @@ class TestSummarizeSessionGroupWorkflow:
                 "_get_deterministic_hex",
                 side_effect=iter(mock_valid_event_ids * len(session_ids)),
             ),
+            # Mock async_connect for progress signals in activities
+            patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect", return_value=mock_client),
         ):
             yield
 

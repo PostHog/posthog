@@ -44,6 +44,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
     get_patterns_from_redis_outside_workflow,
+    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
@@ -423,18 +424,12 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     ) -> list[str] | None:
         """Extract patterns from session summaries using chunking if needed."""
         # Execute chunking activity to split sessions based on token count
-        # # TODO: Revert after testing
-        # # TODO: Also track splitting summaries into chunks? Should be crazy fast though, not sure if it worth it
-        # chunks: list[list[str]] = await temporalio.workflow.execute_activity(
-        #     split_session_summaries_into_chunks_for_patterns_extraction_activity,
-        #     inputs,
-        #     start_to_close_timeout=timedelta(minutes=5),
-        #     retry_policy=RetryPolicy(maximum_attempts=3),
-        # )
-        # Forcing chunks to check UI with chunking
-        chunk_one = [x.session_id for x in inputs.single_session_summaries_inputs[:3]]
-        chunk_two = [x.session_id for x in inputs.single_session_summaries_inputs[3:]]
-        chunks = [chunk_one, chunk_two]
+        chunks: list[list[str]] = await temporalio.workflow.execute_activity(
+            split_session_summaries_into_chunks_for_patterns_extraction_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
         # If a single chunk is returned, use the activity directly, as it should cover all the sessions, so combination step is not needed
         if len(chunks) == 1:
             result = await self._run_patterns_extraction_chunk(inputs)
