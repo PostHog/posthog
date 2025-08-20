@@ -6,7 +6,11 @@ import { IconTrending } from '@posthog/icons'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import {
+    ExperimentMetric,
+    ExperimentStatsBaseValidated,
+    NewExperimentQueryResponse,
+} from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
 import { ChartEmptyState } from '../shared/ChartEmptyState'
@@ -221,6 +225,21 @@ export function MetricRowGroup({
     const baselineResult = result.baseline
     const variantResults = result.variant_results || []
 
+    const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
+        return (
+            <div className="text-xs text-muted">
+                {(() => {
+                    const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
+                    return (
+                        <>
+                            {humanFriendlyNumber(numerator)} / {humanFriendlyNumber(denominator)}
+                        </>
+                    )
+                })()}
+            </div>
+        )
+    }
+
     return (
         <>
             {/* Tooltip portal */}
@@ -286,16 +305,7 @@ export function MetricRowGroup({
                 >
                     <div className="text-sm">
                         <div className="text-text-primary">{formatMetricValue(baselineResult, metric)}</div>
-                        <div className="text-xs text-muted">
-                            {(() => {
-                                const { numerator, denominator } = getMetricSubtitleValues(baselineResult, metric)
-                                return (
-                                    <>
-                                        {humanFriendlyNumber(numerator)} / {humanFriendlyNumber(denominator)}
-                                    </>
-                                )
-                            })()}
-                        </div>
+                        {ratioMetricLabel(baselineResult, metric)}
                     </div>
                 </td>
 
@@ -406,16 +416,7 @@ export function MetricRowGroup({
                         >
                             <div className="text-sm">
                                 <div className="text-text-primary">{formatMetricValue(variant, metric)}</div>
-                                <div className="text-xs text-muted">
-                                    {(() => {
-                                        const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
-                                        return (
-                                            <>
-                                                {humanFriendlyNumber(numerator)} / {humanFriendlyNumber(denominator)}
-                                            </>
-                                        )
-                                    })()}
-                                </div>
+                                {ratioMetricLabel(variant, metric)}
                             </div>
                         </td>
 
