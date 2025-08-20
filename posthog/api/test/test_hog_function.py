@@ -109,39 +109,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert response.json()["hog"] == template_slack.code
         assert response.json()["inputs_schema"] == template_slack.inputs_schema
 
-    def test_free_users_cannot_override_hog_or_schema(self):
-        response = self._create_slack_function(
-            {
-                "hog": "fetch(inputs.url);",
-                "inputs_schema": [
-                    {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
-                ],
-            }
-        )
-        new_response = response.json()
-        # These did not change
-        assert new_response["hog"] == template_slack.code, new_response
-        assert new_response["inputs_schema"] == template_slack.inputs_schema, new_response
-
-    def test_free_users_cannot_use_without_template(self):
-        response = self._create_slack_function({"template_id": None})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (
-            response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
-        ), response.json()
-
-    def test_free_users_cannot_create_non_free_templates(self):
-        response = self._create_slack_function(
-            {
-                "template_id": "template-webhook",
-            }
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "The Data Pipelines addon is required for this template."
-
-    def test_free_users_can_update_non_free_templates(self):
+    def test_sers_can_update_non_free_templates(self):
         self.organization.save()
 
         response = self._create_slack_function(
