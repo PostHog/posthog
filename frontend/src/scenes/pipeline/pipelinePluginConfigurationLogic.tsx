@@ -3,8 +3,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,7 +19,6 @@ import {
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { importAppsLogic } from './importAppsLogic'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { loadPluginsFromUrl } from './utils'
@@ -68,8 +65,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             ['plugins as transformationPlugins', 'nextAvailableOrder'],
             featureFlagLogic,
             ['featureFlags'],
-            pipelineAccessLogic,
-            ['canEnableNewDestinations'],
         ],
     })),
     loaders(({ props, values }) => ({
@@ -107,14 +102,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                 updatePluginConfig: async (formdata: Record<string, any>) => {
                     if (!values.plugin || !props.stage) {
                         return null
-                    }
-                    if (
-                        (!values.pluginConfig || (!values.pluginConfig.enabled && formdata.enabled)) &&
-                        props.stage === PipelineStage.Destination &&
-                        !values.canEnableNewDestinations
-                    ) {
-                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
-                        return values.pluginConfig
                     }
                     const { enabled, order, name, description, ...config } = formdata
 

@@ -3,16 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 
-import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, HogFunctionTypeType, PipelineStage, SidePanelTab } from '~/types'
+import { HogFunctionTypeType, PipelineStage, SidePanelTab } from '~/types'
 
-import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { DestinationTag } from './DestinationTag'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -23,12 +18,8 @@ export interface NewDestinationsProps {
 }
 
 export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
-    const hasNewPricing = !!useFeatureFlag('CDP_NEW_PRICING')
     return (
         <div className="deprecated-space-y-2">
-            {types.includes('destination') && !hasNewPricing ? (
-                <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
-            ) : null}
             <DestinationsFilters types={types} hideShowPaused />
             <DestinationOptionsTable types={types} />
         </div>
@@ -37,10 +28,8 @@ export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
 
 export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.Element {
     const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic({ types }))
-    const { canEnableDestination } = useValues(pipelineAccessLogic)
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
     const { filters } = useValues(destinationsFiltersLogic({ types }))
-    const { user } = useValues(userLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     // Filter out coming soon destinations unless search is active and feature flag is enabled
@@ -91,7 +80,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                             }
                             return (
                                 <LemonTableLink
-                                    to={canEnableDestination(target) ? target.url : undefined}
+                                    to={target.url}
                                     title={
                                         <>
                                             {target.name}
@@ -127,7 +116,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                     </LemonButton>
                                 )
                             }
-                            return canEnableDestination(target) ? (
+                            return (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
@@ -136,19 +125,6 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                 >
                                     Create
                                 </LemonButton>
-                            ) : (
-                                <span className="flex gap-2 items-center whitespace-nowrap">
-                                    <PayGateButton feature={AvailableFeature.DATA_PIPELINES} type="secondary" />
-                                    {/* Allow staff users to create destinations */}
-                                    {user?.is_impersonated && (
-                                        <LemonButton
-                                            type="primary"
-                                            icon={<IconPlusSmall />}
-                                            tooltip="Staff users can create destinations as an override"
-                                            to={target.url}
-                                        />
-                                    )}
-                                </span>
                             )
                         },
                     },

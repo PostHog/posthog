@@ -9,7 +9,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -67,14 +66,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect(() => ({
-        values: [
-            pipelineAccessLogic,
-            ['canEnableNewDestinations'],
-            featureFlagLogic,
-            ['featureFlags'],
-            userLogic,
-            ['user'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
     })),
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
@@ -159,15 +151,6 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
                     (x) => shouldShowHogFunctionTemplate(x, user) && (x.status === 'coming_soon' ? search : true)
                 )
-            },
-        ],
-
-        canEnableHogFunction: [
-            (s) => [s.canEnableNewDestinations],
-            (canEnableNewDestinations): ((template: HogFunctionTemplateType) => boolean) => {
-                return (template: HogFunctionTemplateType) => {
-                    return template?.free || canEnableNewDestinations
-                }
             },
         ],
 
