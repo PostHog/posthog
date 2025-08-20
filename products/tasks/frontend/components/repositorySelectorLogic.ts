@@ -50,7 +50,7 @@ export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
     selectors({
         githubIntegrations: [
             (s) => [s.integrations],
-            (integrations) => integrations?.filter((integration: any) => integration.kind === 'github') || [],
+            (integrations) => integrations?.filter((integration) => integration.kind === 'github') || [],
         ],
     }),
 
@@ -62,7 +62,7 @@ export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
     listeners(({ actions, values }) => ({
         [integrationsLogic.actionTypes.loadIntegrationsSuccess]: () => {
             if (values.githubIntegrations.length > 0) {
-                values.githubIntegrations.forEach((integration: any) => {
+                values.githubIntegrations.forEach((integration) => {
                     actions.loadGitHubRepositories(integration.id)
                 })
             }

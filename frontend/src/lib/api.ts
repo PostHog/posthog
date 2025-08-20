@@ -895,15 +895,6 @@ export class ApiRequest {
         return this.userInterviews(teamId).addPathComponent(id)
     }
 
-    // # Issues
-    public issues(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('issues')
-    }
-
-    public issue(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.issues(teamId).addPathComponent(id)
-    }
-
     // # Tasks
     public tasks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('tasks')
@@ -3116,77 +3107,6 @@ const api = {
             data: Pick<UserInterviewType, 'summary'>
         ): Promise<UserInterviewType> {
             return await new ApiRequest().userInterview(id).update({ data })
-        },
-    },
-
-    issues: {
-        async list(): Promise<
-            PaginatedResponse<{
-                id: string
-                title: string
-                description: string
-                status: string
-                origin_product: string
-                position: number
-                created_at: string
-                updated_at: string
-            }>
-        > {
-            return await new ApiRequest().issues().get()
-        },
-        async get(id: string): Promise<{
-            id: string
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-            created_at: string
-            updated_at: string
-        }> {
-            return await new ApiRequest().issue(id).get()
-        },
-        async create(data: {
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-        }): Promise<{
-            id: string
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-            created_at: string
-            updated_at: string
-        }> {
-            return await new ApiRequest().issues().create({ data })
-        },
-        async update(
-            id: string,
-            data: Partial<{
-                title: string
-                description: string
-                status: string
-                origin_product: string
-                position: number
-            }>
-        ): Promise<{
-            id: string
-            title: string
-            description: string
-            status: string
-            origin_product: string
-            position: number
-            created_at: string
-            updated_at: string
-        }> {
-            return await new ApiRequest().issue(id).update({ data })
-        },
-        async delete(id: string): Promise<void> {
-            return await new ApiRequest().issue(id).delete()
         },
     },
 

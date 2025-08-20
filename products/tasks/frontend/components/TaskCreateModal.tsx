@@ -11,7 +11,6 @@ import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 interface TaskCreateModalProps {
     isOpen: boolean
     onClose: () => void
-    teamId: number
 }
 
 interface TaskFormData {
@@ -39,6 +38,20 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
 
     const [loading, setLoading] = useState(false)
     const [errors, setErrors] = useState<Record<string, string>>({})
+
+    const resetForm = (): void => {
+        setFormData({
+            title: '',
+            description: '',
+            status: TaskStatus.BACKLOG,
+            origin_product: OriginProduct.USER_CREATED,
+            repositoryConfig: {
+                integrationId: undefined,
+                organization: undefined,
+                repository: undefined,
+            },
+        })
+    }
 
     const handleSubmit = async (): Promise<void> => {
         // Validate form
@@ -94,19 +107,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
 
             await createTask(taskData)
 
-            // Reset form and close modal
-            setFormData({
-                title: '',
-                description: '',
-                status: TaskStatus.BACKLOG,
-                origin_product: OriginProduct.USER_CREATED,
-                repositoryConfig: {
-                    integrationId: undefined,
-                    organization: undefined,
-                    repository: undefined,
-                },
-            })
-
+            resetForm()
             onClose()
         } catch (error) {
             console.error('Failed to create task:', error)
@@ -118,17 +119,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
 
     const handleCancel = (): void => {
         // Reset form and close
-        setFormData({
-            title: '',
-            description: '',
-            status: TaskStatus.BACKLOG,
-            origin_product: OriginProduct.USER_CREATED,
-            repositoryConfig: {
-                integrationId: undefined,
-                organization: undefined,
-                repository: undefined,
-            },
-        })
+        resetForm()
         setErrors({})
         onClose()
     }

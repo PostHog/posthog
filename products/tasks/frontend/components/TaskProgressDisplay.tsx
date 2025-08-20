@@ -6,6 +6,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 
 import { ProgressResponse, ProgressStatus, Task } from '../types'
 
@@ -63,7 +64,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
         return log.split('\n').filter((line) => line.trim())
     }
 
-    const getStatusColor = (status: ProgressStatus): string => {
+    const getStatusColor = (status: ProgressStatus | undefined): string => {
         switch (status) {
             case ProgressStatus.STARTED:
             case ProgressStatus.IN_PROGRESS:
@@ -157,7 +158,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                 <div className="flex items-center justify-between mb-3">
                     <h4 className="text-sm font-medium">Claude Code Execution</h4>
                     <div className="flex items-center gap-2">
-                        <span className={`text-sm ${getStatusColor(progress.status!)}`}>
+                        <span className={cn('text-sm', getStatusColor(progress.status))}>
                             {getStatusIcon(progress.status!)} {progress.status}
                         </span>
                         {autoRefresh && <Spinner className="w-3 h-3" />}

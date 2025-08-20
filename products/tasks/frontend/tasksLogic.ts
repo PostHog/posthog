@@ -2,6 +2,8 @@ import { UniqueIdentifier } from '@dnd-kit/core'
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { demoTasks } from './demoData'
@@ -53,6 +55,7 @@ export const tasksLogic = kea<tasksLogicType>([
                         const response = await api.tasks.create(task)
                         return [...values.tasks, response]
                     } catch (error) {
+                        lemonToast.error('Failed to create task. Please try again.')
                         console.error('Failed to create task:', error)
                         throw error
                     }
@@ -62,7 +65,8 @@ export const tasksLogic = kea<tasksLogicType>([
                         const response = await api.tasks.update(id, data)
                         return [...values.tasks].map((task) => (task.id === id ? { ...task, ...response } : task))
                     } catch (error) {
-                        console.error('Failed to create task:', error)
+                        lemonToast.error('Failed to update task. Please try again.')
+                        console.error('Failed to update task:', error)
                         throw error
                     }
                 },

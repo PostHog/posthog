@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { userLogic } from 'scenes/userLogic'
-
 import { tasksLogic } from '../tasksLogic'
 import { TaskCard } from './TaskCard'
 import { TaskCreateModal } from './TaskCreateModal'
@@ -12,7 +10,6 @@ import { TaskModal } from './TaskModal'
 export function BacklogView(): JSX.Element {
     const { backlogTasks, selectedTask, isCreateModalOpen } = useValues(tasksLogic)
     const { scopeTask, openTaskModal, closeTaskModal, openCreateModal, closeCreateModal } = useActions(tasksLogic)
-    const { user } = useValues(userLogic)
 
     return (
         <div className="space-y-4">
@@ -34,8 +31,8 @@ export function BacklogView(): JSX.Element {
 
             {backlogTasks.length === 0 && <div className="text-center py-8 text-muted">No tasks in backlog</div>}
 
-            <TaskModal task={selectedTask} isOpen={!!selectedTask} onClose={closeTaskModal} />
-            <TaskCreateModal isOpen={isCreateModalOpen} onClose={closeCreateModal} teamId={user?.team?.id || 0} />
+            {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} />}
+            <TaskCreateModal isOpen={isCreateModalOpen} onClose={closeCreateModal} />
         </div>
     )
 }

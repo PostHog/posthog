@@ -12,12 +12,12 @@ class Command(BaseCommand):
             "--team-id",
             type=int,
             required=True,
-            help="Team ID to generate issues for",
+            help="Team ID to generate tasks for",
         )
         parser.add_argument(
             "--clear",
             action="store_true",
-            help="Clear existing issues before generating new ones",
+            help="Clear existing tasks before generating new ones",
         )
 
     def handle(self, *args, **options):

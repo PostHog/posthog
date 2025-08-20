@@ -142,13 +142,7 @@ export function KanbanView(): JSX.Element {
                     const putBelowLast = overIndex === targetItems.length - 1 && (delta?.y || 0) > 0
                     const newIndex = overIndex >= 0 ? overIndex + (putBelowLast ? 1 : 0) : targetItems.length
 
-                    // If hovering a container header (no items), newIndex becomes 0/length accordingly
-                    if (activeContainer !== overContainer) {
-                        setDropIndicator({ container: overContainer, index: newIndex })
-                    } else {
-                        // Same container: follow cursor position inside list
-                        setDropIndicator({ container: overContainer, index: newIndex })
-                    }
+                    setDropIndicator({ container: overContainer, index: newIndex })
                 }}
                 onDragEnd={({ active, over }) => {
                     const activeContainer = findContainer(active)
@@ -268,7 +262,7 @@ export function KanbanView(): JSX.Element {
                     })}
                 </div>
             </DndContext>
-            <TaskModal task={selectedTask} isOpen={!!selectedTask} onClose={closeTaskModal} />
+            {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} />}
         </div>
     )
 }
@@ -304,7 +298,7 @@ function SortableItem({
 }
 
 function isContainer(item: Active | Over): boolean {
-    return item.data.current && item.data.current.type === 'container' ? true : false
+    return !!(item.data.current && item.data.current.type === 'container')
 }
 
 function DropIndicator(): JSX.Element {

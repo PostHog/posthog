@@ -30,7 +30,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
         setCurrentConfig(value)
     }, [onChange, value, setOnChangeCallback, setCurrentConfig])
 
-    const selectedRepoData = availableRepos.find((r: any) => r.integration_id === value.integrationId)
+    const selectedRepoData = availableRepos.find((r) => r.integration_id === value.integrationId)
 
     if (githubIntegrations.length === 0) {
         return (

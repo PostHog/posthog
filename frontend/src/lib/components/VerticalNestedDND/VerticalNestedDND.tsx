@@ -489,7 +489,6 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     function handleAddContainerItem(): void {
         const newItem: Item = createNewContainerItem()
 
-        // React 18 batches updates automatically; no need for unstable_batchedUpdates
         setContainers((containers) => [...containers, newItem.id])
         setItems((items) => ({
             ...items,

@@ -10,12 +10,11 @@ import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 import { TaskProgressDisplay } from './TaskProgressDisplay'
 
 interface TaskModalProps {
-    task: Task | null
-    isOpen: boolean
+    task: Task
     onClose: () => void
 }
 
-export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Element {
+export function TaskModal({ task, onClose }: TaskModalProps): JSX.Element {
     const { scopeTask, updateTask } = useActions(tasksLogic)
     const [isEditingRepository, setIsEditingRepository] = useState(false)
     const [repositoryConfig, setRepositoryConfig] = useState<RepositoryConfig>({
@@ -24,10 +23,6 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Elemen
         repository: task?.repository_config?.repository || undefined,
     })
     const [savingRepository, setSavingRepository] = useState(false)
-
-    if (!task) {
-        return <></>
-    }
 
     const formatDate = (dateString: string): string => {
         return new Date(dateString).toLocaleDateString('en-US', {
@@ -78,7 +73,7 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Elemen
     }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title={task.title} width={600}>
+        <LemonModal isOpen={true} onClose={onClose} title={task.title} width={600}>
             <div className="space-y-6">
                 {/* Header with status and origin */}
                 <div className="flex justify-between items-start">

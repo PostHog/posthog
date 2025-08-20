@@ -212,7 +212,6 @@ const createTaskForm = (
                             organization,
                             repository,
                         }
-                    } else {
                     }
                 }
 

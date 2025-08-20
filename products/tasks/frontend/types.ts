@@ -28,7 +28,7 @@ export interface Task {
     updated_at: string
     repository_scope?: 'single' | 'multiple' | 'smart_select'
     github_integration?: number
-    repository_config?: any
+    repository_config?: Record<string, any>
     repository_list?: Array<{ organization: string; repository: string }>
     primary_repository?: { organization: string; repository: string }
 }

@@ -69,15 +69,11 @@ export function GitHubIntegrationSettings(): JSX.Element {
                                         size="xsmall"
                                         type="secondary"
                                         icon={<IconOpenInNew />}
-                                        onClick={() => {
-                                            const installationId = githubIntegration?.config?.installation_id
-                                            if (installationId) {
-                                                window.open(
-                                                    `https://github.com/settings/installations/${installationId}`,
-                                                    '_blank'
-                                                )
-                                            }
-                                        }}
+                                        to={
+                                            githubIntegration?.config?.installation_id
+                                                ? `https://github.com/settings/installations/${githubIntegration.config.installation_id}`
+                                                : undefined
+                                        }
                                         tooltip="Manage repository access on GitHub"
                                     />
                                 </div>
@@ -89,9 +85,9 @@ export function GitHubIntegrationSettings(): JSX.Element {
                                 </div>
                             ) : repositories.length > 0 ? (
                                 <div className="space-y-1">
-                                    {repositories.map((repo, index) => (
+                                    {repositories.map((repo) => (
                                         <div
-                                            key={index}
+                                            key={repo}
                                             className="flex items-center gap-2 text-sm bg-accent-3000 rounded px-2 py-1"
                                         >
                                             <IconBranch className="text-muted" />
@@ -109,15 +105,11 @@ export function GitHubIntegrationSettings(): JSX.Element {
                                             size="small"
                                             type="secondary"
                                             icon={<IconOpenInNew />}
-                                            onClick={() => {
-                                                const installationId = githubIntegration?.config?.installation_id
-                                                if (installationId) {
-                                                    window.open(
-                                                        `https://github.com/settings/installations/${installationId}`,
-                                                        '_blank'
-                                                    )
-                                                }
-                                            }}
+                                            to={
+                                                githubIntegration?.config?.installation_id
+                                                    ? `https://github.com/settings/installations/${githubIntegration.config.installation_id}`
+                                                    : undefined
+                                            }
                                         >
                                             Configure repository access
                                         </LemonButton>
