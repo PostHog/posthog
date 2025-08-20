@@ -103,7 +103,7 @@ export function RolesAccessControls(): JSX.Element {
                 access control but we will be expanding their uses in the future.
             </p>
 
-            <div className="deprecated-space-y-2">
+            <div>
                 <LemonTable
                     columns={columns}
                     dataSource={sortedRoles ?? []}
@@ -117,13 +117,20 @@ export function RolesAccessControls(): JSX.Element {
                     }}
                 />
 
-                <LemonButton type="primary" onClick={() => setEditingRoleId('new')} icon={<IconPlus />}>
+                <LemonButton
+                    className="mt-2"
+                    type="primary"
+                    onClick={() => setEditingRoleId('new')}
+                    icon={<IconPlus />}
+                >
                     Add a role
                 </LemonButton>
 
                 <RoleModal />
 
-                <LemonDivider className="my-4" />
+                <div className="my-6">
+                    <LemonDivider />
+                </div>
 
                 <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                     <h4 className="mb-2">Default role for new members</h4>
