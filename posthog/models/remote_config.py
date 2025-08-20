@@ -475,7 +475,8 @@ def team_saved(sender, instance: "Team", created, **kwargs):
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
     # Use transaction.on_commit to ensure cache update happens after DB transaction commits
     # This prevents race condition where cache sees stale database state
-    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+    if instance.team_id:
+        transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=PluginConfig)
