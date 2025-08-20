@@ -131,6 +131,11 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
     },
+    create_message_template: {
+        name: 'Create email templates',
+        description: 'Create email templates from scratch or using a URL for inspiration',
+        product: Scene.Messaging,
+    },
 }
 
 export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
