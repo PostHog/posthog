@@ -127,72 +127,78 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
             // Iterate over adding them to the list and updating their priority
-            for (const item of possibleInvocations) {
-                // Disable invocations for teams that don't have the addon (for now just metric them out..)
+            await Promise.all(
+                possibleInvocations.map(async (item) => {
+                    // Disable invocations for teams that don't have the addon (for now just metric them out..)
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_invocations')
-
-                // The legacy addon was not usage based so we skip dropping if they are on it
-                const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
-
-                if (isQuotaLimited && !isTeamOnLegacyAddon) {
-                    counterQuotaLimited.labels({ team_id: item.teamId }).inc()
-
-                    // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
-
-                    // this.hogFunctionMonitoringService.queueAppMetric(
-                    //     {
-                    //         team_id: item.teamId,
-                    //         app_source_id: item.functionId,
-                    //         metric_kind: 'failure',
-                    //         metric_name: 'quota_limited',
-                    //         count: 1,
-                    //     },
-                    //     'hog_function'
-                    // )
-                    // continue
-                }
-
-                if (
-                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
-                    item.hogFunction.is_addon_required
-                ) {
-                    // NOTE: This will be removed in favour of the quota limited metric
-                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
-                }
-
-                const state = states[item.hogFunction.id].state
-
-                counterHogFunctionStateOnEvent
-                    .labels({
-                        state: HogWatcherState[state],
-                        kind: item.hogFunction.type,
-                    })
-                    .inc()
-
-                if (state === HogWatcherState.disabled) {
-                    this.hogFunctionMonitoringService.queueAppMetric(
-                        {
-                            team_id: item.teamId,
-                            app_source_id: item.functionId,
-                            metric_kind: 'failure',
-                            metric_name: 'disabled_permanently',
-                            count: 1,
-                        },
-                        'hog_function'
+                    const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
+                        item.teamId,
+                        'cdp_invocations'
                     )
-                    continue
-                }
 
-                if (state === HogWatcherState.degraded) {
-                    item.queuePriority = 2
-                    if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
-                        item.queue = 'hog_overflow'
+                    // The legacy addon was not usage based so we skip dropping if they are on it
+                    const isTeamOnLegacyAddon =
+                        !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
+
+                    if (isQuotaLimited && !isTeamOnLegacyAddon) {
+                        counterQuotaLimited.labels({ team_id: item.teamId }).inc()
+
+                        // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
+
+                        // this.hogFunctionMonitoringService.queueAppMetric(
+                        //     {
+                        //         team_id: item.teamId,
+                        //         app_source_id: item.functionId,
+                        //         metric_kind: 'failure',
+                        //         metric_name: 'quota_limited',
+                        //         count: 1,
+                        //     },
+                        //     'hog_function'
+                        // )
+                        // return
                     }
-                }
 
-                validInvocations.push(item)
-            }
+                    if (
+                        !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
+                        (await this.isAddonRequired(item.hogFunction))
+                    ) {
+                        // NOTE: This will be removed in favour of the quota limited metric
+                        counterMissingAddon.labels({ team_id: item.teamId }).inc()
+                    }
+
+                    const state = states[item.hogFunction.id].state
+
+                    counterHogFunctionStateOnEvent
+                        .labels({
+                            state: HogWatcherState[state],
+                            kind: item.hogFunction.type,
+                        })
+                        .inc()
+
+                    if (state === HogWatcherState.disabled) {
+                        this.hogFunctionMonitoringService.queueAppMetric(
+                            {
+                                team_id: item.teamId,
+                                app_source_id: item.functionId,
+                                metric_kind: 'failure',
+                                metric_name: 'disabled_permanently',
+                                count: 1,
+                            },
+                            'hog_function'
+                        )
+                        return
+                    }
+
+                    if (state === HogWatcherState.degraded) {
+                        item.queuePriority = 2
+                        if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
+                            item.queue = 'hog_overflow'
+                        }
+                    }
+
+                    validInvocations.push(item)
+                })
+            )
 
             // Now we can filter by masking configs
             const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
@@ -366,5 +372,25 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     public isHealthy() {
         return this.kafkaConsumer.isHealthy()
+    }
+
+    private async isAddonRequired(hogFunction: HogFunctionType): Promise<boolean> {
+        // Load the template if possible
+        if (hogFunction.type !== 'destination') {
+            // Only destinations are part of the paid plan
+            return false
+        }
+
+        if (!hogFunction.template_id) {
+            return true // Assume templateless requires the addon
+        }
+
+        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(hogFunction.template_id)
+
+        if (!template) {
+            return true // Assume templateless requires the addon
+        }
+
+        return !template.free
     }
 }

@@ -1,7 +1,6 @@
 import json
 from typing import Any
 from posthog.api.hog_function import HogFunctionSerializer
-from posthog.constants import AvailableFeature
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginAttachment, PluginConfig
@@ -14,7 +13,6 @@ from django.db.models import Q
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
     hog_functions = []
-    plugin_configs_without_addon = []
     teams_cache: dict[int, Team] = {}
 
     with transaction.atomic():
@@ -111,11 +109,6 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             print("Attempting to create hog function...")  # noqa: T201
             print(json.dumps(data, indent=2))  # noqa: T201
 
-            has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
-
-            if not has_addon:
-                plugin_configs_without_addon.append(plugin_config["id"])
-
             serializer = HogFunctionSerializer(
                 data=data,
                 context=serializer_context,
@@ -124,9 +117,6 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             hog_functions.append(HogFunction(**serializer.validated_data))
 
         print(hog_functions)  # noqa: T201
-
-        if plugin_configs_without_addon:
-            print("Found plugin configs without the required addon!", plugin_configs_without_addon)  # noqa: T201
 
         if not hog_functions:
             print("No hog functions to create")  # noqa: T201

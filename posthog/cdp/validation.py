@@ -1,9 +1,11 @@
 import json
 import logging
 from typing import Any, Optional
+import posthoganalytics
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.constants import AvailableFeature
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
@@ -13,6 +15,8 @@ from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_TRANSPILED_FILTERS,
 )
 from posthog.hogql import ast
+from posthog.models.team.team import Team
+from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -375,3 +379,19 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
+
+
+def has_data_pipelines_addon(team: Team, user: Optional[User]) -> bool:
+    if team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES):
+        return True
+
+    if user is None:
+        return False
+
+    return posthoganalytics.feature_enabled(
+        "cdp-new-pricing",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization.id)},
+        group_properties={"organization": {"id": str(team.organization.id)}},
+        send_feature_flag_events=False,
+    )

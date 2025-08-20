@@ -65,6 +65,12 @@ export const personPropertyKeyUpdateCounter = new Counter({
     labelNames: ['key'],
 })
 
+export const personMergeFailureCounter = new Counter({
+    name: 'person_merge_failure_total',
+    help: 'Number of person merges that failed',
+    labelNames: ['call'], // $identify, $create_alias, $merge_dangerously
+})
+
 export const personCacheSizeHistogram = new Histogram({
     name: 'person_cache_size',
     help: 'Size of the person cache',

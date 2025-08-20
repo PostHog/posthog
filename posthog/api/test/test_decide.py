@@ -619,7 +619,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         with self.settings(
             SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
+            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list or [],
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200

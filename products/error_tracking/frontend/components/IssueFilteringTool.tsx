@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import MaxTool from 'scenes/max/MaxTool'
 
-import { ErrorTrackingSceneToolOutput } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
@@ -61,7 +61,7 @@ function updateFilterGroup(
     }
 }
 
-export function ErrorTrackingSceneTool(): JSX.Element {
+export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
     const { setDateRange, setFilterGroup, setFilterTestAccounts } = useActions(errorFiltersLogic)
     const { setOrderBy, setOrderDirection, setStatus } = useActions(issueQueryOptionsLogic)
@@ -73,7 +73,7 @@ export function ErrorTrackingSceneTool(): JSX.Element {
         })
     )
 
-    const callback = (update: ErrorTrackingSceneToolOutput): void => {
+    const callback = (update: ErrorTrackingIssueFilteringToolOutput): void => {
         if (update.orderBy) {
             setOrderBy(update.orderBy)
         }
@@ -102,11 +102,11 @@ export function ErrorTrackingSceneTool(): JSX.Element {
 
     return (
         <MaxTool
-            identifier="search_error_tracking_issues"
+            identifier="filter_error_tracking_issues"
             context={{
                 current_query: query,
             }}
-            callback={(toolOutput: ErrorTrackingSceneToolOutput) => {
+            callback={(toolOutput: ErrorTrackingIssueFilteringToolOutput) => {
                 callback(toolOutput)
             }}
             suggestions={[]}

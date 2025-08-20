@@ -697,6 +697,9 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         return count
 
 
+MB_50_IN_BYTES = 50 * 1000 * 1000
+
+
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     """A HogQL table given by a HogQL query."""
 
@@ -794,25 +797,56 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Re-print the query with `FORMAT = ArrowStream`
     context.output_format = "ArrowStream"
+    # Set the preferred record batch size to be 50 MB
+    settings.preferred_block_size_bytes = MB_50_IN_BYTES
+
     arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
     if arrow_prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
     arrow_printed = await database_sync_to_async(print_prepared_ast)(
-        arrow_prepared_hogql_query,
-        context=context,
-        dialect="clickhouse",
-        stack=[],
+        arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_client() as client:
+    # Set max block size to 50,000 rows
+    async with get_client(max_block_size=50_000) as client:
+        batches = []
+        batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
-            yield batch, [(column_name, column_type) for column_name, column_type, _ in query_typings]
+            batches_size = batches_size + batch.nbytes
+            batches.append(batch)
+
+            if batches_size >= MB_50_IN_BYTES:
+                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+
+                yield (
+                    _combine_batches(batches),
+                    [(column_name, column_type) for column_name, column_type, _ in query_typings],
+                )
+                batches_size = 0
+                batches = []
+
+        # Yield any left over batches
+        if len(batches) > 0:
+            await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+            yield (
+                _combine_batches(batches),
+                [(column_name, column_type) for column_name, column_type, _ in query_typings],
+            )
+
+
+def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
+    if len(batches) == 1:
+        return batches[0]
+
+    table = pa.Table.from_batches(batches)
+    table = table.combine_chunks()
+    return table.to_batches(max_chunksize=table.num_rows)[0]
 
 
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:

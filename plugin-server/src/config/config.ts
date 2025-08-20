@@ -280,6 +280,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: 655360,
         // Trim target is the customer-facing limit (512kb)
         PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
+        // Limit per merge for moving distinct IDs. 0 disables limiting (move all)
+        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,

@@ -402,6 +402,18 @@
         var(--color-brand-primary-lightness),
         10%
     );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
+    );
 
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
@@ -877,6 +889,18 @@
         var(--color-brand-primary-saturation),
         var(--color-brand-primary-lightness),
         10%
+    );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
     );
 
     // Backgrounds (dark mode)

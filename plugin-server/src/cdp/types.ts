@@ -339,7 +339,6 @@ export type HogFunctionType = {
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
-    is_addon_required: boolean
     template_id?: string
     execution_order?: number
     created_at: string
@@ -382,6 +381,7 @@ export type DBHogFunctionTemplate = {
     inputs_schema: HogFunctionInputSchemaType[]
     bytecode: HogBytecode
     type: HogFunctionTypeType
+    free: boolean
 }
 
 export type IntegrationType = {
