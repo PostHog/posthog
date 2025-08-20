@@ -82,8 +82,31 @@ jobs:
         strategy:
             matrix:
                 package:
+                    - batch-import-worker
+                    - capture
+                    - common-alloc
+                    - common-cookieless
+                    - common-database
+                    - common-geoip
+                    - common-metrics
+                    - common-kafka
+                    - cyclotron-core
+                    - cyclotron-node
+                    - cyclotron-janitor
+                    - cymbal
                     - feature-flags
-                    - others
+                    - health
+                    - hogvm
+                    - hook-api
+                    - hook-common
+                    - hook-janitor
+                    - hook-worker
+                    - kafka-deduplicator
+                    - limiters
+                    - log-capture
+                    - posthog-symbol-data
+                    - property-defs-rs
+                    - serve-metrics
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 20
@@ -143,7 +166,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
 
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true'
@@ -157,7 +180,7 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd ../ && python manage.py setup_test_environment --only-postgres
+              run: cd ../ && python manage.py setup_test_environment
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
@@ -168,7 +191,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags')|| '--workspace --exclude feature-flags'}}
+                  RUST_BACKTRACE=1 cargo test -p ${{matrix.package}}
                   echo "Cargo test completed"
 
     linting:

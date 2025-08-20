@@ -491,6 +491,46 @@ async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    // Set up Redis and PostgreSQL clients
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id, None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags=true but NO distinct_id should succeed
+    let disabled_payload = json!({
+        "token": token,
+        "disable_flags": true
+        // Note: no distinct_id field
+    });
+
+    let res = server
+        .send_flags_request(disabled_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, res.status());
+
+    let response_body = res.json::<FlagsResponse>().await?;
+    // Should return empty flags since they're disabled
+    assert!(response_body.flags.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_handles_quota_limiting() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 

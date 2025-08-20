@@ -16,14 +16,13 @@ from posthog.schema import (
 )
 
 
-class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
+class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):
     """
     Retrieves the event or action taxonomy for the last 30 days: properties and N-most
     frequent property values for a property.
     """
 
     query: EventTaxonomyQuery
-    response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse
 
     def _calculate(self):
