@@ -1,6 +1,6 @@
 from typing import Any
 from unittest.mock import patch
-from datetime import datetime
+from datetime import datetime, UTC
 import jwt
 import base64
 from cryptography.hazmat.primitives import serialization
@@ -184,7 +184,7 @@ class TestVercelAuthentication(SimpleTestCase):
     @patch("django.utils.timezone.now")
     def test_expired_token_validation(self, mock_now, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
-        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         mock_now.return_value = fixed_time
 
         expired_timestamp = fixed_time.timestamp() - 3600

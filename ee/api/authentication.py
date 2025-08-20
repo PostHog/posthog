@@ -1,4 +1,4 @@
-from typing import Any, Literal, Union
+from typing import Any, Literal, Union, cast
 import re
 
 import jwt
@@ -301,19 +301,21 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         return None
 
-    def _get_vercel_auth_type(self, request: Request) -> VercelAuthType:
+    def _get_vercel_auth_type(self, request: Request) -> "VercelAuthentication.VercelAuthType":
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
 
         if auth_type not in self.VERCEL_AUTH_TYPES:
             raise AuthenticationFailed("Missing or invalid X-Vercel-Auth header")
 
-        return auth_type
+        return cast("VercelAuthentication.VercelAuthType", auth_type)
 
-    def _validate_jwt_token(self, token: str, auth_type: VercelAuthType) -> VercelClaims:
+    def _validate_jwt_token(self, token: str, auth_type: "VercelAuthentication.VercelAuthType") -> VercelClaims:
         payload = self._decode_token(token)
         return self._validate_claims(payload, auth_type)
 
-    def _validate_claims(self, payload: dict[str, Any], auth_type: VercelAuthType) -> VercelClaims:
+    def _validate_claims(
+        self, payload: dict[str, Any], auth_type: "VercelAuthentication.VercelAuthType"
+    ) -> VercelClaims:
         required_claims = ["iss", "sub", "aud"]
 
         for claim in required_claims:
