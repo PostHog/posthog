@@ -44,6 +44,8 @@ def get_user_friendly_message(error: Exception) -> str:
             return str(validation_error.detail[0])
         elif isinstance(validation_error.detail, dict):
             # For dict-style errors, get the first error message
+            if not validation_error.detail:
+                return "Validation error occurred"
             first_key = next(iter(validation_error.detail))
             detail_value = validation_error.detail[first_key]
             if isinstance(detail_value, list) and detail_value:
