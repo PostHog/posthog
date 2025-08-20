@@ -136,7 +136,7 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(form_data_base64_payload),
         ),
         // single event JSON payload submitted as POST form
@@ -150,7 +150,7 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(form_urlencoded_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
@@ -165,7 +165,7 @@ fn post_cases() -> Vec<TestCase> {
             Some("lz64"),
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(form_lz64_urlencoded_payload),
         ),
     ];
@@ -215,7 +215,7 @@ fn get_cases() -> Vec<TestCase> {
             Some("lz64"),
             None,
             "text/plain",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(lz64_payload),
         ),
     ];

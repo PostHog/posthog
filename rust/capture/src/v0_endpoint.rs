@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::Arc;
 
 use axum::{debug_handler, Json};
@@ -7,7 +6,6 @@ use bytes::Bytes;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
@@ -18,7 +16,7 @@ use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::v0_request::{
-    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
+    DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
 };
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
