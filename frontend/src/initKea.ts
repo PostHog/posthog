@@ -119,12 +119,13 @@ export function initKea({
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText
-                    const isMFAError = error.code === 'mfa_setup_required'
+                    const isTwoFactorError =
+                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
                     }
-                    if (isMFAError) {
+                    if (isTwoFactorError) {
                         errorMessage = null
                     }
                     if (errorMessage) {

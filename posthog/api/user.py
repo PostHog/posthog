@@ -66,7 +66,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_disabled_email,
     send_two_factor_auth_enabled_email,
 )
-from posthog.helpers.mfa_session import set_mfa_verified_in_session
+from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.user_permissions import UserPermissions
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -568,7 +568,7 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
-        set_mfa_verified_in_session(request)
+        set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
 
