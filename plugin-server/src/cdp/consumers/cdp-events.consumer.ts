@@ -191,59 +191,19 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-            const eventsTriggeredDestinationById: Record<string, { team_id: number; event_uuid: string }> = {}
-            const uniqueDestinationsById: Record<
-                string,
-                { team_id: number; template_id: string; invocation_id: string }
-            > = {}
-
-            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
-                const eventKey = `${state.globals.project.id}:${state.globals.event.uuid}`
-                if (!eventsTriggeredDestinationById[eventKey] && hogFunction.type === 'destination') {
-                    eventsTriggeredDestinationById[eventKey] = {
-                        team_id: state.globals.project.id,
-                        event_uuid: state.globals.event.uuid,
-                    }
-                }
-
-                const destinationKey = `${state.globals.project.id}:${id}`
-                if (!uniqueDestinationsById[destinationKey] && hogFunction.type === 'destination') {
-                    uniqueDestinationsById[destinationKey] = {
-                        team_id: state.globals.project.id,
-                        template_id: hogFunction.template_id ?? 'custom',
-                        invocation_id: id,
-                    }
-                }
-            })
-
-            const uniqueEventMetrics: MinimalAppMetric[] = Object.values(eventsTriggeredDestinationById).map(
-                ({ team_id, event_uuid }) => {
+            const billingMetrics = Object.values(notMaskedInvocations)
+                .filter((inv) => inv.hogFunction.type === 'destination')
+                .map((inv): MinimalAppMetric => {
                     return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'event_triggered_destination',
-                        team_id,
-                        app_source_id: event_uuid,
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                        team_id: inv.teamId,
+                        app_source_id: inv.hogFunction.id,
                         count: 1,
                     }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
+                })
 
-            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.values(uniqueDestinationsById).map(
-                ({ team_id, template_id, invocation_id }) => {
-                    return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'destination_invoked',
-                        team_id,
-                        app_source_id: template_id,
-                        instance_id: invocation_id,
-                        count: 1,
-                    }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
+            this.hogFunctionMonitoringService.queueAppMetrics(billingMetrics, 'hog_function')
 
             return notMaskedInvocations
         })

@@ -552,9 +552,14 @@ async def materialize_model(
             await logger.ainfo("Query exceeded memory limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
-        else:
-            error_message = f"Query failed to materialize. If this query ran for a long time, try optimizing it."
+        elif "Timeout exceeded" in error_message:
+            error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+        else:
+            saved_query.latest_error = f"Query failed to materialize: {error_message}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
