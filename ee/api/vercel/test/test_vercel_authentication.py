@@ -9,7 +9,8 @@ from django.utils import timezone
 from rest_framework.test import APIRequestFactory
 from rest_framework.exceptions import AuthenticationFailed
 from posthog.test.base import SimpleTestCase
-from ee.api.authentication import VercelAuthentication, VercelUser
+from ee.api.authentication import VercelAuthentication
+from ee.api.vercel.types import VercelUser
 
 
 @patch("ee.api.authentication.get_vercel_jwks")

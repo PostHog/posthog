@@ -5,7 +5,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from social_core.utils import requests
 import structlog
 
-from ee.api.authentication import VercelClaims, VercelUser
+from ee.api.vercel.types import VercelClaims, VercelUser
 
 VERCEL_JWKS_URL = "https://marketplace.vercel.com/.well-known/jwks.json"
 VERCEL_JWKS_CACHE_KEY = "vercel_jwks"

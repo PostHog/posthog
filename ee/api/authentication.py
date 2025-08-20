@@ -1,4 +1,4 @@
-from typing import Any, Union, Literal, TypedDict, NotRequired
+from typing import Any, Literal, Union
 import re
 
 import jwt
@@ -13,7 +13,6 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied, AuthenticationFailed
 from rest_framework import authentication
 from rest_framework.request import Request
-from django.contrib.auth.models import AnonymousUser
 from social_core.backends.saml import (
     OID_COMMON_NAME,
     OID_GIVEN_NAME,
@@ -29,6 +28,7 @@ from social_django.utils import load_backend, load_strategy
 
 from ee import settings
 from ee.api.vercel.utils import get_vercel_jwks
+from ee.api.vercel.types import VercelClaims, VercelUser, VercelUserClaims, VercelSystemClaims
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -255,36 +255,6 @@ class CustomGoogleOAuth2(GoogleOAuth2):
 
 
 logger = structlog.get_logger(__name__)
-
-
-class VercelBaseClaims(TypedDict):
-    iss: str
-    sub: str
-    aud: str
-    account_id: str
-    installation_id: str
-    type: NotRequired[Literal["access_token", "id_token"]]
-
-
-class VercelUserClaims(VercelBaseClaims):
-    user_id: str
-    user_role: Literal["ADMIN", "USER"]
-    user_avatar_url: NotRequired[str]
-    user_email: NotRequired[str]  # Only available if integration is opted in (Which it is in our case)
-    user_name: NotRequired[str]
-
-
-class VercelSystemClaims(VercelBaseClaims):
-    pass
-
-
-VercelClaims = Union[VercelUserClaims, VercelSystemClaims]
-
-
-class VercelUser(AnonymousUser):
-    def __init__(self, claims: VercelClaims):
-        super().__init__()
-        self.claims = claims
 
 
 class VercelAuthentication(authentication.BaseAuthentication):
