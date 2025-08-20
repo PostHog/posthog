@@ -4,6 +4,7 @@ import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -22,6 +23,7 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { ExternalReferences } from './components/ExternalReferences'
 import { StatusIndicator } from './components/Indicator'
+import { IssueTasks } from './components/IssueTasks'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const RESOURCE_TYPE = 'issue'
@@ -29,6 +31,7 @@ const RESOURCE_TYPE = 'issue'
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
+    const hasTasks = useFeatureFlag('TASKS')
 
     return issue ? (
         <div className="flex flex-col gap-2">
@@ -52,6 +55,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                 disabled={issue.status != 'active'}
             />
             <IssueExternalReference />
+            {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
             {/* Add a div here to break out of the gap-2 */}

@@ -163,6 +163,7 @@ import {
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
 
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
@@ -894,6 +895,15 @@ export class ApiRequest {
 
     public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.userInterviews(teamId).addPathComponent(id)
+    }
+
+    // # Tasks
+    public tasks(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('tasks')
+    }
+
+    public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.tasks(teamId).addPathComponent(id)
     }
 
     // # Surveys
@@ -1832,7 +1842,7 @@ const api = {
             return new ApiRequest().comments().withQueryString(params).get()
         },
 
-        async getCount(params: Partial<CommentType>): Promise<number> {
+        async getCount(params: Partial<CommentType> & { exclude_emoji_reactions?: boolean }): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
 
@@ -3099,6 +3109,27 @@ const api = {
             data: Pick<UserInterviewType, 'summary'>
         ): Promise<UserInterviewType> {
             return await new ApiRequest().userInterview(id).update({ data })
+        },
+    },
+
+    tasks: {
+        async list(): Promise<PaginatedResponse<Task>> {
+            return await new ApiRequest().tasks().get()
+        },
+        async get(id: Task['id']): Promise<Task> {
+            return await new ApiRequest().task(id).get()
+        },
+        async create(data: TaskUpsertProps): Promise<Task> {
+            return await new ApiRequest().tasks().create({ data })
+        },
+        async update(id: string, data: Partial<TaskUpsertProps>): Promise<Partial<Task>> {
+            return await new ApiRequest().task(id).update({ data })
+        },
+        async delete(id: Task['id']): Promise<void> {
+            return await new ApiRequest().task(id).delete()
+        },
+        async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
+            return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
     },
 

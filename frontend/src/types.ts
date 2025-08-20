@@ -1211,7 +1211,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page'
+    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
     operator: PropertyOperator
 }
 

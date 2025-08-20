@@ -49,8 +49,11 @@ export interface RawPostgresPersonRepository {
     moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
+        limit?: number,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
+
+    fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]>
 
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>

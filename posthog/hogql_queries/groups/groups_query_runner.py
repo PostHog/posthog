@@ -43,6 +43,8 @@ class GroupsQueryRunner(AnalyticsQueryRunner):
         if self.query.properties:
             where_exprs.append(property_to_expr(self.query.properties, self.team, scope="group"))
 
+        order_by: list[ast.OrderExpr] = []
+        similarity_order = None
         if self.query.search is not None and self.query.search != "":
             where_exprs.append(
                 ast.Or(
@@ -60,11 +62,14 @@ class GroupsQueryRunner(AnalyticsQueryRunner):
                     ]
                 )
             )
+            similarity_order = self._get_similarity_order_for_search()
 
         where = ast.And(exprs=list(where_exprs)) if where_exprs else None
 
-        order_by: list[ast.OrderExpr] = []
         order_by_exprs = self.query.orderBy if self.query.orderBy else ["created_at DESC"]
+        has_user_ordering = self.query.orderBy is not None and len(self.query.orderBy) > 0
+
+        # Add user-specified ordering first
         for col in order_by_exprs:
             # group_name isn't actually a field
             if col.startswith("group_name"):
@@ -78,6 +83,10 @@ class GroupsQueryRunner(AnalyticsQueryRunner):
                 )
             else:
                 order_by.append(parse_order_expr(col, timings=self.timings))
+
+        if similarity_order is not None:
+            # Add similarity ordering after user ordering (but not after default created_at DESC)
+            order_by.append(similarity_order) if has_user_ordering else order_by.insert(0, similarity_order)
 
         return ast.SelectQuery(
             select=[
@@ -107,4 +116,37 @@ class GroupsQueryRunner(AnalyticsQueryRunner):
             results=results,
             hogql=response.hogql,
             **self.paginator.response_params(),
+        )
+
+    def _get_similarity_order_for_search(self) -> ast.OrderExpr:
+        """
+        When a search term exists, we want to rank the results by how close they are to it.
+        """
+        display_name_expr = ast.Call(
+            name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]
+        )
+
+        return ast.OrderExpr(
+            expr=ast.Call(
+                name="multiIf",
+                args=[
+                    # Exact match = 0 (highest priority)
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.ILike,
+                        left=display_name_expr,
+                        right=ast.Constant(value=self.query.search),
+                    ),
+                    ast.Constant(value=0),
+                    # Starts with search term = 1
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.ILike,
+                        left=display_name_expr,
+                        right=ast.Constant(value=f"{self.query.search}%"),
+                    ),
+                    ast.Constant(value=1),
+                    # Contains search term = 2 (lowest priority)
+                    ast.Constant(value=2),
+                ],
+            ),
+            order="ASC",
         )
