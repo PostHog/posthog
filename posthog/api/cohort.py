@@ -52,7 +52,7 @@ from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort import CohortOrEmpty, DEFAULT_COHORT_INSERT_BATCH_SIZE
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -60,7 +60,6 @@ from posthog.models.feature_flag.flag_matching import (
     FlagsMatcherCache,
     get_feature_flag_hash_key_overrides,
 )
-from posthog.models.cohort import CohortOrEmpty, DEFAULT_COHORT_INSERT_BATCH_SIZE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
