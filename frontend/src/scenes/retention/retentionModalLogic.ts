@@ -1,11 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import {
     ActorsQuery,
     DataTableNode,
@@ -37,14 +38,22 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     })),
     actions(() => ({
-        openModal: (rowIndex: number) => ({ rowIndex }),
+        openModal: (rowIndex: number, breakdownValue?: string | number | null) => ({ rowIndex, breakdownValue }),
         closeModal: true,
     })),
     reducers({
         selectedInterval: [
             null as number | null,
             {
-                openModal: (_, { rowIndex }) => rowIndex,
+                openModal: (_, { rowIndex }: { rowIndex: number; breakdownValue?: string | number | null }) => rowIndex,
+                closeModal: () => null,
+            },
+        ],
+        selectedBreakdownValue: [
+            null as string | number | null,
+            {
+                openModal: (_, { breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) =>
+                    breakdownValue ?? null,
                 closeModal: () => null,
             },
         ],
@@ -61,12 +70,16 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             },
         ],
         actorsQuery: [
-            (s) => [s.querySource, s.selectedInterval],
-            (querySource: RetentionQuery, selectedInterval): ActorsQuery | null => {
+            (s) => [s.querySource, s.selectedInterval, s.selectedBreakdownValue],
+            (
+                querySource: RetentionQuery,
+                selectedInterval: number | null,
+                selectedBreakdownValue: string | number | null
+            ): ActorsQuery | null => {
                 if (!querySource) {
                     return null
                 }
-                return retentionToActorsQuery(querySource, selectedInterval ?? 0)
+                return retentionToActorsQuery(querySource, selectedInterval ?? 0, 0, selectedBreakdownValue)
             },
         ],
         insightEventsQueryUrl: [
@@ -119,8 +132,8 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        openModal: ({ rowIndex }) => {
-            actions.loadPeople(rowIndex)
+        openModal: ({ rowIndex, breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) => {
+            actions.loadPeople(rowIndex, breakdownValue)
         },
     })),
 ])

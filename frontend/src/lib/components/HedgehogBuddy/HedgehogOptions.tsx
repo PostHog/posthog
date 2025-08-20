@@ -1,14 +1,16 @@
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import React from 'react'
+
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 
 import { HedgehogSkin } from '~/types'
 
-import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogBuddyProfile, HedgehogBuddyStatic } from './HedgehogBuddyRender'
+import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { accessoryGroups, standardAccessories } from './sprites/sprites'
 
 export function HedgehogOptions(): JSX.Element {

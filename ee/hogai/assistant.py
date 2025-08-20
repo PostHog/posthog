@@ -97,6 +97,7 @@ STREAMING_NODES: set[MaxNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
+    AssistantNodeName.INSIGHTS_SEARCH,
 }
 """Nodes that can stream messages to the client."""
 
@@ -372,6 +373,8 @@ class Assistant:
                         for action, _ in intermediate_steps:
                             assert isinstance(action.tool_input, dict)
                             match action.tool:
+                                case "lookup_feature_flag":
+                                    substeps.append(f"Exploring feature flag `{action.tool_input['flag_key']}`")
                                 case "retrieve_event_properties":
                                     substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
                                 case "retrieve_entity_properties":
@@ -400,8 +403,13 @@ class Assistant:
 
                 # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools,
                 # so we reuse the last reasoning headline when going back to QueryPlanner
+                if node_name == AssistantNodeName.QUERY_PLANNER:
+                    content = self._last_reasoning_headline or "Picking relevant events and properties"
+                else:
+                    content = self._last_reasoning_headline or "Picking the relevant information"
                 return ReasoningMessage(
-                    content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
+                    content=content,
+                    substeps=substeps,
                 )
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -424,6 +432,8 @@ class Assistant:
                     return ReasoningMessage(content="Checking PostHog docs")
                 if tool_call.name == "retrieve_billing_information":
                     return ReasoningMessage(content="Checking your billing data")
+                if tool_call.name == "search_insights":
+                    return ReasoningMessage(content="Searching for insights")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore

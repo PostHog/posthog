@@ -1,10 +1,12 @@
-import { IconPin, IconPinFilled, IconX } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
+import { IconPin, IconPinFilled, IconX } from '@posthog/icons'
+
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 

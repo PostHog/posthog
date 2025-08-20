@@ -1,6 +1,7 @@
 import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
 import * as d3 from 'd3'
+
 import { dayjs } from 'lib/dayjs'
 
 import { SparklineChart, SparklineEvent, SparklineOptions } from './SparklineChart'

@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 
-import { ProductKey, OnboardingStepKey } from '~/types'
-
-import { onboardingLogic } from './onboardingLogic'
-import { OnboardingStep } from './OnboardingStep'
-import { InvitesTable } from 'scenes/settings/organization/Invites'
 import { LemonDivider } from '@posthog/lemon-ui'
+
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
+import { InvitesTable } from 'scenes/settings/organization/Invites'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+
+import { OnboardingStepKey, ProductKey } from '~/types'
+
+import { OnboardingStep } from './OnboardingStep'
+import { onboardingLogic } from './onboardingLogic'
 
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     const { preflight } = useValues(preflightLogic)

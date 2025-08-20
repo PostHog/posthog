@@ -1,3 +1,10 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { P, match } from 'ts-pattern'
+
+import { Spinner } from '@posthog/lemon-ui'
+
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -5,16 +12,12 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { SessionTimeline } from './SessionTimeline/SessionTimeline'
-import { SessionRecording } from './SessionRecording'
-import { SubHeader } from '../SubHeader'
-import { BindLogic, useActions, useValues } from 'kea'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { sessionTabLogic } from './sessionTabLogic'
-import { match, P } from 'ts-pattern'
-import { Spinner } from '@posthog/lemon-ui'
+
 import { exceptionCardLogic } from '../../exceptionCardLogic'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { SubHeader } from '../SubHeader'
+import { SessionRecording } from './SessionRecording'
+import { SessionTimeline } from './SessionTimeline/SessionTimeline'
+import { sessionTabLogic } from './sessionTabLogic'
 
 export interface SessionTabProps extends TabsPrimitiveContentProps {
     timestamp?: string

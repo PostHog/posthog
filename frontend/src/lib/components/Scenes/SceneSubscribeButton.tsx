@@ -1,11 +1,14 @@
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-
-import { SubscriptionBaseProps, urlForSubscriptions } from '../Subscriptions/utils'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
-import { SceneDataAttrKeyProps } from './utils'
-import { QueryBasedInsightModel } from '~/types'
+
 import { IconBell } from '@posthog/icons'
+
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+
+import { QueryBasedInsightModel } from '~/types'
+
+import { SubscriptionBaseProps, urlForSubscriptions } from '../Subscriptions/utils'
+import { SceneDataAttrKeyProps } from './utils'
 
 interface SceneSubscribeButtonProps extends SubscriptionBaseProps, SceneDataAttrKeyProps {
     insight?: Partial<QueryBasedInsightModel>

@@ -2,6 +2,8 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
+import { RenderedRows } from 'react-virtualized/dist/es/List'
+
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -15,15 +17,14 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { isEmail, isURL } from 'lib/utils'
-import { RenderedRows } from 'react-virtualized/dist/es/List'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
-import type { infiniteListLogicType } from './infiniteListLogicType'
 import { getItemGroup } from './InfiniteList'
+import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -133,7 +134,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         [`${values.group?.searchAlias || 'search'}`]: swappedInQuery || searchQuery,
                         limit,
                         offset,
-                        excluded_properties: JSON.stringify(excludedProperties),
+                        excluded_properties:
+                            excludedProperties && excludedProperties.length > 0
+                                ? JSON.stringify(excludedProperties)
+                                : undefined,
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
                         ...(props.showNumericalPropsOnly ? { is_numerical: 'true' } : {}),
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
@@ -248,7 +252,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         isExpanded: [false, { expand: () => true }],
     })),
     selectors({
-        listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
+        listGroupType: [(_, p) => [p.listGroupType], (listGroupType) => listGroupType],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,

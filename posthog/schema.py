@@ -94,6 +94,8 @@ class AssistantContextualTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     SEARCH_DOCS = "search_docs"
+    SEARCH_INSIGHTS = "search_insights"
+    SESSION_SUMMARIZATION = "session_summarization"
 
 
 class AssistantDateRange(BaseModel):
@@ -125,6 +127,7 @@ class AssistantDurationRange(BaseModel):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
+    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
@@ -1187,6 +1190,7 @@ class ExperimentMetricOutlierHandling(BaseModel):
 class ExperimentMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN = "mean"
+    RATIO = "ratio"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -1826,6 +1830,7 @@ class MinimalHedgehogConfig(BaseModel):
 
 
 class MultipleBreakdownType(StrEnum):
+    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
@@ -2189,7 +2194,8 @@ class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class ResultCustomizationBy(StrEnum):
@@ -2202,7 +2208,8 @@ class ResultCustomizationByPosition(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["position"] = "position"
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -2210,7 +2217,8 @@ class ResultCustomizationByValue(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["value"] = "value"
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class RetentionDashboardDisplayType(StrEnum):
@@ -2460,6 +2468,11 @@ class StickinessOperator(StrEnum):
     GTE = "gte"
     LTE = "lte"
     EXACT = "exact"
+
+
+class SubscriptionDropoffMode(StrEnum):
+    LAST_EVENT = "last_event"
+    AFTER_DROPOFF_PERIOD = "after_dropoff_period"
 
 
 class SuggestedQuestionsQueryResponse(BaseModel):
@@ -3299,7 +3312,7 @@ class Breakdown(BaseModel):
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: str
+    property: Union[str, int]
     type: Optional[MultipleBreakdownType] = None
 
 
@@ -3651,8 +3664,11 @@ class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
     key: str
     number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
     sum: float
     sum_squares: float
 
@@ -3661,8 +3677,11 @@ class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
     key: str
     number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3674,9 +3693,12 @@ class ExperimentVariantResultBayesian(BaseModel):
     )
     chance_to_win: Optional[float] = None
     credible_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
     key: str
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
     significant: Optional[bool] = None
     sum: float
     sum_squares: float
@@ -3688,9 +3710,12 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
     key: str
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
     p_value: Optional[float] = None
     significant: Optional[bool] = None
     sum: float
@@ -4136,6 +4161,14 @@ class RevenueAnalyticsEventItem(BaseModel):
             "The number of days we still consider a subscription to be active after the last event. This is useful to"
             " avoid the current month's data to look as if most of the subscriptions have churned since we might not"
             " have an event for the current month."
+        ),
+    )
+    subscriptionDropoffMode: Optional[SubscriptionDropoffMode] = Field(
+        default=SubscriptionDropoffMode.LAST_EVENT,
+        description=(
+            "After a subscription has dropped off, when should we consider it to have ended? It should either be at the"
+            " date of the last event (will alter past periods, the default), or at the date of the last event plus the"
+            " dropoff period."
         ),
     )
     subscriptionProperty: Optional[str] = Field(
@@ -10417,6 +10450,7 @@ class SurveyCreationSchema(BaseModel):
     end_date: Optional[str] = None
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
+    linked_flag_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
@@ -11176,6 +11210,31 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     series: list[Union[EventsNode, ActionsNode]]
 
 
+class ExperimentRatioMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["ratio"] = "ratio"
+    name: Optional[str] = None
+    numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    response: Optional[dict[str, Any]] = None
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentRatioMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    metric_type: Literal["ratio"] = "ratio"
+    numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+
+
 class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11440,6 +11499,7 @@ class RecordingsQuery(BaseModel):
         extra="forbid",
     )
     actions: Optional[list[dict[str, Any]]] = None
+    comment_text: Optional[RecordingPropertyFilter] = None
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
     date_from: Optional[str] = "-3d"
     date_to: Optional[str] = None
@@ -12025,12 +12085,14 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     upper_bound_percentile: Optional[float] = None
 
 
-class ExperimentMetric(RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric]]):
-    root: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+class ExperimentMetric(RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]]):
+    root: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
 
 
-class ExperimentMetricTypeProps(RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]]):
-    root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]
+class ExperimentMetricTypeProps(
+    RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]]
+):
+    root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]
 
 
 class ExperimentQueryResponse(BaseModel):
@@ -12041,7 +12103,7 @@ class ExperimentQueryResponse(BaseModel):
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
     p_value: Optional[float] = None
     probability: Optional[dict[str, float]] = None
     significance_code: Optional[ExperimentSignificanceCode] = None
@@ -12416,7 +12478,7 @@ class LegacyExperimentQueryResponse(BaseModel):
     credible_intervals: dict[str, list[float]]
     insight: list[dict[str, Any]]
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
     p_value: float
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
@@ -12544,7 +12606,7 @@ class QueryResponseAlternative17(BaseModel):
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
     p_value: Optional[float] = None
     probability: Optional[dict[str, float]] = None
     significance_code: Optional[ExperimentSignificanceCode] = None
@@ -12661,7 +12723,7 @@ class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
 
 
 class IsExperimentFunnelMetric(BaseModel):
@@ -12669,6 +12731,10 @@ class IsExperimentFunnelMetric(BaseModel):
 
 
 class IsExperimentMeanMetric(BaseModel):
+    namedArgs: Optional[NamedArgs] = None
+
+
+class IsExperimentRatioMetric(BaseModel):
     namedArgs: Optional[NamedArgs] = None
 
 
@@ -12715,7 +12781,7 @@ class CachedExperimentQueryResponse(BaseModel):
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     last_refresh: datetime
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
     next_allowed_client_refresh: datetime
     p_value: Optional[float] = None
     probability: Optional[dict[str, float]] = None
@@ -12746,7 +12812,7 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     last_refresh: datetime
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
     next_allowed_client_refresh: datetime
     p_value: float
     probability: dict[str, float]
@@ -12798,7 +12864,7 @@ class ExperimentQuery(BaseModel):
     )
     experiment_id: Optional[int] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )

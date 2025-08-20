@@ -1,5 +1,6 @@
-import { LemonTable } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
+
+import { LemonTable } from '@posthog/lemon-ui'
 
 import * as hedgehogs from './hedgehogs'
 

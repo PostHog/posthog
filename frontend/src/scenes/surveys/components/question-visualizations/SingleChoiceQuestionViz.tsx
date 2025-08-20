@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'

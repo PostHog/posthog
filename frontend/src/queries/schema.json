@@ -906,7 +906,9 @@
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
-                "search_docs"
+                "search_docs",
+                "search_insights",
+                "session_summarization"
             ],
             "type": "string"
         },
@@ -967,7 +969,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "event_metadata", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2370,7 +2372,14 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
                 },
                 "type": {
                     "anyOf": [
@@ -11312,6 +11321,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetric"
                 }
             ]
         },
@@ -11375,7 +11387,7 @@
             ]
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean"],
+            "enum": ["funnel", "mean", "ratio"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -11385,6 +11397,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetricTypeProps"
                 }
             ]
         },
@@ -11505,6 +11520,63 @@
             },
             "type": "object"
         },
+        "ExperimentRatioMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["denominator", "kind", "metric_type", "numerator"],
+            "type": "object"
+        },
+        "ExperimentRatioMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                }
+            },
+            "required": ["metric_type", "numerator", "denominator"],
+            "type": "object"
+        },
         "ExperimentSignificanceCode": {
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
             "type": "string"
@@ -11512,11 +11584,20 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -11531,11 +11612,20 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -11694,6 +11784,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11703,6 +11799,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "significant": {
                     "type": "boolean"
@@ -11734,6 +11833,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11743,6 +11848,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "p_value": {
                     "type": "number"
@@ -15938,7 +16046,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -20616,6 +20724,10 @@
                         {
                             "const": "visited_page",
                             "type": "string"
+                        },
+                        {
+                            "const": "comment_text",
+                            "type": "string"
                         }
                     ]
                 },
@@ -20644,6 +20756,9 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "comment_text": {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 "console_log_filters": {
                     "items": {
@@ -20796,9 +20911,11 @@
             "properties": {
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["color"],
             "type": "object"
         },
         "ResultCustomizationBy": {
@@ -20814,9 +20931,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "ResultCustomizationByValue": {
@@ -20828,9 +20948,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "RetentionDashboardDisplayType": {
@@ -21331,6 +21454,11 @@
                     "description": "The number of days we still consider a subscription to be active after the last event. This is useful to avoid the current month's data to look as if most of the subscriptions have churned since we might not have an event for the current month.",
                     "type": "number"
                 },
+                "subscriptionDropoffMode": {
+                    "$ref": "#/definitions/SubscriptionDropoffMode",
+                    "default": "last_event",
+                    "description": "After a subscription has dropped off, when should we consider it to have ended? It should either be at the date of the last event (will alter past periods, the default), or at the date of the last event plus the dropoff period."
+                },
                 "subscriptionProperty": {
                     "description": "Property used to identify what subscription the revenue event refers to Useful when trying to detect churn/LTV/ARPU/etc.",
                     "type": "string"
@@ -21340,6 +21468,7 @@
                 "eventName",
                 "revenueProperty",
                 "subscriptionDropoffDays",
+                "subscriptionDropoffMode",
                 "revenueCurrencyProperty",
                 "currencyAwareDecimal"
             ],
@@ -23293,6 +23422,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "SubscriptionDropoffMode": {
+            "enum": ["last_event", "after_dropoff_period"],
+            "type": "string"
+        },
         "SuggestedQuestionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -23434,6 +23567,9 @@
                     "type": "number"
                 },
                 "iteration_frequency_days": {
+                    "type": "number"
+                },
+                "linked_flag_id": {
                     "type": "number"
                 },
                 "name": {
@@ -25791,6 +25927,22 @@
         },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentRatioMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentRatioMetric",
             "properties": {
                 "namedArgs": {
                     "additionalProperties": false,

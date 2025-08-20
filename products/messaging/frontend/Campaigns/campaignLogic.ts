@@ -1,8 +1,10 @@
-import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'

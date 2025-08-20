@@ -1,21 +1,26 @@
 import './FeatureFlag.scss'
 
+import { useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { PostHogFeature } from 'posthog-js/react'
+import { useEffect, useState } from 'react'
+
 import {
     IconBalance,
     IconCollapse,
     IconExpand,
+    IconGlobe,
     IconInfo,
+    IconLaptop,
     IconPlus,
     IconRewindPlay,
-    IconTrash,
-    IconGlobe,
     IconServer,
-    IconLaptop,
+    IconTrash,
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -40,25 +45,23 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
-import { PostHogFeature } from 'posthog-js/react'
-import { useEffect, useState } from 'react'
+import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
-import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -82,20 +85,18 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
-
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
-import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { NotebookNodeType } from 'scenes/notebooks/types'
+import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }): (typeof featureFlagLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
     settingSectionId: 'environment-feature-flags',
@@ -108,7 +109,7 @@ function focusVariantKeyField(index: number): void {
     )
 }
 
-export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
@@ -217,7 +218,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         tabs.push({
             label: 'Usage',
             key: FeatureFlagsTab.USAGE,
-            content: <UsageTab id={id} featureFlag={featureFlag} />,
+            content: <UsageTab featureFlag={featureFlag} />,
         })
 
         tabs.push({
@@ -247,7 +248,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.Analysis,
             content: (
                 <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                    <AnalysisTab id={id} featureFlag={featureFlag} />
+                    <AnalysisTab featureFlag={featureFlag} />
                 </PostHogFeature>
             ),
         })
@@ -682,7 +683,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const {
         key: featureFlagKey,
         usage_dashboard: dashboardId,
@@ -1455,7 +1456,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     (featureFlag.has_encrypted_payloads &&
                                                         Boolean(featureFlag.filters?.payloads?.['true']))
                                                 }
-                                                placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                                placeholder='Examples: "A string", 2500, {"key": "value"}'
                                             />
                                         </LemonField>
                                     </Group>

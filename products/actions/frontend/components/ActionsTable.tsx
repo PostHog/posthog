@@ -1,31 +1,33 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import api from 'lib/api'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { actionsLogic } from '../logics/actionsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
+import { actionsLogic } from '../logics/actionsLogic'
 import { NewActionButton } from './NewActionButton'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
