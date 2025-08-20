@@ -28,8 +28,6 @@ import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyt
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
@@ -70,6 +68,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -99,9 +98,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId, insightLoading } =
+        useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
         insightLogic(insightLogicProps)
     )
@@ -608,24 +606,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     </ScenePanelCommonActions>
                     <ScenePanelMetaInfo>
-                        <SceneTextInput
-                            name="name"
-                            defaultValue={defaultInsightName || ''}
-                            onSave={(value) => setInsightMetadata({ name: value })}
-                            dataAttrKey={RESOURCE_TYPE}
-                            canEdit={canEditInsight}
-                        />
-
-                        <SceneTextarea
-                            name="description"
-                            defaultValue={insight.description || ''}
-                            onSave={(value) => setInsightMetadata({ description: value })}
-                            dataAttrKey={RESOURCE_TYPE}
-                            optional
-                            canEdit={canEditInsight}
-                            markdown
-                        />
-
                         <SceneTags
                             onSave={(tags) => {
                                 setInsightMetadata({ tags })
@@ -874,6 +854,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     </ScenePanelActions>
                 </>
             </ScenePanel>
+
+            <SceneTitleSection
+                name={defaultInsightName || ''}
+                description={insight?.description || ''}
+                resourceType={{
+                    type: 'insight',
+                    typePlural: 'insights',
+                }}
+                onNameBlur={(name) => setInsightMetadata({ name })}
+                onDescriptionBlur={(description) => setInsightMetadata({ description })}
+                canEdit={canEditInsight}
+                isLoading={insightLoading}
+            />
+            <SceneDivider />
         </>
     )
 }

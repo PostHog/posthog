@@ -211,7 +211,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <SceneContent>
                     <SceneTitleSection
                         name={cohort.name}
-                        description={cohort.description}
+                        description={cohort.description || ''}
                         resourceType={{
                             to: urls.cohorts(),
                             type: RESOURCE_TYPE,
@@ -226,6 +226,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             setCohortValue('description', value)
                         }}
                         docsURL="https://posthog.com/docs/data/cohorts"
+                        canEdit
                     />
 
                     <SceneDivider />

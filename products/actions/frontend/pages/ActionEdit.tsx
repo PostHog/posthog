@@ -335,6 +335,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                         setActionValue('description', value)
                     }}
                     docsURL="https://posthog.com/docs/data/actions"
+                    canEdit
                 />
 
                 <SceneDivider />
