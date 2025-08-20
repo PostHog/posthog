@@ -6,7 +6,7 @@ import { IconTrending } from '@posthog/icons'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ExperimentMetricType, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
 import { ChartEmptyState } from '../shared/ChartEmptyState'
@@ -91,8 +91,17 @@ export function MetricRowGroup({
 
     // Helper function to format data
     const formatData = (data: any): string => {
+        if (metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.RATIO) {
+            // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
+            if (data.denominator_sum && data.denominator_sum > 0) {
+                const ratio = data.sum / data.denominator_sum
+                return ratio.toFixed(3)
+            }
+            return '0.000'
+        }
+
         const primaryValue = data.sum / data.number_of_samples
-        return metric && 'metric_type' in metric && metric.metric_type === 'mean'
+        return metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.MEAN
             ? primaryValue.toFixed(2)
             : `${(primaryValue * 100).toFixed(2)}%`
     }
@@ -293,8 +302,19 @@ export function MetricRowGroup({
                     <div className="text-sm">
                         <div className="text-text-primary">{formatData(baselineResult)}</div>
                         <div className="text-xs text-muted">
-                            {humanFriendlyNumber(baselineResult.sum)} /{' '}
-                            {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
+                            {metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.RATIO ? (
+                                // For ratio metrics, show numerator / denominator
+                                <>
+                                    {humanFriendlyNumber(baselineResult.sum)} /{' '}
+                                    {humanFriendlyNumber(baselineResult.denominator_sum || 0)}
+                                </>
+                            ) : (
+                                // For other metrics, show sum / samples
+                                <>
+                                    {humanFriendlyNumber(baselineResult.sum)} /{' '}
+                                    {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
+                                </>
+                            )}
                         </div>
                     </div>
                 </td>
@@ -407,8 +427,21 @@ export function MetricRowGroup({
                             <div className="text-sm">
                                 <div className="text-text-primary">{formatData(variant)}</div>
                                 <div className="text-xs text-muted">
-                                    {humanFriendlyNumber(variant.sum)} /{' '}
-                                    {humanFriendlyNumber(variant.number_of_samples || 0)}
+                                    {metric &&
+                                    'metric_type' in metric &&
+                                    metric.metric_type === ExperimentMetricType.RATIO ? (
+                                        // For ratio metrics, show numerator / denominator
+                                        <>
+                                            {humanFriendlyNumber(variant.sum)} /{' '}
+                                            {humanFriendlyNumber(variant.denominator_sum || 0)}
+                                        </>
+                                    ) : (
+                                        // For other metrics, show sum / samples
+                                        <>
+                                            {humanFriendlyNumber(variant.sum)} /{' '}
+                                            {humanFriendlyNumber(variant.number_of_samples || 0)}
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </td>

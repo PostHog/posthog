@@ -1,3 +1,4 @@
+import json
 from typing import Any, Literal, cast, Optional
 
 from django.core.cache import cache
@@ -165,6 +166,12 @@ class EventDefinitionViewSet(
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and is_enterprise:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
+
+        excluded_properties = self.request.GET.get("excluded_properties")
+
+        if excluded_properties:
+            excluded_list = list(set(json.loads(excluded_properties)))
+            search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
 
         sql = create_event_definitions_sql(
             event_type,

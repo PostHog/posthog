@@ -7,7 +7,9 @@ from django.db import models
 
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+
 from posthog.models.utils import UUIDTModel
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 
 class BatchExportDestination(UUIDTModel):
@@ -175,7 +177,7 @@ BATCH_EXPORT_INTERVALS = [
 ]
 
 
-class BatchExport(UUIDTModel):
+class BatchExport(ModelActivityMixin, UUIDTModel):
     """
     Defines the configuration of PostHog to export data to a destination,
     either on a schedule (via the interval parameter), or manually by a
