@@ -88,6 +88,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
+    CREATE_MESSAGE_TEMPLATE = "create_message_template"
     NAVIGATE = "navigate"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
@@ -96,7 +97,6 @@ class AssistantContextualTool(StrEnum):
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
-    CREATE_MESSAGE_TEMPLATE = "create_message_template"
 
 
 class AssistantDateRange(BaseModel):
