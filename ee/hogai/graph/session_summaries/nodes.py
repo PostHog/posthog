@@ -56,8 +56,6 @@ class SessionSummarizationNode(AssistantNode):
             )
             return
         message_chunk = prepare_reasoning_progress_message(progress_message)
-        if not message_chunk:
-            return
         message = (message_chunk, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
         return
