@@ -391,6 +391,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             return true // Assume templateless requires the addon
         }
 
-        return !!template.free
+        return !template.free
     }
 }
