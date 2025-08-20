@@ -125,8 +125,8 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Authentication (incl. login, sign-up, invites)',
             },
             {
-                value: 'platform_analytics',
-                'data-attr': `support-form-target-area-platform_analytics`,
+                value: 'analytics_platform',
+                'data-attr': `support-form-target-area-analytics_platform`,
                 label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
             },
             {
