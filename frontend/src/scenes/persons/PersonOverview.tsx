@@ -1,44 +1,15 @@
 import { useEffect } from 'react'
 
-import {
-    IconBuilding,
-    IconCalendar,
-    IconClock,
-    IconEye,
-    IconFlag,
-    IconGlobe,
-    IconLaptop,
-    IconLetter,
-    IconMouse,
-    IconPerson,
-    IconPhone,
-    IconPulse,
-    IconTrending,
-} from '@posthog/icons'
+import { IconCalendar, IconEye, IconGlobe, IconMouse, IconTrending } from '@posthog/icons'
 import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
-import {
-    IconAndroidOS,
-    IconAppleIOS,
-    IconChrome,
-    IconFirefox,
-    IconLinux,
-    IconMacOS,
-    IconMicrosoftEdge,
-    IconMonitor,
-    IconOpera,
-    IconSafari,
-    IconTablet,
-    IconWindows,
-} from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { Query } from '~/queries/Query/Query'
-import { CalendarHeatmapQuery, NodeKind } from '~/queries/schema/schema-general'
-import { PersonType, PropertyFilterType } from '~/types'
+import { PersonType } from '~/types'
 
-import { ImportantProperty, personOverviewLogic } from './PersonOverviewLogic'
+import { PersonPropertiesCard } from './cards/PersonPropertiesCard'
+import { PersonInsightsCard } from './cards/PersonInsightsCard'
+import { personOverviewLogic } from './PersonOverviewLogic'
 
 interface PersonOverviewProps {
     person: PersonType
@@ -73,154 +44,9 @@ function StatCard({ title, value, icon, loading, subtitle }: StatCardProps): JSX
     )
 }
 
-interface PropertyCardProps {
-    property: ImportantProperty
-}
-
-function PropertyRow({ property }: PropertyCardProps): JSX.Element {
-    const formatValue = (value: unknown): string => {
-        if (typeof value === 'boolean') {
-            return value ? 'Yes' : 'No'
-        }
-        if (typeof value === 'number') {
-            return humanFriendlyNumber(value)
-        }
-        if (typeof value === 'string' && value.length > 50) {
-            return value.substring(0, 47) + '...'
-        }
-        return String(value)
-    }
-
-    const getPropertyLabel = (key: string): string => {
-        const labelMap: Record<string, string> = {
-            // Email
-            email: 'Email',
-            $email: 'Email',
-
-            // Name
-            name: 'Name',
-            $name: 'Name',
-            first_name: 'First Name',
-            last_name: 'Last Name',
-
-            // Browser
-            $browser: 'Browser',
-            $browser_version: 'Browser Version',
-
-            // OS & Device
-            $os: 'Operating System',
-            $device_type: 'Device Type',
-
-            // Location
-            $geoip_country_code: 'Country',
-            $geoip_city_name: 'City',
-            $geoip_time_zone: 'Time Zone',
-            $geoip_continent_name: 'Continent',
-
-            // UTM
-            utm_source: 'UTM Source',
-            utm_medium: 'UTM Medium',
-            utm_campaign: 'UTM Campaign',
-            utm_content: 'UTM Content',
-
-            // URL
-            $initial_current_url: 'Landing Page',
-            $initial_referring_domain: 'Referring Domain',
-
-            // Demographics
-            company: 'Company',
-            title: 'Job Title',
-            phone: 'Phone',
-        }
-
-        return (
-            labelMap[key] ||
-            key
-                .replace(/^\$/, '')
-                .replace(/_/g, ' ')
-                .replace(/\b\w/g, (l) => l.toUpperCase())
-        )
-    }
-
-    // Convert icon identifiers to PostHog icons (for Current properties only)
-    const getSymbolIcon = (symbol?: string): JSX.Element | null => {
-        if (!symbol) {
-            return null
-        }
-
-        const symbolToIcon: Record<string, JSX.Element> = {
-            // PostHog OS icons
-            macos: <IconMacOS className="w-4 h-4" />,
-            windows: <IconWindows className="w-4 h-4" />,
-            linux: <IconLinux className="w-4 h-4" />,
-            android: <IconAndroidOS className="w-4 h-4" />,
-            ios: <IconAppleIOS className="w-4 h-4" />,
-            other: <IconLaptop className="w-4 h-4" />,
-
-            // PostHog browser icons
-            chrome: <IconChrome className="w-4 h-4" />,
-            firefox: <IconFirefox className="w-4 h-4" />,
-            safari: <IconSafari className="w-4 h-4" />,
-            edge: <IconMicrosoftEdge className="w-4 h-4" />,
-            opera: <IconOpera className="w-4 h-4" />,
-
-            // PostHog device icons
-            mobile: <IconPhone className="w-4 h-4" />,
-            tablet: <IconTablet className="w-4 h-4" />,
-            desktop: <IconMonitor className="w-4 h-4" />,
-
-            // Property type icons
-            email: <IconLetter className="w-4 h-4" />,
-            person: <IconPerson className="w-4 h-4" />,
-            location: <IconGlobe className="w-4 h-4" />,
-            clock: <IconClock className="w-4 h-4" />,
-            globe: <IconGlobe className="w-4 h-4" />,
-            building: <IconBuilding className="w-4 h-4" />,
-            briefcase: <IconFlag className="w-4 h-4" />,
-            phone: <IconPhone className="w-4 h-4" />,
-        }
-
-        return symbolToIcon[symbol] || <span className="text-sm">{symbol}</span>
-    }
-
-    // Check if this is an acquisition property (should show label instead of symbol)
-    const isAcquisitionProperty = (key: string): boolean => {
-        return key.startsWith('$initial_') || key.startsWith('utm_')
-    }
-
-    const hasSymbol = property.symbol && !isAcquisitionProperty(property.key)
-
-    if (hasSymbol) {
-        // Current properties: show symbol + value
-        return (
-            <div className="flex items-center gap-2 py-1.5 px-2 hover:bg-accent/20 rounded">
-                <div className="flex-shrink-0">{getSymbolIcon(property.symbol)}</div>
-                <div className="text-sm font-medium text-default truncate">{formatValue(property.value)}</div>
-            </div>
-        )
-    }
-    // Acquisition properties: show label + value with reduced spacing and truncation
-    const fullValue = formatValue(property.value)
-    const truncatedValue = fullValue.length > 40 ? fullValue.substring(0, 37) + '...' : fullValue
-    const shouldShowTooltip = fullValue.length > 40
-
-    return (
-        <div className="flex items-center gap-2 py-1.5 px-2 hover:bg-accent/20 rounded">
-            <div className="text-xs text-muted font-medium min-w-0 flex-shrink-0">{getPropertyLabel(property.key)}</div>
-            {shouldShowTooltip ? (
-                <Tooltip title={String(property.value)}>
-                    <div className="text-sm font-medium text-default truncate cursor-default">{truncatedValue}</div>
-                </Tooltip>
-            ) : (
-                <div className="text-sm font-medium text-default truncate">{truncatedValue}</div>
-            )}
-        </div>
-    )
-}
-
 export function PersonOverview({ person }: PersonOverviewProps): JSX.Element {
     const logic = personOverviewLogic({ person })
-    const { overviewStats, importantProperties, isLoading } = useValues(logic)
+    const { overviewStats, isLoading } = useValues(logic)
     const { loadOverviewStats } = useActions(logic)
 
     useEffect(() => {
@@ -274,140 +100,22 @@ export function PersonOverview({ person }: PersonOverviewProps): JSX.Element {
                 />
             </div>
 
-            {/* Properties and Activity - Side by Side */}
-            <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
-                {/* Key Properties */}
-                <div className="lg:col-span-3">
-                    <div className="flex items-center gap-2 mb-3">
-                        <IconGlobe className="text-lg" />
-                        <h3 className="font-semibold">Properties</h3>
-                        <span className="text-xs text-muted">({importantProperties.length})</span>
-                    </div>
-
-                    {importantProperties.length === 0 ? (
-                        <LemonCard className="p-3 text-center">
-                            <div className="text-muted text-sm">No properties found yet</div>
-                            <div className="text-xs text-muted-alt mt-1">
-                                Properties like location, UTM parameters, and demographics will appear here as they're
-                                collected
-                            </div>
-                        </LemonCard>
-                    ) : (
-                        <LemonCard className="p-3">
-                            {(() => {
-                                // Group properties by current vs acquisition
-                                const isAcquisitionProperty = (key: string): boolean => {
-                                    return (
-                                        key.startsWith('$initial_') ||
-                                        key.startsWith('utm_') ||
-                                        key === '$initial_current_url' ||
-                                        key === '$initial_referring_domain'
-                                    )
-                                }
-
-                                const currentProperties = importantProperties.filter(
-                                    (p: ImportantProperty) => !isAcquisitionProperty(p.key)
-                                )
-                                const acquisitionProperties = importantProperties.filter((p: ImportantProperty) =>
-                                    isAcquisitionProperty(p.key)
-                                )
-
-                                const renderSection = (
-                                    title: string,
-                                    icon: JSX.Element,
-                                    properties: ImportantProperty[]
-                                ): JSX.Element | null => {
-                                    if (properties.length === 0) {
-                                        return null
-                                    }
-
-                                    return (
-                                        <div className="mb-4 last:mb-0">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                {icon}
-                                                <h4 className="text-xs font-semibold text-muted uppercase tracking-wide">
-                                                    {title}
-                                                </h4>
-                                            </div>
-                                            <div className="space-y-0.5 ml-6">
-                                                {properties.map((property) => (
-                                                    <PropertyRow key={property.key} property={property} />
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )
-                                }
-
-                                return (
-                                    <>
-                                        {renderSection(
-                                            'Current',
-                                            <IconPerson className="w-4 h-4" />,
-                                            currentProperties
-                                        )}
-                                        {renderSection(
-                                            'Acquisition',
-                                            <IconFlag className="w-4 h-4" />,
-                                            acquisitionProperties
-                                        )}
-                                    </>
-                                )
-                            })()}
-                        </LemonCard>
-                    )}
+            {/* Properties Section */}
+            <div>
+                <div className="flex items-center gap-2 mb-3">
+                    <IconGlobe className="text-lg" />
+                    <h3 className="font-semibold">Properties</h3>
                 </div>
-
-                {/* Activity Calendar Heatmap */}
-                <div className="lg:col-span-7">
-                    <div className="flex items-center gap-2 mb-3">
-                        <IconPulse className="text-lg" />
-                        <h3 className="font-semibold">Activity Calendar</h3>
-                        <span className="text-xs text-muted">(Last 7 days)</span>
-                    </div>
-
-                    <Query
-                        query={
-                            {
-                                kind: NodeKind.CalendarHeatmapQuery,
-                                series: [
-                                    {
-                                        kind: NodeKind.EventsNode,
-                                        name: 'All Events',
-                                        event: null,
-                                        math: 'total',
-                                    },
-                                ],
-                                properties: [
-                                    {
-                                        key: `distinct_id IN (${person.distinct_ids?.map((id) => `'${id}'`).join(', ') || "''"})`,
-                                        value: 'true',
-                                        type: PropertyFilterType.HogQL,
-                                    },
-                                ],
-                                dateRange: {
-                                    date_from: '-12m',
-                                    date_to: null,
-                                },
-                                interval: 'month',
-                                calendarHeatmapFilter: {},
-                            } as CalendarHeatmapQuery
-                        }
-                        context={{
-                            emptyStateHeading: 'No activity data',
-                            emptyStateDetail: 'This person has no recorded activity in the last 7 days.',
-                            insightProps: {
-                                dashboardItemId: `new-person-overview-${person.uuid || 'unknown'}` as const,
-                            },
-                        }}
-                    />
-                </div>
+                <PersonPropertiesCard person={person} />
             </div>
 
-            {/* View All Properties Link */}
-            <div className="text-center pt-2">
-                <p className="text-xs text-muted">
-                    Want to see all properties? Check out the <strong>Properties</strong> tab for the complete list.
-                </p>
+            {/* Insights Section */}
+            <div>
+                <div className="flex items-center gap-2 mb-3">
+                    <IconTrending className="text-lg" />
+                    <h3 className="font-semibold">Insights</h3>
+                </div>
+                <PersonInsightsCard person={person} />
             </div>
         </div>
     )
