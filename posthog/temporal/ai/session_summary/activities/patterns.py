@@ -134,7 +134,8 @@ def get_patterns_from_redis_outside_workflow(
         try:
             redis_data_str = decompress_redis_data(redis_data_raw)
             redis_data = json.loads(redis_data_str)
-            extracted_patterns.extend(RawSessionGroupSummaryPatternsList(**redis_data).patterns)
+            patterns_list = RawSessionGroupSummaryPatternsList.model_validate(redis_data)
+            extracted_patterns.extend(patterns_list.patterns)
         except Exception as e:
             raise ValueError(
                 f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when getting extracted patterns from Redis: {e}"
