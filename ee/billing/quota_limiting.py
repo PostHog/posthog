@@ -24,7 +24,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_api_queries_metrics,
-    get_teams_with_cdp_invocations_metrics,
+    get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_survey_responses_count_in_period,
 )
 from posthog.utils import get_current_day
@@ -600,7 +600,7 @@ def update_all_orgs_billing_quotas(
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_invocations_metrics": convert_team_usage_rows_to_dict(
-            get_teams_with_cdp_invocations_metrics(period_start, period_end)
+            get_teams_with_cdp_billable_invocations_in_period(period_start, period_end)
         ),
         "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_survey_responses_count_in_period(period_start, period_end)

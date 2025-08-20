@@ -452,7 +452,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": create_usage_summary_response(),
+            "usage_summary": create_usage_summary(),
             "free_trial_until": None,
         }
 
@@ -572,7 +572,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": create_usage_summary_response(),
+            "usage_summary": create_usage_summary(),
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
