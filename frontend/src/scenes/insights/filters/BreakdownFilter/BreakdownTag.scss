@@ -1,0 +1,42 @@
+.BreakdownTag {
+    display: inline-flex;
+    gap: 0.125rem;
+    align-items: center;
+    white-space: nowrap;
+    height: 2rem;
+    padding: 0.25rem 0.625rem;
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1rem;
+    color: var(--primary-alt);
+    vertical-align: bottom;
+    background-color: var(--color-accent-highlight-secondary);
+    border: 1px solid hsla(19, 80%, 48%, 14%);
+    border-radius: 9999px;
+    outline: 0;
+
+    &:hover,
+    &:focus {
+        border-color: hsla(19, 70%, 48%, 35%);
+    }
+
+    &:not(.BreakdownTag--clickable) {
+        border-color: transparent;
+    }
+
+    &.BreakdownTag--clickable {
+        touch-action: manipulation; // faster clicks
+        cursor: pointer;
+    }
+
+    // Close and popover buttons
+    .LemonButton {
+        margin: 0 -0.375rem 0 0.15rem;
+        border-radius: 99rem;
+    }
+
+    .LemonButton__chrome {
+        min-height: auto;
+        padding: 0.1875rem;
+    }
+}

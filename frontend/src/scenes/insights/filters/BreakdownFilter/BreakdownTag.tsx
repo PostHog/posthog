@@ -1,7 +1,11 @@
+import './BreakdownTag.scss'
+
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
+import { IconEllipsis, IconX } from '@posthog/icons'
+import { LemonButton, LemonButtonWithDropdown, LemonTagProps } from '@posthog/lemon-ui'
 
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
@@ -109,7 +113,11 @@ export function BreakdownTag({
     breakdown,
     breakdownType = 'event',
     disablePropertyInfo,
-    ...props
+    size,
+    closable,
+    onClose,
+    onClick,
+    popover,
 }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { groupTypes } = useValues(groupsModel)
@@ -131,8 +139,17 @@ export function BreakdownTag({
         propertyName = extractExpressionComment(propertyName as string)
     }
 
+    const clickable = onClick !== undefined
+    const ButtonComponent = clickable ? 'button' : 'div'
+
     return (
-        <LemonTag type="breakdown" {...props}>
+        <ButtonComponent
+            className={clsx('BreakdownTag', `BreakdownTag--size-${size}`, {
+                'BreakdownTag--clickable': clickable,
+            })}
+            type={ButtonComponent === 'button' ? 'button' : undefined}
+            onClick={onClick}
+        >
             {breakdownType === 'hogql' ? (
                 <HoqQLPropertyInfo value={propertyName as string} />
             ) : (
@@ -146,6 +163,29 @@ export function BreakdownTag({
                     }
                 />
             )}
-        </LemonTag>
+            {popover?.overlay && (
+                <LemonButtonWithDropdown
+                    size="xsmall"
+                    icon={<IconEllipsis />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                    }}
+                    dropdown={popover}
+                    className="p-0.5"
+                />
+            )}
+
+            {closable && onClose && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconX />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClose()
+                    }}
+                    className="p-0.5"
+                />
+            )}
+        </ButtonComponent>
     )
 }

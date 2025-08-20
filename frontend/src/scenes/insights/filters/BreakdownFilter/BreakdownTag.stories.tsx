@@ -16,19 +16,27 @@ export const BreakdownTag: Story = {
         <>
             <div className="mb-3">
                 <h5>Basic breakdown tag</h5>
-                <BreakdownTagComponent breakdownType="event" breakdown="$browser" />
+                <BreakdownTagComponent breakdownType="event" breakdown="$browser" onClick={() => alert('Clicked!')} />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag for custom HogQL</h5>
-                <BreakdownTagComponent breakdownType="hogql" breakdown="$properties.browser" />
+                <BreakdownTagComponent
+                    breakdownType="hogql"
+                    breakdown="$properties.browser"
+                    onClick={() => alert('Clicked!')}
+                />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag for custom HogQL, with title from comment</h5>
-                <BreakdownTagComponent breakdownType="hogql" breakdown="coalesce(null, 1, 2) -- some sql" />
+                <BreakdownTagComponent
+                    breakdownType="hogql"
+                    breakdown="coalesce(null, 1, 2) -- some sql"
+                    onClick={() => alert('Clicked!')}
+                />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag for cohort</h5>
-                <BreakdownTagComponent breakdownType="cohort" breakdown={1} />
+                <BreakdownTagComponent breakdownType="cohort" breakdown={1} onClick={() => alert('Clicked!')} />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag with close button</h5>
@@ -37,11 +45,17 @@ export const BreakdownTag: Story = {
                     breakdown="$browser"
                     closable
                     onClose={() => alert('Closed!')}
+                    onClick={() => alert('Clicked!')}
                 />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag with small size</h5>
-                <BreakdownTagComponent breakdownType="event" breakdown="$browser" size="small" />
+                <BreakdownTagComponent
+                    breakdownType="event"
+                    breakdown="$browser"
+                    size="small"
+                    onClick={() => alert('Clicked!')}
+                />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag with small size and close button</h5>
@@ -51,15 +65,21 @@ export const BreakdownTag: Story = {
                     size="small"
                     closable
                     onClose={() => alert('Closed!')}
+                    onClick={() => alert('Clicked!')}
                 />
             </div>
             <div className="mb-3">
-                <h5>Breakdown tag with click handler</h5>
-                <BreakdownTagComponent breakdownType="event" breakdown="$browser" onClick={() => alert('Clicked!')} />
+                <h5>Breakdown tag without click handler</h5>
+                <BreakdownTagComponent breakdownType="event" breakdown="$browser" />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag with disabled property info</h5>
-                <BreakdownTagComponent breakdownType="event" breakdown="$browser" disablePropertyInfo />
+                <BreakdownTagComponent
+                    breakdownType="event"
+                    breakdown="$browser"
+                    disablePropertyInfo
+                    onClick={() => alert('Clicked!')}
+                />
             </div>
             <div className="mb-3">
                 <h5>Breakdown tag with popover</h5>
@@ -70,6 +90,7 @@ export const BreakdownTag: Story = {
                         overlay: <div>Popover</div>,
                         closeOnClickInside: false,
                     }}
+                    onClick={() => alert('Clicked!')}
                 />
             </div>
         </>
