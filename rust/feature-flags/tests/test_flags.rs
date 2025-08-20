@@ -5220,3 +5220,136 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn it_handles_empty_query_parameters() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Create a request with empty query parameters
+    let reqwest_client = reqwest::Client::new();
+    let response = reqwest_client
+        .post(format!(
+            "http://{}/flags/?v=&ip=&_=&ver=&compression=",
+            server.addr
+        ))
+        .header("Content-Type", "application/json")
+        .body(format!(
+            r#"{{"token": "{token}", "distinct_id": "{distinct_id}"}}"#
+        ))
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Empty query params should be handled gracefully"
+    );
+
+    let response_text = response.text().await?;
+    let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+    assert!(
+        response_json.get("flags").is_some(),
+        "Response should contain flags field"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_boolean_query_params_as_truthy() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test various boolean parameter formats
+    let test_cases = vec![
+        ("config=", "config with empty value should be truthy"),
+        ("config=true", "config=true should be truthy"),
+        ("config=1", "config=1 should be truthy"),
+    ];
+
+    for (query_param, description) in test_cases {
+        let reqwest_client = reqwest::Client::new();
+        let response = reqwest_client
+            .post(format!("http://{}/flags/?{query_param}", server.addr))
+            .header("Content-Type", "application/json")
+            .body(format!(
+                r#"{{"token": "{token}", "distinct_id": "{distinct_id}"}}"#
+            ))
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            200,
+            "{description}: request should succeed"
+        );
+
+        let response_json: serde_json::Value = response.json().await?;
+
+        // When config=true or config=, we should get config fields in response
+        if query_param.starts_with("config") {
+            assert!(
+                response_json.get("config").is_some(),
+                "{description}: config field should be present"
+            );
+        }
+    }
+
+    // Test config=false should NOT include config fields
+    let reqwest_client = reqwest::Client::new();
+    let response = reqwest_client
+        .post(format!("http://{}/flags/?config=false", server.addr))
+        .header("Content-Type", "application/json")
+        .body(format!(
+            r#"{{"token": "{token}", "distinct_id": "{distinct_id}"}}"#
+        ))
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "config=false request should succeed"
+    );
+    let response_json: serde_json::Value = response.json().await?;
+
+    // Config fields should not be present when config=false
+    assert!(
+        response_json.get("config").is_none(),
+        "config fields should not be present when config=false"
+    );
+
+    Ok(())
+}
