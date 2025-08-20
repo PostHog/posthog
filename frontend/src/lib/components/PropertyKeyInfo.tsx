@@ -14,6 +14,7 @@ import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 interface PropertyKeyInfoProps {
     value: PropertyKey
     type?: TaxonomicFilterGroupType
+    displayText?: string
     tooltipPlacement?: TooltipProps['placement']
     disablePopover?: boolean
     disableIcon?: boolean
@@ -26,6 +27,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
     {
         value,
         type = TaxonomicFilterGroupType.EventProperties,
+        displayText = '',
         disablePopover = false,
         disableIcon = false,
         ellipsis = true,
@@ -38,7 +40,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
     value = value?.toString() ?? '' // convert to string
 
     const coreDefinition = getCoreFilterDefinition(value, type)
-    const valueDisplayText = (coreDefinition ? coreDefinition.label : value)?.trim() ?? ''
+    const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
     const recognizedSource: 'posthog' | 'langfuse' | null =

@@ -149,10 +149,11 @@ export function renderColumn(
 
         if (value === '$autocapture' && eventRecord) {
             return (
-                <span className="PropertyKeyInfo">
-                    <span className="PropertyKeyInfo__logo PropertyKeyInfo__logo--posthog" />
-                    <span className="PropertyKeyInfo__text">{autoCaptureEventToDescription(eventRecord)}</span>
-                </span>
+                <PropertyKeyInfo
+                    value={value}
+                    displayText={autoCaptureEventToDescription(eventRecord)}
+                    type={TaxonomicFilterGroupType.Events}
+                />
             )
         }
         const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
