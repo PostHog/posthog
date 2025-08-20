@@ -102,18 +102,15 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                     size="small"
                                     data-attr={`comment-reaction-${emoji}`}
                                     tooltip={
-                                        <div className="flex flex-col gap-2">
-                                            <div>
-                                                <SentenceList
-                                                    listParts={commentList.map((c) =>
-                                                        isMyComment(c)
-                                                            ? 'you'
-                                                            : (c.created_by?.first_name ?? 'Unknown user')
-                                                    )}
-                                                />
-                                                <div>reacted</div>
-                                                <div className="text-2xl">{emoji}</div>
-                                            </div>
+                                        <div className="flex flex-col gap-">
+                                            <div className="text-2xl">{emoji}</div>
+                                            <SentenceList
+                                                listParts={commentList.map((c) =>
+                                                    isMyComment(c)
+                                                        ? 'you'
+                                                        : (c.created_by?.first_name ?? 'Unknown user')
+                                                )}
+                                            />
                                         </div>
                                     }
                                 >
