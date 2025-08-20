@@ -5,7 +5,7 @@ import pytest
 from braintrust import EvalCase, Score
 from pydantic import BaseModel, Field
 
-from ee.hogai.eval.conftest import MaxEval
+from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
@@ -94,7 +94,7 @@ def generate_test_cases(eval_ctx: EvaluationContext):
 
 @pytest.mark.django_db
 async def eval_offline_sql(eval_ctx: EvaluationContext, call_graph, pytestconfig):
-    await MaxEval(
+    await MaxPrivateEval(
         experiment_name=eval_ctx.experiment_name,
         task=call_graph,
         scores=[sql_syntax_scorer, sql_semantics_scorer],

@@ -13,7 +13,7 @@ from posthog.schema import (
     NodeKind,
 )
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from ..scorers import (
     PlanAndQueryOutput,
     PlanCorrectness,
@@ -25,7 +25,7 @@ from ..scorers import (
 
 @pytest.mark.django_db
 async def eval_funnel(call_root_for_insight_generation, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="funnel",
         task=call_root_for_insight_generation,
         scores=[

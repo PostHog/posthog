@@ -18,7 +18,7 @@ from posthog.schema import (
     HumanMessage,
 )
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from ..scorers import ToolRelevance
 
 
@@ -54,7 +54,7 @@ def call_root(demo_org_team_user):
 
 @pytest.mark.django_db
 async def eval_root(call_root, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="root",
         task=call_root,
         scores=[ToolRelevance(semantic_similarity_args={"query_description"})],

@@ -23,7 +23,7 @@ from posthog.schema import (
 from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 from products.replay.backend.prompts import USER_FILTER_OPTIONS_PROMPT
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ class AskUserForHelp(Scorer):
 
 @pytest.mark.django_db
 async def eval_tool_search_session_recordings(call_search_session_recordings, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="tool_search_session_recordings",
         task=call_search_session_recordings,
         scores=[FilterGenerationCorrectness()],
@@ -544,7 +544,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
 
 @pytest.mark.django_db
 async def eval_tool_search_session_recordings_ask_user_for_help(call_search_session_recordings, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="tool_search_session_recordings_ask_user_for_help",
         task=call_search_session_recordings,
         scores=[AskUserForHelp()],

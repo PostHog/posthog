@@ -2,14 +2,14 @@ import pytest
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
-from ee.models.assistant import Conversation
-from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
+
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from posthog.schema import SurveyCreationSchema
-
-from ..conftest import MaxEval
-
+from ee.models.assistant import Conversation
 from posthog.models import FeatureFlag
+from posthog.schema import SurveyCreationSchema
+from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
+
+from ..base import MaxPublicEval
 
 
 def validate_survey_output(output, scorer_name):
@@ -626,7 +626,7 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
     """
     Evaluation for survey creation functionality.
     """
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="surveys",
         task=call_surveys_max_tool,
         scores=[

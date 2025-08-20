@@ -9,7 +9,7 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 from posthog.schema import HumanMessage, VisualizationMessage
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from ..scorers import (
     InsightEvaluationAccuracy,
     InsightSearchOutput,
@@ -145,7 +145,7 @@ def call_insight_search(demo_org_team_user):
 @pytest.mark.django_db
 async def eval_insight_evaluation_accuracy(call_insight_search, pytestconfig):
     """Evaluate the accuracy of the insight evaluation decision."""
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="insight_evaluation_accuracy",
         task=call_insight_search,
         scores=[InsightEvaluationAccuracy()],

@@ -10,7 +10,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from ..scorers import (
     PlanAndQueryOutput,
     PlanCorrectness,
@@ -699,7 +699,7 @@ ORDER BY ABS(corr(toFloat(uploads_30d), toFloat(churned))) DESC
         ),
     ]
 
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="sql",
         task=call_root_for_insight_generation,
         scores=[

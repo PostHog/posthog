@@ -6,8 +6,8 @@ import pytest
 from braintrust import EvalCase, Score
 from pydantic import BaseModel
 
+from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.eval.ci.eval_sql import SQLSyntaxCorrectness
-from ee.hogai.eval.conftest import MaxEval
 from ee.hogai.eval.scorers import SQLSemanticsCorrectness
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
@@ -84,7 +84,7 @@ async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **k
 async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, pytestconfig):
     metadata = {"schema": database_schema}
 
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
         scores=[SQLSyntaxCorrectness(), sql_semantics_scorer],

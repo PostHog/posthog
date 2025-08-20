@@ -1,13 +1,9 @@
-import asyncio
 import os
 from collections import namedtuple
-from collections.abc import Sequence
 from unittest import mock
 
 import pytest
 from _pytest.terminal import TerminalReporter
-from braintrust import EvalAsync, Metadata, init_logger
-from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 
 # We want the PostHog django_db_setup fixture here
@@ -21,43 +17,6 @@ if os.environ.get("BRAINTRUST_API_KEY"):
 def pytest_addoption(parser):
     # Example: pytest ee/hogai/eval/ci/eval_sql.py --eval churn - to only run cases containing "churn" in input
     parser.addoption("--eval", action="store")
-
-
-async def MaxEval(
-    experiment_name: str,
-    data: EvalData[Input, Output],
-    task: EvalTask[Input, Output],
-    scores: Sequence[EvalScorer[Input, Output]],
-    pytestconfig: pytest.Config,
-    metadata: Metadata | None = None,
-):
-    # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
-    # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
-    project_name = f"max-ai-{experiment_name}"
-    init_logger(project_name)
-
-    # Filter by --case <eval_case_name_part> pytest flag
-    case_filter = pytestconfig.option.eval
-    if case_filter:
-        if asyncio.iscoroutine(data):
-            data = await data
-        data = [case for case in data if case_filter in str(case.input)]  # type: ignore
-
-    result = await EvalAsync(
-        project_name,
-        data=data,
-        task=task,
-        scores=scores,
-        trial_count=3 if os.getenv("CI") else 1,
-        timeout=60 * 8,
-        max_concurrency=20,
-        is_public=True,
-        metadata=metadata,
-    )
-    if os.getenv("EXPORT_EVAL_RESULTS"):
-        with open("eval_results.jsonl", "a") as f:
-            f.write(result.summary.as_json() + "\n")
-    return result
 
 
 _nodeid_to_results_url_map: dict[str, str] = {}

@@ -11,7 +11,7 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from ..scorers import ToolRelevance
 
 
@@ -95,7 +95,7 @@ def call_node(demo_org_team_user, core_memory):
 
 @pytest.mark.django_db
 async def eval_memory(call_node, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="memory",
         task=call_node,
         scores=[ToolRelevance(semantic_similarity_args={"memory_content", "new_fragment"}), MemoryContentRelevance()],

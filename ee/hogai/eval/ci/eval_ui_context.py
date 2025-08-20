@@ -16,7 +16,7 @@ from posthog.schema import (
     MaxUIContext,
 )
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from ..scorers import ToolRelevance
 
 
@@ -68,7 +68,7 @@ def sample_action(demo_org_team_user):
 @pytest.mark.django_db
 async def eval_ui_context_actions(call_root_with_ui_context, sample_action, pytestconfig):
     """Test that actions in UI context are properly used in RAG context retrieval"""
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="ui_context_actions",
         task=call_root_with_ui_context,
         scores=[
@@ -133,7 +133,7 @@ async def eval_ui_context_actions(call_root_with_ui_context, sample_action, pyte
 @pytest.mark.django_db
 async def eval_ui_context_events(call_root_with_ui_context, pytestconfig):
     """Test that events in UI context are properly used in taxonomy agent"""
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="ui_context_events",
         task=call_root_with_ui_context,
         scores=[

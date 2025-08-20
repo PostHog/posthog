@@ -11,7 +11,7 @@ from ee.hogai.utils.types import (
 from ee.models.assistant import Conversation
 from posthog.schema import AssistantMessage, HumanMessage
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from .conftest import EVAL_USER_FULL_NAME
 
 
@@ -98,7 +98,7 @@ def call_root(demo_org_team_user):
 
 @pytest.mark.django_db
 async def eval_root_style(call_root, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="root_style",
         task=call_root,
         scores=[StyleChecker(user_name=EVAL_USER_FULL_NAME)],

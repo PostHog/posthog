@@ -14,7 +14,7 @@ from posthog.schema import (
     NodeKind,
 )
 
-from ..conftest import MaxEval
+from ..base import MaxPublicEval
 from ..scorers import (
     PlanAndQueryOutput,
     PlanCorrectness,
@@ -412,7 +412,7 @@ Query kind:
 
 @pytest.mark.django_db
 async def eval_trends(call_root_for_insight_generation, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="trends",
         task=call_root_for_insight_generation,
         scores=[
