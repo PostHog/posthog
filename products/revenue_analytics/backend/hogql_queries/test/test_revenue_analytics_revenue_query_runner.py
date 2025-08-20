@@ -29,6 +29,7 @@ from posthog.test.base import (
 from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -36,11 +37,13 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
+    STRIPE_CHARGE_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
 )
 
+CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges"
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
@@ -162,6 +165,17 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
+        self.charges_csv_path = Path(__file__).parent / "data" / "stripe_charges.csv"
+        self.charges_table, _, _, self.charges_csv_df, self.charges_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.charges_csv_path,
+                "stripe_charge",
+                STRIPE_CHARGE_COLUMNS,
+                CHARGES_TEST_BUCKET,
+                self.team,
+            )
+        )
+
         # Besides the default creations above, also create the external data schema
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.products_schema = ExternalDataSchema.objects.create(
@@ -191,6 +205,15 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             last_synced_at="2024-01-01",
         )
 
+        self.charges_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
+            source=self.source,
+            table=self.charges_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
@@ -200,6 +223,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.invoices_cleanup_filesystem()
         self.products_cleanup_filesystem()
         self.customers_cleanup_filesystem()
+        self.charges_cleanup_filesystem()
         super().tearDown()
 
     def _run_revenue_analytics_revenue_query(
@@ -240,6 +264,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.invoices_table.delete()
         self.products_table.delete()
         self.customers_table.delete()
+        self.charges_table.delete()
         results = self._run_revenue_analytics_revenue_query().results
 
         self.assertEqual(results, RevenueAnalyticsRevenueQueryResult(gross=[], mrr=[]))
@@ -277,7 +302,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             Decimal("8765.3236433332"),
                             Decimal("10341.3433233332"),
                             Decimal("9116.4659033332"),
-                            Decimal("8987.5989733332"),
+                            Decimal("9277.5376491465"),
                             Decimal("8900.0246133332"),
                             Decimal("34.2125533332"),
                             Decimal("34.2125533332"),
@@ -344,7 +369,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "data": [
                             Decimal("10341.3433233332"),
                             Decimal("9116.4659033332"),
-                            Decimal("8987.5989733332"),
+                            Decimal("9277.5376491465"),
                             0,
                         ],
                         "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
@@ -378,8 +403,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_with_data_and_product_grouping(self):
         results = self._run_revenue_analytics_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
-        self.assertEqual(len(results.gross), 6)
-        self.assertEqual(len(results.mrr), 6)
+        self.assertEqual(len(results.gross), 7)
+        self.assertEqual(len(results.mrr), 7)
 
         expected_products = [
             "stripe.posthog_test - Product F",
@@ -388,6 +413,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "stripe.posthog_test - Product C",
             "stripe.posthog_test - Product A",
             "stripe.posthog_test - Product E",
+            "stripe.posthog_test - <none>",
         ]
         self.assertEqual([result["label"] for result in results.gross], expected_products)
         self.assertEqual([result["label"] for result in results.mrr], expected_products)
@@ -450,6 +476,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("0.34271"),
                     Decimal("0.34271"),
                 ],
+                [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0],
             ],
         )
 
@@ -510,6 +537,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("0.34271"),
                     Decimal("0.34271"),
                 ],
+                [0, 0, 0, 0, 0, 0, 0],
             ],
         )
 
@@ -518,9 +546,9 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
         ).results
 
-        # 12 comes from the 6 products and 2 cohorts
-        self.assertEqual(len(results.gross), 12)
-        self.assertEqual(len(results.mrr), 12)
+        # 12 comes from the 6 products * 2 cohorts, plus 1 for the one-off charge invoiceless charge
+        self.assertEqual(len(results.gross), 13)
+        self.assertEqual(len(results.mrr), 13)
 
         expected_breakdowns = [
             "stripe.posthog_test - 2025-01 - Product F",
@@ -535,6 +563,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "stripe.posthog_test - 2025-02 - Product A",
             "stripe.posthog_test - 2025-02 - Product C",
             "stripe.posthog_test - 2025-02 - Product E",
+            "stripe.posthog_test - 2025-01 - <none>",
         ]
         self.assertEqual([result["label"] for result in results.gross], expected_breakdowns)
 
@@ -570,6 +599,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695"), 0],
                 [0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564"), 0],
                 [0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0],
+                [0, 0, 0, 0, 0, Decimal("289.9386758133"), 0],
             ],
         )
 
@@ -604,6 +634,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695")],
                 [0, 0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564")],
                 [0, 0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271")],
+                [0, 0, 0, 0, 0, 0, 0],
             ],
         )
 
@@ -672,7 +703,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("34.2125533332"),
                     Decimal("34.2125533332"),
                     Decimal("394.1377533332"),
-                    Decimal("34.2125533332"),
+                    Decimal("324.1512291465"),
                     Decimal("170.6828633332"),
                 ],
             ],

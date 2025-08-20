@@ -1,4 +1,6 @@
 import structlog
+from dataclasses import dataclass, field
+from typing import Any
 from django.conf import settings
 
 from posthog.models.exported_asset import ExportedAsset
@@ -8,6 +10,14 @@ from posthog.models.subscription import Subscription
 logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
+
+
+@dataclass
+class SlackMessageData:
+    channel: str
+    blocks: list[dict[str, Any]]
+    title: str
+    thread_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _block_for_asset(asset: ExportedAsset) -> dict:
@@ -44,24 +54,20 @@ def send_slack_subscription_report(
     send_slack_message_with_integration(integration, subscription, assets, total_asset_count, is_new_subscription)
 
 
-def send_slack_message_with_integration(
-    integration: Integration,
+def _prepare_slack_message(
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
-) -> None:
-    """Send Slack message using provided integration. Pure function - no database operations."""
+) -> SlackMessageData:
+    """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
     resource_info = subscription.resource_info
     if not resource_info:
         raise NotImplementedError("This type of subscription resource is not supported")
 
-    slack_integration = SlackIntegration(integration)
-
     channel = subscription.target_value.split("|")[0]
-
     first_asset, *other_assets = assets
 
     if is_new_subscription:
@@ -70,14 +76,10 @@ def send_slack_message_with_integration(
     else:
         title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready! 🎉"
 
-    blocks = []
-
-    blocks.extend(
-        [
-            {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-            _block_for_asset(first_asset),
-        ]
-    )
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": title}},
+        _block_for_asset(first_asset),
+    ]
 
     if other_assets:
         blocks.append(
@@ -108,21 +110,15 @@ def send_slack_message_with_integration(
         ]
     )
 
-    message_res = slack_integration.client.chat_postMessage(channel=channel, blocks=blocks, text=title)
+    # Prepare additional messages for thread
+    thread_messages = []
+    for asset in other_assets:
+        thread_messages.append({"blocks": [_block_for_asset(asset)]})
 
-    thread_ts = message_res.get("ts")
-
-    if thread_ts:
-        for asset in other_assets:
-            slack_integration.client.chat_postMessage(
-                channel=channel, thread_ts=thread_ts, blocks=[_block_for_asset(asset)]
-            )
-
-        if total_asset_count > len(assets):
-            slack_integration.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                blocks=[
+    if total_asset_count > len(assets):
+        thread_messages.append(
+            {
+                "blocks": [
                     {
                         "type": "section",
                         "text": {
@@ -130,5 +126,61 @@ def send_slack_message_with_integration(
                             "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_info.url}?{utm_tags}|View the rest in PostHog>",
                         },
                     }
-                ],
+                ]
+            }
+        )
+
+    return SlackMessageData(
+        channel=channel,
+        blocks=blocks,
+        title=title,
+        thread_messages=thread_messages,
+    )
+
+
+def send_slack_message_with_integration(
+    integration: Integration,
+    subscription: Subscription,
+    assets: list[ExportedAsset],
+    total_asset_count: int,
+    is_new_subscription: bool = False,
+) -> None:
+    """Send Slack message using provided integration (sync version)."""
+    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    slack_integration = SlackIntegration(integration)
+
+    # Send main message
+    message_res = slack_integration.client.chat_postMessage(
+        channel=message_data.channel, blocks=message_data.blocks, text=message_data.title
+    )
+
+    thread_ts = message_res.get("ts")
+    if thread_ts:
+        # Send thread messages
+        for thread_msg in message_data.thread_messages:
+            slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
+
+
+async def send_slack_message_with_integration_async(
+    integration: Integration,
+    subscription: Subscription,
+    assets: list[ExportedAsset],
+    total_asset_count: int,
+    is_new_subscription: bool = False,
+) -> None:
+    """Send Slack message using provided integration (async version)."""
+    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    slack_integration = SlackIntegration(integration)
+
+    # Send main message
+    message_res = await slack_integration.async_client.chat_postMessage(
+        channel=message_data.channel, blocks=message_data.blocks, text=message_data.title
+    )
+
+    thread_ts = message_res.get("ts")
+    if thread_ts:
+        # Send thread messages
+        for thread_msg in message_data.thread_messages:
+            await slack_integration.async_client.chat_postMessage(
+                channel=message_data.channel, thread_ts=thread_ts, **thread_msg
             )

@@ -1,17 +1,19 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import { useEffect } from 'react'
+
+import { Link } from '@posthog/lemon-ui'
+
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils'
-import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'

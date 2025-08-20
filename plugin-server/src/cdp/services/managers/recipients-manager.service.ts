@@ -75,7 +75,7 @@ export class RecipientsManagerService {
     private async fetchRecipients(ids: string[]): Promise<Record<string, RecipientManagerRecipient | undefined>> {
         const recipientArgs = ids.map(fromKey)
 
-        logger.info('[RecipientsManager]', 'Fetching recipients', { recipientArgs })
+        logger.debug('[RecipientsManager]', 'Fetching recipients', { recipientArgs })
 
         // Build the WHERE clause for multiple team_id, identifier pairs
         const conditions = recipientArgs

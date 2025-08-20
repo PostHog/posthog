@@ -1,14 +1,17 @@
+import { act, renderHook } from '@testing-library/react'
 import { NodeViewProps } from '@tiptap/core'
+
+import { urls } from 'scenes/urls'
+
+import { InsightShortId } from '~/types'
+
 import {
-    createUrlRegex,
     INTEGER_REGEX_MATCH_GROUPS,
     SHORT_CODE_REGEX_MATCH_GROUPS,
-    useSyncedAttributes,
     UUID_REGEX_MATCH_GROUPS,
+    createUrlRegex,
+    useSyncedAttributes,
 } from './utils'
-import { renderHook, act } from '@testing-library/react'
-import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
 
 describe('notebook node utils', () => {
     jest.useFakeTimers()

@@ -1,14 +1,16 @@
-import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
+
+import { LemonSelect } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { Survey, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
-import { NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import { NewSurvey } from './constants'
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number

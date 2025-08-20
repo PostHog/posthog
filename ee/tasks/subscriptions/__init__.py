@@ -12,6 +12,7 @@ from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_r
 from ee.tasks.subscriptions.slack_subscriptions import (
     send_slack_subscription_report,
     send_slack_message_with_integration,
+    send_slack_message_with_integration_async,
     get_slack_integration_for_team,
 )
 from ee.tasks.subscriptions.subscription_utils import generate_assets
@@ -111,7 +112,7 @@ async def deliver_subscription_report_async(
                 SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
                 return
 
-            send_slack_message_with_integration(
+            await send_slack_message_with_integration_async(
                 integration,
                 subscription,
                 assets,

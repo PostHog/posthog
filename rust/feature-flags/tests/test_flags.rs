@@ -1,5 +1,6 @@
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
+use base64::{engine::general_purpose, Engine as _};
 
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
 use limiters::redis::ServiceName;
@@ -20,11 +21,10 @@ use feature_flags::utils::test_utils::{
 pub mod common;
 
 #[rstest]
-#[case(None)]
 #[case(Some("1"))]
 #[case(Some("banana"))]
 #[tokio::test]
-async fn it_gets_legacy_response_by_default_or_invalid_version(
+async fn it_gets_legacy_response_for_v1_or_invalid_version(
     #[case] version: Option<&str>,
 ) -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -91,6 +91,93 @@ async fn it_gets_legacy_response_by_default_or_invalid_version(
             "featureFlags": {
                 "test-flag": true
             }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
+    // When no version and no config params are provided, we default to v=2 and config=true
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a specific flag for the team
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {"group1": "group1"}
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    // With v=2 default, we get the new response format with config fields
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "test-flag": {
+                    "key": "test-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0,
+                        "description": "Matched condition set 1"
+                    },
+                    "metadata": {
+                        "id": 1,
+                        "version": 0
+                    }
+                }
+            },
+            "config": {}
         })
     );
 
@@ -229,7 +316,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_rejects_empty_distinct_id() -> Result<()> {
+async fn it_accepts_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
@@ -250,12 +337,18 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
-    assert_eq!(
-        res.text().await?,
-        "The distinct_id field cannot be empty. Please provide a valid identifier."
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Should return a valid response even with empty distinct_id
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {}
+        })
     );
     Ok(())
 }
@@ -273,7 +366,7 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
     assert_eq!(
@@ -293,7 +386,7 @@ async fn it_rejects_missing_token() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
@@ -314,7 +407,7 @@ async fn it_rejects_invalid_token() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
@@ -331,7 +424,7 @@ async fn it_handles_malformed_json() -> Result<()> {
 
     let payload = "{invalid_json}";
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
 
@@ -339,9 +432,101 @@ async fn it_handles_malformed_json() -> Result<()> {
 
     assert!(
         response_text.contains("Failed to decode request: invalid JSON"),
-        "Unexpected error message: {:?}",
-        response_text
+        "Unexpected error message: {response_text:?}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    // Set up Redis and PostgreSQL clients
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let json_payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+        "disable_flags": false
+    });
+
+    // Test 1: Normal JSON
+    let res = server
+        .send_flags_request(json_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Test 2: Base64 encoded JSON with compression not specified
+    let json_string = json_payload.to_string();
+    let base64_payload = general_purpose::STANDARD.encode(json_string.as_bytes());
+
+    let res = server
+        .send_flags_request(base64_payload, Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Test 3: Invalid base64 should fail gracefully
+    let invalid_base64 = "this is not valid base64 at all!";
+    let res = server
+        .send_flags_request(invalid_base64.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+
+    let response_text = res.text().await?;
+    assert!(
+        response_text.contains("Failed to decode request: invalid JSON"),
+        "Should fail with invalid JSON error for invalid base64: {response_text:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    // Set up Redis and PostgreSQL clients
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id, None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags=true but NO distinct_id should succeed
+    let disabled_payload = json!({
+        "token": token,
+        "disable_flags": true
+        // Note: no distinct_id field
+    });
+
+    let res = server
+        .send_flags_request(disabled_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, res.status());
+
+    let response_body = res.json::<FlagsResponse>().await?;
+    // Should return empty flags since they're disabled
+    assert!(response_body.flags.is_empty());
+
     Ok(())
 }
 
@@ -369,7 +554,7 @@ async fn it_handles_quota_limiting() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
     let response_body = res.json::<LegacyFlagsResponse>().await?;
@@ -492,7 +677,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -574,7 +759,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -599,7 +784,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -681,7 +866,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -711,7 +896,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -799,7 +984,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
 
     assert_eq!(StatusCode::OK, res.status());
@@ -915,7 +1100,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -944,7 +1129,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -973,7 +1158,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -1051,7 +1236,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1151,7 +1336,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1177,7 +1362,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1203,7 +1388,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1313,7 +1498,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1350,7 +1535,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1358,8 +1543,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let flag_value = json_data["featureFlags"]["complex-flag"].as_str().unwrap();
     assert!(
         ["control", "test"].contains(&flag_value),
-        "Expected either 'control' or 'test' variant, got {}",
-        flag_value
+        "Expected either 'control' or 'test' variant, got {flag_value}"
     );
 
     Ok(())
@@ -1457,7 +1641,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1580,7 +1764,7 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 
     // Legacy response (no version param)
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
     let legacy: LegacyFlagsResponse = res.json().await?;
@@ -1658,7 +1842,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
         .await;
     if res.status() != StatusCode::OK {
         let text = res.text().await?;
-        panic!("Non-200 response \nBody: {}", text);
+        panic!("Non-200 response \nBody: {text}");
     }
     let json_data = res.json::<Value>().await?;
     assert!(json_data.get("supportedCompression").is_none());
@@ -3085,7 +3269,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -3228,7 +3412,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -3569,7 +3753,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3596,7 +3780,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3623,7 +3807,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3650,7 +3834,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3751,7 +3935,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -3790,7 +3974,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res_override.status() != StatusCode::OK {
         let status = res_override.status();
         let text = res_override.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_override = res_override.json::<Value>().await?;
@@ -3840,7 +4024,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res_reverse.status() != StatusCode::OK {
         let status = res_reverse.status();
         let text = res_reverse.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_reverse = res_reverse.json::<Value>().await?;
@@ -3975,7 +4159,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -4091,7 +4275,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -4129,7 +4313,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res_override.status() != StatusCode::OK {
         let status = res_override.status();
         let text = res_override.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_override = res_override.json::<Value>().await?;
@@ -4170,7 +4354,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res_false.status() != StatusCode::OK {
         let status = res_false.status();
         let text = res_false.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_false = res_false.json::<Value>().await?;
@@ -4279,7 +4463,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4393,7 +4577,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4419,7 +4603,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4442,7 +4626,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4906,6 +5090,133 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
             })
         );
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert multiple flags for the team
+    let flags = json!([
+        {
+            "id": 1,
+            "key": "flag1",
+            "name": "Flag 1",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": 2,
+            "key": "flag2",
+            "name": "Flag 2",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": 3,
+            "key": "flag3",
+            "name": "Flag 3",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags.to_string()),
+    )
+    .await
+    .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: Using flag_keys parameter (currently works)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "flag_keys": ["flag1", "flag3"]
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_json: LegacyFlagsResponse = response.json().await?;
+
+    assert_eq!(response_json.feature_flags.len(), 2);
+    assert!(response_json.feature_flags.contains_key("flag1"));
+    assert!(response_json.feature_flags.contains_key("flag3"));
+    assert!(!response_json.feature_flags.contains_key("flag2"));
+
+    // Test 2: Using flag_keys_to_evaluate parameter (should work after fix)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "flag_keys_to_evaluate": ["flag2", "flag3"]
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_json: LegacyFlagsResponse = response.json().await?;
+
+    // This test should fail until we add the alias
+    assert_eq!(
+        response_json.feature_flags.len(),
+        2,
+        "flag_keys_to_evaluate should filter flags"
+    );
+    assert!(response_json.feature_flags.contains_key("flag2"));
+    assert!(response_json.feature_flags.contains_key("flag3"));
+    assert!(!response_json.feature_flags.contains_key("flag1"));
 
     Ok(())
 }

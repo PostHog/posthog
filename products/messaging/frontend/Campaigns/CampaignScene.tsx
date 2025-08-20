@@ -1,25 +1,27 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { campaignLogic } from './campaignLogic'
 import { CampaignMetrics } from './CampaignMetrics'
 import { CampaignOverview } from './CampaignOverview'
-import { campaignSceneLogic, CampaignSceneLogicProps, CampaignTab } from './campaignSceneLogic'
-import { CampaignWorkflow } from './CampaignWorkflow'
-import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { CampaignSceneHeader } from './CampaignSceneHeader'
+import { CampaignWorkflow } from './CampaignWorkflow'
+import { campaignLogic } from './campaignLogic'
+import { CampaignSceneLogicProps, CampaignTab, campaignSceneLogic } from './campaignSceneLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<CampaignSceneLogicProps> = {
     component: CampaignScene,
     logic: campaignSceneLogic,
-    paramsToProps: ({ params: { id, tab } }): CampaignSceneLogicProps => ({ id: id || 'new', tab: tab || 'overview' }),
+    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'overview' }),
 }
 
-export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element {
+export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)

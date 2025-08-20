@@ -1,36 +1,45 @@
 import './SharingModal.scss'
 
-import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { ReactNode, useEffect, useState } from 'react'
+
+import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import {
     TEMPLATE_LINK_HEADING,
     TEMPLATE_LINK_PII_WARNING,
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
-import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-import posthog from 'posthog-js'
-import { ReactNode, useEffect, useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { isInsightVizNode } from '~/queries/utils'
-import { AccessControlResourceType, AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
+import { AccessControlAction, accessLevelSatisfied } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { sharingLogic } from './sharingLogic'
 
@@ -49,6 +58,7 @@ export interface SharingModalBaseProps {
      * When generating a link to a recording, this form can be used to allow the user to specify a timestamp
      */
     recordingLinkTimeForm?: ReactNode
+    userAccessLevel?: AccessControlLevel
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -65,6 +75,7 @@ export function SharingModalContent({
     additionalParams,
     previewIframe = false,
     recordingLinkTimeForm = undefined,
+    userAccessLevel,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
@@ -92,6 +103,9 @@ export function SharingModalContent({
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
+    const hasEditAccess = userAccessLevel
+        ? accessLevelSatisfied(resource as AccessControlResourceType, userAccessLevel, AccessControlLevel.Editor)
+        : true
 
     useEffect(() => {
         setIframeLoaded(false)
@@ -126,21 +140,41 @@ export function SharingModalContent({
                 ) : (
                     <>
                         <h3>Sharing</h3>
-                        {!sharingAllowed && (
-                            <LemonBanner type="warning">
-                                Publicly sharing resources is disabled for this organization.
-                            </LemonBanner>
+                        {!sharingAllowed ? (
+                            <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
+                        ) : (
+                            <AccessControlAction
+                                resourceType={
+                                    dashboardId
+                                        ? AccessControlResourceType.Dashboard
+                                        : insightShortId
+                                          ? AccessControlResourceType.Insight
+                                          : AccessControlResourceType.Project
+                                }
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel}
+                            >
+                                {({ disabled, disabledReason }) => (
+                                    <>
+                                        {disabled && disabledReason && (
+                                            <LemonBanner type="warning">{disabledReason}</LemonBanner>
+                                        )}
+                                        <LemonSwitch
+                                            id="sharing-switch"
+                                            label={`Share ${resource} publicly`}
+                                            checked={sharingConfiguration.enabled}
+                                            data-attr="sharing-switch"
+                                            onChange={(active) => setIsEnabled(active)}
+                                            disabled={disabled}
+                                            bordered
+                                            fullWidth
+                                            tooltip={disabledReason}
+                                            loading={sharingConfigurationLoading}
+                                        />
+                                    </>
+                                )}
+                            </AccessControlAction>
                         )}
-                        <LemonSwitch
-                            id="sharing-switch"
-                            label={`Share ${resource} publicly`}
-                            checked={sharingConfiguration.enabled && sharingAllowed}
-                            data-attr="sharing-switch"
-                            onChange={(active) => setIsEnabled(active)}
-                            disabled={!sharingAllowed}
-                            bordered
-                            fullWidth
-                        />
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
@@ -178,118 +212,123 @@ export function SharingModalContent({
                                     </TitleWithIcon>
                                     <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
                                 </div>
-                                <Form
-                                    logic={sharingLogic}
-                                    props={logicProps}
-                                    formKey="sharingSettings"
-                                    className="deprecated-space-y-2"
-                                >
-                                    <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
-                                        {insight && (
-                                            <LemonField name="noHeader">
-                                                {({ value, onChange }) => (
-                                                    <LemonSwitch
-                                                        fullWidth
-                                                        bordered
-                                                        label={<div>Show title and description</div>}
-                                                        onChange={() => onChange(!value)}
-                                                        checked={!value}
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        )}
-                                        <LemonField name="whitelabel">
-                                            {({ value }) => (
-                                                <LemonSwitch
-                                                    fullWidth
-                                                    bordered
-                                                    label={
-                                                        <div className="flex items-center">
-                                                            <span>Show PostHog branding</span>
-                                                            {!whitelabelAvailable && (
-                                                                <Tooltip title="This is a premium feature, click to learn more.">
-                                                                    <IconLock className="ml-1.5 text-secondary text-lg" />
-                                                                </Tooltip>
-                                                            )}
-                                                        </div>
-                                                    }
-                                                    onChange={() =>
-                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
-                                                            // setSharingSettingsValue is used to update the form state and report the event
-                                                            setSharingSettingsValue('whitelabel', !value)
-                                                        })
-                                                    }
-                                                    checked={!value}
-                                                />
+                                {hasEditAccess && (
+                                    <Form
+                                        logic={sharingLogic}
+                                        props={logicProps}
+                                        formKey="sharingSettings"
+                                        className="deprecated-space-y-2"
+                                    >
+                                        <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
+                                            {insight && (
+                                                <LemonField name="noHeader">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSwitch
+                                                            fullWidth
+                                                            bordered
+                                                            label={<div>Show title and description</div>}
+                                                            onChange={() => onChange(!value)}
+                                                            checked={!value}
+                                                        />
+                                                    )}
+                                                </LemonField>
                                             )}
-                                        </LemonField>
-
-                                        {isInsightVizNode(insight?.query) && insightShortId && (
-                                            // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
-                                            <>
-                                                <LegendCheckbox insightShortId={insightShortId} />
-                                                <DetailedResultsCheckbox insightShortId={insightShortId} />
-                                            </>
-                                        )}
-
-                                        {recordingId && (
-                                            <LemonField name="showInspector">
-                                                {({ value, onChange }) => (
-                                                    <LemonSwitch
-                                                        fullWidth
-                                                        bordered
-                                                        label={<div>Show inspector panel</div>}
-                                                        onChange={onChange}
-                                                        checked={value}
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        )}
-
-                                        {dashboardId && (
-                                            <LemonField name="hideExtraDetails">
-                                                {({ value, onChange }) => (
+                                            <LemonField name="whitelabel">
+                                                {({ value }) => (
                                                     <LemonSwitch
                                                         fullWidth
                                                         bordered
                                                         label={
                                                             <div className="flex items-center">
-                                                                <span>Show insight details</span>
-                                                                <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
-                                                                    <IconInfo className="ml-1.5 text-secondary text-lg" />
-                                                                </Tooltip>
+                                                                <span>Show PostHog branding</span>
+                                                                {!whitelabelAvailable && (
+                                                                    <Tooltip title="This is a premium feature, click to learn more.">
+                                                                        <IconLock className="ml-1.5 text-secondary text-lg" />
+                                                                    </Tooltip>
+                                                                )}
                                                             </div>
                                                         }
-                                                        onChange={() => onChange(!value)}
+                                                        onChange={() =>
+                                                            guardAvailableFeature(
+                                                                AvailableFeature.WHITE_LABELLING,
+                                                                () => {
+                                                                    // setSharingSettingsValue is used to update the form state and report the event
+                                                                    setSharingSettingsValue('whitelabel', !value)
+                                                                }
+                                                            )
+                                                        }
                                                         checked={!value}
                                                     />
                                                 )}
                                             </LemonField>
-                                        )}
-                                    </div>
 
-                                    {previewIframe && (
-                                        <div className="rounded border">
-                                            <LemonButton
-                                                fullWidth
-                                                sideIcon={showPreview ? <IconCollapse /> : <IconExpand />}
-                                                onClick={togglePreview}
-                                            >
-                                                Preview
-                                                {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
-                                            </LemonButton>
-                                            {showPreview && (
-                                                <div className="SharingPreview border-t">
-                                                    <iframe
-                                                        className="block"
-                                                        {...iframeProperties}
-                                                        onLoad={() => setIframeLoaded(true)}
-                                                    />
-                                                </div>
+                                            {isInsightVizNode(insight?.query) && insightShortId && (
+                                                // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
+                                                <>
+                                                    <LegendCheckbox insightShortId={insightShortId} />
+                                                    <DetailedResultsCheckbox insightShortId={insightShortId} />
+                                                </>
+                                            )}
+
+                                            {recordingId && (
+                                                <LemonField name="showInspector">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSwitch
+                                                            fullWidth
+                                                            bordered
+                                                            label={<div>Show inspector panel</div>}
+                                                            onChange={onChange}
+                                                            checked={value}
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            )}
+
+                                            {dashboardId && (
+                                                <LemonField name="hideExtraDetails">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSwitch
+                                                            fullWidth
+                                                            bordered
+                                                            label={
+                                                                <div className="flex items-center">
+                                                                    <span>Show insight details</span>
+                                                                    <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
+                                                                        <IconInfo className="ml-1.5 text-secondary text-lg" />
+                                                                    </Tooltip>
+                                                                </div>
+                                                            }
+                                                            onChange={() => onChange(!value)}
+                                                            checked={!value}
+                                                        />
+                                                    )}
+                                                </LemonField>
                                             )}
                                         </div>
-                                    )}
-                                </Form>
+
+                                        {previewIframe && (
+                                            <div className="rounded border">
+                                                <LemonButton
+                                                    fullWidth
+                                                    sideIcon={showPreview ? <IconCollapse /> : <IconExpand />}
+                                                    onClick={togglePreview}
+                                                >
+                                                    Preview
+                                                    {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
+                                                </LemonButton>
+                                                {showPreview && (
+                                                    <div className="SharingPreview border-t">
+                                                        <iframe
+                                                            className="block"
+                                                            {...iframeProperties}
+                                                            onLoad={() => setIframeLoaded(true)}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </Form>
+                                )}
                             </>
                         ) : null}
                     </>

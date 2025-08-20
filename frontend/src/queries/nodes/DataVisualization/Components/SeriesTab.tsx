@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -12,14 +15,13 @@ import {
     Popover,
 } from '@posthog/lemon-ui'
 import { LemonColorPicker } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
-import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
+import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
     const {

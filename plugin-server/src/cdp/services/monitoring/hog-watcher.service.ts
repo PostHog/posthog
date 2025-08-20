@@ -111,7 +111,7 @@ export class HogWatcherService {
 
         this.lazyLoader = new LazyLoader({
             name: 'hog_watcher_lazy_loader',
-            refreshAge: 30_000, // Cache for 30 seconds
+            refreshAgeMs: 30_000, // Cache for 30 seconds
             refreshJitterMs: 10_000,
             loader: async (ids) => await this.getPersistedStates(ids),
         })
@@ -415,7 +415,9 @@ export class HogWatcherService {
             }
         })
 
-        await this.doStageChanges(changes)
+        if (changes.length > 0) {
+            await this.doStageChanges(changes)
+        }
     }
 
     public async observeResultsBuffered(result: CyclotronJobInvocationResult): Promise<void> {

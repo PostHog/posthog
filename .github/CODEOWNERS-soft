@@ -29,11 +29,17 @@ posthog/clickhouse/migrations/** @PostHog/clickhouse
 
 # Web Analytics team owns web analytics code
 
+products/web_analytics/** @PostHog/web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/web-analytics
 posthog/hogql_queries/web_analytics/** @PostHog/web-analytics
 frontend/src/toolbar/web-vitals/** @PostHog/web-analytics
 posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
 posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
+posthog/models/raw_sessions/** @PostHog/web-analytics
+posthog/models/sessions/** @PostHog/web-analytics
+rust/common/cookieless/** @PostHog/web-analytics
+plugin-server/src/ingestion/cookieless/** @PostHog/web-analytics
+dags/locations/web_analytics.py @PostHog/web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
 

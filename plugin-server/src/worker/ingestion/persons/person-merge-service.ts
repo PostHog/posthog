@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { InternalPerson } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'

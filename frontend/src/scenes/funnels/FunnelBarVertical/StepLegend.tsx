@@ -1,10 +1,12 @@
-import { IconClock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconClock } from '@posthog/icons'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -13,9 +15,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics } from '~/types'
 
-import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepMore } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics

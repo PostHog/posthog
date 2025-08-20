@@ -16,6 +16,10 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
 
+type FunctionActionType = 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook'
+
+type Action = Extract<HogFlowAction, { type: FunctionActionType }>
+
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hub: Hub,
@@ -26,10 +30,7 @@ export class HogFunctionHandler implements ActionHandler {
 
     async execute(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<
-            HogFlowAction,
-            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
-        >,
+        action: Action,
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): Promise<ActionHandlerResult> {
         const functionResult = await this.executeHogFunction(invocation, action)
@@ -60,10 +61,7 @@ export class HogFunctionHandler implements ActionHandler {
 
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<
-            HogFlowAction,
-            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
-        >
+        action: Action
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
 
@@ -119,7 +117,7 @@ export class HogFunctionHandler implements ActionHandler {
             },
         }
 
-        if (await this.recipientPreferencesService.shouldSkipAction(invocation, action)) {
+        if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
             return {
                 finished: true,
                 invocation: hogFunctionInvocation,

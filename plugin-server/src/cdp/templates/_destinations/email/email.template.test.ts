@@ -16,12 +16,12 @@ describe('email template', () => {
         const response = await tester.invoke(
             {
                 email: {
-                    integrationId: 1,
                     to: {
                         email: '{person.properties.email}',
                         name: '{person.name}',
                     },
                     from: {
+                        integrationId: 1,
                         email: 'test@posthog.com',
                         name: 'Test User',
                     },
@@ -46,10 +46,10 @@ describe('email template', () => {
             {
               "from": {
                 "email": "test@posthog.com",
+                "integrationId": 1,
                 "name": "Test User",
               },
               "html": "",
-              "integrationId": 1,
               "subject": "PostHog Notification",
               "text": "",
               "to": {

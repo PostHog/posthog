@@ -1,15 +1,17 @@
-import { LemonSegmentedButtonOption, Tooltip } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 
 import { IconGraph, IconInfo, IconLineGraph } from '@posthog/icons'
+import { LemonSegmentedButtonOption, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { QueryContext } from '~/queries/types'
-import { AnalyticsQueryResponseBase } from '~/queries/schema/schema-general'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineGraph'
-import { useValues } from 'kea'
+
+import { AnalyticsQueryResponseBase } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
+
+import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 // Simple mapping for the display mode options and their icons
 export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
@@ -19,7 +21,7 @@ export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
 ]
 
 // Simple interface for the tile props, letting us create tiles with a consistent interface
-export interface TileProps<ResponseType extends AnalyticsQueryResponseBase<unknown>> {
+export interface TileProps<ResponseType extends AnalyticsQueryResponseBase> {
     response: ResponseType
     responseLoading: boolean
     queryId: string
@@ -93,5 +95,15 @@ export const RevenueAnalyticsLineGraph = (
             labelGroupType="none"
             {...props}
         />
+    )
+}
+
+export const AlphaTag = (): JSX.Element => {
+    return (
+        <Tooltip title="This is a new chart type that is still in alpha. Data might not be accurate.">
+            <LemonTag type="completion" size="small">
+                ALPHA
+            </LemonTag>
+        </Tooltip>
     )
 }

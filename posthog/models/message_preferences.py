@@ -1,6 +1,6 @@
 from django.db import models
 from typing import Optional
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 import uuid
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID = "$all"
@@ -12,7 +12,7 @@ class PreferenceStatus(models.TextChoices):
     NO_PREFERENCE = "NO_PREFERENCE"
 
 
-class MessageRecipientPreference(UUIDModel):
+class MessageRecipientPreference(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

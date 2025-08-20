@@ -1,8 +1,8 @@
 import { Handle, Node, NodeProps } from '@xyflow/react'
+import { z } from 'zod'
 
 import { Optional } from '~/types'
 
-import { z } from 'zod'
 import { HogFlowAction } from '../types'
 
 export type HogFlowStepNodeProps = NodeProps & {
@@ -179,3 +179,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 ])
+
+export const isOptOutEligibleAction = (
+    action: HogFlowAction
+): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
+    return ['function_email', 'function_sms'].includes(action.type)
+}

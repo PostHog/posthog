@@ -1,14 +1,15 @@
-from threading import local
 from typing import Any
 from django.db import models
-from posthog.models.activity_logging.utils import get_changed_fields_local
+from posthog.models.activity_logging.utils import get_changed_fields_local, activity_storage
 from posthog.models.signals import model_activity_signal
-
-_thread_local = local()
 
 
 def get_was_impersonated():
-    return getattr(_thread_local, "was_impersonated", False)
+    return activity_storage.get_was_impersonated()
+
+
+def get_current_user():
+    return activity_storage.get_user()
 
 
 def is_impersonated_session(request):
@@ -49,6 +50,7 @@ class ModelActivityMixin(models.Model):
                 before_update=before_update,
                 after_update=self,
                 activity=change_type,
+                user=get_current_user(),
                 was_impersonated=get_was_impersonated(),
             )
 
@@ -90,7 +92,7 @@ class ModelActivityMixin(models.Model):
 
 
 class ImpersonatedContext:
-    # This is a context manager that sets the was_impersonated flag in the thread local storage
+    # This is a context manager that sets the was_impersonated flag in the activity storage
     # if the request is impersonated. Use this to call the model's save method with impersonated
     # info from the request if you have a request available. This is pretty much a no-op if you
     # don't have a request available.
@@ -99,9 +101,9 @@ class ImpersonatedContext:
 
     def __enter__(self):
         if self.was_impersonated:
-            _thread_local.was_impersonated = True
+            activity_storage.set_was_impersonated(True)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.was_impersonated and hasattr(_thread_local, "was_impersonated"):
-            delattr(_thread_local, "was_impersonated")
+        if self.was_impersonated:
+            activity_storage.clear_was_impersonated()

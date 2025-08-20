@@ -78,13 +78,14 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
-        conversation = self._get_system_prompt().messages
-        conversation.append(("human", state.change or ""))
+        conversation = list(self._get_system_prompt().messages)
+        human_content = state.change or ""
+        all_messages = [*conversation, ("human", human_content)]
 
         progress_messages = state.tool_progress_messages or []
-        conversation = [*conversation, *progress_messages]
+        all_messages.extend(progress_messages)
 
-        return ChatPromptTemplate(conversation, template_format="mustache")
+        return ChatPromptTemplate(all_messages, template_format="mustache")
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
@@ -152,14 +153,14 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
         else:
             if tool_input.name == "final_answer":
                 return self._partial_state_class(
-                    output=tool_input.arguments.answer,
+                    output=tool_input.arguments.answer,  # type: ignore
                     intermediate_steps=None,
                 )
 
             # The agent has requested help, so we return a message to the root node
             if tool_input.name == "ask_user_for_help":
                 return self._get_reset_state(
-                    tool_input.arguments.request,
+                    tool_input.arguments.request,  # type: ignore
                     tool_input.name,
                     state,
                 )

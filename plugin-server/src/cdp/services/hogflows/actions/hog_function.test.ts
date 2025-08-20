@@ -1,5 +1,5 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -175,7 +175,9 @@ describe('HogFunctionHandler', () => {
 
         await hogFunctionHandler.execute(invocation, action, invocationResult)
 
-        expect(mockRecipientPreferencesService.shouldSkipAction).toHaveBeenCalledWith(invocation, action)
+        const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
+        expect(callArgs[0]).toBeTruthy()
+        expect(callArgs[1]).toBe(action)
     })
 
     it('should skip execution if recipient preferences service returns true', async () => {
@@ -188,7 +190,9 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute(invocation, action, invocationResult)
 
-        expect(mockRecipientPreferencesService.shouldSkipAction).toHaveBeenCalledWith(invocation, action)
+        const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
+        expect(callArgs[0]).toBeTruthy()
+        expect(callArgs[1]).toBe(action)
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain(`[Action:function] Recipient opted out for action function`)

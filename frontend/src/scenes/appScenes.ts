@@ -1,12 +1,10 @@
-import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { preloadedScenes } from 'scenes/scenes'
 
 import { productScenes } from '~/products'
 
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
-    [Scene.Action]: () => import('./actions/Action'),
-    [Scene.Activity]: () => import('./activity/ActivityScene'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
     [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
@@ -37,6 +35,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
     [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
+    [Scene.ExploreEvents]: () => import('./activity/explore/EventsScene'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.Group]: () => import('./groups/Group'),
@@ -48,6 +47,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
+    [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Max]: () => import('./max/Max'),

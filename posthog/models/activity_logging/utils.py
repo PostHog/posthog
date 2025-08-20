@@ -1,9 +1,46 @@
-from typing import cast
+from typing import cast, Optional, Any
 from django.db import models
 import structlog
 import traceback
+from asgiref.local import Local
 
 logger = structlog.get_logger(__name__)
+
+
+class ActivityLoggingStorage:
+    """
+    Thread-safe storage for activity logging context using asgiref.local.
+    """
+
+    def __init__(self):
+        self._local = Local()
+
+    def set_user(self, user: Any) -> None:
+        self._local.user = user
+
+    def get_user(self) -> Optional[Any]:
+        return getattr(self._local, "user", None)
+
+    def clear_user(self) -> None:
+        if hasattr(self._local, "user"):
+            delattr(self._local, "user")
+
+    def set_was_impersonated(self, was_impersonated: bool) -> None:
+        self._local.was_impersonated = was_impersonated
+
+    def get_was_impersonated(self) -> bool:
+        return getattr(self._local, "was_impersonated", False)
+
+    def clear_was_impersonated(self) -> None:
+        if hasattr(self._local, "was_impersonated"):
+            delattr(self._local, "was_impersonated")
+
+    def clear_all(self) -> None:
+        self.clear_user()
+        self.clear_was_impersonated()
+
+
+activity_storage = ActivityLoggingStorage()
 
 
 def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:

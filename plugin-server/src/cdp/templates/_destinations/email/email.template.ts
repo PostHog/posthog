@@ -26,7 +26,9 @@ export const template: HogFunctionTemplate = {
             integration: 'email',
             required: true,
             default: {
-                to: '{person.properties.email}',
+                to: {
+                    email: '{person.properties.email}',
+                },
                 from: null,
                 subject: 'PostHog Notification',
                 text: '',

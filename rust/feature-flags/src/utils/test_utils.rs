@@ -25,7 +25,7 @@ pub fn random_string(prefix: &str, length: usize) -> String {
         .take(length)
         .map(char::from)
         .collect();
-    format!("{}{}", prefix, suffix)
+    format!("{prefix}{suffix}")
 }
 
 pub async fn insert_new_team_in_redis(
@@ -87,10 +87,7 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(
-            format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, project_id),
-            payload,
-        )
+        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
         .await?;
 
     Ok(())
@@ -191,7 +188,7 @@ pub async fn insert_new_team_in_pg(
     // Create new organization from scratch
     client.run_query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources) 
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
         VALUES
         ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
         ON CONFLICT DO NOTHING"#.to_string(),
@@ -233,9 +230,9 @@ pub async fn insert_new_team_in_pg(
 
     // Insert a team with the correct team-project relationship
     let res = sqlx::query(
-        r#"INSERT INTO posthog_team 
-        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency) VALUES
-        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD')"#
+        r#"INSERT INTO posthog_team
+        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
+        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
     ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
@@ -558,7 +555,7 @@ pub async fn insert_suppression_rule_in_pg(
     let mut conn = client.get_connection().await?;
     let rule_id = uuid::Uuid::new_v4();
     sqlx::query(
-        r#"INSERT INTO posthog_errortrackingsuppressionrule 
+        r#"INSERT INTO posthog_errortrackingsuppressionrule
            (id, team_id, filters, created_at, updated_at, order_key)
            VALUES ($1, $2, $3, NOW(), NOW(), 0)"#,
     )
