@@ -1,6 +1,7 @@
 from typing import Any
 from unittest import mock
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -139,56 +140,108 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             assert response.json()["results"][0]["content"] == "comment other reply"
             assert response.json()["results"][1]["content"] == "comment reply"
 
-    def test_count_comments(self) -> None:
-        # No comments initially
-        response = self.client.get(f"/api/projects/{self.team.id}/comments/count")
+    @parameterized.expand(
+        [
+            ("no_comments", [], "", 0),
+            (
+                "two_comments_different_scopes",
+                [
+                    {"content": "comment 1", "scope": "Notebook", "item_id": "1"},
+                    {"content": "comment 2", "scope": "Dashboard", "item_id": "2"},
+                ],
+                "",
+                2,
+            ),
+            (
+                "filter_by_scope",
+                [
+                    {"content": "comment 1", "scope": "Notebook", "item_id": "1"},
+                    {"content": "comment 2", "scope": "Dashboard", "item_id": "2"},
+                ],
+                "?scope=Notebook",
+                1,
+            ),
+        ]
+    )
+    def test_count_comments(self, name: str, comments_to_create: list, query_params: str, expected_count: int) -> None:
+        for comment_data in comments_to_create:
+            self._create_comment(comment_data)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/count{query_params}")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"count": 0}
+        assert response.json() == {"count": expected_count}
 
-        # Create regular comments
-        self._create_comment({"content": "comment 1", "scope": "Notebook", "item_id": "1"})
-        self._create_comment({"content": "comment 2", "scope": "Dashboard", "item_id": "2"})
+    @parameterized.expand(
+        [
+            (
+                "excludes_only_the_2_emoji_reactions",
+                [
+                    {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
+                    {"content": "another comment", "scope": "Notebook", "item_id": "1"},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {
+                        "content": "comment with context",
+                        "scope": "Notebook",
+                        "item_id": "1",
+                        "item_context": {"other_field": "value"},
+                    },
+                ],
+                "?exclude_emoji_reactions=true",
+                3,
+            ),
+            (
+                "counts_all_comments_including_emojis",
+                [
+                    {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
+                    {"content": "another comment", "scope": "Notebook", "item_id": "1"},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {
+                        "content": "comment with context",
+                        "scope": "Notebook",
+                        "item_id": "1",
+                        "item_context": {"other_field": "value"},
+                    },
+                ],
+                "",
+                5,
+            ),
+            (
+                "only_notebook_comments_excluding_emoji_reactions",
+                [
+                    {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
+                    {"content": "another comment", "scope": "Notebook", "item_id": "1"},
+                    {"content": "dashboard comment", "scope": "Dashboard", "item_id": "2"},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {"content": "❤️", "scope": "Dashboard", "item_id": "2", "item_context": {"is_emoji_reaction": True}},
+                ],
+                "?scope=Notebook&exclude_emoji_reactions=true",
+                2,
+            ),
+            (
+                "includes_comments_with_is_emoji_reaction_false",
+                [
+                    {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
+                    {
+                        "content": "explicitly not emoji",
+                        "scope": "Notebook",
+                        "item_id": "1",
+                        "item_context": {"is_emoji_reaction": False},
+                    },
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                ],
+                "?exclude_emoji_reactions=true",
+                2,
+            ),
+        ]
+    )
+    def test_count_comments_with_emoji_filtering(
+        self, name: str, comments_to_create: list, query_params: str, expected_count: int
+    ) -> None:
+        for comment_data in comments_to_create:
+            self._create_comment(comment_data)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/comments/count")
-        assert response.json() == {"count": 2}
-
-        # Test filtering by scope
-        response = self.client.get(f"/api/projects/{self.team.id}/comments/count?scope=Notebook")
-        assert response.json() == {"count": 1}
-
-    def test_count_comments_excludes_emoji_reactions(self) -> None:
-        # Create regular comments
-        self._create_comment({"content": "regular comment", "scope": "Notebook", "item_id": "1"})
-        self._create_comment({"content": "another comment", "scope": "Notebook", "item_id": "1"})
-
-        # Create emoji reactions (comments with item_context.is_emoji_reaction = true)
-        self._create_comment(
-            {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}}
-        )
-        self._create_comment(
-            {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}}
-        )
-
-        # Create comment with item_context but no is_emoji_reaction
-        self._create_comment(
-            {
-                "content": "comment with context",
-                "scope": "Notebook",
-                "item_id": "1",
-                "item_context": {"other_field": "value"},
-            }
-        )
-
-        # Count without exclusion should return all comments
-        response = self.client.get(f"/api/projects/{self.team.id}/comments/count")
-        assert response.json() == {"count": 5}
-
-        # Count with emoji reaction exclusion should only return non-emoji comments
-        response = self.client.get(f"/api/projects/{self.team.id}/comments/count?exclude_emoji_reactions=true")
-        assert response.json() == {"count": 3}
-
-        # Test with scope filtering as well
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/comments/count?scope=Notebook&exclude_emoji_reactions=true"
-        )
-        assert response.json() == {"count": 3}
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/count{query_params}")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"count": expected_count}
