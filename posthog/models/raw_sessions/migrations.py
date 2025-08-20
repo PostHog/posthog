@@ -12,7 +12,7 @@ from posthog.models.raw_sessions.sql import (
 )
 
 
-def update_raw_sessions_table(migration: str, is_alter_on_replicated_table=False):
+def update_raw_sessions_table(migration: str):
     return [
         # sharded
         run_sql_with_exceptions(
@@ -20,8 +20,8 @@ def update_raw_sessions_table(migration: str, is_alter_on_replicated_table=False
                 table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
-            node_role=NodeRole.ALL,
-            is_alter_on_replicated_table=is_alter_on_replicated_table,
+            node_role=NodeRole.DATA,
+            sharded=True,
         ),
         # writable
         run_sql_with_exceptions(
@@ -29,7 +29,7 @@ def update_raw_sessions_table(migration: str, is_alter_on_replicated_table=False
                 table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
-            node_role=NodeRole.ALL,
+            node_role=NodeRole.DATA,
         ),
         # update the MV
         run_sql_with_exceptions(RAW_SESSION_TABLE_UPDATE_SQL()),

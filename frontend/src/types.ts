@@ -1529,6 +1529,11 @@ export enum PersonsTabType {
     FEATURE_FLAGS = 'featureFlags',
 }
 
+export enum GroupsTabType {
+    NOTES = 'notes',
+    OVERVIEW = 'overview',
+}
+
 export enum LayoutView {
     Card = 'card',
     List = 'list',
