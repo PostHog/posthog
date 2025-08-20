@@ -5241,7 +5241,7 @@ async fn it_handles_empty_query_parameters() -> Result<()> {
 
     let server = ServerHandle::for_config(config).await;
 
-    // Create a request with empty query parameters like the failing requests
+    // Create a request with empty query parameters
     let reqwest_client = reqwest::Client::new();
     let response = reqwest_client
         .post(format!(
@@ -5265,7 +5265,6 @@ async fn it_handles_empty_query_parameters() -> Result<()> {
     let response_text = response.text().await?;
     let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
 
-    // Should have successfully processed the request despite empty query params
     assert!(
         response_json.get("flags").is_some(),
         "Response should contain flags field"
