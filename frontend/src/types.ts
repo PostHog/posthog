@@ -5654,7 +5654,7 @@ export interface LineageGraph {
 }
 
 export interface DataWarehouseSourceRowCount {
-    breakdownOfRowsBySource: Record<string, number>
+    breakdown_of_rows_by_source: Record<string, number>
     billing_available: boolean
     billing_interval: string
     billing_period_end: string

@@ -103,7 +103,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "billing_interval": billing_interval,
                 "billing_period_end": billing_period_end,
                 "billing_period_start": billing_period_start,
-                "breakdownOfRowsBySource": breakdown_of_rows_by_source,
+                "breakdown_of_rows_by_source": breakdown_of_rows_by_source,
                 "materialized_rows_in_billing_period": materialized_rows,
                 "total_rows": rows_synced,
                 "tracked_billing_rows": billing_tracked_rows,

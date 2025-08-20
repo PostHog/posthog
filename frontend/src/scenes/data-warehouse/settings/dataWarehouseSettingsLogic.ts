@@ -159,7 +159,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                                 (dayjs(a.created_at).isAfter(billingPeriodStart.subtract(1, 'millisecond')) &&
                                     dayjs(a.created_at).isBefore(billingPeriodEnd))
                         )
-                        const totalRows = totalRowsStats?.breakdownOfRowsBySource?.[source.id] ?? 0
+                        const totalRows = totalRowsStats?.breakdown_of_rows_by_source?.[source.id] ?? 0
                         const sortedActivities = sourceActivities.sort(
                             (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
                         )

@@ -22,11 +22,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         }
 
         source = ExternalDataSource.objects.create(
-            source_id="test-id",
-            connection_id="conn-id",
-            destination_id="dest-id",
-            team=self.team,
-            source_type="Stripe",
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
         )
         schema = ExternalDataSchema.objects.create(name="test", team=self.team, source=source)
 
@@ -136,7 +132,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(data["results"][0]["type"], "Materialized view")
 
         source = ExternalDataSource.objects.create(
-            source_id="test-id", connection_id="conn-id", team=self.team, source_type="Stripe"
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
         )
         schema = ExternalDataSchema.objects.create(name="test", team=self.team, source=source)
         for _ in range(3):

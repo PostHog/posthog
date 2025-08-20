@@ -59,11 +59,6 @@ describe('externalDataSourcesLogic', () => {
     })
 
     describe('pagination functionality', () => {
-        beforeEach(() => {
-            initKeaTests()
-            logic = externalDataSourcesLogic()
-        })
-
         it('calculates pagination state correctly', () => {
             const mockActivity: DataWarehouseActivityRecord[] = Array.from({ length: 12 }, (_, i) => ({
                 id: `activity-${i}`,
