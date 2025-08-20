@@ -2396,7 +2396,7 @@ describe('PersonState.processEvent()', () => {
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
         })
 
-        it(`partial merge when move limit hit: skip delete and emit warning`, async () => {
+        it(`hitting the move limit drops the event: no merge, no IDs moved, goes to DLQ`, async () => {
             const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
                 { distinctId: firstUserDistinctId },
             ])
@@ -2409,7 +2409,7 @@ describe('PersonState.processEvent()', () => {
             await repo.addDistinctId(second, 'second-2', 1)
             await repo.addDistinctId(second, 'second-3', 1)
 
-            // Set a per-call limit of 2 via test hook on context
+            // Set a per-call limit of 2
             const mergeService: PersonMergeService = personMergeService(
                 {},
                 undefined,
@@ -2420,29 +2420,23 @@ describe('PersonState.processEvent()', () => {
                 2
             )
 
-            const [_, kafkaAcks] = await mergeService.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: { ...second },
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            await expect(
+                mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: { ...second },
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+            ).rejects.toThrow('person_merge_move_limit_hit')
 
-            const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
-
-            // Source should NOT be deleted due to partial move
+            // Persons should be unchanged (no delete, no merge)
             const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.find((p) => p.uuid === firstUserUuid)).toBeTruthy()
             expect(persons.find((p) => p.uuid === secondUserUuid)).toBeTruthy()
 
-            // Warning should be emitted
-            const warnings = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_INGESTION_WARNINGS)
-            expect(
-                warnings.some(
-                    (w) =>
-                        w.value?.type === 'merge_distinct_ids_over_limit' ||
-                        (typeof w.value === 'object' && (w.value as any).type === 'merge_distinct_ids_over_limit')
-                )
-            ).toBeTruthy()
+            // Distinct IDs should remain on source (we added 2 extra)
+            const sourceDistinctIds = await hub.db.fetchDistinctIdValues(second)
+            expect(sourceDistinctIds).toEqual(expect.arrayContaining([secondUserDistinctId, 'second-2', 'second-3']))
         })
 
         it(`exact limit hit: delete source and do not emit warning`, async () => {
