@@ -814,7 +814,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_client() as client:
+    async with get_client(max_block_size=MB_50_IN_BYTES) as client:
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
