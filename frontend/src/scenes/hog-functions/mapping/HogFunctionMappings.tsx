@@ -1,3 +1,7 @@
+import { useValues } from 'kea'
+import { Group } from 'kea-forms'
+import { memo, useEffect, useState } from 'react'
+
 import { IconArrowRight, IconEllipsis, IconFilter, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,12 +15,10 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { Group } from 'kea-forms'
+
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -26,7 +28,8 @@ import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } fro
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
 const humanize = (value: string): string => {
-    const fallback = typeof value === 'string' ? value ?? '' : ''
+    const fallback = typeof value === 'string' ? (value ?? '') : ''
+
     // Simple replacement from something like MY_STRING-here to My string here
     return fallback
         .toLowerCase()
@@ -69,8 +72,8 @@ const MappingSummary = memo(function MappingSummary({
                 {mapping.name
                     ? humanize(mapping.name)
                     : typeof firstInputValue === 'object'
-                    ? JSON.stringify(firstInputValue)
-                    : humanize(firstInputValue)}
+                      ? JSON.stringify(firstInputValue)
+                      : humanize(firstInputValue)}
             </span>
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}

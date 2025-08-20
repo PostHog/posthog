@@ -1,18 +1,12 @@
-import { IconCheck, IconCornerDownRight, IconGear, IconPlus, IconPlusSmall, IconWarning } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo, useState } from 'react'
+
+import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
-import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo, useState } from 'react'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
-import { AvailableFeature, TeamPublicType } from '~/types'
-
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
@@ -24,8 +18,16 @@ import {
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { AvailableFeature, TeamPublicType } from '~/types'
+
 import { globalModalsLogic } from '../GlobalModals'
-import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './environmentsSwitcherLogic'
+import { TeamBasicTypeWithProjectName, environmentSwitcherLogic } from './environmentsSwitcherLogic'
 
 /**
  * Regex matching a possible emoji (any emoji) at the beginning of the string.
@@ -68,7 +70,7 @@ export function EnvironmentSwitcherOverlay({
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
             currentProjectItems.push(
                 <>
-                    <Label intent="menu" className="px-2">
+                    <Label intent="menu" className="px-2 mt-2">
                         Current project
                     </Label>
                     <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
@@ -144,7 +146,8 @@ export function EnvironmentSwitcherOverlay({
                         })
                     }}
                 >
-                    <IconPlus />
+                    <IconBlank />
+                    <IconPlusSmall />
                     New environment in project
                 </ButtonPrimitive>
             )
@@ -158,6 +161,18 @@ export function EnvironmentSwitcherOverlay({
             }
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
+
+            // Add "Other projects" label just once, before any other projects are added
+            if (projectTeams.length > 0 && otherProjectsItems.length === 0) {
+                otherProjectsItems.push(
+                    <>
+                        <Label intent="menu" className="px-2 mt-2">
+                            Other projects
+                        </Label>
+                        <div className="-mx-1.5 my-1 h-px bg-border-primary shrink-0" />
+                    </>
+                )
+            }
 
             otherProjectsItems.push(
                 <>
@@ -206,17 +221,6 @@ export function EnvironmentSwitcherOverlay({
                     </Combobox.Group>
                 </>
             )
-            // Only show the other projects label if there are other projects
-            if (otherProjectsItems.length > 0) {
-                otherProjectsItems.splice(
-                    0,
-                    0,
-                    <Label intent="menu" className="px-2" key="other-projects-label">
-                        Other projects
-                    </Label>,
-                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
-                )
-            }
             for (const team of projectTeams) {
                 otherProjectsItems.push(convertTeamToMenuItem(team, currentTeam))
             }
@@ -275,8 +279,6 @@ export function EnvironmentSwitcherOverlay({
                         <Combobox.Empty>No projects or environments found</Combobox.Empty>
 
                         {environmentsRollbackNotice}
-                        {currentProjectSection}
-                        {otherProjectsSection}
 
                         <Combobox.Item
                             asChild
@@ -298,6 +300,9 @@ export function EnvironmentSwitcherOverlay({
                                 New project
                             </ButtonPrimitive>
                         </Combobox.Item>
+
+                        {currentProjectSection}
+                        {otherProjectsSection}
                     </Combobox.Content>
                 </Combobox>
             </PopoverPrimitiveContent>

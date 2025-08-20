@@ -6,6 +6,8 @@ from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.billing.nodes import BillingNode
+from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
@@ -230,8 +232,10 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
+            "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
+            "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
         }
         root_node = RootNode(self._team, self._user)
         builder.add_node(AssistantNodeName.ROOT, root_node)
@@ -368,6 +372,13 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
+    def add_billing(self):
+        builder = self._graph
+        billing_node = BillingNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.BILLING, billing_node)
+        builder.add_edge(AssistantNodeName.BILLING, AssistantNodeName.ROOT)
+        return self
+
     def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         path_map = {
@@ -384,6 +395,13 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         )
         return self
 
+    def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        session_summarization_node = SessionSummarizationNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
+        builder.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
@@ -393,6 +411,8 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_root()
             .add_insights()
             .add_inkeep_docs()
+            .add_billing()
             .add_insights_search()
+            .add_session_summarization()
             .compile(checkpointer=checkpointer)
         )

@@ -1,6 +1,18 @@
-import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
+import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { InternalPerson } from '~/types'
+
+export const personPropertiesSizeViolationCounter = new Counter({
+    name: 'person_properties_size_violations_total',
+    help: 'Number of person properties size violations',
+    labelNames: ['violation_type'],
+})
+
+export const oversizedPersonPropertiesTrimmedCounter = new Counter({
+    name: 'oversized_person_properties_trimmed',
+    help: 'Number of oversized person properties trimmed',
+    labelNames: ['result'],
+})
 
 export const personMethodCallsPerBatchHistogram = new Histogram({
     name: 'person_method_calls_per_batch',
@@ -51,6 +63,12 @@ export const personPropertyKeyUpdateCounter = new Counter({
     name: 'person_property_key_update_total',
     help: 'Number of person updates triggered by this property value changing.',
     labelNames: ['key'],
+})
+
+export const personMergeFailureCounter = new Counter({
+    name: 'person_merge_failure_total',
+    help: 'Number of person merges that failed',
+    labelNames: ['call'], // $identify, $create_alias, $merge_dangerously
 })
 
 export const personCacheSizeHistogram = new Histogram({

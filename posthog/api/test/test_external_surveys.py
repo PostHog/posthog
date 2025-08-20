@@ -150,7 +150,7 @@ class TestExternalSurveys(APIBaseTest):
 
         # Check appearance data is injected
         content = response.content.decode()
-        assert "surveyAppearance" in content
+        assert "survey.appearance" in content
         assert "#ff0000" in content
         assert "#00ff00" in content
 

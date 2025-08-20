@@ -1,13 +1,14 @@
-import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
+
+import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
 } from '~/schema/cyclotron'
-import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
 import { buildIntegerMatcher } from '../../config/config'
@@ -36,7 +37,13 @@ import { EmailService } from './messaging/email.service'
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
     help: 'HTTP requests and their outcomes',
-    labelNames: ['status'],
+    labelNames: ['status', 'template_id'],
+})
+
+const cdpHttpRequestTiming = new Histogram({
+    name: 'cdp_http_request_timing_ms',
+    help: 'Timing of HTTP requests',
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
 export const RETRIABLE_STATUS_CODES = [
@@ -334,10 +341,13 @@ export class HogExecutorService {
                 let hogLogs = 0
 
                 const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
-                const asyncFunctions = asyncFunctionsNames.reduce((acc, fn) => {
-                    acc[fn] = async () => Promise.resolve()
-                    return acc
-                }, {} as Record<string, (args: any[]) => Promise<void>>)
+                const asyncFunctions = asyncFunctionsNames.reduce(
+                    (acc, fn) => {
+                        acc[fn] = async () => Promise.resolve()
+                        return acc
+                    },
+                    {} as Record<string, (args: any[]) => Promise<void>>
+                )
 
                 const execHogOutcome = await execHog(invocationInput, {
                     globals,
@@ -477,9 +487,10 @@ export class HogExecutorService {
                         }
 
                         case 'sendEmail': {
-                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
-                                args[0]
-                            )
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
+                                ...args[0],
+                                type: 'email',
+                            })
                             break
                         }
                         default:
@@ -526,6 +537,7 @@ export class HogExecutorService {
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {
             throw new Error('Bad invocation')
         }
@@ -541,7 +553,6 @@ export class HogExecutorService {
         )
         const addLog = createAddLogFunction(result.logs)
 
-        const start = performance.now()
         const method = params.method.toUpperCase()
         const headers = params.headers ?? {}
 
@@ -549,18 +560,17 @@ export class HogExecutorService {
             headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
         }
 
-        const fetchParams: FetchOptions = {
-            method,
-            headers,
-            timeoutMs: this.hub.CDP_FETCH_TIMEOUT_MS,
-        }
+        const fetchParams: FetchOptions = { method, headers }
+
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
         }
 
+        const start = performance.now()
         const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
         const duration = performance.now() - start
-        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error' })
+        cdpHttpRequestTiming.observe(duration)
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
 
         result.invocation.state.timings.push({
             kind: 'async_function',

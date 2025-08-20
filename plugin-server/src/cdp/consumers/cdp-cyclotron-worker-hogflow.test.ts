@@ -54,10 +54,13 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         properties: any
     ): Promise<InternalPerson> => {
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-        const [person] = await personRepository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, [
+        const result = await personRepository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, [
             { distinctId },
         ])
-        return person
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        return result.person
     }
 
     beforeEach(async () => {

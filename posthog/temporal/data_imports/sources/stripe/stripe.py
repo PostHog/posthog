@@ -90,14 +90,14 @@ def stripe_source(
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
             logger.debug(
-                f"Stripe: iterating earliest objects from resource: {incremental_field_name}[lt] = {db_incremental_field_earliest_value}"
+                f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
             )
 
             stripe_objects = resource.method(
                 params={
                     **default_params,
                     **resource.params,
-                    f"{incremental_field_name}[lt]": db_incremental_field_earliest_value,
+                    f"created[lt]": db_incremental_field_earliest_value,
                 }
             )
             yield from stripe_objects.auto_paging_iter()
@@ -105,14 +105,14 @@ def stripe_source(
         # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
             logger.debug(
-                f"Stripe: iterating latest objects from resource: {incremental_field_name}[gt] = {db_incremental_field_last_value}"
+                f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}"
             )
 
             stripe_objects = resource.method(
                 params={
                     **default_params,
                     **resource.params,
-                    f"{incremental_field_name}[gt]": db_incremental_field_last_value,
+                    f"created[gt]": db_incremental_field_last_value,
                 }
             )
             for obj in stripe_objects.auto_paging_iter():

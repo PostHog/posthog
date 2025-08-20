@@ -1,9 +1,10 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
@@ -12,7 +13,10 @@ import { PersonRepositoryTransaction } from './repositories/person-repository-tr
  * This can be used by any store that implements PersonsStoreForBatch.
  */
 export class PersonsStoreTransaction {
-    constructor(private store: PersonsStoreForBatch, private tx: PersonRepositoryTransaction) {}
+    constructor(
+        private store: PersonsStoreForBatch,
+        private tx: PersonRepositoryTransaction
+    ) {}
 
     async createPerson(
         createdAt: DateTime,
@@ -24,7 +28,7 @@ export class PersonsStoreTransaction {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[]
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
             properties,
@@ -75,9 +79,10 @@ export class PersonsStoreTransaction {
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
-        distinctId: string
+        distinctId: string,
+        limit?: number
     ): Promise<MoveDistinctIdsResult> {
-        return await this.store.moveDistinctIds(source, target, distinctId, this.tx)
+        return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(
@@ -97,5 +102,9 @@ export class PersonsStoreTransaction {
 
     async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
         return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx)
+    }
+
+    async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {
+        return await this.store.fetchPersonDistinctIds(person, distinctId, limit, this.tx)
     }
 }

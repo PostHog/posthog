@@ -1,11 +1,14 @@
-import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { useEffect, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
+import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
 import { isTrendsQuery } from '~/queries/utils'
-import { useDebouncedCallback } from 'use-debounce'
-import { useState, useEffect } from 'react'
 
 export function ConfidenceLevelInput(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -29,7 +32,7 @@ export function ConfidenceLevelInput(): JSX.Element {
     }, 500)
 
     return (
-        <div className="flex items-center justify-between w-full px-2 pb-2">
+        <div className="flex items-center justify-between w-full px-2 pb-2 pl-4">
             <Tooltip title="A 95% confidence level means that for each data point, we are 95% confident that the true value is within the confidence interval.">
                 <span>Confidence level</span>
             </Tooltip>

@@ -1,15 +1,19 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
-import { MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export class PostgresPersonRepositoryTransaction implements PersonRepositoryTransaction {
-    constructor(private transaction: TransactionClient, private repository: RawPostgresPersonRepository) {}
+    constructor(
+        private transaction: TransactionClient,
+        private repository: RawPostgresPersonRepository
+    ) {}
 
     async createPerson(
         createdAt: DateTime,
@@ -21,7 +25,7 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[]
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<CreatePersonResult> {
         return await this.repository.createPerson(
             createdAt,
             properties,
@@ -52,8 +56,16 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.addDistinctId(person, distinctId, version, this.transaction)
     }
 
-    async moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult> {
-        return await this.repository.moveDistinctIds(source, target, this.transaction)
+    async moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        limit?: number
+    ): Promise<MoveDistinctIdsResult> {
+        return await this.repository.moveDistinctIds(source, target, limit, this.transaction)
+    }
+
+    async fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]> {
+        return await this.repository.fetchPersonDistinctIds(person, limit, this.transaction)
     }
 
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {

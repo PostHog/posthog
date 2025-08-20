@@ -2,6 +2,7 @@ import { kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -57,20 +58,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 target_value: !target_value
                     ? 'This field is required.'
                     : target_type == 'email'
-                    ? !target_value
-                        ? 'At least one email is required'
-                        : !target_value.split(',').every((email) => isEmail(email))
-                        ? 'All emails must be valid'
-                        : undefined
-                    : target_type == 'slack'
-                    ? !target_value
-                        ? 'A channel is required'
-                        : undefined
-                    : target_type == 'webhook'
-                    ? !isURL(target_value)
-                        ? 'Must be a valid URL'
-                        : undefined
-                    : undefined,
+                      ? !target_value
+                          ? 'At least one email is required'
+                          : !target_value.split(',').every((email) => isEmail(email))
+                            ? 'All emails must be valid'
+                            : undefined
+                      : target_type == 'slack'
+                        ? !target_value
+                            ? 'A channel is required'
+                            : undefined
+                        : target_type == 'webhook'
+                          ? !isURL(target_value)
+                              ? 'Must be a valid URL'
+                              : undefined
+                          : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined

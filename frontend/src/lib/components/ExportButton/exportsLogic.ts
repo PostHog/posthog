@@ -1,8 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
-import { downloadBlob, downloadExportedAsset, TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
@@ -11,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { CohortType, ExportContext, ExportedAssetType, LocalExportContext, SidePanelTab } from '~/types'
+import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
@@ -31,6 +32,16 @@ export const exportsLogic = kea<exportsLogicType>([
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
+        startReplayExport: (
+            sessionRecordingId: string,
+            timestamp?: number,
+            options?: {
+                width?: number
+                height?: number
+                css_selector?: string
+                filename?: string
+            }
+        ) => ({ sessionRecordingId, timestamp, options }),
     }),
 
     connect(() => ({
@@ -108,6 +119,21 @@ export const exportsLogic = kea<exportsLogicType>([
                 lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
             }
+        },
+        startReplayExport: async ({ sessionRecordingId, timestamp, options }) => {
+            const exportData: TriggerExportProps = {
+                export_format: ExporterFormat.PNG,
+                export_context: {
+                    session_recording_id: sessionRecordingId,
+                    timestamp: timestamp,
+                    css_selector: options?.css_selector || '.replayer-wrapper',
+                    width: options?.width || 1400,
+                    height: options?.height || 600,
+                    filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
+                },
+            }
+
+            actions.startExport(exportData)
         },
     })),
 

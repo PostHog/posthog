@@ -15,7 +15,6 @@ from temporalio.testing import ActivityEnvironment
 from posthog import constants
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger_async
@@ -78,7 +77,7 @@ def activity_environment():
 
 
 @pytest_asyncio.fixture(scope="module")
-async def clickhouse_client():
+async def clickhouse_client(event_loop):
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
@@ -139,12 +138,9 @@ async def activities(request):
         return ACTIVITIES
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def event_loop():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
@@ -152,7 +148,7 @@ def event_loop():
 @pytest_asyncio.fixture(autouse=True)
 async def configure_logger() -> None:
     """Configure logger when running in a Temporal activity environment."""
-    configure_logger_async()
+    configure_logger_async(cache_logger_on_first_use=False)
 
 
 @pytest.fixture
@@ -300,8 +296,6 @@ async def setup_postgres_test_db(postgres_config):
 
 @pytest_asyncio.fixture
 async def temporal_worker(temporal_client, workflows, activities):
-    initialize_otel()
-
     worker = temporalio.worker.Worker(
         temporal_client,
         task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,

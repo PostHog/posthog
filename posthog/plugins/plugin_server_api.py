@@ -54,7 +54,7 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
 
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
-    publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})
+    publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})
 
 
 def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict) -> requests.Response:

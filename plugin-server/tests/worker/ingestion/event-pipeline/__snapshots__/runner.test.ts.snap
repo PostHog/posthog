@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
 [
@@ -96,18 +96,26 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
           "updateCacheMisses": 0,
         },
         "databaseOperationCountsPerDistinctId": {},
+        "distinctIdToPersonId": {},
         "fetchPromisesForChecking": {},
         "fetchPromisesForUpdate": {},
+        "kafkaProducer": {},
         "methodCountsPerDistinctId": {},
         "options": {
-          "personCacheEnabledForChecks": true,
-          "personCacheEnabledForUpdates": true,
+          "dbWriteMode": "NO_ASSERT",
+          "maxConcurrentUpdates": 10,
+          "maxOptimisticUpdateRetries": 5,
+          "optimisticUpdateRetryInterval": 50,
         },
-        "personCache": {},
         "personCheckCache": {},
         "personRepository": {
-          "kafkaProducer": {},
+          "options": {
+            "calculatePropertiesSize": 0,
+            "personPropertiesDbConstraintLimitBytes": 655360,
+            "personPropertiesTrimTargetBytes": 524288,
+          },
         },
+        "personUpdateCache": {},
         "updateLatencyPerDistinctIdSeconds": {},
       },
     ],

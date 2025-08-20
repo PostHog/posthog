@@ -158,6 +158,46 @@ def _create_ai_span_event(
     )
 
 
+def _create_ai_embedding_event(
+    *,
+    input: str | list[InputMessage] = "Embed this text",
+    team: Team | None = None,
+    distinct_id: str | None = None,
+    trace_id: str | None = None,
+    properties: dict[str, Any] | None = None,
+    timestamp: datetime | None = None,
+    event_uuid: str | UUID | None = None,
+):
+    input_tokens = _calculate_tokens(input)
+
+    if isinstance(input, str):
+        input_messages: list[InputMessage] = [{"role": "user", "content": input}]
+    else:
+        input_messages = input
+
+    props = {
+        "$ai_trace_id": trace_id or str(uuid.uuid4()),
+        "$ai_latency": 0.5,
+        "$ai_input": input_messages,
+        "$ai_input_tokens": input_tokens,
+        "$ai_input_cost_usd": input_tokens * 0.0001,
+        "$ai_total_cost_usd": input_tokens * 0.0001,
+        "$ai_model": "text-embedding-3-small",
+        "$ai_provider": "openai",
+    }
+    if properties:
+        props.update(properties)
+
+    _create_event(
+        event="$ai_embedding",
+        distinct_id=distinct_id,
+        properties=props,
+        team=team,
+        timestamp=timestamp,
+        event_uuid=str(event_uuid) if event_uuid else None,
+    )
+
+
 class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -612,6 +652,76 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].id, "trace1")
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
 
+    def test_embedding_events_in_trace(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_with_embeddings"
+
+        # Create a trace with both generation and embedding events
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name="embedding_test",
+            input_state={"text": "Document to embed"},
+            output_state={"embeddings": "generated"},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="Generate text",
+            output="Generated output",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+        )
+
+        _create_ai_embedding_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="First document to embed",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+        )
+
+        _create_ai_embedding_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="Second document to embed",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 3),
+        )
+
+        # Query for the trace
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        # Verify the trace contains embedding events
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+        self.assertEqual(trace.id, trace_id)
+        self.assertEqual(trace.traceName, "embedding_test")
+
+        # Check that all events are present (1 generation + 2 embeddings = 3 events)
+        self.assertEqual(len(trace.events), 3)
+
+        # Verify event types
+        event_types = [event.event for event in trace.events]
+        self.assertIn("$ai_generation", event_types)
+        self.assertEqual(event_types.count("$ai_embedding"), 2)
+
+        # Verify embedding events have correct properties
+        embedding_events = [e for e in trace.events if e.event == "$ai_embedding"]
+        self.assertEqual(len(embedding_events), 2)
+        for event in embedding_events:
+            self.assertEqual(event.properties["$ai_trace_id"], trace_id)
+            self.assertIn("$ai_input_tokens", event.properties)
+            self.assertIn("$ai_total_cost_usd", event.properties)
+
     def test_full_trace(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
         _create_ai_span_event(
@@ -935,3 +1045,44 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].inputTokens, 2)
+
+    def test_removes_duplicate_events(self):
+        """ClickHouse might sometimes return unmerged (duplicate) events."""
+        trace_id = str(uuid.uuid4())
+        event_id = str(uuid.uuid4())
+
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            event_uuid=event_id,
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            event_uuid=event_id,
+        )
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            input_state={},
+            output_state={},
+            trace_name="runnable",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 3),
+            distinct_id="person1",
+        )
+
+        # Should return total latency of 2
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+                traceId=trace_id,
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), 1)

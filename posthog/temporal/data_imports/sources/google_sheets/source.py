@@ -1,10 +1,10 @@
 from typing import cast
 import gspread
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    Type4,
+    SourceFieldInputConfigType,
 )
 from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     get_schemas as get_google_sheets_schemas,
@@ -17,14 +17,14 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.GOOGLESHEETS
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.GOOGLESHEETS
 
     def get_schemas(self, config: GoogleSheetsSourceConfig, team_id: int) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
@@ -72,7 +72,7 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.GOOGLE_SHEETS,
+            name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
             betaSource=True,
@@ -80,7 +80,11 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="spreadsheet_url", label="Spreadsheet URL", type=Type4.TEXT, required=True, placeholder=""
+                        name="spreadsheet_url",
+                        label="Spreadsheet URL",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     )
                 ],
             ),

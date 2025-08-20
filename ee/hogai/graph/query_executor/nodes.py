@@ -53,7 +53,7 @@ class QueryExecutorNode(AssistantNode):
         except Exception as err:
             if isinstance(err, NotImplementedError):
                 raise
-            capture_exception(err)
+            capture_exception(err, additional_properties=self._get_debug_props(config))
             return PartialAssistantState(messages=[FailureMessage(content=str(err), id=str(uuid4()))])
 
         query_result = QUERY_RESULTS_PROMPT.format(

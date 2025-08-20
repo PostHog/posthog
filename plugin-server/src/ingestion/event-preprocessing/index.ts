@@ -3,3 +3,4 @@ export { applyPersonProcessingRestrictions } from './apply-person-processing-res
 export { parseKafkaMessage } from './parse-kafka-message'
 export { resolveTeam } from './resolve-team'
 export { validateEventUuid } from './validate-event-uuid'
+export { applyForceOverflowRestrictions } from './apply-force-overflow-restrictions'

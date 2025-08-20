@@ -1,10 +1,10 @@
 import re
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    Type4,
+    SourceFieldInputConfigType,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -19,14 +19,14 @@ from posthog.temporal.data_imports.sources.zendesk.zendesk import zendesk_source
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class ZendeskSource(BaseSource[ZendeskSourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.ZENDESK
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.ZENDESK
 
     def get_schemas(self, config: ZendeskSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
@@ -53,21 +53,29 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.ZENDESK,
+            name=SchemaExternalDataSourceType.ZENDESK,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="subdomain", label="Zendesk subdomain", type=Type4.TEXT, required=True, placeholder=""
+                        name="subdomain",
+                        label="Zendesk subdomain",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldInputConfig(
-                        name="api_key", label="API key", type=Type4.TEXT, required=True, placeholder=""
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldInputConfig(
                         name="email_address",
                         label="Zendesk email address",
-                        type=Type4.EMAIL,
+                        type=SourceFieldInputConfigType.EMAIL,
                         required=True,
                         placeholder="",
                     ),

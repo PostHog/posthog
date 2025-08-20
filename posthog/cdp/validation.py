@@ -1,9 +1,11 @@
 import json
 import logging
 from typing import Any, Optional
+import posthoganalytics
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.constants import AvailableFeature
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
@@ -13,6 +15,8 @@ from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_TRANSPILED_FILTERS,
 )
 from posthog.hogql import ast
+from posthog.models.team.team import Team
+from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +95,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "integration",
             "integration_field",
             "email",
+            "native_email",
         ]
     )
     key = serializers.CharField()
@@ -159,7 +164,7 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
-        elif item_type == "email":
+        elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
             for key_ in ["from", "to", "subject"]:
@@ -177,8 +182,8 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "dictionary", "json", "email"]:
-                        if item_type == "email" and isinstance(value, dict):
+                    if item_type in ["string", "dictionary", "json", "email", "native_email"]:
+                        if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}
 
@@ -374,3 +379,19 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
+
+
+def has_data_pipelines_addon(team: Team, user: Optional[User]) -> bool:
+    if team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES):
+        return True
+
+    if user is None:
+        return False
+
+    return posthoganalytics.feature_enabled(
+        "cdp-new-pricing",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization.id)},
+        group_properties={"organization": {"id": str(team.organization.id)}},
+        send_feature_flag_events=False,
+    )

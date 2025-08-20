@@ -22,6 +22,9 @@ from hogql_parser import (
     parse_full_template_string as _parse_full_template_string_cpp,
     parse_program as _parse_program_cpp,
 )
+from opentelemetry import trace
+
+tracer = trace.get_tracer(__name__)
 
 
 def safe_lambda(f):
@@ -137,10 +140,13 @@ def parse_select(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
-        with RULE_TO_HISTOGRAM["select"].labels(backend=backend).time():
+        with (
+            RULE_TO_HISTOGRAM["select"].labels(backend=backend).time(),
+            tracer.start_as_current_span("parse_statement_to_node"),
+        ):
             node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
         if placeholders:
-            with timings.measure("replace_placeholders"):
+            with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
     return node
 

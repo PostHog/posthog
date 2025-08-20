@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,11 +16,9 @@ import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourc
 export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
     const { externalTables, loading } = useValues(marketingAnalyticsLogic)
     const { toggleManualLinkFormVisible, setManualLinkingProvider } = useActions(sourceWizardLogic)
-
     const tables: ExternalTable[] = externalTables.filter((source) =>
         VALID_SELF_MANAGED_MARKETING_SOURCES.includes(source.source_type as ManualLinkSourceType)
     )
-
     const handleSourceAdd = (manualLinkSource: ManualLinkSourceType): void => {
         router.actions.push(urls.dataWarehouseSourceNew())
         toggleManualLinkFormVisible(true)

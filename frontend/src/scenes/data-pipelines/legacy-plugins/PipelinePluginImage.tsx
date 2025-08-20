@@ -1,11 +1,14 @@
+import { useEffect, useState } from 'react'
+
 import { IconTerminal } from '@posthog/icons'
+
 import { parseGithubRepoURL } from 'lib/utils'
+
+import { PluginType } from '~/types'
+
 import imgPluginDefault from 'public/plugin-default.svg'
 import IconTransformationSemverFlattener from 'public/transformations/semver-flattener.png'
 import IconTransformationUserAgent from 'public/transformations/user-agent.png'
-import { useEffect, useState } from 'react'
-
-import { PluginType } from '~/types'
 
 const pluginImageOverrides: Record<string, any> = {
     'inline://semver-flattener': IconTransformationSemverFlattener,
@@ -43,7 +46,7 @@ export function PluginImage({
                 image: `https://raw.githubusercontent.com/${user}/${repo}/${path || 'main'}/logo.png`,
             })
         }
-    }, [url])
+    }, [url]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return pluginType === 'source' ? (
         <IconTerminal

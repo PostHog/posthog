@@ -1,16 +1,18 @@
-import { LemonSelectOption, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
+import { LemonSelectOption, lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, CommentType, InsightShortId } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
-import { capitalizeFirstLetter } from 'lib/utils'
-import posthog from 'posthog-js'
-import { urls } from 'scenes/urls'
 
 export const SCOPE_OPTIONS: LemonSelectOption<ActivityScope | null>[] = Object.values(ActivityScope).map((scope) => ({
     value: scope,

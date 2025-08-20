@@ -1,26 +1,32 @@
 import './Dashboard.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/SceneContent'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
+import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
@@ -30,17 +36,17 @@ interface DashboardProps {
     themes?: DataColorThemeModel[]
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }) => ({
         id: parseInt(id as string),
         placement,
     }),
     settingSectionId: 'environment-product-analytics',
 }
 
-export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
@@ -64,13 +70,14 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
-    useEffect(() => {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
+    useOnMountEffect(() => {
         reportDashboardViewed()
-        return () => {
-            // request cancellation of any running queries when this component is no longer in the dom
-            abortAnyRunningQuery()
-        }
-    }, [])
+
+        // request cancellation of any running queries when this component is no longer in the dom
+        return () => abortAnyRunningQuery()
+    })
 
     useKeyboardHotkeys(
         placement == DashboardPlacement.Dashboard
@@ -110,7 +117,7 @@ function DashboardScene(): JSX.Element {
     }
 
     return (
-        <div className="dashboard">
+        <SceneContent className={cn('dashboard', !newSceneLayout && 'space-y-0')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
             {canEditDashboard && <AddInsightToDashboardModal />}
 
@@ -120,7 +127,9 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="Dashboard_filters">
+                    <DashboardOverridesBanner />
+
+                    <div className={cn('Dashboard_filters', newSceneLayout && '-mt-2')}>
                         <div className="flex gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
@@ -162,6 +171,6 @@ function DashboardScene(): JSX.Element {
                     <DashboardItems />
                 </div>
             )}
-        </div>
+        </SceneContent>
     )
 }

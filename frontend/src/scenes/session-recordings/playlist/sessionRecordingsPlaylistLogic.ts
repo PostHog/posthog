@@ -2,6 +2,10 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -17,10 +21,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
+import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
@@ -42,10 +47,7 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
-import { lemonToast } from '@posthog/lemon-ui'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
-import { urls } from 'scenes/urls'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export type PersonUUID = string
 
@@ -55,6 +57,7 @@ interface Params {
     advancedFilters?: LegacyRecordingFilters
     sessionRecordingId?: SessionRecordingId
     order?: RecordingsQuery['order']
+    order_direction?: RecordingsQuery['order_direction']
 }
 
 interface NoEventsToMatch {
@@ -99,6 +102,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
     order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    order_direction: 'DESC',
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
@@ -173,6 +177,13 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
         return false
     }
 
+    if (
+        'order_direction' in filters &&
+        (typeof filters.order_direction !== 'string' || !['ASC', 'DESC'].includes(filters.order_direction ?? 'DESC'))
+    ) {
+        return false
+    }
+
     return true
 }
 
@@ -184,8 +195,11 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const properties: RecordingsQuery['properties'] = []
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
     const having_predicates: RecordingsQuery['having_predicates'] = []
+    let comment_text: RecordingsQuery['comment_text'] = undefined
 
     const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
+
     const durationFilter = universalFilters.duration[0]
 
     if (durationFilter) {
@@ -219,6 +233,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     })
                 } else if (f.key === 'snapshot_source' && f.value) {
                     having_predicates.push(f)
+                } else if (f.key === 'comment_text') {
+                    comment_text = f
                 }
             } else {
                 properties.push(f)
@@ -229,6 +245,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     return {
         kind: NodeKind.RecordingsQuery,
         order: order,
+        order_direction: order_direction,
         date_from: universalFilters.date_from,
         date_to: universalFilters.date_to,
         properties,
@@ -236,6 +253,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         actions,
         console_log_filters,
         having_predicates,
+        comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
     }
@@ -297,6 +315,7 @@ export function convertLegacyFiltersToUniversalFilters(
             ],
         },
         order: DEFAULT_RECORDING_FILTERS.order,
+        order_direction: 'DESC',
     }
 }
 
@@ -311,17 +330,22 @@ function combineLegacyRecordingFilters(
     }
 }
 
+// TODO if we're just appending pages... can we avoid this in-memory sorting?
+// it's fast to sort an already sorted list but would be nice to avoid it
 function sortRecordings(
     recordings: SessionRecordingType[],
-    order: RecordingsQuery['order'] | 'duration' = 'start_time'
+    order: RecordingsQuery['order'] | 'duration' = 'start_time',
+    order_direction: RecordingsQuery['order_direction']
 ): SessionRecordingType[] {
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
         const orderA = a[orderKey]
         const orderB = b[orderKey]
-        const incomparible = orderA === undefined || orderB === undefined
-        return incomparible ? 0 : orderA > orderB ? -1 : 1
+        const incomparable = orderA === undefined || orderB === undefined
+        const left_greater = order_direction === 'DESC' ? -1 : 1
+        const right_greater = order_direction === 'DESC' ? 1 : -1
+        return incomparable ? 0 : orderA > orderB ? left_greater : right_greater
     })
 }
 
@@ -396,6 +420,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
         setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
         handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
+        handleBulkMarkAsViewed: (shortId?: string) => ({ shortId }),
+        handleBulkMarkAsNotViewed: (shortId?: string) => ({ shortId }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -431,7 +457,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 results: [],
                 has_next: false,
                 order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
-            } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
+                order_direction: 'DESC',
+            } as RecordingsQueryResponse & {
+                order: RecordingsQuery['order']
+                order_direction: RecordingsQuery['order_direction']
+            },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
                     const params: RecordingsQuery = {
@@ -472,10 +502,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return {
                         has_next:
                             direction === 'newer'
-                                ? values.sessionRecordingsResponse?.has_next ?? true
+                                ? (values.sessionRecordingsResponse?.has_next ?? true)
                                 : response.has_next,
                         results: response.results,
                         order: params.order,
+                        order_direction: params.order_direction,
                     }
                 },
             },
@@ -500,7 +531,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
+                            // TODO... wait, do we not support sorting in collections 🤯
                             order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                            order_direction: 'DESC',
                         })
 
                         recordings = [...recordings, ...fetchedRecordings.results]
@@ -587,7 +620,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     })
 
-                    return sortRecordings(mergedResults, sessionRecordingsResponse.order)
+                    return sortRecordings(
+                        mergedResults,
+                        sessionRecordingsResponse.order,
+                        sessionRecordingsResponse.order_direction
+                    )
                 },
 
                 setSelectedRecordingId: (state, { id }) =>
@@ -803,6 +840,62 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 onSuccess()
             }
         },
+        handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkViewedRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } marked as viewed!`,
+                    error: 'Failed to mark as viewed!',
+                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
+        },
+        handleBulkMarkAsNotViewed: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkNotViewedRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } marked as not viewed!`,
+                    error: 'Failed to mark as not viewed!',
+                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
+        },
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
@@ -952,7 +1045,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return true
                 })
 
-                return sortRecordings(filteredRecordings, filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY)
+                return sortRecordings(
+                    filteredRecordings,
+                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    filters.order_direction || 'DESC'
+                )
             },
         ],
 
@@ -1025,7 +1122,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             const params: Params = objectClean({
                 ...router.values.searchParams,

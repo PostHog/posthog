@@ -2,13 +2,13 @@ import './DraggableToNotebook.scss'
 
 import clsx from 'clsx'
 import { useActions } from 'kea'
-import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import React, { useState } from 'react'
 
-import { NotebookNodeType } from '~/types'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 
 import { useNotebookNode } from '../Nodes/NotebookNodeContext'
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
+import { NotebookNodeType } from '../types'
 
 export type DraggableToNotebookBaseProps = {
     href?: string

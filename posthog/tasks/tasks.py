@@ -746,17 +746,6 @@ def clickhouse_materialize_columns() -> None:
             materialize_properties_task()
 
 
-@shared_task(ignore_result=True)
-def clickhouse_mark_all_materialized() -> None:
-    if recompute_materialized_columns_enabled():
-        try:
-            from ee.tasks.materialized_columns import mark_all_materialized
-        except ImportError:
-            pass
-        else:
-            mark_all_materialized()
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
 def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports

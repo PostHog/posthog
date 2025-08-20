@@ -41,12 +41,12 @@ pub async fn post_webhook(
         // want to strip out null characters while it's still a single string.
 
         let body_str = String::from_utf8(body.to_vec())
-            .map_err(|e| bad_request(format!("invalid utf8: {}", e)))?;
+            .map_err(|e| bad_request(format!("invalid utf8: {e}")))?;
 
         let sanitized_str = replace_null_characters_in_stringified_json(&body_str);
 
         serde_json::from_str(&sanitized_str)
-            .map_err(|e| bad_request(format!("invalid json: {}", e)))?
+            .map_err(|e| bad_request(format!("invalid json: {e}")))?
     };
 
     debug!("received payload: {:?}", payload);
@@ -111,12 +111,12 @@ pub async fn post_hoghook(
         // out null characters while it's still a single string.
 
         let body_str = String::from_utf8(body.to_vec())
-            .map_err(|e| bad_request(format!("invalid utf8: {}", e)))?;
+            .map_err(|e| bad_request(format!("invalid utf8: {e}")))?;
 
         let sanitized_str = replace_null_characters_in_stringified_json(&body_str);
 
         serde_json::from_str(&sanitized_str)
-            .map_err(|e| bad_request(format!("invalid json: {}", e)))?
+            .map_err(|e| bad_request(format!("invalid json: {e}")))?
     };
 
     debug!("received payload: {:?}", payload);
@@ -143,8 +143,7 @@ pub async fn post_hoghook(
     let async_function_request: HoghookAsyncFunctionRequest =
         serde_json::from_value(async_function_request).map_err(|err| {
             bad_request(format!(
-                "unable to deserialize 'asyncFunctionRequest': {}",
-                err
+                "unable to deserialize 'asyncFunctionRequest': {err}"
             ))
         })?;
 
@@ -210,8 +209,7 @@ where
 }
 
 fn get_hostname(url_str: &str) -> Result<String, (StatusCode, Json<WebhookPostResponse>)> {
-    let url =
-        Url::parse(url_str).map_err(|e| bad_request(format!("could not parse url: {}", e)))?;
+    let url = Url::parse(url_str).map_err(|e| bad_request(format!("could not parse url: {e}")))?;
 
     match url.host_str() {
         Some(hostname) => Ok(hostname.to_owned()),

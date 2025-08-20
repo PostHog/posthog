@@ -1,22 +1,20 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { groupsNewLogic } from 'scenes/groups/groupsNewLogic'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { router } from 'kea-router'
+
 import { IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-interface GroupsNewSceneProps {
-    groupTypeIndex?: string
-}
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { GroupsNewLogicProps, groupsNewLogic } from 'scenes/groups/groupsNewLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<GroupsNewLogicProps> = {
     component: GroupsNew,
     logic: groupsNewLogic,
-    paramsToProps: ({ params: { groupTypeIndex } }: { params: GroupsNewSceneProps }) => ({
+    paramsToProps: ({ params: { groupTypeIndex } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
     }),
 }
@@ -120,8 +118,8 @@ export function GroupsNew(): JSX.Element {
                                                     <LemonSegmentedButton
                                                         onChange={(value: string) => {
                                                             const currentProperties = group.customProperties || []
-                                                            const updatedProperties = currentProperties.map((prop, i) =>
-                                                                i === index ? { ...prop, value } : prop
+                                                            const updatedProperties = currentProperties.map(
+                                                                (prop, i) => (i === index ? { ...prop, value } : prop)
                                                             )
                                                             setGroupValue('customProperties', updatedProperties)
                                                         }}

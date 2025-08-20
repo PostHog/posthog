@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+
 import { largeRecordingJSONL } from 'scenes/session-recordings/__mocks__/large_recording_blob_one'
 import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_recording_load_events_one.json'
 import largeRecordingMetaJson from 'scenes/session-recordings/__mocks__/large_recording_meta.json'
@@ -107,7 +108,7 @@ const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
     // 🫠
     useEffect(() => {
         loadEvents()
-    }, [sessionPlayerMetaData])
+    }, [sessionPlayerMetaData]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col gap-2 min-w-96 min-h-120">

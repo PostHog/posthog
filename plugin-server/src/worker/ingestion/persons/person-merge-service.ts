@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { InternalPerson } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
@@ -8,7 +9,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
-import { BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
+import { personMergeFailureCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
@@ -66,6 +67,13 @@ export class MergeRaceConditionError extends Error {
     }
 }
 
+export class PersonMergeLimitExceededError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'PersonMergeLimitExceededError'
+    }
+}
+
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 
 // we have seen illegal ids received but wrapped in double quotes
@@ -100,10 +108,8 @@ export const isDistinctIdIllegal = (id: string): boolean => {
  */
 export class PersonMergeService {
     private personCreateService: PersonCreateService
-    private usingBatchWritingStore: boolean
     constructor(private context: PersonContext) {
         this.personCreateService = new PersonCreateService(context)
-        this.usingBatchWritingStore = context.personStore instanceof BatchWritingPersonsStoreForBatch
     }
 
     async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
@@ -217,10 +223,8 @@ export class PersonMergeService {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.context.updateIsIdentified = true
 
-        await this.capturePersonPropertiesSizeEstimate()
         const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
 
-        await this.capturePersonPropertiesSizeEstimate()
         const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
@@ -325,24 +329,22 @@ export class PersonMergeService {
                 // never needs an override.
                 const distinctId1Version = 0
 
-                return [
-                    await this.personCreateService.createPerson(
-                        // TODO: in this case we could skip the properties updates later
-                        timestamp,
-                        this.context.eventProperties['$set'] || {},
-                        this.context.eventProperties['$set_once'] || {},
-                        teamId,
-                        null,
-                        true,
-                        this.context.event.uuid,
-                        [
-                            { distinctId: distinctId1, version: distinctId1Version },
-                            { distinctId: distinctId2, version: distinctId2Version },
-                        ],
-                        tx
-                    ),
-                    Promise.resolve(),
-                ]
+                const [person, _] = await this.personCreateService.createPerson(
+                    // TODO: in this case we could skip the properties updates later
+                    timestamp,
+                    this.context.eventProperties['$set'] || {},
+                    this.context.eventProperties['$set_once'] || {},
+                    teamId,
+                    null,
+                    true,
+                    this.context.event.uuid,
+                    [
+                        { distinctId: distinctId1, version: distinctId1Version },
+                        { distinctId: distinctId2, version: distinctId2Version },
+                    ],
+                    tx
+                )
+                return [person, Promise.resolve()]
             })
         }
     }
@@ -497,10 +499,12 @@ export class PersonMergeService {
                             this.context.distinctId
                         )
 
+                        const perCallLimit = this.context.personMergeMoveDistinctIdLimit || undefined
                         const distinctIdResult = await tx.moveDistinctIds(
                             currentSourcePerson,
                             currentTargetPerson,
-                            this.context.distinctId
+                            this.context.distinctId,
+                            perCallLimit
                         )
 
                         if (!distinctIdResult.success) {
@@ -511,9 +515,26 @@ export class PersonMergeService {
                             }
                         }
 
-                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
-
                         const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
+
+                        // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
+                        const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
+                        const hitLimit = perCallLimit ? movedCount >= perCallLimit : false
+
+                        if (hitLimit) {
+                            const remaining = await tx.fetchPersonDistinctIds(
+                                currentSourcePerson,
+                                this.context.distinctId,
+                                1
+                            )
+                            if (remaining.length > 0) {
+                                personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
+                                // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
+                                throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+                            }
+                        }
+
+                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
                         return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
                     }
                 )
@@ -582,19 +603,6 @@ export class PersonMergeService {
         await this.context.kafkaProducer.queueMessages(kafkaMessages)
     }
 
-    private async capturePersonPropertiesSizeEstimate(): Promise<void> {
-        if (Math.random() >= this.context.measurePersonJsonbSize) {
-            // no-op if env flag is set to 0 (default) otherwise rate-limit
-            // ramp up of expensive size checking while we test it
-            return
-        }
-
-        await this.context.personStore.personPropertiesSize(this.context.team.id, this.context.distinctId)
-        // Note: Using the same histogram instance from person-state.ts for consistency
-        // This could be moved to a shared location if needed
-        return
-    }
-
     private async refreshPersonData(
         distinctId: string,
         currentPersonId: string,
@@ -610,12 +618,7 @@ export class PersonMergeService {
 
         // Remove the distinct ID from the cache so that we don't try to use it again, if the store is the batch writing store
         // TODO: this should be removed once we clean up the person store code
-        if (this.usingBatchWritingStore) {
-            ;(this.context.personStore as BatchWritingPersonsStoreForBatch).removeDistinctIdFromCache(
-                this.context.team.id,
-                distinctId
-            )
-        }
+        this.context.personStore.removeDistinctIdFromCache(this.context.team.id, distinctId)
 
         // Fetch the refreshed person data using the new distinct ID
         const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)

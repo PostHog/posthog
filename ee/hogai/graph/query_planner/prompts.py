@@ -23,15 +23,20 @@ For display purposes, you can use person properties, most commonly `name` or `em
 You'll be given a list of data warehouse tables in addition to the user's question.
 </data_warehouse>
 
-<insight_types>
+<query_kind_selection>
 In the final plan, you'll have to consider which query kind will be the appropriate one.
 Four query kinds are available:
-- Trends - Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series. Trends insights do not require breakdowns or filters by default.
+- Trends - Trends insights enable users to plot data from people, events, and properties. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series. Trends insights MAY have breakdowns or filters, but don't require any. If period-by-period analysis is explicitly unwanted, BoldNumber, ActionsBarValue, or ActionsTable display types are useful. For period-by-period, ActionsLineGraph and ActionsBar are safe choices. All insight types except WorldMap work with breakdowns!
 - Funnel - Funnel insights help stakeholders understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events or actions, where some users progress to the next step while others drop off. Funnels are perfect for finding conversion rates, average and median conversion time, conversion trends, and distribution of conversion time.
 - Retention - Retention is a type of insight that shows you how many users return during subsequent periods. Useful for answering questions like: "Are new sign ups coming back to use your product after trying it?" or "Have recent changes improved retention?"
-- SQL - Arbitrary SQL querying, which can answer ANY question, although the results are less accessible visually. Use this option when the question cannot be answered with trends, funnel, or retention, based on your knowledge.
+- SQL - Arbitrary SQL querying, which can answer any question, at the significant cost of a worse user experience.
 
-Use your knowledge of the JSON schemas of trends, funnel, and retention queries – when the schema clearly allows all the features we'll need in the query, prefer specifying trends/funnel/retention. However if the schema doesn't allow all the features we'll need in the query, use SQL as a fallback, as SQL allows arbitrary queries.
+For detailed information on each query kind's capabilities, use the JSON schemas provided below as the source of truth.
+
+When the schema clearly allows all the features we'll need in the query, use trends/funnel/retention. Carefully read the JSON schemas of those queries.
+SQL is for fallback. There are exactly TWO cases where SQL should be used:
+- if no other query kinds allows all the features needed in the query,
+- or if the user specified that they want SQL.
 
 <trends_json_schema>
 {{{trends_json_schema}}}
@@ -44,7 +49,7 @@ Use your knowledge of the JSON schemas of trends, funnel, and retention queries 
 <retention_json_schema>
 {{{retention_json_schema}}}
 </retention_json_schema>
-</insight_types>
+</query_kind_selection>
 
 {{{react_property_filters}}}
 
@@ -60,19 +65,28 @@ Do not stop until you're ready to provide the final plan. Pro-actively use the a
 
 Once ready, you must call the `final_answer` tool, which requires determining the query kind and the plan.
 Format the plan in the following way (without Markdown):
+
 <plan_format>
 Logic:
 - description of each logical layer of the query (if aggregations needed, include which concrete aggregation to use)
 
 Sources:
 - event 1
-    - how it will be used, most importantly conditions
+    - how it will be used + conditions
 - action ID 2
-    - how it will be used, most importantly conditions
+    - how it will be used + conditions
 - data warehouse table 3
-    - how it will be used, most importantly conditions
+    - how it will be used + conditions
 - repeat for each event/action/data warehouse table...
+
+Query kind:
+- reasons for choosing the query kind over alternatives
+
+Tradeoffs:
+- tradeoffs made while making this plan
 </plan_format>
+
+At every level, the plan must specify any filters necessary to answer the question. Make sure not to miss conditions mentioned by the user, but also don't add redundant unnecessary ones.
 
 Don't repeat a tool call with the same arguments as once tried previously, as the results will be the same.
 Once all concerns about the query plan are resolved or there's no path forward anymore, you must call `final_answer`.
@@ -142,6 +156,7 @@ Use the tool `ask_user_for_help` to ask the user.
 EVENT_DEFINITIONS_PROMPT = """
 Here is a non-exhaustive list of known event names:
 {{{events}}}
+If a user specifies a raw event name that's not in the list above, that probably is a real event too.
 {{#actions}}
 Here are the actions relevant to the user's question.
 {{{actions}}}
