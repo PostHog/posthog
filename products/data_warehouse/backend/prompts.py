@@ -24,39 +24,6 @@ Write a new HogQL query or tweak the current one to satisfy this request:
 Only return the SQL query, no other text.
 """.strip()
 
-
-SUPPORTED_OPERATORS_PROMPT = """
-Properties can be of different types. The supported types are string, numeric, boolean, and datetime.
-Here are the supported operators for each type:
-<supported_operators>
-Supported operators for the String or Numeric types are:
-- equals
-- doesn't equal
-- contains
-- doesn't contain
-- matches regex
-- doesn't match regex
-- is set
-- is not set
-
-Supported operators for the DateTime type are:
-- equals
-- doesn't equal
-- greater than
-- less than
-- is set
-- is not set
-
-Supported operators for the Boolean type are:
-- equals
-- doesn't equal
-- is set
-- is not set
-
-All operators take a single value except for `equals` and `doesn't equal which can take one or more values.
-<supported_operators>
-""".strip()
-
 TIME_PERIOD_PROMPT = """
 You must also include a time period in the query.
 <time_period>

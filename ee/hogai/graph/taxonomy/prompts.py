@@ -64,8 +64,10 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
    - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
-4. **Value Handling**: CRITICAL: If found property values aren't what the user asked for, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
-
+4. **Value Mismatch**:
+- After the tool call `retrieve_entity_property_values` or `retrieve_event_property_values` if you found property values but they aren't what the user asked then ask the user for clarification. You can mention the found values in your question to the user.
+- If you find a value that matches or is similar to the user's request, you MUST USE IT.
+- If the tool call returns no values, you can retry with the next best property or entity.
 </tool_usage>
 """.strip()
 

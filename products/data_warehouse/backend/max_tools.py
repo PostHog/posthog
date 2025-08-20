@@ -12,7 +12,6 @@ from posthog.schema import AssistantHogQLQuery
 from products.data_warehouse.backend.prompts import (
     HOGQL_GENERATOR_USER_PROMPT,
     SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
-    SUPPORTED_OPERATORS_PROMPT,
     TIME_PERIOD_PROMPT,
 )
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
@@ -84,7 +83,6 @@ class HogQLGeneratorNode(
         combined_messages = [
             *system_prompt.messages,
             *taxonomy_system_messages,
-            ("system", SUPPORTED_OPERATORS_PROMPT),
             ("system", TIME_PERIOD_PROMPT),
             ("human", state.change or ""),
             *(state.tool_progress_messages or []),
