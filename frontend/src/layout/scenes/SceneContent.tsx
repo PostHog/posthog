@@ -41,6 +41,7 @@ interface SceneSectionProps {
     children: React.ReactNode
     className?: string
     hideTitleAndDescription?: boolean
+    actions?: React.ReactNode
 }
 
 export function SceneSection({
@@ -50,6 +51,7 @@ export function SceneSection({
     children,
     className,
     hideTitleAndDescription,
+    actions,
 }: SceneSectionProps): JSX.Element {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
@@ -58,9 +60,14 @@ export function SceneSection({
         return (
             <div className={cn('scene-section--fallback flex flex-col gap-y-4', className)}>
                 {!hideTitleAndDescription && (
-                    <div className="flex flex-col gap-y-0">
-                        <h2 className="flex-1 subtitle mt-0">{title}</h2>
-                        <p className="m-0">{description}</p>
+                    <div className="flex">
+                        <div className="flex flex-col gap-y-0 flex-1 justify-center">
+                            <h2 className={cn('text-base font-semibold my-0 mb-1 max-w-prose', !description && 'mb-0')}>
+                                {title}
+                            </h2>
+                            <p className="m-0">{description}</p>
+                        </div>
+                        {actions && <div className="flex gap-x-2 flex-none self-center">{actions}</div>}
                     </div>
                 )}
                 {children}
@@ -71,9 +78,14 @@ export function SceneSection({
     if (isLoading) {
         return (
             <div className={cn('flex flex-col gap-y-4', className)}>
-                <div className="flex flex-col gap-y-0">
-                    <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
-                    {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                <div className="flex">
+                    <div className="flex flex-col gap-y-0 flex-1 justify-center">
+                        <h2 className={cn('text-base font-semibold my-0 mb-1 max-w-prose', !description && 'mb-0')}>
+                            {title}
+                        </h2>
+                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                    </div>
+                    {actions && <div className="flex gap-x-2 flex-none self-center">{actions}</div>}
                 </div>
                 <WrappingLoadingSkeleton>{children}</WrappingLoadingSkeleton>
             </div>
@@ -83,9 +95,14 @@ export function SceneSection({
     return (
         <div className={cn('scene-section--new-layout flex flex-col gap-y-4', className)}>
             {(title || description) && (
-                <div className="flex flex-col gap-y-0">
-                    <h2 className="text-base font-semibold my-0 mb-1 max-w-prose">{title}</h2>
-                    {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                <div className="flex gap-x-3">
+                    <div className="flex flex-col gap-y-0 flex-1 justify-center">
+                        <h2 className={cn('text-base font-semibold my-0 mb-1 max-w-prose', !description && 'mb-0')}>
+                            {title}
+                        </h2>
+                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                    </div>
+                    {actions && <div className="flex gap-x-2 flex-none self-center">{actions}</div>}
                 </div>
             )}
             {children}
@@ -119,6 +136,7 @@ type SceneMainTitleProps = {
     onNameBlur?: (value: string) => void
     onDescriptionBlur?: (value: string) => void
     docsURL?: string
+    canEdit?: boolean
 }
 
 export function SceneTitleSection({
@@ -130,6 +148,7 @@ export function SceneTitleSection({
     onNameBlur,
     onDescriptionBlur,
     docsURL,
+    canEdit = false,
 }: SceneMainTitleProps): JSX.Element | null {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
@@ -146,50 +165,64 @@ export function SceneTitleSection({
     )
 
     return (
-        <div className="scene-title-section w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
-            <div className="flex flex-col gap-1 flex-1">
-                <div className="flex gap-3 [&_svg]:size-6 items-center w-full">
-                    <span
-                        className={buttonPrimitiveVariants({
-                            size: 'base',
-                            iconOnly: true,
-                            className: 'rounded-sm h-[var(--button-height-lg)]',
-                            inert: true,
-                        })}
-                        aria-hidden
-                    >
-                        {icon}
-                    </span>
-                    <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
-                </div>
-                {description !== null && (
-                    <div className="flex gap-3 [&_svg]:size-6 items-center">
+        <div className="@container/scene-title-section">
+            <div className="scene-title-section w-full flex gap-3 group/colorful-product-icons colorful-product-icons-true">
+                <div className="flex flex-col gap-1 flex-1">
+                    <div className="flex gap-3 [&_svg]:size-6 items-center w-full">
                         <span
                             className={buttonPrimitiveVariants({
                                 size: 'base',
                                 iconOnly: true,
+                                className: 'rounded-sm h-[var(--button-height-lg)]',
                                 inert: true,
                             })}
                             aria-hidden
-                        />
-                        <SceneDescription
-                            description={description}
-                            markdown={markdown}
-                            isLoading={isLoading}
-                            onBlur={onDescriptionBlur}
-                        />
+                        >
+                            {icon}
+                        </span>
+                        <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} canEdit={canEdit} />
                     </div>
+                    {description !== null && (description || canEdit) && (
+                        <div className="flex gap-3 [&_svg]:size-6 items-center">
+                            <span
+                                className={buttonPrimitiveVariants({
+                                    size: 'base',
+                                    iconOnly: true,
+                                    inert: true,
+                                })}
+                                aria-hidden
+                            />
+                            <SceneDescription
+                                description={description}
+                                markdown={markdown}
+                                isLoading={isLoading}
+                                onBlur={onDescriptionBlur}
+                                canEdit={canEdit}
+                            />
+                        </div>
+                    )}
+                </div>
+                {docsURL && (
+                    <>
+                        <Link
+                            to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
+                            buttonProps={{ variant: 'panel', className: 'rounded-sm' }}
+                            tooltip={`View docs for ${resourceType.typePlural}`}
+                            className="hidden @lg:block"
+                        >
+                            <IconDocument /> Read the docs
+                        </Link>
+                        <Link
+                            to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
+                            buttonProps={{ variant: 'panel', className: 'rounded-sm', size: 'lg' }}
+                            tooltip={`View docs for ${resourceType.typePlural}`}
+                            className="@lg:hidden"
+                        >
+                            <IconDocument />
+                        </Link>
+                    </>
                 )}
             </div>
-            {docsURL && (
-                <Link
-                    to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
-                    buttonProps={{ variant: 'panel', className: 'rounded-sm' }}
-                    tooltip={`View docs for ${resourceType.typePlural}`}
-                >
-                    <IconDocument /> <span className="hidden lg:block">Read the docs</span>
-                </Link>
-            )}
         </div>
     )
 }
@@ -198,9 +231,15 @@ type SceneNameProps = {
     name?: string
     isLoading?: boolean
     onBlur?: (value: string) => void
+    canEdit?: boolean
 }
 
-export function SceneName({ name: initialName, isLoading = false, onBlur }: SceneNameProps): JSX.Element {
+export function SceneName({
+    name: initialName,
+    isLoading = false,
+    onBlur,
+    canEdit = false,
+}: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
 
     const textClasses =
@@ -214,24 +253,25 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
-    const Element = onBlur ? (
-        <TextInputPrimitive
-            variant="default"
-            value={name || ''}
-            onChange={(e) => setName(e.target.value)}
-            className={`${textClasses} field-sizing-content w-full`}
-            onBlur={() => {
-                if (initialName !== name) {
-                    onBlur?.(name || '')
-                }
-            }}
-            size="lg"
-        />
-    ) : (
-        <h1 className={cn(buttonPrimitiveVariants({ size: 'lg', inert: true, className: textClasses }))}>
-            {name || <span className="text-tertiary">Unnamed</span>}
-        </h1>
-    )
+    const Element =
+        onBlur && canEdit ? (
+            <TextInputPrimitive
+                variant="default"
+                value={name || ''}
+                onChange={(e) => setName(e.target.value)}
+                className={`${textClasses} field-sizing-content w-full`}
+                onBlur={() => {
+                    if (initialName !== name) {
+                        onBlur?.(name || '')
+                    }
+                }}
+                size="lg"
+            />
+        ) : (
+            <h1 className={cn(buttonPrimitiveVariants({ size: 'lg', inert: true, className: textClasses }))}>
+                {name || <span className="text-tertiary">Unnamed</span>}
+            </h1>
+        )
 
     if (isLoading) {
         return (
@@ -249,6 +289,7 @@ type SceneDescriptionProps = {
     markdown?: boolean
     isLoading?: boolean
     onBlur?: (value: string) => void
+    canEdit?: boolean
 }
 
 export function SceneDescription({
@@ -256,10 +297,13 @@ export function SceneDescription({
     markdown = false,
     isLoading = false,
     onBlur,
+    canEdit = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
 
     const textClasses = 'text-sm my-0 select-auto'
+
+    const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 
     useEffect(() => {
         if (!isLoading) {
@@ -267,46 +311,51 @@ export function SceneDescription({
         }
     }, [initialDescription, isLoading])
 
-    const Element = onBlur ? (
-        <TextareaPrimitive
-            variant="default"
-            value={description || ''}
-            onChange={(e) => setDescription(e.target.value)}
-            className={`${textClasses} field-sizing-content w-full`}
-            onBlur={() => {
-                if (initialDescription !== description) {
-                    onBlur?.(description || '')
-                }
-            }}
-            markdown
-            placeholder="Enter description (optional)"
-        />
-    ) : (
-        <>
-            {markdown && description ? (
-                <LemonMarkdown
-                    lowKeyHeadings
-                    className={buttonPrimitiveVariants({
-                        inert: true,
-                        className: `${textClasses}`,
-                        autoHeight: true,
-                    })}
-                >
-                    {description}
-                </LemonMarkdown>
-            ) : (
-                <p
-                    className={buttonPrimitiveVariants({
-                        inert: true,
-                        className: `${textClasses}`,
-                        autoHeight: true,
-                    })}
-                >
-                    {description ? description : <span className="text-tertiary">No description (optional)</span>}
-                </p>
-            )}
-        </>
-    )
+    if (!onBlur && canEdit) {
+        console.warn('SceneDescription: onBlur is required when canEdit is true')
+    }
+
+    const Element =
+        onBlur && canEdit ? (
+            <TextareaPrimitive
+                variant="default"
+                value={description || ''}
+                onChange={(e) => setDescription(e.target.value)}
+                className={`${textClasses} field-sizing-content w-full`}
+                onBlur={() => {
+                    if (initialDescription !== description) {
+                        onBlur?.(description || '')
+                    }
+                }}
+                markdown
+                placeholder={emptyText}
+            />
+        ) : (
+            <>
+                {markdown && description !== null && description !== undefined ? (
+                    <LemonMarkdown
+                        lowKeyHeadings
+                        className={buttonPrimitiveVariants({
+                            inert: true,
+                            className: `${textClasses} block`,
+                            autoHeight: true,
+                        })}
+                    >
+                        {description}
+                    </LemonMarkdown>
+                ) : (
+                    <p
+                        className={buttonPrimitiveVariants({
+                            inert: true,
+                            className: `${textClasses}`,
+                            autoHeight: true,
+                        })}
+                    >
+                        {description !== null ? description : <span className="text-tertiary">{emptyText}</span>}
+                    </p>
+                )}
+            </>
+        )
 
     if (isLoading) {
         return (
