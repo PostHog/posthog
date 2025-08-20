@@ -12,7 +12,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments import (
-    CONTROL_VARIANT_KEY,
     MULTIPLE_VARIANT_KEY,
 )
 from posthog.hogql_queries.experiments.base_query_utils import (
@@ -443,7 +442,7 @@ class ExperimentQueryRunner(QueryRunner):
         sorted_results = self._evaluate_experiment_query()
 
         variant_results = get_new_variant_results(sorted_results)
-        variant_results = self._validate_and_add_missing_variants(variant_results)
+        variant_results = self._add_missing_variants(variant_results)
 
         control_variant, test_variants = split_baseline_and_test_variants(variant_results)
 
@@ -461,26 +460,13 @@ class ExperimentQueryRunner(QueryRunner):
                 test_variants=test_variants,
             )
 
-    def _validate_and_add_missing_variants(self, variants: list[ExperimentStatsBase]):
+    def _add_missing_variants(self, variants: list[ExperimentStatsBase]):
         """
-        Validates that results contains _some_ data, so we can proceed with the calculations.
-
-        If no exposures is seen at all, or control is missing, a ValidationError is raised.
-
-        Otherwise, a list of all variants including control is returned. Test variants without data are included with
-        zero values. That way, we can still display results for variants with data.
+        Check if the variants configured in the experiment is seen in the collected data.
+        If not, add them to the result set with values set to 0.
         """
-        if not variants:
-            raise ValidationError(
-                "No experiment exposures found. Please ensure users are being exposed to your experiment variants."
-            )
 
         variants_seen = [v.key for v in variants]
-
-        if CONTROL_VARIANT_KEY not in variants_seen:
-            raise ValidationError(
-                "No control variant found. Please ensure your experiment has a 'control' variant and that users are being exposed to it."
-            )
 
         variants_missing = []
         for key in self.variants:
