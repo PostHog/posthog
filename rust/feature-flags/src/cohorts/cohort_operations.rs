@@ -228,12 +228,15 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check
-                    if apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
+                    let cohort_result =
+                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
+                    if cohort_result {
                         return Ok(true);
                     }
                 } else {
                     // Handle regular property check with negation
-                    if evaluate_property_with_negation(filter, target_properties) {
+                    let prop_result = evaluate_property_with_negation(filter, target_properties);
+                    if prop_result {
                         return Ok(true);
                     }
                 }
@@ -244,12 +247,15 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check
-                    if !apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
+                    let cohort_result =
+                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
+                    if !cohort_result {
                         return Ok(false);
                     }
                 } else {
                     // Handle regular property check with negation
-                    if !evaluate_property_with_negation(filter, target_properties) {
+                    let prop_result = evaluate_property_with_negation(filter, target_properties);
+                    if !prop_result {
                         return Ok(false);
                     }
                 }
@@ -285,17 +291,15 @@ fn evaluate_single_cohort(
     target_properties: &HashMap<String, Value>,
     evaluation_results: &HashMap<CohortId, bool>,
 ) -> Result<bool, FlagError> {
-    let dependencies = cohort.extract_dependencies()?;
-
-    // Check if all dependencies have been met
-    let dependencies_met = dependencies
-        .iter()
-        .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
-
-    // If dependencies are not met, mark as not matched
-    if !dependencies_met {
-        return Ok(false);
-    }
+    // NOTE: We no longer block evaluation based on dependency results.
+    // The dependency graph is still used for topological ordering to ensure
+    // dependencies are evaluated first, but cohort references within OR conditions
+    // are handled by the filter evaluation logic, not as blocking dependencies.
+    //
+    // This fixes the issue where cohorts with OR conditions that reference other
+    // cohorts would fail if any referenced cohort returned false, even when
+    // other OR conditions should have matched.
+    // Dependencies are used for topological ordering only, not blocking evaluation
 
     // Get the filters for this cohort
     let filters = match &cohort.filters {
