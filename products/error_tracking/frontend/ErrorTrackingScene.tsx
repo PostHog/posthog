@@ -23,7 +23,8 @@ import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ErrorFilters } from './components/ErrorFilters'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
-import { ErrorTrackingSceneTool } from './components/SceneTool'
+import { ErrorTrackingIssueFilteringTool } from './components/IssueFilteringTool'
+import { ErrorTrackingIssueImpactTool } from './components/IssueImpactTool'
 import { IssueListTitleColumn, IssueListTitleHeader } from './components/TableColumns'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
@@ -64,7 +65,8 @@ export function ErrorTrackingScene(): JSX.Element {
     // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
-            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_ISSUE_FILTERING_TOOL] && <ErrorTrackingIssueFilteringTool />}
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL] && <ErrorTrackingIssueImpactTool />}
             <div className="ErrorTracking">
                 <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                     <Header />

@@ -902,7 +902,8 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "navigate",
-                "search_error_tracking_issues",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
                 "search_docs",
@@ -10031,6 +10032,58 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "ErrorTrackingIssueFilteringToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "newFilters": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "orderBy": {
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "removedFilterIndexes": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ErrorTrackingIssueImpactToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10204,45 +10257,6 @@
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
-            "type": "object"
-        },
-        "ErrorTrackingSceneToolOutput": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "newFilters": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
-                },
-                "orderDirection": {
-                    "enum": ["ASC", "DESC"],
-                    "type": "string"
-                },
-                "removedFilterIndexes": {
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "searchQuery": {
-                    "type": "string"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-                    "type": "string"
-                }
-            },
             "type": "object"
         },
         "EventDefinition": {

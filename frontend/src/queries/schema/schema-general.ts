@@ -2120,12 +2120,16 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
-export interface ErrorTrackingSceneToolOutput
+export interface ErrorTrackingIssueFilteringToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
     newFilters?: AnyPropertyFilter[]
     removedFilterIndexes?: integer[]
     dateRange?: DateRange
     filterTestAccounts?: boolean
+}
+
+export interface ErrorTrackingIssueImpactToolOutput {
+    events: string[]
 }
 
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
