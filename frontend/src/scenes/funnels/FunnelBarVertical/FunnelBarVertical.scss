@@ -29,7 +29,9 @@
                 }
 
                 > td {
+                    height: 100%;
                     padding: 0.75rem 0;
+                    vertical-align: top;
                 }
             }
         }
@@ -186,6 +188,10 @@
             margin-top: 0;
             font-weight: 600;
             white-space: normal;
+        }
+
+        .LemonRow__main-area {
+            align-items: flex-start;
         }
     }
 
