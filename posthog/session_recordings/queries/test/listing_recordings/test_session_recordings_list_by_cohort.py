@@ -1,49 +1,19 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Cohort, Person
-from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
-    create_event,
-    assert_query_matches_session_ids,
+from posthog.session_recordings.queries.test.listing_recordings.test_utils import create_event
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.listing_recordings.test_base_session_recordings_list import (
+    BaseTestSessionRecordingsList,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.session_recordings.sql.session_replay_event_sql import (
-    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    also_test_with_materialized_columns,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.base import also_test_with_materialized_columns, snapshot_clickhouse_queries
 
 
 @freeze_time("2021-01-01T13:46:23")
-class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
-        sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
-
-    # wrap the util so we don't have to pass team every time
-    def _assert_query_matches_session_ids(
-        self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
-    ) -> None:
-        assert_query_matches_session_ids(
-            team=self.team, query=query, expected=expected, sort_results_when_asserting=sort_results_when_asserting
-        )
-
-    @property
-    def an_hour_ago(self):
-        return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
-
+class TestSessionRecordingsListByCohort(BaseTestSessionRecordingsList):
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_cohort_properties(self) -> None:
@@ -104,7 +74,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -118,7 +88,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     [session_id_two],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -208,7 +178,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -222,7 +192,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     [session_id_one, session_id_three],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -236,7 +206,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     [session_id_two],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -250,7 +220,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     [session_id_two, session_id_three],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -264,7 +234,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     [session_id_one],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -295,7 +265,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -387,7 +357,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         # has to be in the cohort and pageview has to be in the events
                         # test data has one user in the cohort but no pageviews
@@ -411,7 +381,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     [],
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "properties": [
                             {
@@ -503,7 +473,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-                self._assert_query_matches_session_ids(
+                self.assert_query_matches_session_ids(
                     {
                         "filter_test_accounts": True,
                     },
