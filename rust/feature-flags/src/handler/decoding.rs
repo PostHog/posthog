@@ -55,7 +55,7 @@ fn decode_body(
             }
             Compression::Unsupported => {
                 tracing::warn!("unsupported compression type");
-                Err(FlagError::RequestDecodingError(
+                return Err(FlagError::RequestDecodingError(
                     "Unsupported compression type".to_string(),
                 ));
             }
