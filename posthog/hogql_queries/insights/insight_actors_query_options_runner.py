@@ -14,7 +14,6 @@ from posthog.schema import (
 
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
-    response: InsightActorsQueryOptionsResponse
     cached_response: CachedInsightActorsQueryOptionsResponse
 
     @cached_property

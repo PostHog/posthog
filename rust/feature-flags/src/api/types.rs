@@ -1,9 +1,9 @@
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
 use crate::{flags::flag_match_reason::FeatureFlagMatchReason, site_apps::WebJsUrl};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt, str::FromStr};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -42,6 +42,18 @@ pub enum Compression {
     Unsupported,
 }
 
+impl FromStr for Compression {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "gzip" | "gzip-js" => Ok(Compression::Gzip),
+            "base64" => Ok(Compression::Base64),
+            _ => Ok(Compression::Unsupported),
+        }
+    }
+}
+
 impl Compression {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -55,29 +67,34 @@ impl Compression {
 #[derive(Clone, Deserialize, Default)]
 pub struct FlagsQueryParams {
     /// Optional API version identifier, defaults to None (which returns a legacy response)
-    #[serde(alias = "v")]
+    #[serde(alias = "v", default, deserialize_with = "empty_string_as_none")]
     pub version: Option<String>,
 
     /// Compression type for the incoming request
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub compression: Option<Compression>,
 
     /// Library version (alias: "ver")
-    #[serde(alias = "ver")]
+    #[serde(alias = "ver", default, deserialize_with = "empty_string_as_none")]
     pub lib_version: Option<String>,
 
     /// Optional timestamp indicating when the request was sent
-    #[serde(alias = "_")]
+    #[serde(
+        alias = "_",
+        default,
+        deserialize_with = "deserialize_optional_timestamp"
+    )]
     pub sent_at: Option<i64>,
 
     /// Optional boolean indicating whether to only evaluate survey feature flags
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
     pub only_evaluate_survey_feature_flags: Option<bool>,
 
     /// Optional boolean indicating whether to include the config field in the response
     /// This lets us have parity with the legacy /decide endpoint so that we can support
     /// JS and other mobile clients need more config data than /flags supplied originally.
     /// e.g. https://us.posthog.com/flags?v=2&config=true
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
     pub config: Option<bool>,
 }
 
@@ -393,6 +410,76 @@ pub enum SessionRecordingField {
 impl Default for SessionRecordingField {
     fn default() -> Self {
         SessionRecordingField::Disabled(false)
+    }
+}
+
+/// Generic deserializer that treats empty strings as None for any type that implements FromStr
+fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: fmt::Display,
+{
+    let opt = Option::<String>::deserialize(de)?;
+    match opt.as_deref() {
+        None | Some("") => Ok(None),
+        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
+    }
+}
+
+/// Deserializer for timestamps that handles both strings and integers
+fn deserialize_optional_timestamp<'de, D>(de: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum IntOrString {
+        Int(i64),
+        String(String),
+    }
+
+    let opt = Option::<IntOrString>::deserialize(de)?;
+    match opt {
+        None => Ok(None),
+        Some(IntOrString::Int(i)) => Ok(Some(i)),
+        Some(IntOrString::String(s)) if s.is_empty() => Ok(None),
+        Some(IntOrString::String(s)) => s.parse().map(Some).map_err(de::Error::custom),
+    }
+}
+
+/// Deserializer for boolean query parameters that treats presence as true
+/// Examples:
+/// - `?config` → Some(true)
+/// - `?config=` → Some(true)
+/// - `?config=true` → Some(true)
+/// - `?config=false` → Some(false)
+/// - `?config=1` → Some(true)
+/// - `?config=0` → Some(false)
+/// - missing → None
+fn deserialize_optional_bool<'de, D>(de: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum BoolOrString {
+        Bool(bool),
+        String(String),
+    }
+
+    let opt = Option::<BoolOrString>::deserialize(de)?;
+    match opt {
+        None => Ok(None),
+        Some(BoolOrString::Bool(b)) => Ok(Some(b)),
+        Some(BoolOrString::String(s)) => {
+            match s.to_lowercase().as_str() {
+                "" => Ok(Some(true)), // Empty string = present = true
+                "true" | "1" | "yes" | "on" => Ok(Some(true)),
+                "false" | "0" | "no" | "off" => Ok(Some(false)),
+                _ => Ok(Some(true)), // Any other value = true (presence indicates true)
+            }
+        }
     }
 }
 

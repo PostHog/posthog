@@ -52,6 +52,7 @@ type MethodName =
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'fetchPersonDistinctIds'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
@@ -497,12 +498,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        tx?: PersonRepositoryTransaction
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
-        const response = await (tx || this.personRepository).moveDistinctIds(source, target)
+        const response = await tx.moveDistinctIds(source, target, limit)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
@@ -525,6 +527,21 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 this.setDistinctIdToPersonId(target.team_id, distinctId, target.id)
             }
         }
+
+        return response
+    }
+
+    async fetchPersonDistinctIds(
+        person: InternalPerson,
+        distinctId: string,
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
+    ): Promise<string[]> {
+        this.incrementCount('fetchPersonDistinctIds', distinctId)
+        this.incrementDatabaseOperation('fetchPersonDistinctIds', distinctId)
+        const start = performance.now()
+        const response = await tx.fetchPersonDistinctIds(person, limit)
+        observeLatencyByVersion(person, start, 'fetchPersonDistinctIds')
 
         return response
     }
