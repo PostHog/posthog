@@ -4199,6 +4199,7 @@ dev = [
     { name = "responses" },
     { name = "ruff" },
     { name = "sqlalchemy" },
+    { name = "stpyv8" },
     { name = "syrupy" },
     { name = "tach" },
     { name = "types-aioboto3", extra = ["s3"] },
@@ -4426,6 +4427,7 @@ dev = [
     { name = "responses", specifier = "==0.23.1" },
     { name = "ruff", specifier = "~=0.8.1" },
     { name = "sqlalchemy", specifier = "==2.0.38" },
+    { name = "stpyv8", specifier = "==13.1.201.22" },
     { name = "syrupy", specifier = "~=4.6.0" },
     { name = "tach", specifier = "~=0.20.0" },
     { name = "types-aioboto3", extras = ["s3"], specifier = ">=14.3.0" },
@@ -5911,6 +5913,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b3/88/20ee9ac030520c2817f93e545005b631283be05f990ae415c444beb52792/statshog-1.0.6.tar.gz", hash = "sha256:53f5cddd809266b13405206ee3717cc26d47663485611c0c1bcb1e8221469188", size = 26711, upload-time = "2021-05-07T11:50:02.903Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/70/af/c609ab70f4cba573c5c5aa6e091cdddafe2b36e037f37031fa5cef2e9bc6/statshog-1.0.6-py2.py3-none-any.whl", hash = "sha256:0b7948df83a0d5de68a2479f14679cd7d26cd28e2488779de19e0a099c4841d8", size = 13887, upload-time = "2021-05-07T11:49:59.822Z" },
+]
+
+[[package]]
+name = "stpyv8"
+version = "13.1.201.22"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/69/26132fcd57f54a3f1f3688d2ab0a07dadc140b2d54edf28e44933ee7dccc/stpyv8-13.1.201.22.tar.gz", hash = "sha256:2bdbc7307dbf86cfc4bd0a11f0ae1f1c6f91d1b3366a7b409f9fc5d01f69441d", size = 46360, upload-time = "2025-01-09T10:24:10.323Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/7a/ba8efdcfbd3f58763829ae6d08fb46a3deb2479bff5e9bab94cea9514bef/stpyv8-13.1.201.22-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:b2a660a331e82fa89d5938ec8418743ebfb544733269f24cd8461a18472701c2", size = 19774016, upload-time = "2025-01-09T10:52:41.94Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/37/45bdadd2b8f19f91770b8fab887d985b0757c2b452611e80031cd69c1051/stpyv8-13.1.201.22-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:4d737935167c52ed72e5a78264d9adfeaf089bf54693b88f12cbdb439a36a102", size = 17877975, upload-time = "2025-01-09T10:36:13.298Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/e6/1a16423dec4abdb0fd0cad15f90e696b6edbcc2dbaccf0e29c77f2efca73/stpyv8-13.1.201.22-cp311-cp311-manylinux_2_31_x86_64.whl", hash = "sha256:da6d8f2945bd057057c64bc93ea3c064cc848b75f55d6d651120ee5d115e0761", size = 24844564, upload-time = "2025-01-09T10:36:57.908Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/fd/7d40c5daea645d2d415ce489ae1e7ed3306e20a5f3de5027a12b28b89768/stpyv8-13.1.201.22-cp311-cp311-win_amd64.whl", hash = "sha256:b9d9499ed2007cc097a5d2ae0cb18226b2bf3ca429301811b2e12a787a8f137e", size = 14108546, upload-time = "2025-01-09T10:40:35.298Z" },
 ]
 
 [[package]]
