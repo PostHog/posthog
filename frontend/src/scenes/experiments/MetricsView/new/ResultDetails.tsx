@@ -12,7 +12,13 @@ import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/Res
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import {
+    CachedExperimentQueryResponse,
+    ExperimentMetric,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
 import {
@@ -52,8 +58,11 @@ export function ResultDetails({
         },
         {
             key: 'value',
-            title:
-                metric.metric_type === 'mean' ? 'Mean' : metric.metric_type === 'ratio' ? 'Ratio' : 'Conversion rate',
+            title: isExperimentMeanMetric(metric)
+                ? 'Mean'
+                : isExperimentRatioMetric(metric)
+                  ? 'Ratio'
+                  : 'Conversion rate',
             render: (_, item) => formatMetricValue(item, metric),
         },
         {
@@ -157,7 +166,7 @@ export function ResultDetails({
     return (
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {metric.metric_type === 'funnel' && (
+            {isExperimentFunnelMetric(metric) && (
                 <ResultsBreakdown
                     result={result}
                     experiment={experiment}

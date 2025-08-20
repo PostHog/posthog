@@ -7,7 +7,13 @@ import type {
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
-import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentDataWarehouseNode,
+    ExperimentMetricType,
+    NodeKind,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -236,11 +242,11 @@ export function formatDeltaPercent(result: ExperimentVariantResult, decimals: nu
 }
 
 export function formatMetricValue(data: any, metric: ExperimentMetric): string {
-    if (metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.RATIO) {
+    if (isExperimentRatioMetric(metric)) {
         // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
         if (data.denominator_sum && data.denominator_sum > 0) {
             const ratio = data.sum / data.denominator_sum
-            return ratio.toFixed(3)
+            return ratio.toFixed(2)
         }
         return '0.000'
     }
@@ -249,16 +255,14 @@ export function formatMetricValue(data: any, metric: ExperimentMetric): string {
     if (isNaN(primaryValue)) {
         return '—'
     }
-    return metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.MEAN
-        ? primaryValue.toFixed(2)
-        : `${(primaryValue * 100).toFixed(2)}%`
+    return isExperimentMeanMetric(metric) ? primaryValue.toFixed(2) : `${(primaryValue * 100).toFixed(2)}%`
 }
 
 export function getMetricSubtitleValues(
     data: any,
     metric: ExperimentMetric
 ): { numerator: number; denominator: number } {
-    if (metric && 'metric_type' in metric && metric.metric_type === ExperimentMetricType.RATIO) {
+    if (isExperimentRatioMetric(metric)) {
         return {
             numerator: data.sum,
             denominator: data.denominator_sum || 0,
