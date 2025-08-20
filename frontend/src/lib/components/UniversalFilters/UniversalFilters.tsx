@@ -175,7 +175,13 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
     )
 }
 
-const PureTaxonomicFilter = ({ fullWidth = true }: { fullWidth?: boolean }): JSX.Element => {
+const PureTaxonomicFilter = ({
+    fullWidth = true,
+    onChange,
+}: {
+    fullWidth?: boolean
+    onChange: () => void
+}): JSX.Element => {
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
@@ -183,6 +189,7 @@ const PureTaxonomicFilter = ({ fullWidth = true }: { fullWidth?: boolean }): JSX
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
             onChange={(taxonomicGroup, value, item, originalQuery) => {
+                onChange()
                 addGroupFilter(taxonomicGroup, value, item, originalQuery)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
