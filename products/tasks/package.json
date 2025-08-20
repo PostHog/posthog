@@ -14,6 +14,7 @@
         "@dnd-kit/modifiers": "*",
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
-        "react-dom": "*"
+        "react-dom": "*",
+        "@types/react-dom": "*"
     }
 }

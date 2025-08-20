@@ -285,7 +285,7 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
   </ticket>
 
   <task>
-    Complete the ticket in a thoughtful step by step manner. Plan thoroughly and make sure to add logging and error handling as well as cover edge casee.
+    Complete the ticket in a thoughtful step by step manner. Plan thoroughly and make sure to add logging and error handling as well as cover edge cases.
   </task>
 
   <workflow>
