@@ -229,7 +229,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         self._total_sessions = 0
         self._processed_single_summaries = 0
         self._processed_patterns_extraction = 0
-        # Initial state is watching sessions, as it's intented to always be the first step
+        # Initial state is watching sessions, as it's intended to always be the first step
         self._current_status: tuple[SessionSummaryStep, str] = (SessionSummaryStep.WATCHING_SESSIONS, "")
         # Tracking the progress of the individual steps
         self._single_sessions_summarized: dict[str, bool] = {}
