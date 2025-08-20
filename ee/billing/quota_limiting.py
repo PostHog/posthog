@@ -661,8 +661,7 @@ def update_all_orgs_billing_quotas(
 
     # All teams that are currently under quota limits
     for resource in QuotaResource:
-        # field = resource.value
-        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(
+        previously_quota_limited_team_tokens[resource.value] = list_limited_team_attributes(
             resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
     # We have the teams that are currently under quota limits
