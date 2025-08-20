@@ -123,7 +123,7 @@ async def get_llm_single_session_summary_activity(
         redis_key=redis_output_key,
         label=StateActivitiesEnum.SESSION_SUMMARY,
     )
-    if success:
+    if success is not None:
         # Cached successfully
         return None
     # If not yet, or TTL expired - generate the summary with LLM
