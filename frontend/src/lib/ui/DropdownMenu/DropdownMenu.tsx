@@ -110,7 +110,7 @@ const DropdownMenuContent = React.forwardRef<
                     sideOffset={sideOffset}
                     collisionPadding={collisionPadding}
                     className={cn(
-                        'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)] transition-[width] duration-100 will-change-contents',
+                        'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
                         matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
                         className
                     )}
