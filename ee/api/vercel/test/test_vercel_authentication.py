@@ -142,44 +142,44 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_invalid_jwt_token(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
-        self._assert_auth_fail("invalid.jwt.token", "user", "JWT token")
+        self._assert_auth_fail("invalid.jwt.token", "user", "Invalid user authentication token")
 
     def test_missing_key_id_in_jwt_header(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         token = self._create_jwt_token(self._create_user_auth_payload(), headers={})
-        self._assert_auth_fail(token, "user", "Token missing key ID")
+        self._assert_auth_fail(token, "user", "Invalid user authentication token")
 
     def test_key_not_found_in_jwks(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         token = self._create_jwt_token(self._create_user_auth_payload(), headers={"kid": "unknown_key_id"})
-        self._assert_auth_fail(token, "user", "Unable to find key with ID: unknown_key_id")
+        self._assert_auth_fail(token, "user", "Invalid user authentication token")
 
     def test_invalid_issuer_validation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         token = self._token(overrides={"iss": "https://invalid-issuer.com"})
-        self._assert_auth_fail(token, "user", "Invalid issuer")
+        self._assert_auth_fail(token, "user", "Invalid user authentication token")
 
     def test_missing_required_claims(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         payload = self._create_user_auth_payload()
         del payload["iss"]
         token = self._create_jwt_token(payload)
-        self._assert_auth_fail(token, "user", "iss")
+        self._assert_auth_fail(token, "user", "Invalid user authentication token")
 
     def test_user_role_validation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         token = self._token(overrides={"user_role": "INVALID_ROLE"})
-        self._assert_auth_fail(token, "user", "Invalid user_role: INVALID_ROLE")
+        self._assert_auth_fail(token, "user", "Invalid user authentication token")
 
     def test_system_auth_sub_format_validation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         token = self._token(user=False, overrides={"sub": "invalid:format"})
-        self._assert_auth_fail(token, "system", "Invalid System auth sub format: invalid:format")
+        self._assert_auth_fail(token, "system", "Invalid system authentication token")
 
     def test_user_auth_sub_format_validation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         token = self._token(overrides={"sub": "account:123:invalid:format"})
-        self._assert_auth_fail(token, "user", "Invalid User auth sub format: account:123:invalid:format")
+        self._assert_auth_fail(token, "user", "Invalid user authentication token")
 
     @patch("django.utils.timezone.now")
     def test_expired_token_validation(self, mock_now, mock_get_jwks):
@@ -189,15 +189,15 @@ class TestVercelAuthentication(SimpleTestCase):
 
         expired_timestamp = fixed_time.timestamp() - 3600
         token = self._token(overrides={"exp": expired_timestamp})
-        self._assert_auth_fail(token, "user", "Signature has expired")
+        self._assert_auth_fail(token, "user", "Invalid user authentication token")
 
     def test_jwks_fetch_failure(self, mock_get_jwks):
         mock_get_jwks.side_effect = Exception("JWKS fetch failed")
         token = self._token()
         request = self._make_request(token)
-        with self.assertRaises(Exception) as cm:
+        with self.assertRaises(AuthenticationFailed) as cm:
             self.auth.authenticate(request)
-        assert "JWKS fetch failed" in str(cm.exception)
+        assert "User authentication failed" in str(cm.exception)
 
     def test_jwks_cache_behavior(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
