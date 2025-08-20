@@ -6,10 +6,10 @@ from loginas.utils import is_impersonated_session
 from two_factor.utils import default_device
 from rest_framework.exceptions import PermissionDenied
 
-# Enforce MFA only on sessions created after this date
-MFA_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 8, 25)
+# Enforce Two-Factor Authentication only on sessions created after this date
+TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 8, 25)
 
-MFA_VERIFIED_SESSION_KEY = "mfa_verified"
+TWO_FACTOR_VERIFIED_SESSION_KEY = "two_factor_verified"
 
 WHITELISTED_PATHS = [
     "/api/users/@me/two_factor_start_setup/",
@@ -30,29 +30,29 @@ WHITELISTED_PREFIXES = [
 ]
 
 
-def set_mfa_verified_in_session(request: HttpRequest, verified: bool = True) -> None:
+def set_two_factor_verified_in_session(request: HttpRequest, verified: bool = True) -> None:
     if verified:
-        request.session[MFA_VERIFIED_SESSION_KEY] = True
+        request.session[TWO_FACTOR_VERIFIED_SESSION_KEY] = True
     else:
-        clear_mfa_session_flags(request)
+        clear_two_factor_session_flags(request)
 
 
-def is_mfa_verified_in_session(request: HttpRequest) -> bool:
-    if not request.session.get(MFA_VERIFIED_SESSION_KEY):
+def is_two_factor_verified_in_session(request: HttpRequest) -> bool:
+    if not request.session.get(TWO_FACTOR_VERIFIED_SESSION_KEY):
         return False
 
-    if is_mfa_session_expired(request):
-        clear_mfa_session_flags(request)
+    if is_two_factor_session_expired(request):
+        clear_two_factor_session_flags(request)
         return False
 
     return True
 
 
-def clear_mfa_session_flags(request: HttpRequest) -> None:
-    request.session.pop(MFA_VERIFIED_SESSION_KEY, None)
+def clear_two_factor_session_flags(request: HttpRequest) -> None:
+    request.session.pop(TWO_FACTOR_VERIFIED_SESSION_KEY, None)
 
 
-def is_mfa_session_expired(request: HttpRequest) -> bool:
+def is_two_factor_session_expired(request: HttpRequest) -> bool:
     session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
     if not session_created_at:
         return True
@@ -60,31 +60,31 @@ def is_mfa_session_expired(request: HttpRequest) -> bool:
     return time.time() - session_created_at > settings.SESSION_COOKIE_AGE
 
 
-def enforce_mfa(request, user):
+def enforce_two_factor(request, user):
     """
-    Enforce MFA requirements for authenticated users in organizations that require it.
+    Enforce Two-Factor Authentication requirements for authenticated users in organizations that require it.
     """
     if is_path_whitelisted(request.path):
         return
 
     organization = getattr(user, "organization", None)
     if organization and organization.enforce_2fa:
-        if not is_mfa_enforcement_in_effect(request._request):
+        if not is_two_factor_enforcement_in_effect(request._request):
             return
 
         if is_impersonated_session(request._request):
             return
 
         if not default_device(user):
-            raise PermissionDenied(detail="2FA setup required", code="mfa_setup_required")
+            raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
 
-        if not is_mfa_verified_in_session(request._request):
-            raise PermissionDenied(detail="2FA verification required", code="mfa_verification_required")
+        if not is_two_factor_verified_in_session(request._request):
+            raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
 
 
 def is_path_whitelisted(path):
     """
-    Check if the request path should bypass MFA enforcement.
+    Check if the request path should bypass Two-Factor Authentication enforcement.
     """
     if path in WHITELISTED_PATHS:
         return True
@@ -96,10 +96,10 @@ def is_path_whitelisted(path):
     return False
 
 
-def is_mfa_enforcement_in_effect(request: HttpRequest):
+def is_two_factor_enforcement_in_effect(request: HttpRequest):
     session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
 
     if not session_created_at:
         return False
 
-    return datetime.datetime.fromtimestamp(session_created_at) >= MFA_ENFORCEMENT_FROM_DATE
+    return datetime.datetime.fromtimestamp(session_created_at) >= TWO_FACTOR_ENFORCEMENT_FROM_DATE
