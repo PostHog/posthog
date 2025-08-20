@@ -4,12 +4,9 @@ import json
 from enum import Enum
 from typing import TypeVar
 from redis import asyncio as aioredis
-import structlog
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from posthog.redis import get_async_client
-
-logger = structlog.get_logger(__name__)
 
 
 T = TypeVar("T")
@@ -115,7 +112,6 @@ async def get_data_class_from_redis(
     """Load and parse a dataclass instance stored as JSON in Redis."""
     if not redis_key:
         # If the data not present - it's probably not cached yet
-        logger.warning(f"Redis key is required for {label.value} to extract data from Redis ({target_class})")
         return None
     redis_data_str = await get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
     if not redis_data_str:
@@ -135,7 +131,6 @@ async def get_data_str_from_redis(
     """Retrieve and decompress a string value from Redis."""
     if not redis_key:
         # If the data not present - it's probably not cached yet
-        logger.warning(f"Redis key is required to get data from Redis ({label.value})")
         return None
     raw_redis_data = await redis_client.get(redis_key)
     if not raw_redis_data:
