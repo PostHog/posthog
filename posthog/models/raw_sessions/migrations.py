@@ -30,7 +30,6 @@ def update_raw_sessions_table(migration: str, is_alter_on_replicated_table=False
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_role=NodeRole.ALL,
-            is_alter_on_replicated_table=is_alter_on_replicated_table,
         ),
         # update the MV
         run_sql_with_exceptions(RAW_SESSION_TABLE_UPDATE_SQL()),
@@ -41,7 +40,6 @@ def update_raw_sessions_table(migration: str, is_alter_on_replicated_table=False
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_role=NodeRole.ALL,
-            is_alter_on_replicated_table=is_alter_on_replicated_table,
         ),
         # recreate the view
         run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL()),
