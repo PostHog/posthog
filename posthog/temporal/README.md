@@ -372,7 +372,7 @@ When developing a workflow or activity, you will most likely want **all** your l
 This logging pipeline also works locally, both when running a worker locally either with `mprocs` or manually running `start_temporal_worker.py`, and if you run your unit tests with:
 
 ```sh
-DEBUG=1 pytest path/to/your/tests.py --log-cli-level=info
+DEBUG=1 pytest path/to/your/tests.py -s
 ```
 
 Locally, the logs are rendered by structlog using [Rich](https://rich.readthedocs.io/en/latest/), so you will get a colorful, human-readable, output instead of the JSON structure we use in production.
