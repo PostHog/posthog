@@ -4,6 +4,7 @@ from unittest import mock
 from django.test import override_settings
 
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_BOLD_NUMBER
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.models import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.utils import uuid7
@@ -777,6 +778,12 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_group_formulas(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
         self.assertEqual(
             self._run(
                 {
