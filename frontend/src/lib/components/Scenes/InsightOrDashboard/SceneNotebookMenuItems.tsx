@@ -86,7 +86,7 @@ export function SceneNotebookMenuItems({
                 <Combobox insideMenu>
                     <Combobox.Search placeholder="Search notebooks..." autoFocus />
 
-                    <Combobox.Content className="max-w-[300px]">
+                    <Combobox.Content className="max-w-[700px]">
                         <Combobox.Empty>No notebooks found</Combobox.Empty>
 
                         <AccessControlAction

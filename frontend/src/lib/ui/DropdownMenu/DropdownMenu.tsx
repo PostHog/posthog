@@ -97,7 +97,7 @@ const DropdownMenuContent = React.forwardRef<
             className,
             children,
             sideOffset = 4,
-            collisionPadding = { top: 50, bottom: 50 },
+            collisionPadding = { top: 50, bottom: 50, left: 10, right: 10 },
             matchTriggerWidth,
             ...props
         },
@@ -110,7 +110,7 @@ const DropdownMenuContent = React.forwardRef<
                     sideOffset={sideOffset}
                     collisionPadding={collisionPadding}
                     className={cn(
-                        'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
+                        'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)] transition-[width] duration-100 will-change-contents',
                         matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
                         className
                     )}
