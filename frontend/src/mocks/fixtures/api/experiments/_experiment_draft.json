@@ -4,6 +4,7 @@
     "description": null,
     "start_date": null,
     "end_date": null,
+    "last_refresh": null,
     "feature_flag_key": "march-5-draft",
     "feature_flag": {
         "id": 24,
