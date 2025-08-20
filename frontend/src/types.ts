@@ -5658,6 +5658,30 @@ export interface LineageGraph {
     edges: LineageEdge[]
 }
 
+export interface DataWarehouseSourceRowCount {
+    breakdownOfRowsBySource: Record<string, number>
+    billing_available: boolean
+    billing_interval: string
+    billing_period_end: string
+    billing_period_start: string
+    materialized_rows_in_billing_period: number
+    total_rows: number
+    tracked_billing_rows: number
+    pending_billing_rows: number
+}
+
+export interface DataWarehouseActivityRecord {
+    id: string
+    type: string
+    name: string | null
+    status: string
+    rows: number
+    created_at: string
+    finished_at: string | null
+    latest_error: string | null
+    workflow_run_id?: string
+}
+
 export enum OnboardingStepKey {
     INSTALL = 'install',
     LINK_DATA = 'link_data',
