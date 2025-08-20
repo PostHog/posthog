@@ -96,12 +96,7 @@ export function TaxonomicBreakdownFilter({
             )}
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!isAddBreakdownDisabled && (
-                    <TaxonomicBreakdownButton
-                        disabledReason={disabledReason}
-                        disablePropertyInfo={disablePropertyInfo}
-                    />
-                )}
+                {!isAddBreakdownDisabled && <TaxonomicBreakdownButton disabledReason={disabledReason} />}
             </div>
         </BindLogic>
     )

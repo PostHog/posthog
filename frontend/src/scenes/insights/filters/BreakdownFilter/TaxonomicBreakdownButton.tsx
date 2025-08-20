@@ -11,13 +11,9 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 interface TaxonomicBreakdownButtonProps {
     disabledReason?: string
-    size?: 'small' | 'medium'
 }
 
-export function TaxonomicBreakdownButton({
-    disabledReason,
-    size = 'medium',
-}: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton({ disabledReason }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -31,7 +27,7 @@ export function TaxonomicBreakdownButton({
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
                 disabledReason={disabledReason}
-                size={size}
+                size="small"
                 tooltipDocLink={
                     taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                         ? 'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'
