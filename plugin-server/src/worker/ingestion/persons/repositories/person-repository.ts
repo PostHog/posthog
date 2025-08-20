@@ -51,8 +51,6 @@ export interface PersonRepository {
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
 
-    fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]>
-
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 

@@ -96,8 +96,8 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        limit?: number,
-        tx?: PersonRepositoryTransaction
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult>
 
     /**
@@ -136,8 +136,8 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     fetchPersonDistinctIds(
         person: InternalPerson,
         distinctId: string,
-        limit?: number,
-        tx?: PersonRepositoryTransaction
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
     ): Promise<string[]>
 
     /**

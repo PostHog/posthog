@@ -498,13 +498,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        limit?: number,
-        tx?: PersonRepositoryTransaction
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
-        const response = await (tx || this.personRepository).moveDistinctIds(source, target, limit)
+        const response = await tx.moveDistinctIds(source, target, limit)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
@@ -534,13 +534,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     async fetchPersonDistinctIds(
         person: InternalPerson,
         distinctId: string,
-        limit?: number,
-        tx?: PersonRepositoryTransaction
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
     ): Promise<string[]> {
         this.incrementCount('fetchPersonDistinctIds', distinctId)
         this.incrementDatabaseOperation('fetchPersonDistinctIds', distinctId)
         const start = performance.now()
-        const response = await (tx || this.personRepository).fetchPersonDistinctIds(person, limit)
+        const response = await tx.fetchPersonDistinctIds(person, limit)
         observeLatencyByVersion(person, start, 'fetchPersonDistinctIds')
 
         return response

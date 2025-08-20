@@ -2903,7 +2903,7 @@ describe('PersonState.processEvent()', () => {
             // Mock the batch store method which is what gets called through the transaction wrapper
             const moveDistinctIdsSpy = jest
                 .spyOn(batchStore, 'moveDistinctIds')
-                .mockImplementation(async (source, target, distinctId, tx) => {
+                .mockImplementation(async (source, target, distinctId, limit, tx) => {
                     moveDistinctIdsCalls++
                     if (moveDistinctIdsCalls === 1) {
                         // Simulate the race condition: move firstUserDistinctId to person3
@@ -2921,7 +2921,7 @@ describe('PersonState.processEvent()', () => {
                         })
                     }
                     // Second call succeeds - call the original method
-                    return originalMoveDistinctIds(source, target, distinctId, tx)
+                    return originalMoveDistinctIds(source, target, distinctId, limit, tx)
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
