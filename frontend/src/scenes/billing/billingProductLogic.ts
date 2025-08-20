@@ -266,9 +266,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (billing, product) => {
                 const customLimit = billing?.custom_limits_usd?.[product.type]
                 if (customLimit === 0 || customLimit) {
-                    return customLimit
+                    return Number(customLimit)
                 }
-                return product.usage_key ? (billing?.custom_limits_usd?.[product.usage_key] ?? null) : null
+                const usageKeyLimit = product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
+                return usageKeyLimit ? Number(usageKeyLimit) : null
             },
         ],
         visibleAddons: [
@@ -470,7 +471,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (monetaryData: {
                 currentTotal: number
                 projectedTotal: number
-                billingLimit?: number
+                billingLimit?: number | null
             }): BillingGaugeItemType[] => {
                 const { currentTotal, projectedTotal, billingLimit } = monetaryData
 
