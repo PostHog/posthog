@@ -28,6 +28,7 @@ depends_on = [
 
     # NOTE: Add new product dependencies here and in settings/web.py PRODUCTS_APPS
     "products.early_access_features",
+    "products.error_tracking",
     "products.tasks",
     "products.links",
     "products.revenue_analytics",
@@ -48,4 +49,8 @@ depends_on = ["posthog"]
 
 [[modules]]
 path = "products.revenue_analytics"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.error_tracking"
 depends_on = ["posthog"]
