@@ -91,8 +91,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             await expectLogic(logic).toNotHaveDispatchedActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
         })
 
