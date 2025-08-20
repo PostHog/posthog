@@ -41,11 +41,13 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         let (original_distinct_id, verified_token, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
 
-        let distinct_id_for_logging = original_distinct_id.clone();
+        let distinct_id_for_logging = original_distinct_id
+            .clone()
+            .unwrap_or_else(|| "disabled".to_string());
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
-            original_distinct_id
+            distinct_id_for_logging
         );
 
         let team = flag_service
@@ -67,9 +69,14 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             warn!("Request quota limited");
             quota_limited_response
         } else {
-            let distinct_id =
-                cookieless::handle_distinct_id(&context, &request, &team, original_distinct_id)
-                    .await?;
+            let distinct_id = cookieless::handle_distinct_id(
+                &context,
+                &request,
+                &team,
+                original_distinct_id
+                    .expect("distinct_id should be present when flags are not disabled"),
+            )
+            .await?;
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
