@@ -2069,6 +2069,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "Calendar Heatmap",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -2153,7 +2157,8 @@
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",
-                        "WorldMap"
+                        "WorldMap",
+                        "Calendar Heatmap"
                     ],
                     "type": "string"
                 },
@@ -6593,7 +6598,8 @@
                 "ActionsPie",
                 "ActionsBarValue",
                 "ActionsTable",
-                "WorldMap"
+                "WorldMap",
+                "Calendar Heatmap"
             ],
             "type": "string"
         },

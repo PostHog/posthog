@@ -2401,6 +2401,7 @@ export enum ChartDisplayType {
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
+    CalendarHeatmap = 'Calendar Heatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',

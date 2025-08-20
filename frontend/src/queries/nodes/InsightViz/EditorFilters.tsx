@@ -364,7 +364,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-        ...(!isCalendarHeatmap
+        ...(!isCalendarHeatmap && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Advanced options',

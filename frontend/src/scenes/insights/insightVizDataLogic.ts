@@ -167,6 +167,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (q, display, dateRange) =>
                 (isTrendsQuery(q) || isStickinessQuery(q)) &&
                 display !== ChartDisplayType.WorldMap &&
+                display !== ChartDisplayType.CalendarHeatmap &&
                 dateRange?.date_from !== 'all',
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
@@ -747,6 +748,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        mergedUpdate['breakdownFilter'] = null
+    }
+
+    // Remove breakdown filter if display type is Heatmap because it is not supported
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
         mergedUpdate['breakdownFilter'] = null
     }
 

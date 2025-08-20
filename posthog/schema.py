@@ -319,6 +319,7 @@ class Display(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
+    CALENDAR_HEATMAP = "Calendar Heatmap"
 
 
 class YAxisScaleType(StrEnum):
@@ -529,6 +530,7 @@ class ChartDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
+    CALENDAR_HEATMAP = "Calendar Heatmap"
 
 
 class DisplayType(StrEnum):
