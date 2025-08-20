@@ -22,7 +22,6 @@ from posthog.models import Team
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 import xml.etree.ElementTree as ET
-import yaml
 
 
 def remove_line_breaks(line: str) -> str:
@@ -190,8 +189,13 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> s
 def format_events_yaml(events_in_context: list[MaxEventContext], team: Team) -> str:
     processed_events, _ = _process_events_data(events_in_context, team)
 
-    yaml_data = {"events": processed_events}
-    return yaml.dump(yaml_data, default_flow_style=False, sort_keys=False)
+    formatted_events = ["events:"]
+    for event_data in processed_events:
+        name = event_data["name"]
+        description = event_data.get("description", "")
+        formatted_events.append(f"- `{name}` - {description}" if description else f"- `{name}`")
+
+    return "\n".join(formatted_events)
 
 
 def extract_content_from_ai_message(response: LangchainAIMessage) -> str:

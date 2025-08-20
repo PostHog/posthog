@@ -227,7 +227,8 @@ class QueryPlannerNode(AssistantNode):
                     ][-20:],
                     # The description of a new insight is added to the end of the conversation.
                     ("human", state.root_tool_insight_plan or "_No query description provided._"),
-                ]
+                ],
+                template_format="mustache",
             )
         else:
             # Continuation with intermediate steps
