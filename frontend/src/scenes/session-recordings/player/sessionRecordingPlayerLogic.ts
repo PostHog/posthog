@@ -1047,6 +1047,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
+
+            // Always load snapshots so the player can show the first frame
+            if (!values.snapshotsLoaded) {
+                actions.loadSnapshots()
+            }
+
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
