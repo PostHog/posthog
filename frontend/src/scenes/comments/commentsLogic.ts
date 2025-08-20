@@ -146,7 +146,7 @@ export const commentsLogic = kea<commentsLogicType>([
                 deleteComment: async ({ comment }) => {
                     await deleteWithUndo({
                         endpoint: `projects/@current/comments`,
-                        object: { name: 'Comment', id: comment.id },
+                        object: { name: comment.item_context?.is_emoji ? 'Reaction' : 'Comment', id: comment.id },
                         callback: (isUndo) => {
                             if (isUndo) {
                                 actions.loadCommentsSuccess([
@@ -173,7 +173,6 @@ export const commentsLogic = kea<commentsLogicType>([
                         },
                     })
 
-                    actions.incrementCommentCount()
                     return [...existingComments, newComment]
                 },
             },
