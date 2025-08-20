@@ -245,7 +245,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         target_class=RawSessionGroupSummaryPatternsList,
     )
-    if success:
+    if success is not None:
         # Cached successfully
         return redis_output_key
     # Get session summaries from Redis
@@ -485,7 +485,7 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         target_class=RawSessionGroupSummaryPatternsList,
     )
-    if success:
+    if success is not None:
         # Already exists, no need to regenerate
         return None
     # Retrieve all chunk patterns from Redis

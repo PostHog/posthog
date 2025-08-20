@@ -123,7 +123,7 @@ async def fetch_session_batch_events_activity(
             label=StateActivitiesEnum.SESSION_DB_DATA,
             target_class=SingleSessionSummaryLlmInputs,
         )
-        if success:
+        if success is not None:
             # Session data is cached, so we can skip fetching
             fetched_session_ids.append(session_id)
             continue

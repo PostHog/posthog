@@ -64,7 +64,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
         target_class=SingleSessionSummaryLlmInputs,
     )
     # Return if the data is properly cached
-    if success:
+    if success is not None:
         return None
     # If not yet, or TTL expired - fetch data from DB
     session_db_data = await get_session_data_from_db(
