@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="experiment",
             name="last_refresh",
-            field=models.DateTimeField(blank=True, null=True, default=None),
+            field=models.DateTimeField(blank=True, null=True),
         ),
     ]
