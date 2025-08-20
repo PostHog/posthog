@@ -291,16 +291,6 @@ fn evaluate_single_cohort(
     target_properties: &HashMap<String, Value>,
     evaluation_results: &HashMap<CohortId, bool>,
 ) -> Result<bool, FlagError> {
-    // NOTE: We no longer block evaluation based on dependency results.
-    // The dependency graph is still used for topological ordering to ensure
-    // dependencies are evaluated first, but cohort references within OR conditions
-    // are handled by the filter evaluation logic, not as blocking dependencies.
-    //
-    // This fixes the issue where cohorts with OR conditions that reference other
-    // cohorts would fail if any referenced cohort returned false, even when
-    // other OR conditions should have matched.
-    // Dependencies are used for topological ordering only, not blocking evaluation
-
     // Get the filters for this cohort
     let filters = match &cohort.filters {
         Some(filters) => filters,
