@@ -226,6 +226,7 @@ describe('getViewRecordingFilters', () => {
         created_at: null,
         created_by: null,
         updated_at: null,
+        last_refresh: null,
     }
 
     it('adds exposure criteria if present', () => {
