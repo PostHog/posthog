@@ -188,6 +188,14 @@
             margin-top: 0;
             font-weight: 600;
             white-space: normal;
+
+            .EntityFilterInfo {
+                display: -webkit-box;
+                -webkit-line-clamp: 5;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                overflow-wrap: break-word;
+            }
         }
 
         .LemonRow__main-area {
