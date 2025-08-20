@@ -10,7 +10,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -650,11 +649,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
 
-                if (!values.hasAddon && values.type !== 'transformation') {
-                    // Remove the source field if the user doesn't have the addon (except for transformations)
-                    delete payload.hog
-                }
-
                 if (!props.id || props.id === 'new') {
                     const type = values.type
                     const typeFolder =
@@ -676,17 +670,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
-        ],
-        hasAddon: [
-            (s) => [s.hasAvailableFeature, s.featureFlags],
-            (hasAvailableFeature, featureFlags) => {
-                // Simple hack - we always turn the addon on if the new pricing is enabled
-                // Once we have fully rolled it out we can just completely remove all addon related code
-                return (
-                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) ||
-                    !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]
-                )
-            },
         ],
         hasGroupsAddon: [
             (s) => [s.hasAvailableFeature],

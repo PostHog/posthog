@@ -11,7 +11,6 @@ import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 
 import { BatchExportBackfill } from '~/types'
 
-import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
 
@@ -60,8 +59,6 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
     const logic = batchExportBackfillsLogic({ id })
     const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
     const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
-    // this permission acts as a proxy for the user's ability to cancel backfills
-    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -186,7 +183,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, backfill) {
-                            if (canEnableNewDestinations && backfillIsCancelable(backfill.status)) {
+                            if (backfillIsCancelable(backfill.status)) {
                                 return (
                                     <div className="flex gap-1">
                                         <BackfillCancelButton backfill={backfill} cancelBackfill={cancelBackfill} />
@@ -199,11 +196,9 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                 emptyState={
                     <div className="deprecated-space-y-2">
                         <div>No backfills in this time range.</div>
-                        {canEnableNewDestinations && (
-                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Start backfill
-                            </LemonButton>
-                        )}
+                        <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                            Start backfill
+                        </LemonButton>
                     </div>
                 }
             />

@@ -21,7 +21,6 @@ import {
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { importAppsLogic } from './importAppsLogic'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { loadPluginsFromUrl } from './utils'
@@ -68,8 +67,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             ['plugins as transformationPlugins', 'nextAvailableOrder'],
             featureFlagLogic,
             ['featureFlags'],
-            pipelineAccessLogic,
-            ['canEnableNewDestinations'],
         ],
     })),
     loaders(({ props, values }) => ({

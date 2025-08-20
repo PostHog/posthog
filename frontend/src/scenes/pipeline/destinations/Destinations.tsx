@@ -124,7 +124,7 @@ export function DestinationsTable({
     types,
     hideChangeOrderButton = false,
 }: DestinationsTableProps): JSX.Element {
-    const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations, rawHogFunctions } = useValues(
         pipelineDestinationsLogic({ types })
     )
@@ -327,11 +327,6 @@ export function DestinationsTable({
                                                         ? `Pause ${simpleName}`
                                                         : `Unpause ${simpleName}`,
                                                     onClick: () => toggleNode(destination, !destination.enabled),
-                                                    disabledReason: !canConfigurePlugins
-                                                        ? `You do not have permission to toggle ${simpleName}s.`
-                                                        : !canEnableDestination(destination) && !destination.enabled
-                                                          ? `Data pipelines add-on is required for enabling new ${simpleName}s`
-                                                          : undefined,
                                                 },
                                                 ...usePipelineNodeMenuCommonItems(destination),
                                                 {

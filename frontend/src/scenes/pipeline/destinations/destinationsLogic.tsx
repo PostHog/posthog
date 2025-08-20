@@ -24,7 +24,6 @@ import {
     PluginType,
 } from '~/types'
 
-import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
     Destination,
@@ -56,8 +55,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             ['currentProjectId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
-            pipelineAccessLogic,
-            ['canEnableDestination'],
             featureFlagLogic,
             ['featureFlags'],
             destinationsFiltersLogic(props),
@@ -366,15 +363,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ actions, props }) => ({
         loadMore: () => {
             actions.loadHogFunctions()
         },
         toggleNode: ({ destination, enabled }) => {
-            if (enabled && !values.canEnableDestination(destination)) {
-                lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
-                return
-            }
             if (destination.backend === PipelineBackend.Plugin) {
                 actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
             } else if (destination.backend === PipelineBackend.BatchExport) {
