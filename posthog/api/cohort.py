@@ -55,9 +55,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
-from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.cohort import CohortOrEmpty, DEFAULT_COHORT_INSERT_BATCH_SIZE
+from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
