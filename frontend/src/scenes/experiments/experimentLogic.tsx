@@ -953,8 +953,15 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            if (experiment?.start_date) {
-                actions.refreshExperimentResults()
+            /**
+             * if the experiment is running, we refresh the results if they are
+             * 30 minutes or older.
+             */
+            if (experiment.start_date && !experiment.end_date) {
+                const isStale = experiment.last_refresh
+                    ? dayjs().diff(dayjs(experiment.last_refresh), 'seconds') > 1800
+                    : true
+                actions.refreshExperimentResults(isStale)
             }
         },
         launchExperiment: async () => {
