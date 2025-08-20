@@ -1,5 +1,6 @@
 import dataclasses
 import json
+from math import ceil
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from enum import Enum
 
@@ -399,7 +400,7 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
-    if len(combined_patterns) < len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO:
+    if ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO) > len(combined_patterns):
         exception_message = (
             f"Too many patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
             f"sessions ({session_ids}) for user {user_id}"

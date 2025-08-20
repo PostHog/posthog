@@ -1,5 +1,6 @@
 import asyncio
 import json
+from math import ceil
 from typing import cast
 from redis import Redis, asyncio as aioredis
 import structlog
@@ -354,9 +355,8 @@ async def _generate_patterns_assignments(
             continue
         patterns_assignments_list_of_lists.append(res)
     # Fail the activity if too many patterns failed to assign session events
-    if (
-        len(patterns_assignments_list_of_lists)
-        < len(session_summaries_chunks_str) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO
+    if ceil(len(session_summaries_chunks_str) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO) > len(
+        patterns_assignments_list_of_lists
     ):
         exception_message = (
             f"Too many patterns failed to assign session events, when summarizing {len(session_ids)} "

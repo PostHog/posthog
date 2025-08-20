@@ -3,6 +3,7 @@ import dataclasses
 from datetime import datetime, timedelta
 import hashlib
 import json
+from math import ceil
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -319,7 +320,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             )
             session_inputs.append(single_session_input)
         # Fail the workflow if too many sessions failed to fetch
-        if len(session_inputs) < len(inputs.session_ids) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
+        if ceil(len(inputs.session_ids) * FAILED_SESSION_SUMMARIES_MIN_RATIO) > len(session_inputs):
             extracted_session_ids = {s.session_id for s in session_inputs}
             exception_message = (
                 f"Too many sessions failed to fetch data, when summarizing {len(inputs.session_ids)} sessions "
@@ -383,7 +384,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 session_inputs.append(single_session_input)
 
         # Fail the workflow if too many sessions failed to summarize
-        if len(session_inputs) < len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
+        if ceil(len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO) > len(session_inputs):
             session_ids = [s.session_id for s in inputs]
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
@@ -482,7 +483,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             redis_keys_of_chunks_to_combine.append(chunk_redis_key)
             session_ids_with_patterns_extracted.extend(chunk_session_ids)
         # Check failure ratio
-        if len(redis_keys_of_chunks_to_combine) < len(chunks) * FAILED_PATTERNS_EXTRACTION_MIN_RATIO:
+        if ceil(len(chunks) * FAILED_PATTERNS_EXTRACTION_MIN_RATIO) > len(redis_keys_of_chunks_to_combine):
             raise ApplicationError(
                 f"Too many chunks failed during pattern extraction: "
                 f"{len(chunks) - len(redis_keys_of_chunks_to_combine)}/{len(chunks)} chunks failed"
