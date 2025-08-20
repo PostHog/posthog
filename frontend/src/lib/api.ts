@@ -3206,6 +3206,9 @@ const api = {
         async delete(id: Task['id']): Promise<void> {
             return await new ApiRequest().task(id).delete()
         },
+        async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
+            return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
+        },
     },
 
     surveys: {

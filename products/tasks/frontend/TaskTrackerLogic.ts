@@ -1,6 +1,6 @@
+import { UniqueIdentifier } from '@dnd-kit/core'
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { UniqueIdentifier } from 'node_modules/@dnd-kit/core/dist'
 
 import api from 'lib/api'
 
@@ -32,6 +32,8 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
         startPolling: true,
         stopPolling: true,
         pollForUpdates: true,
+        startReordering: true,
+        endReordering: true,
     }),
     loaders(({ values, actions }) => ({
         tasks: [
@@ -65,30 +67,67 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
                     }
                 },
                 moveTask: async ({ taskId, newStatus, newPosition }) => {
-                    // Optimistic update
+                    actions.startReordering()
+                    // Optimistic update + schedule bulk reorder to persist
                     const currentTasks = [...values.tasks]
-                    const taskIndex = currentTasks.findIndex((task) => task.id === taskId)
-                    if (taskIndex !== -1) {
-                        currentTasks[taskIndex] = {
-                            ...currentTasks[taskIndex],
-                            status: newStatus,
-                            position: newPosition ?? currentTasks[taskIndex].position,
-                            updated_at: new Date().toISOString(),
-                        }
+                    const moved = currentTasks.find((t) => t.id === taskId)
+                    if (!moved) {
+                        actions.endReordering()
+                        return currentTasks
                     }
 
-                    // Update in background
+                    const sourceStatus = moved.status
+                    const sourceList = currentTasks
+                        .filter((t) => t.status === sourceStatus && t.id !== taskId)
+                        .sort((a, b) => a.position - b.position)
+                    const targetList = currentTasks
+                        .filter((t) => t.status === newStatus && t.id !== taskId)
+                        .sort((a, b) => a.position - b.position)
+
+                    const insertIndex = Math.min(Math.max(newPosition ?? targetList.length, 0), targetList.length)
+
+                    const updatedTargetList = [
+                        ...targetList.slice(0, insertIndex),
+                        { ...moved, status: newStatus },
+                        ...targetList.slice(insertIndex),
+                    ]
+
+                    // Build new tasks snapshot with reindexed positions
+                    const sourceIds = sourceList.map((t) => t.id)
+                    const targetIds = updatedTargetList.map((t) => t.id)
+                    const updatedTasks = currentTasks.map((t) => {
+                        if (t.id === taskId) {
+                            return {
+                                ...t,
+                                status: newStatus,
+                                position: targetIds.indexOf(t.id),
+                                updated_at: new Date().toISOString(),
+                            }
+                        }
+                        if (t.status === sourceStatus && sourceIds.includes(t.id)) {
+                            return { ...t, position: sourceIds.indexOf(t.id) }
+                        }
+                        if (t.status === newStatus && targetIds.includes(t.id)) {
+                            return { ...t, position: targetIds.indexOf(t.id) }
+                        }
+                        return t
+                    })
+
+                    // Persist via bulkReorder for both affected columns
+                    const columns: Record<string, string[]> = {}
+                    columns[sourceStatus] = sourceIds
+                    columns[newStatus] = targetIds
                     api.tasks
-                        .update(taskId, {
-                            status: newStatus,
-                            position: newPosition,
-                        })
+                        .bulkReorder(columns)
+                        .then(() => {})
                         .catch(() => {
-                            // If fails, reload from server
                             actions.loadTasks()
                         })
+                        .finally(() => {
+                            actions.endReordering()
+                        })
 
-                    return currentTasks
+                    return updatedTasks
                 },
                 scopeTask: async ({ taskId }) => {
                     const todoTasks = values.tasks.filter((task: Task) => task.status === TaskStatus.TODO)
@@ -157,13 +196,16 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
                     return currentTasks
                 },
                 pollForUpdates: async () => {
-                    // Silent polling - just refresh tasks without loading state
+                    // Avoid clobbering optimistic state while reordering
+                    if (values.isReordering) {
+                        return values.tasks
+                    }
                     try {
                         const response = await api.tasks.list()
                         return response.results
                     } catch (error) {
                         console.error('Polling failed:', error)
-                        return values.tasks // Return current state on error
+                        return values.tasks
                     }
                 },
             },
@@ -197,6 +239,13 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
                 stopPolling: () => null,
             },
         ],
+        isReordering: [
+            false,
+            {
+                startReordering: () => true,
+                endReordering: () => false,
+            },
+        ],
     }),
     selectors({
         backlogTasks: [
@@ -207,7 +256,7 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
         kanbanColumns: [
             (s) => [s.tasks],
             (tasks): Record<UniqueIdentifier, Task[]> => {
-                return tasks.reduce(
+                const buckets = tasks.reduce(
                     (acc, task) => {
                         acc[task.status].push(task)
                         return acc
@@ -220,6 +269,11 @@ export const taskTrackerLogic = kea<taskTrackerLogicType>([
                         [TaskStatus.DONE]: [],
                     } as Record<TaskStatus, Task[]>
                 )
+                // Sort each column by position
+                ;(Object.keys(buckets) as Array<keyof typeof buckets>).forEach((k) => {
+                    buckets[k] = buckets[k].slice().sort((a, b) => a.position - b.position)
+                })
+                return buckets
             },
         ],
         selectedTask: [
