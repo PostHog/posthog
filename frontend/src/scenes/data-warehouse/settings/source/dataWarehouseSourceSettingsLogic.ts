@@ -137,7 +137,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
     }),
-    forms(({ values, actions }) => ({
+    forms(({ values, actions, props }) => ({
         sourceConfig: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
