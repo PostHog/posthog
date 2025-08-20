@@ -228,15 +228,12 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check
-                    let cohort_result =
-                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
-                    if cohort_result {
+                    if apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
                         return Ok(true);
                     }
                 } else {
                     // Handle regular property check with negation
-                    let prop_result = evaluate_property_with_negation(filter, target_properties);
-                    if prop_result {
+                    if evaluate_property_with_negation(filter, target_properties) {
                         return Ok(true);
                     }
                 }
@@ -247,15 +244,12 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check
-                    let cohort_result =
-                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
-                    if !cohort_result {
+                    if !apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
                         return Ok(false);
                     }
                 } else {
                     // Handle regular property check with negation
-                    let prop_result = evaluate_property_with_negation(filter, target_properties);
-                    if !prop_result {
+                    if !evaluate_property_with_negation(filter, target_properties) {
                         return Ok(false);
                     }
                 }

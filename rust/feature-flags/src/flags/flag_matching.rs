@@ -412,19 +412,11 @@ impl FeatureFlagMatcher {
                 let match_result =
                     evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
                 e.insert(match_result);
-            } else {
-                // If the cohort is already in the map, we don't need to evaluate it again
-                // This is important because we don't want to evaluate the same cohort multiple times
-                // This can happen if a flag has multiple cohort filters with the same cohort id
-                // and the same target properties
-                // In this case, we can just use the cached result
-                // This is a performance optimization
             }
         }
 
         // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
-        let final_result = apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)?;
-        Ok(final_result)
+        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
     }
 
     /// Evaluates feature flags with property and hash key overrides.

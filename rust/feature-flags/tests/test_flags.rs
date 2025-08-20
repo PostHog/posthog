@@ -5235,17 +5235,17 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
         .await
         .unwrap();
 
-    // Insert person with real user data - this user should NOT match because they have upgraded_at_timestamp
+    // Insert person with production-like data - should match via days_since_paid_plan_start condition
     insert_person_for_team_in_pg(
         pg_client.clone(),
         team.id,
         distinct_id.clone(),
         Some(json!({
-            "name": "Kristina Sanders",
-            "email": "office@etxbeef.com",
-            "org_id": "68760", // Not in the allowed org list
-            "user_id": "user-69196",
-            "days_since_paid_plan_start": 77, // < 365, would match this condition
+            "name": "Test User",
+            "email": "test@example.com",
+            "org_id": "test-org-123", // Not in the allowed org list
+            "user_id": "test-user-456",
+            "days_since_paid_plan_start": 77, // < 365, should match this condition
             "created_at_timestamp": 1747758893, // Set, would match this condition
             "upgraded_at_timestamp": 1749058908, // Has upgrade timestamp - fails the not_regex condition in cohort 128293
             "paid_plan_start_date": "2025-06-04",
@@ -5387,7 +5387,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
 
     let server = ServerHandle::for_config(config).await;
 
-    // Test with real user data - SHOULD match because days_since_paid_plan_start = 77 < 365 (OR condition)
+    // Test with production-like user data - SHOULD match because days_since_paid_plan_start = 77 < 365 (OR condition)
     let payload = json!({
         "token": token,
         "distinct_id": distinct_id,
