@@ -465,7 +465,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 // have to reload dashboard when when cancelling preview
                 // and resetting filters
-                resetDashboardFilters: () => true,
+                loadDashboard: () => true,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
             },
