@@ -178,7 +178,7 @@ export function BreakdownTag({
                 />
             )}
 
-            {closeable && onClose && (
+            {closeable && (
                 <LemonButton
                     size="xsmall"
                     icon={<IconX />}
