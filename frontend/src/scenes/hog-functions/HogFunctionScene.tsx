@@ -121,7 +121,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             path: urls.dataPipelines('overview'),
                         },
                         {
-                            key: Scene.HogFunction,
+                            key: [Scene.DataPipelines, pipelineTab],
                             name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
                             path: urls.dataPipelines(pipelineTab),
                         },

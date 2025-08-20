@@ -51,6 +51,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
                     {
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
+                        path: urls.dataPipelines(),
                     },
                     {
                         key: [Scene.DataPipelines, kind],
