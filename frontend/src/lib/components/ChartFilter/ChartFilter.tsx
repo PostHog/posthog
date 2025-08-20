@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartDisplayType } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
     return (
@@ -140,14 +140,21 @@ export function ChartFilter(): JSX.Element {
                         <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
                     ),
                 },
-                ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT] ? [{
-                    value: ChartDisplayType.CalendarHeatmap,
-                    icon: <IconRetentionHeatmap />,
-                    label: 'Calendar heatmap',
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="Calendar heatmap" description="Values per day and hour." />
-                    ),
-                }] : []),
+                ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.CalendarHeatmap,
+                              icon: <IconRetentionHeatmap />,
+                              label: 'Calendar heatmap',
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Calendar heatmap"
+                                      description="Values per day and hour."
+                                  />
+                              ),
+                          },
+                      ]
+                    : []),
             ],
         },
     ]

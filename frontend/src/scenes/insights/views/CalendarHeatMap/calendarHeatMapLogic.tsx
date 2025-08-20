@@ -7,6 +7,7 @@ import { InsightLogicProps, TrendResult } from '~/types'
 
 import { keyForInsightLogicProps } from '../../sharedUtils'
 import type { calendarHeatMapLogicType } from './calendarHeatMapLogicType'
+import { DaysAbbreviated, HoursAbbreviated } from './utils'
 
 export interface CalendarHeatMapProcessedData {
     matrix: number[][]
@@ -99,7 +100,6 @@ export const calendarHeatMapLogic = kea<calendarHeatMapLogicType>([
 
                 const { data, rowAggregations, columnAggregations, allAggregations } = result.calendar_heatmap_data
 
-                // Process data similar to WebActiveHoursHeatmap
                 const matrix: number[][] = []
                 let maxOverall = 0
                 let minOverall = Infinity
@@ -194,13 +194,12 @@ export const calendarHeatMapLogic = kea<calendarHeatMapLogicType>([
         rowLabels: [
             (s) => [s.weekStartDay],
             (weekStartDay): string[] => {
-                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                return Array.from({ length: days.length }, (_, i) => {
-                    const adjustedDay = (i + weekStartDay) % days.length
-                    return days[adjustedDay]
+                return Array.from({ length: DaysAbbreviated.values.length }, (_, i) => {
+                    const adjustedDay = (i + weekStartDay) % DaysAbbreviated.values.length
+                    return DaysAbbreviated.values[adjustedDay]
                 })
             },
         ],
-        columnLabels: [() => [], (): string[] => Array.from({ length: 24 }, (_, i) => String(i))],
+        columnLabels: [() => [], (): string[] => HoursAbbreviated.values],
     }),
 ])

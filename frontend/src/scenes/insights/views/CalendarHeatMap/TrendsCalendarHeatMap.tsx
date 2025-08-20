@@ -5,18 +5,20 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
-import { calendarHeatMapLogic } from './calendarHeatMapLogic'
-import { 
-    getDataTooltip,
-    getRowAggregationTooltip,
-    getColumnAggregationTooltip,
-    getOverallAggregationTooltip,
-    AggregationLabel,
-    thresholdFontSize
-} from './utils'
 import { ChartParams } from '~/types'
 
-export function TrendsCalendarHeatMap(_: ChartParams): JSX.Element {
+import { calendarHeatMapLogic } from './calendarHeatMapLogic'
+import {
+    AggregationLabel,
+    getColumnAggregationTooltip,
+    getDataTooltip,
+    getOverallAggregationTooltip,
+    getRowAggregationTooltip,
+    thresholdFontSize,
+} from './utils'
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { processedData, rowLabels, columnLabels } = useValues(calendarHeatMapLogic(insightProps))
 

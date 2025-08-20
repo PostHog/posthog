@@ -62,7 +62,6 @@ import {
     getShowValuesOnSeries,
     getYAxisScaleType,
     isActionsNode,
-    isCalendarHeatmapQuery,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
@@ -154,7 +153,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
-        isCalendarHeatmap: [(s) => [s.querySource], (q) => isCalendarHeatmapQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
         isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],

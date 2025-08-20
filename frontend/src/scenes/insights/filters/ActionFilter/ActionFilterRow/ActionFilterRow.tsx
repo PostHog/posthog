@@ -51,7 +51,6 @@ import { MathType, NodeKind } from '~/queries/schema/schema-general'
 import {
     TRAILING_MATH_TYPES,
     getMathTypeWarning,
-    isCalendarHeatmapQuery,
     isInsightVizNode,
     isStickinessQuery,
     isTrendsQuery,
@@ -734,8 +733,8 @@ function useMathSelectorOptions({
     const isCalendarHeatmap =
         query &&
         isInsightVizNode(query) &&
-        (isCalendarHeatmapQuery(query.source) ||
-            (isTrendsQuery(query.source) && query.source.trendsFilter?.display === ChartDisplayType.CalendarHeatmap))
+        isTrendsQuery(query.source) &&
+        query.source.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
 
     const {
         needsUpgradeForGroups,

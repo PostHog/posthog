@@ -2069,7 +2069,7 @@
                     "type": "string"
                 },
                 {
-                    "const": "Calendar Heatmap",
+                    "const": "CalendarHeatmap",
                     "type": "string"
                 },
                 {
@@ -2158,7 +2158,7 @@
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
-                        "Calendar Heatmap"
+                        "CalendarHeatmap"
                     ],
                     "type": "string"
                 },
@@ -6599,7 +6599,7 @@
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
-                "Calendar Heatmap"
+                "CalendarHeatmap"
             ],
             "type": "string"
         },
@@ -12065,8 +12065,7 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL",
-                "insightCalendarHeatmap"
+                "insightHogQL"
             ],
             "type": "string"
         },
@@ -14080,8 +14079,7 @@
                 "RetentionQuery",
                 "PathsQuery",
                 "StickinessQuery",
-                "LifecycleQuery",
-                "CalendarHeatmapQuery"
+                "LifecycleQuery"
             ],
             "type": "string"
         },
@@ -14107,9 +14105,6 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
-                },
-                {
-                    "$ref": "#/definitions/CalendarHeatmapQuery"
                 }
             ],
             "required": ["kind"],
@@ -19737,47 +19732,6 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
-                        "hasMore": {
-                            "description": "Wether more breakdown values are available.",
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "$ref": "#/definitions/EventsHeatMapStructuredResult"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -20468,9 +20422,6 @@
                 },
                 {
                     "$ref": "#/definitions/TrendsQuery"
-                },
-                {
-                    "$ref": "#/definitions/CalendarHeatmapQuery"
                 },
                 {
                     "$ref": "#/definitions/FunnelsQuery"

@@ -340,20 +340,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner):
         )
 
     def _calculate(self):
-        # If display type is heatmap, delegate to calendar heatmap query runner
+        # If display type is calendar heatmap, delegate to calendar heatmap query runner
         if self._trends_display.display_type == ChartDisplayType.CALENDAR_HEATMAP:
             from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
             from posthog.schema import CalendarHeatmapQuery
-            
+
             # Convert TrendsQuery to CalendarHeatmapQuery
             calendar_query = CalendarHeatmapQuery(
                 dateRange=self.query.dateRange,
                 filterTestAccounts=self.query.filterTestAccounts,
                 properties=self.query.properties,
                 series=self.query.series,
-                conversionGoal=getattr(self.query, 'conversionGoal', None),
+                conversionGoal=getattr(self.query, "conversionGoal", None),
             )
-            
+
             # Create and run calendar heatmap query runner
             calendar_runner = CalendarHeatmapQueryRunner(
                 query=calendar_query,
@@ -362,25 +362,27 @@ class TrendsQueryRunner(AnalyticsQueryRunner):
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-            
+
             calendar_response = calendar_runner._calculate()
 
             # Convert calendar response to trends response format
             return TrendsQueryResponse(
-                results=[{
-                    "action": {
-                        "id": self.series_event(self.query.series[0]) if self.query.series else "heatmap",
-                        "type": "events",
-                        "order": 0,
-                        "name": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
-                        "math": self.query.series[0].math if self.query.series else "total",
-                    },
-                    "label": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
-                    "data": [],  # Empty array for non-time-series data
-                    "aggregated_value": calendar_response.results.allAggregations,
-                    "calendar_heatmap_data": calendar_response.results,  # Store the original heatmap data
-                    "count": calendar_response.results.allAggregations,
-                }],
+                results=[
+                    {
+                        "action": {
+                            "id": self.series_event(self.query.series[0]) if self.query.series else "heatmap",
+                            "type": "events",
+                            "order": 0,
+                            "name": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
+                            "math": self.query.series[0].math if self.query.series else "total",
+                        },
+                        "label": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
+                        "data": [],  # Empty array for non-time-series data
+                        "aggregated_value": calendar_response.results.allAggregations,
+                        "calendar_heatmap_data": calendar_response.results,  # Store the original heatmap data
+                        "count": calendar_response.results.allAggregations,
+                    }
+                ],
                 timings=calendar_response.timings,
                 hogql=calendar_response.hogql,
                 modifiers=self.modifiers,
@@ -389,7 +391,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner):
                     date_to=self.query_date_range.date_to(),
                 ),
             )
-        
+
         queries = self.to_queries()
 
         if len(queries) == 0:

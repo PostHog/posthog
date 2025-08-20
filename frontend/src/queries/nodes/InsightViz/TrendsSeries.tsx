@@ -13,8 +13,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
-import { FilterType } from '~/types'
+import { ChartDisplayType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
@@ -27,7 +26,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { showGroupsOptions: showGroupsOptionsFromModel, groupsTaxonomicTypes } = useValues(groupsModel)
-    
+
     // Disable groups for calendar heatmap
     const showGroupsOptions = display === ChartDisplayType.CalendarHeatmap ? false : showGroupsOptionsFromModel
 
