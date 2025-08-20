@@ -16,8 +16,8 @@ WHITELISTED_PATHS = [
     "/logout/",
     "/api/logout/",
     "/api/login/",
+    "/api/login/token/",
     "/_health/",
-    "/decide/",
 ]
 
 WHITELISTED_PREFIXES = [
@@ -60,7 +60,6 @@ def enforce_mfa(request, user):
     """
     Enforce MFA requirements for authenticated users in organizations that require it.
     """
-
     if is_path_whitelisted(request.path):
         return
 
