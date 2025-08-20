@@ -20710,6 +20710,10 @@
                         {
                             "const": "visited_page",
                             "type": "string"
+                        },
+                        {
+                            "const": "comment_text",
+                            "type": "string"
                         }
                     ]
                 },
@@ -20738,6 +20742,9 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "comment_text": {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 "console_log_filters": {
                     "items": {

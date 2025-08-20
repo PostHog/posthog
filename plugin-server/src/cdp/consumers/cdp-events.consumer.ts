@@ -130,7 +130,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             for (const item of possibleInvocations) {
                 // Disable invocations for teams that don't have the addon (for now just metric them out..)
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'events')
+                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_invocations')
 
                 // The legacy addon was not usage based so we skip dropping if they are on it
                 const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')

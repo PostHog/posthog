@@ -54,7 +54,7 @@ export class QuotaLimiting {
         return result.isLimited
     }
 
-    public async getQuotaLimitedTokens(teamToken: string, resource: QuotaResource): Promise<QuotaLimitingResult> {
+    private async getQuotaLimitedTokens(teamToken: string, resource: QuotaResource): Promise<QuotaLimitingResult> {
         const now = Date.now()
         const limitedTokens = await this.limitedTokensLoader.get(resource)
         const limitedUntil = limitedTokens?.[teamToken]
@@ -87,7 +87,7 @@ export class QuotaLimiting {
         const now = Date.now() / 1000 // Convert to seconds for Redis comparison
         const results: Record<string, Record<string, number>> = {}
 
-        // NOTE: This isn't exactly the
+        // NOTE: Load limited tokens for each resource from Redis
         for (const resource of resources) {
             try {
                 const redis = await this.redisPool.acquire()
