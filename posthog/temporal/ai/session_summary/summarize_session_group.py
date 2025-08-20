@@ -262,7 +262,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         )
 
     @temporalio.workflow.query
-    def get_pattern_assignments_progress(self) -> dict:
+    def get_pattern_assignments_progress(self) -> int:
         """Query pattern assignment progress."""
         return self._pattern_assignments_completed
 
