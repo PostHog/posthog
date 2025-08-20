@@ -18,8 +18,6 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
@@ -42,6 +40,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -495,26 +494,6 @@ export function DashboardHeader(): JSX.Element | null {
                     />
                 </ScenePanelCommonActions>
                 <ScenePanelMetaInfo>
-                    <SceneTextInput
-                        name="name"
-                        defaultValue={dashboard?.name || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        canEdit={canEditDashboard}
-                        isLoading={dashboardLoading}
-                    />
-
-                    <SceneTextarea
-                        name="description"
-                        defaultValue={dashboard?.description || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        canEdit={canEditDashboard}
-                        isLoading={dashboardLoading}
-                        markdown
-                    />
-
                     <SceneTags
                         onSave={(tags) => {
                             triggerDashboardUpdate({ tags })
@@ -643,6 +622,21 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                 </ScenePanelActions>
             </ScenePanel>
+
+            <SceneTitleSection
+                name={dashboard?.name}
+                description={dashboard?.description}
+                resourceType={{
+                    type: 'dashboard',
+                    typePlural: 'dashboards',
+                }}
+                onNameBlur={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionBlur={(value) =>
+                    updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
+                }
+                markdown
+            />
+            <SceneDivider />
         </>
     ) : null
 }
