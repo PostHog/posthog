@@ -811,8 +811,38 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
     async with get_client() as client:
+        batches = []
+        batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
-            yield batch, [(column_name, column_type) for column_name, column_type, _ in query_typings]
+            batches_size = batches_size + batch.nbytes
+            batches.append(batch)
+
+            if batches_size >= 200 / 1000 / 1000:  # 200 MB
+                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+
+                yield (
+                    _combine_batches(batches),
+                    [(column_name, column_type) for column_name, column_type, _ in query_typings],
+                )
+                batches_size = 0
+                batches = []
+
+        # Yield any left over batches
+        if len(batches) > 0:
+            await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+            yield (
+                _combine_batches(batches),
+                [(column_name, column_type) for column_name, column_type, _ in query_typings],
+            )
+
+
+def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
+    if len(batches) == 1:
+        return batches[0]
+
+    table = pa.Table.from_batches(batches)
+    table = table.combine_chunks()
+    return table.to_batches(max_chunksize=table.num_rows)[0]
 
 
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
