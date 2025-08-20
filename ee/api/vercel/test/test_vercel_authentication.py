@@ -3,6 +3,7 @@ from unittest.mock import patch
 from datetime import datetime, UTC
 import jwt
 import base64
+import json
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.utils import timezone
@@ -209,3 +210,15 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result1 is not None
         assert result2 is not None
         assert mock_get_jwks.call_count >= 1
+
+    def test_none_algorithm_rejected(self, mock_get_jwks):
+        mock_get_jwks.return_value = self.mock_jwks
+        # Create a token with "none" algorithm
+        payload = self._create_user_auth_payload()
+        # Manually create a JWT with "none" algorithm
+        header = {"alg": "none", "typ": "JWT"}
+        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).rstrip(b"=").decode()
+        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+        none_token = f"{header_b64}.{payload_b64}."
+
+        self._assert_auth_fail(none_token, "user", "Invalid user authentication token")
