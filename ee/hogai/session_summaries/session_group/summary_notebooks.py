@@ -82,7 +82,7 @@ def format_patterns_assignment_progress() -> TipTapNode:
     return {"type": "doc", "content": content}
 
 
-class NotebookIntermediateState:
+class SummaryNotebookIntermediateState:
     """Manages the intermediate state of a notebook during session group summarization."""
 
     def __init__(self, team_name: str):

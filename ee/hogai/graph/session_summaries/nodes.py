@@ -12,7 +12,7 @@ from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGro
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
-    NotebookIntermediateState,
+    SummaryNotebookIntermediateState,
     generate_notebook_content_from_summary,
 )
 from ee.hogai.utils.state import prepare_reasoning_progress_message
@@ -177,7 +177,7 @@ class SessionSummarizationNode(AssistantNode):
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
 
         # Initialize intermediate state with plan
-        self._intermediate_state = NotebookIntermediateState(team_name=self._team.name)
+        self._intermediate_state = SummaryNotebookIntermediateState(team_name=self._team.name)
 
         # Stream initial plan
         initial_state = self._intermediate_state.format_intermediate_state()
