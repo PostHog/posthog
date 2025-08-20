@@ -9695,6 +9695,7 @@
                     "type": "string"
                 },
                 "last_seen": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "library": {
