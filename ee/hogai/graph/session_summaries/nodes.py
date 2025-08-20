@@ -82,7 +82,6 @@ class SessionSummarizationNode(AssistantNode):
         # Stream the notebook update
         message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
-        return None
 
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
@@ -245,6 +244,7 @@ class SessionSummarizationNode(AssistantNode):
         # Check if the notebook is provided, create a notebook to fill if not
         if not state.notebook_id:
             notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
+            # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
             state.notebook_id = notebook.short_id
         # If query was not provided for some reason
         if not state.session_summarization_query:
