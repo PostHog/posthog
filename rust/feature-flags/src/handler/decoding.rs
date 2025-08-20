@@ -47,8 +47,19 @@ fn decode_body(
     compression: Option<Compression>,
     headers: &HeaderMap,
 ) -> Result<Bytes, FlagError> {
-    if let Some(Compression::Gzip) = compression {
-        return decompress_gzip(body);
+    if let Some(compression) = compression {
+        match compression {
+            Compression::Gzip => return decompress_gzip(body),
+            Compression::Base64 => {
+                // handle base64 detection separately in try_parse_with_fallbacks
+            }
+            Compression::Unsupported => {
+                tracing::warn!("unsupported compression type");
+                return Err(FlagError::RequestDecodingError(
+                    "Unsupported compression type".to_string(),
+                ));
+            }
+        }
     }
 
     // Check Content-Encoding header (Android uses this primarily)
