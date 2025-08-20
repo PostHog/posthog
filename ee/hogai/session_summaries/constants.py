@@ -25,3 +25,6 @@ PATTERNS_EXTRACTION_MAX_TOKENS = 150000
 SINGLE_ENTITY_MAX_TOKENS = 200000  # General limit to avoid hitting the o3 model limit, used in case of exceptions (like one session to large for a regular chunk)
 FAILED_PATTERNS_EXTRACTION_MIN_RATIO = 0.75  # If less than 75% of pattern extraction chunks succeed, stop the workflow
 FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO = 0.75  # If less than 75% of patterns assignment succeed, stop the workflow
+FAILED_PATTERNS_ENRICHMENT_MIN_RATIO = (
+    0.75  # If less than 75% of patterns were enriched with the sessions meta, stop the workflow
+)

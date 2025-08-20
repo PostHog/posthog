@@ -6,6 +6,7 @@ from asgiref.sync import async_to_sync
 from django.utils import timezone
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import SessionRecording
@@ -18,6 +19,7 @@ from posthog.schema import (
     MaxOuterUniversalFiltersGroup,
     FilterLogicalOperator,
 )
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 from posthog.test.base import BaseTest
 
 
@@ -232,8 +234,15 @@ class TestSessionSummarizationNode(BaseTest):
         session_ids = ["session-1"]
         mock_find_timestamps.return_value = (1000, 2000)
 
-        async def async_gen() -> AsyncGenerator[tuple[Any, Any, Any], None]:
-            yield (SessionSummaryStreamUpdate.UI_STATUS, None, "Processing...")
+        async def async_gen() -> (
+            AsyncGenerator[
+                tuple[
+                    SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict
+                ],
+                None,
+            ]
+        ):
+            yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Processing...")
             # No summary yielded - simulates error condition
 
         mock_execute_group.return_value = async_gen()
