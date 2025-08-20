@@ -560,7 +560,7 @@ export class PostgresPersonRepository
         `
 
         const { rows } = await this.postgres.query<{ distinct_id: string }>(
-            tx ?? PostgresUse.PERSONS_READ,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             [person.id, person.team_id],
             'fetchPersonDistinctIds'
