@@ -48,6 +48,8 @@ from posthog.models.property import (
 from posthog.models.property.property import ValueT
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.session_recordings.queries.session_query import SessionQuery
+
+
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 from posthog.schema import PropertyOperator
@@ -67,11 +69,10 @@ StringMatching = Literal["selector", "tag_name", "href", "text"]
 #     A, B, C, D
 # ]}
 
+
 # Property json is of the form:
 # { type: 'AND | OR', groups: List[Property] }
 # which is parsed and sent to this function ->
-
-
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
@@ -289,16 +290,22 @@ def parse_prop_clauses(
                 params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
-                filter_query, filter_params = prop_filter_json_extract(
-                    prop,
-                    idx,
-                    prepend,
-                    prop_var=f"group_properties_{prop.group_type_index}",
-                    allow_denormalized_props=False,
-                    property_operator=property_operator,
-                )
-                final.append(filter_query)
-                params.update(filter_params)
+                # Special case: $group_key refers to the actual group_key column, not a JSON property
+                if prop.key == "$group_key":
+                    filter_query, filter_params = _build_group_key_filter(prop, idx, prepend, property_operator)
+                    final.append(filter_query)
+                    params.update(filter_params)
+                else:
+                    filter_query, filter_params = prop_filter_json_extract(
+                        prop,
+                        idx,
+                        prepend,
+                        prop_var=f"group_properties_{prop.group_type_index}",
+                        allow_denormalized_props=False,
+                        property_operator=property_operator,
+                    )
+                    final.append(filter_query)
+                    params.update(filter_params)
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
@@ -799,6 +806,49 @@ def filter_element(
         # If there are no values to filter by, this either matches nothing (for non-negated operators like "equals"),
         # or everything (for negated operators like "doesn't equal")
         return "0 = 191" if operator not in NEGATED_OPERATORS else "", {}
+
+
+def _build_group_key_filter(
+    prop: Property, idx: int, prepend: str, property_operator: str
+) -> tuple[str, dict[str, Any]]:
+    """
+    Build SQL filter for $group_key property targeting the group_key column directly.
+
+    Args:
+        prop: Property object with $group_key
+        idx: Index for parameter naming
+        prepend: Prefix for parameter keys
+        property_operator: SQL operator (AND/OR)
+
+    Returns:
+        Tuple of (filter_query, filter_params)
+    """
+    operator = prop.operator or "exact"
+    if prop.negation:
+        operator = negate_operator(operator)
+
+    param_key = f"{prepend}_group_key_{idx}"
+    param_value = prop.value
+
+    if operator == "exact":
+        filter_query = f"{property_operator} group_key = %({param_key})s"
+    elif operator == "is_not":
+        filter_query = f"{property_operator} group_key != %({param_key})s"
+    elif operator == "icontains":
+        filter_query = f"{property_operator} group_key ILIKE %({param_key})s"
+        param_value = f"%{prop.value}%"
+    elif operator == "not_icontains":
+        filter_query = f"{property_operator} NOT (group_key ILIKE %({param_key})s)"
+        param_value = f"%{prop.value}%"
+    elif operator in ("regex", "not_regex"):
+        regex_func = "match" if operator == "regex" else "NOT match"
+        filter_query = f"{property_operator} {regex_func}(group_key, %({param_key})s)"
+    else:
+        # Default to exact match for unsupported operators
+        filter_query = f"{property_operator} group_key = %({param_key})s"
+
+    filter_params = {param_key: param_value}
+    return filter_query, filter_params
 
 
 def process_ok_values(ok_values: Any, operator: OperatorType) -> list[str]:

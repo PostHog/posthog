@@ -27,6 +27,7 @@ import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metric
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-service'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
@@ -313,6 +314,29 @@ describe('EventPipelineRunner', () => {
                     error_location: 'plugin_server_ingest_event:prepareEventStep',
                 })
                 expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('prepareEventStep')
+            })
+
+            it('emits DLQ when merge limit is exceeded during processPersonsStep', async () => {
+                const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
+
+                // Make processPersonsStep throw the merge-limit error
+                jest.mocked(processPersonsStep).mockRejectedValueOnce(
+                    new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+                )
+
+                await runner.runEventPipeline(pluginEvent, team)
+
+                // Verify one DLQ message was produced
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+                const call = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
+                expect(call.topic).toEqual('events_dead_letter_queue_test')
+                const value = parseJSON(call.messages[0].value as string)
+                expect(value).toMatchObject({
+                    team_id: 2,
+                    distinct_id: 'my_id',
+                    error_location: 'plugin_server_ingest_event:processPersonsStep',
+                })
+                expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('processPersonsStep')
             })
         })
 
