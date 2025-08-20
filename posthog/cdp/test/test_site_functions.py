@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 import subprocess
 import tempfile
@@ -10,7 +11,6 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.plugin import TranspilerError
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.user import User
 
 
@@ -237,7 +237,9 @@ function onLoad() {
         self.hog_function.hog = "export function onLoad() { console.log(inputs.groupInfo); }"
         self.hog_function.inputs = {"groupInfo": {"value": "{groups['company']}"}}
 
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=0, project=self.project)
+        create_group_type_mapping_without_created_at(
+            team=self.team, group_type="company", group_type_index=0, project=self.project
+        )
 
         result = self.compile_and_run()
 

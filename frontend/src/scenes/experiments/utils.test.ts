@@ -24,11 +24,11 @@ import {
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/shared/utils'
+import { filterToMetricConfig } from './metricQueryUtils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
-    filterToMetricConfig,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
     isLegacyExperiment,

@@ -18,6 +18,8 @@ import {
     Webhook,
 } from '@posthog/plugin-scaffold'
 
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
@@ -152,6 +154,8 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
     HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
+
+    CDP_EMAIL_TRACKING_URL: string
 }
 
 export type IngestionConsumerConfig = {
@@ -189,6 +193,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
     PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number // maximum size in bytes for person properties JSON as stored, checked via pg_column_size(properties)
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
+    // Limit per merge for moving distinct IDs. 0 disables limiting.
+    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
@@ -419,6 +425,7 @@ export interface Hub extends PluginsServerConfig {
     cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
+    quotaLimiting: QuotaLimiting
 }
 
 export interface PluginServerCapabilities {

@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
@@ -15,7 +16,6 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -528,7 +528,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two_after_delete["tiles"]) == 1
 
     def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
-        group_type = GroupTypeMapping.objects.create(
+        group_type = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 

@@ -32,7 +32,6 @@ from datetime import datetime, timedelta, UTC
 
 class ExperimentFunnelsQueryRunner(QueryRunner):
     query: ExperimentFunnelsQuery
-    response: ExperimentFunnelsQueryResponse
     cached_response: CachedExperimentFunnelsQueryResponse
 
     def __init__(self, *args, **kwargs):

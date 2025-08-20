@@ -8,15 +8,17 @@ from uuid import uuid4
 from asgiref.sync import sync_to_async
 from django.db.models import Max
 from django.utils import timezone
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, AIMessageChunk
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.types import StreamWriter
+from langgraph.config import get_stream_writer
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.schema import (
@@ -41,7 +43,7 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic seri
 
 
 class InsightSearchNode(AssistantNode):
-    PAGE_SIZE = 50
+    PAGE_SIZE = 500
     MAX_SEARCH_ITERATIONS = 6
     MAX_INSIGHTS_TO_RETURN = 3
     MAX_EVALUATION_ITERATIONS = 3
@@ -63,6 +65,35 @@ class InsightSearchNode(AssistantNode):
         self._cutoff_date_for_insights_in_days = self.INSIGHTS_CUTOFF_DAYS
         self._query_cache = {}
         self._insight_id_cache = {}
+
+    def _get_stream_writer(self) -> StreamWriter | None:
+        try:
+            return get_stream_writer()
+        except Exception:
+            return None
+
+    def _stream_reasoning(
+        self, content: str, substeps: list[str] | None = None, writer: StreamWriter | None = None
+    ) -> None:
+        if not writer:
+            logger.warning("Cannot stream reasoning message!")
+            return
+
+        try:
+            display_content = content
+            if substeps:
+                display_content += "\n" + "\n".join(f"• {step}" for step in substeps)
+
+            message_chunk = AIMessageChunk(
+                content="",
+                additional_kwargs={"reasoning": {"summary": [{"text": f"**{display_content}**"}]}},
+            )
+            message = (message_chunk, {"langgraph_node": AssistantNodeName.INSIGHTS_SEARCH})
+
+            writer(("insights_search_node", "messages", message))
+
+        except Exception as e:
+            logger.exception("Failed to stream reasoning message", extra={"error": str(e), "content": content})
 
     def _create_page_reader_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -123,6 +154,15 @@ class InsightSearchNode(AssistantNode):
                 return self._handle_empty_database(state)
 
             selected_insights = await self._search_insights_iteratively(search_query or "")
+
+            writer = self._get_stream_writer()
+            if selected_insights:
+                self._stream_reasoning(
+                    content=f"Evaluating {len(selected_insights)} insights to find the best match", writer=writer
+                )
+            else:
+                self._stream_reasoning(content="No existing insights found, creating a new one", writer=writer)
+
             evaluation_result = await sync_to_async(self._evaluate_insights_with_tools)(
                 selected_insights, search_query or "", max_selections=1
             )
@@ -284,6 +324,13 @@ class InsightSearchNode(AssistantNode):
     async def _perform_iterative_search(self, messages: list[BaseMessage], llm_with_tools) -> list[int]:
         """Perform the iterative search with the LLM."""
         selected_insights = []
+        writer = self._get_stream_writer()
+
+        self._stream_reasoning(
+            content=f"Searching through existing insights",
+            substeps=[f"Analyzing {self._get_total_insights_count()} available insights"],
+            writer=writer,
+        )
 
         while self._current_iteration < self._max_iterations:
             self._current_iteration += 1
@@ -298,6 +345,9 @@ class InsightSearchNode(AssistantNode):
                     for tool_call in response.tool_calls:
                         if tool_call.get("name") == "read_insights_page":
                             page_num = tool_call.get("args", {}).get("page_number", 0)
+                            page_message = "Finding the most relevant insights"
+                            self._stream_reasoning(content=page_message, writer=writer)
+
                             tool_response = await sync_to_async(self._get_page_content_for_tool)(page_num)
                             messages.append(
                                 ToolMessage(content=tool_response, tool_call_id=tool_call.get("id", "unknown"))
@@ -307,11 +357,20 @@ class InsightSearchNode(AssistantNode):
                 # No tool calls, extract insight IDs from the response. Done with the search
                 content = response.content if isinstance(response.content, str) else str(response.content)
                 selected_insights = self._parse_insight_ids(content)
+                if selected_insights:
+                    final_message = f"Found {len(selected_insights)} relevant insights"
+                    self._stream_reasoning(content=final_message, writer=writer)
+                else:
+                    no_results_message = "No matching insights found"
+                    self._stream_reasoning(content=no_results_message, writer=writer)
                 break
 
             except Exception as e:
                 capture_exception(e)
+                error_message = f"Error during search"
+                self._stream_reasoning(content=error_message, writer=writer)
                 break
+
         return selected_insights
 
     def _get_page_content_for_tool(self, page_number: int) -> str:
@@ -514,6 +573,13 @@ class InsightSearchNode(AssistantNode):
     def _create_visualization_message_for_insight(self, insight: Insight) -> VisualizationMessage | None:
         """Create a VisualizationMessage to render the insight UI."""
         try:
+            writer = self._get_stream_writer()
+            self._stream_reasoning(
+                content=f"Executing insight query...",
+                substeps=["Processing query parameters", "Running data analysis"],
+                writer=writer,
+            )
+
             query_obj, _ = self._process_insight_query(insight)
 
             if not query_obj:
@@ -602,16 +668,28 @@ class InsightSearchNode(AssistantNode):
 
     def _run_evaluation_loop(self, user_query: str, insights_summary: list[str], max_selections: int) -> None:
         """Run the evaluation loop with LLM."""
+        writer = self._get_stream_writer()
+        self._stream_reasoning(
+            content="Analyzing insights to match your request",
+            substeps=[
+                "Comparing insights for best fit",
+            ],
+            writer=writer,
+        )
+
         tools = self._create_insight_evaluation_tools()
         llm_with_tools = self._model.bind_tools(tools)
 
         selection_instruction = self._build_selection_instruction(max_selections)
         messages = self._build_evaluation_messages(user_query, insights_summary, selection_instruction)
 
-        for _ in range(self._max_insights_evaluation_iterations):
+        for iteration in range(self._max_insights_evaluation_iterations):
             response = llm_with_tools.invoke(messages)
 
             if getattr(response, "tool_calls", None):
+                # Only stream on first iteration to avoid noise
+                if iteration == 0:
+                    self._stream_reasoning(content="Making evaluation decisions", writer=writer)
                 self._process_evaluation_tool_calls(response, messages, tools)
             else:
                 break
@@ -648,6 +726,15 @@ class InsightSearchNode(AssistantNode):
         visualization_messages = []
         explanations = []
 
+        writer = self._get_stream_writer()
+        num_insights = len(self._evaluation_selections)
+        insight_word = "insight" if num_insights == 1 else "insights"
+
+        self._stream_reasoning(
+            content=f"Perfect! Found {num_insights} suitable {insight_word}",
+            writer=writer,
+        )
+
         for _, selection in self._evaluation_selections.items():
             insight = selection["insight"]
             visualization_message = self._create_visualization_message_for_insight(insight)
@@ -676,6 +763,13 @@ class InsightSearchNode(AssistantNode):
 
     def _create_rejection_result(self) -> dict:
         """Create result for when all insights are rejected."""
+        writer = self._get_stream_writer()
+        self._stream_reasoning(
+            content="No perfect match found in existing insights",
+            substeps=["Will create a custom insight tailored to your request"],
+            writer=writer,
+        )
+
         return {
             "should_use_existing": False,
             "selected_insights": [],

@@ -64,7 +64,7 @@ async def MaxEval(
         scores=scores,
         trial_count=3 if os.getenv("CI") else 1,
         timeout=60 * 8,
-        max_concurrency=20,
+        max_concurrency=100,
         is_public=True,
         metadata=metadata,
     )

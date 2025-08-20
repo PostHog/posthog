@@ -33,9 +33,8 @@ class NoActionsError(Exception):
     pass
 
 
-class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
+class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
     query: WebGoalsQuery
-    response: WebGoalsQueryResponse
     cached_response: CachedWebGoalsQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

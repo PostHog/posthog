@@ -192,16 +192,11 @@ def WEB_BOUNCES_HOURLY_SQL():
     )
 
 
-def format_team_ids(team_ids):
+def format_team_ids(team_ids: list[int]) -> str:
     return ", ".join(str(team_id) for team_id in team_ids)
 
 
-def get_team_filters(team_ids):
-    """
-    Get team filters using dictionary lookup for enabled teams.
-    If team_ids is provided, use IN clause (for backward compatibility or debugging).
-    Otherwise, use dictionary lookup for the latest configuration.
-    """
+def get_team_filters(team_ids: list[int] | None) -> dict[str, str]:
     if team_ids:
         team_ids_str = format_team_ids(team_ids)
         return {
@@ -217,43 +212,76 @@ def get_team_filters(team_ids):
         }
 
 
-def get_insert_params(team_ids, granularity="daily"):
-    filters = get_team_filters(team_ids)
-
+def get_date_filters(date_start: str, date_end: str, timezone: str, granularity: str = "daily") -> dict[str, str]:
     if granularity == "hourly":
-        time_bucket_func = "toStartOfHour"
-        bucket_column = "period_bucket"
+        # For hourly buckets, extend the session window to capture all sessions
+        # that might contribute to hourly buckets within the date range
+        session_start = f"minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(25))"
+        session_end = f"plus(toDateTime('{date_end}', '{timezone}'), toIntervalHour(1))"
+        event_start = f"minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(1))"
+        event_end = f"plus(toDateTime('{date_end}', '{timezone}'), toIntervalHour(1))"
     else:
-        time_bucket_func = "toStartOfDay"
-        bucket_column = "period_bucket"
+        # Keep existing logic for daily granularity
+        session_start = f"minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))"
+        session_end = f"toDateTime('{date_end}', '{timezone}')"
+        event_start = f"toDateTime('{date_start}', '{timezone}')"
+        event_end = f"toDateTime('{date_end}', '{timezone}')"
+
+    # Target period filters are the same for both granularities
+    target_period_start = f"toDateTime('{date_start}', '{timezone}')"
+    target_period_end = f"toDateTime('{date_end}', '{timezone}')"
 
     return {
-        "team_filter": filters["raw_sessions"],
-        "person_team_filter": filters["person_distinct_id_overrides"],
-        "events_team_filter": filters["events"],
+        "session_start_filter": session_start,
+        "session_end_filter": session_end,
+        "event_start_filter": event_start,
+        "event_end_filter": event_end,
+        "target_period_start": target_period_start,
+        "target_period_end": target_period_end,
+    }
+
+
+def get_all_filters(
+    date_start: str,
+    date_end: str,
+    timezone: str,
+    team_ids: list[int] | None = None,
+    granularity: str = "daily",
+    settings: str = "",
+) -> dict[str, str]:
+    team_filters = get_team_filters(team_ids)
+    date_filters = get_date_filters(date_start, date_end, timezone, granularity)
+
+    time_bucket_func = "toStartOfHour" if granularity == "hourly" else "toStartOfDay"
+    settings_clause = f"SETTINGS {settings}" if settings else ""
+
+    return {
+        "team_filter": team_filters["raw_sessions"],
+        "person_team_filter": team_filters["person_distinct_id_overrides"],
+        "events_team_filter": team_filters["events"],
         "time_bucket_func": time_bucket_func,
-        "bucket_column": bucket_column,
+        "settings_clause": settings_clause,
+        "timezone": timezone,
+        "date_start": date_start,
+        "date_end": date_end,
+        **date_filters,
     }
 
 
 def WEB_STATS_INSERT_SQL(
-    date_start,
-    date_end,
-    team_ids=None,
-    timezone="UTC",
-    settings="",
-    table_name="web_stats_daily",
-    granularity="daily",
-    select_only=False,
-):
-    params = get_insert_params(team_ids, granularity)
-    team_filter = params["team_filter"]
-    person_team_filter = params["person_team_filter"]
-    events_team_filter = params["events_team_filter"]
-    time_bucket_func = params["time_bucket_func"]
-    settings_clause = f"SETTINGS {settings}" if settings else ""
+    date_start: str,
+    date_end: str,
+    team_ids: list[int] | None = None,
+    timezone: str = "UTC",
+    settings: str = "",
+    table_name: str = "web_stats_daily",
+    granularity: str = "daily",
+    select_only: bool = False,
+) -> str:
+    # Get all filters and parameters in one place
+    filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
-    query = f"""
+    query = """
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -336,8 +364,8 @@ def WEB_STATS_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= {session_start_filter}
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= {session_end_filter}
             GROUP BY
                 raw_sessions.session_id_v7
             {settings_clause}
@@ -356,8 +384,8 @@ def WEB_STATS_INSERT_SQL(
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
             AND (e.`$session_id` IS NOT NULL)
-            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+            AND toTimeZone(e.timestamp, '{timezone}') >= {event_start_filter}
+            AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY
             events__session.session_id,
             e.team_id,
@@ -385,6 +413,9 @@ def WEB_STATS_INSERT_SQL(
             has_fbclid
         {settings_clause}
     )
+    WHERE
+        period_bucket >= {target_period_start}
+        AND period_bucket < {target_period_end}
     GROUP BY
         period_bucket,
         team_id,
@@ -413,34 +444,32 @@ def WEB_STATS_INSERT_SQL(
     {settings_clause}
     """
 
+    # Format the query with all parameters from centralized filters
+    formatted_query = query.format(**filters)
+
     if select_only:
-        return query
+        return formatted_query
     else:
         # Explicitly specify column names to protect against column order changes
         columns = get_web_stats_insert_columns()
         column_list = ",\n    ".join(columns)
-        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
 
 
 def WEB_BOUNCES_INSERT_SQL(
-    date_start,
-    date_end,
-    team_ids=None,
-    timezone="UTC",
-    settings="",
-    table_name="web_bounces_daily",
-    granularity="daily",
-    select_only=False,
-):
-    params = get_insert_params(team_ids, granularity)
-    team_filter = params["team_filter"]
-    person_team_filter = params["person_team_filter"]
-    events_team_filter = params["events_team_filter"]
-    time_bucket_func = params["time_bucket_func"]
+    date_start: str,
+    date_end: str,
+    team_ids: list[int] | None = None,
+    timezone: str = "UTC",
+    settings: str = "",
+    table_name: str = "web_bounces_daily",
+    granularity: str = "daily",
+    select_only: bool = False,
+) -> str:
+    # Get all filters and parameters in one place
+    filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
-    settings_clause = f"SETTINGS {settings}" if settings else ""
-
-    query = f"""
+    query = """
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -536,8 +565,8 @@ def WEB_BOUNCES_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= {session_start_filter}
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= {session_end_filter}
             GROUP BY raw_sessions.session_id_v7
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
@@ -553,12 +582,15 @@ def WEB_BOUNCES_INSERT_SQL(
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
             AND (e.`$session_id` IS NOT NULL)
-            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+            AND toTimeZone(e.timestamp, '{timezone}') >= {event_start_filter}
+            AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY
             session_id,
             team_id
     )
+    WHERE
+        period_bucket >= {target_period_start}
+        AND period_bucket < {target_period_end}
     GROUP BY
         period_bucket,
         team_id,
@@ -586,13 +618,15 @@ def WEB_BOUNCES_INSERT_SQL(
     {settings_clause}
     """
 
+    formatted_query = query.format(**filters)
+
     if select_only:
-        return query
+        return formatted_query
     else:
         # Explicitly specify column names to protect against column order changes
         columns = get_web_bounces_insert_columns()
         column_list = ",\n    ".join(columns)
-        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
 
 
 def WEB_STATS_EXPORT_SQL(

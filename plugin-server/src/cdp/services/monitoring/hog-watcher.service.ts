@@ -111,7 +111,7 @@ export class HogWatcherService {
 
         this.lazyLoader = new LazyLoader({
             name: 'hog_watcher_lazy_loader',
-            refreshAge: 30_000, // Cache for 30 seconds
+            refreshAgeMs: 30_000, // Cache for 30 seconds
             refreshJitterMs: 10_000,
             loader: async (ids) => await this.getPersistedStates(ids),
         })

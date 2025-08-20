@@ -26,7 +26,6 @@ export const HogFlowSteps: Partial<{
     function_webhook: StepFunctionWebhook,
     function_sms: StepFunctionSms,
     function_slack: StepFunctionSlack,
-    // function: StepFunction,
 } as const
 
 // Type-safe accessor that preserves the key type

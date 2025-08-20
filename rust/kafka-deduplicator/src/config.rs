@@ -1,6 +1,7 @@
 use std::{fs, path::PathBuf, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use bytesize::ByteSize;
 use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone, Debug)]
@@ -37,6 +38,9 @@ pub struct Config {
     #[envconfig(default = "snappy")]
     pub kafka_compression_codec: String,
 
+    #[envconfig(default = "false")]
+    pub kafka_tls: bool,
+
     // Output topic for deduplicated events (optional - if not set, events are only consumed for metrics)
     pub output_topic: Option<String>,
 
@@ -44,8 +48,9 @@ pub struct Config {
     #[envconfig(default = "/tmp/deduplication-store")]
     pub store_path: String,
 
-    #[envconfig(default = "1073741824")] // 1GB default
-    pub max_store_capacity: u64,
+    #[envconfig(default = "1073741824")]
+    // 1GB default, supports: raw bytes, scientific notation (9.663676416e+09), or units (9Gi, 1GB)
+    pub max_store_capacity: String,
 
     // Consumer processing configuration
     #[envconfig(default = "100")]
@@ -176,6 +181,44 @@ impl Config {
         Duration::from_millis(self.kafka_producer_send_timeout_ms as u64)
     }
 
+    /// Parse storage capacity from various formats:
+    /// - Raw bytes: "1073741824"
+    /// - Scientific notation: "9.663676416e+09"
+    /// - Kubernetes units: "9Gi", "500Mi", "1Ki"
+    /// - Decimal units: "1GB", "500MB", "1KB"
+    pub fn parse_storage_capacity(&self) -> Result<u64> {
+        let s = self.max_store_capacity.trim();
+
+        // First try to parse as ByteSize (handles Gi, Mi, KB, MB, etc.)
+        if let Ok(size) = s.parse::<ByteSize>() {
+            return Ok(size.as_u64());
+        }
+
+        // Handle scientific notation (e.g., "9.663676416e+09")
+        if s.contains('e') || s.contains('E') {
+            let float_val: f64 = s
+                .parse()
+                .with_context(|| format!("Failed to parse scientific notation: {s}"))?;
+            if float_val < 0.0 {
+                return Err(anyhow::anyhow!(
+                    "Storage capacity cannot be negative: {}",
+                    s
+                ));
+            }
+            if float_val > u64::MAX as f64 {
+                return Err(anyhow::anyhow!(
+                    "Storage capacity exceeds maximum value: {}",
+                    s
+                ));
+            }
+            return Ok(float_val as u64);
+        }
+
+        // Try as raw integer
+        s.parse::<u64>()
+            .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
+    }
+
     /// Get checkpoint interval as Duration
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_secs(self.checkpoint_interval_secs)
@@ -204,6 +247,127 @@ impl Config {
                 self.kafka_producer_linger_ms.to_string(),
             )
             .set("compression.type", &self.kafka_compression_codec);
+
+        if self.kafka_tls {
+            config
+                .set("security.protocol", "ssl")
+                .set("enable.ssl.certificate.verification", "false");
+        }
+
         config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_storage_capacity_raw_bytes() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // Test raw bytes
+        config.max_store_capacity = "1073741824".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1073741824);
+
+        config.max_store_capacity = "0".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 0);
+
+        config.max_store_capacity = "1234567890".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1234567890);
+    }
+
+    #[test]
+    fn test_parse_storage_capacity_scientific_notation() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // Test scientific notation
+        config.max_store_capacity = "9.663676416e+09".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 9663676416);
+
+        config.max_store_capacity = "1e9".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1000000000);
+
+        config.max_store_capacity = "1.5e10".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 15000000000);
+
+        config.max_store_capacity = "2.5E9".to_string(); // Capital E
+        assert_eq!(config.parse_storage_capacity().unwrap(), 2500000000);
+    }
+
+    #[test]
+    fn test_parse_storage_capacity_kubernetes_units() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // Test Kubernetes binary units (base 1024)
+        config.max_store_capacity = "1Ki".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1024);
+
+        config.max_store_capacity = "1Mi".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1024 * 1024);
+
+        config.max_store_capacity = "1Gi".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1024 * 1024 * 1024);
+
+        config.max_store_capacity = "9Gi".to_string();
+        assert_eq!(
+            config.parse_storage_capacity().unwrap(),
+            9 * 1024 * 1024 * 1024
+        );
+
+        config.max_store_capacity = "500Mi".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 500 * 1024 * 1024);
+
+        // With B suffix
+        config.max_store_capacity = "1GiB".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_storage_capacity_decimal_units() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // Test decimal units (base 1000)
+        config.max_store_capacity = "1KB".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1000);
+
+        config.max_store_capacity = "1MB".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1000 * 1000);
+
+        config.max_store_capacity = "1GB".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1000 * 1000 * 1000);
+
+        config.max_store_capacity = "500MB".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 500 * 1000 * 1000);
+    }
+
+    #[test]
+    fn test_parse_storage_capacity_whitespace() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // Test with whitespace
+        config.max_store_capacity = "  1Gi  ".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 1024 * 1024 * 1024);
+
+        config.max_store_capacity = " 9.663676416e+09 ".to_string();
+        assert_eq!(config.parse_storage_capacity().unwrap(), 9663676416);
+    }
+
+    #[test]
+    fn test_parse_storage_capacity_errors() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // Test invalid formats
+        config.max_store_capacity = "invalid".to_string();
+        assert!(config.parse_storage_capacity().is_err());
+
+        config.max_store_capacity = "-1".to_string();
+        assert!(config.parse_storage_capacity().is_err());
+
+        config.max_store_capacity = "-1e9".to_string();
+        assert!(config.parse_storage_capacity().is_err());
+
+        config.max_store_capacity = "".to_string();
+        assert!(config.parse_storage_capacity().is_err());
     }
 }

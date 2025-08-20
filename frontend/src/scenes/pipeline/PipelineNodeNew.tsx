@@ -1,5 +1,6 @@
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { BatchExportConfiguration } from 'scenes/data-pipelines/batch-exports/BatchExportConfiguration'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
@@ -43,6 +44,8 @@ export const scene: SceneExport = {
 export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, pluginId, batchExportDestination, hogFunctionId } = paramsToProps({ params })
 
+    const hasNewPricing = !!useFeatureFlag('CDP_NEW_PRICING')
+
     if (!stage) {
         return <NotFound object="pipeline app stage" />
     }
@@ -58,6 +61,9 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     if (batchExportDestination) {
         if (stage !== PipelineStage.Destination) {
             return <NotFound object={batchExportDestination} />
+        }
+        if (hasNewPricing) {
+            return <BatchExportConfiguration service={batchExportDestination} />
         }
         return (
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>

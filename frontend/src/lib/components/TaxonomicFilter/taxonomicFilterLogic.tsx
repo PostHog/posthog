@@ -9,6 +9,7 @@ import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteLi
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DataWarehousePopoverField,
+    ExcludedProperties,
     ListStorage,
     SimpleOption,
     TaxonomicFilterGroup,
@@ -17,7 +18,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -192,7 +193,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
-            (excludedProperties) => excludedProperties ?? {},
+            (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
         ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
@@ -200,10 +201,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         propertyFilters: [
             (s) => [s.excludedProperties, s.propertyAllowList],
-            (
-                excludedProperties: Record<string, any>,
-                propertyAllowList: TaxonomicFilterLogicProps['propertyAllowList']
-            ) => ({ excludedProperties, propertyAllowList }),
+            (excludedProperties, propertyAllowList) => ({ excludedProperties, propertyAllowList }),
         ],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
@@ -231,7 +229,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventNames: string[],
                 schemaColumns: DatabaseSchemaField[],
                 metadataSource: AnyDataNode,
-                propertyFilters: { excludedProperties: any; propertyAllowList: any },
+                propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[]
@@ -253,6 +251,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             exclude_hidden: true,
                             ordering: eventOrdering ?? undefined,
                         }).url,
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
                             // Use the property's "name" when available, or "value" if a local option
@@ -355,7 +355,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.EventProperties],
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
                     },
@@ -403,7 +404,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.EventFeatureFlags],
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.EventFeatureFlags]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
@@ -626,7 +628,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
-                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags],
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags]?.filter(isString),
                     },
                     {
                         name: 'Experiments',

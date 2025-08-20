@@ -22,8 +22,7 @@ import {
     HogFunctionType,
     NativeTemplate,
 } from '../../types'
-import { cloneInvocation } from '../../utils/invocation-utils'
-import { createInvocation } from '../../utils/invocation-utils'
+import { cloneInvocation, createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
@@ -193,7 +192,6 @@ export class TemplateTester {
             mappings: this.template.mappings || null,
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
-            is_addon_required: false,
             deleted: false,
         }
 
@@ -270,7 +268,6 @@ export class TemplateTester {
             deleted: false,
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
-            is_addon_required: false,
         }
 
         const globalsWithInputs = await this.executor.buildInputsWithGlobals(
@@ -380,7 +377,6 @@ export class DestinationTester {
             updated_at: '2024-01-01T00:00:00Z',
             deleted: false,
             inputs: compiledInputs,
-            is_addon_required: false,
         })
 
         const result = await this.executor.execute(invocation)

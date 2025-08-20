@@ -10,7 +10,7 @@ from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_ENABLED_TEAM_IDS,
 )
 from dags.common import JobOwners, settings_with_log_comment
-from dags.web_preaggregated_team_selection_strategies import strategy_registry
+from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
 
 
 def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:
@@ -37,7 +37,9 @@ def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -
 def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
     all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
 
-    enabled_strategy_names = os.getenv("WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES", "environment_variable").split(",")
+    enabled_strategy_names = os.getenv(
+        "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES", "project_settings,environment_variable"
+    ).split(",")
     enabled_strategy_names = [s.strip().lower() for s in enabled_strategy_names]
 
     available_strategies = strategy_registry.get_available_strategies()

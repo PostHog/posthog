@@ -27,11 +27,12 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
     const dataNode = parsed && (isInsightVizNode(parsed) || isDataTableNode(parsed)) ? parsed.source : (parsed as Node)
 
     const dataNodeKey = insightVizDataNodeKey({ dashboardItemId: queryKey })
+    const modifiers = { debug: true, timings: true }
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: dataNode,
         key: dataNodeKey,
         dataNodeCollectionId: queryKey,
-        modifiers: { debug: true, timings: true },
+        modifiers,
     }
     const { response } = useValues(dataNodeLogic(dataNodeLogicProps))
 
@@ -43,12 +44,14 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                     query={parsed}
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
                     debug
+                    modifiers={modifiers}
                 />
             ) : isHogQLQuery(parsed) ? (
                 <HogQLDebug
                     queryKey={queryKey}
                     query={parsed}
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                    modifiers={modifiers}
                 />
             ) : (
                 <div className="deprecated-space-y-4">

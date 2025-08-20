@@ -29,24 +29,24 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const VariablesForDashboard = (): JSX.Element => {
-    const { dashboardVariables } = useValues(dashboardLogic)
+    const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
     const { overrideVariableValue } = useActions(dashboardLogic)
 
-    if (!dashboardVariables.length) {
+    if (!effectiveVariablesAndAssociatedInsights.length) {
         return <></>
     }
 
     return (
         <>
-            {dashboardVariables.map((n) => (
+            {effectiveVariablesAndAssociatedInsights.map((n) => (
                 <VariableComponent
                     key={n.variable.id}
                     variable={n.variable}
                     showEditingUI={false}
-                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull, true)}
+                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull)}
                     variableOverridesAreSet={false}
                     emptyState={<i className="text-xs">No override set</i>}
-                    insightsUsingVariable={n.insights}
+                    insightsUsingVariable={n.insightNames}
                 />
             ))}
         </>

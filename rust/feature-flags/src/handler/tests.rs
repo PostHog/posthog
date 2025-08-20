@@ -1237,3 +1237,55 @@ async fn test_fetch_and_filter_flags() {
         .iter()
         .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
 }
+
+#[test]
+fn test_disable_flags_request_parsing() {
+    // Test that disable_flags=true is properly parsed and detected
+
+    // Test case 1: disable_flags=true should be detected
+    let payload_with_disable = json!({
+        "token": "test_token",
+        "distinct_id": "test_user",
+        "disable_flags": true
+    });
+
+    let bytes = Bytes::from(payload_with_disable.to_string());
+    let request = crate::flags::flag_request::FlagRequest::from_bytes(bytes)
+        .expect("Failed to parse request with disable_flags=true");
+
+    assert!(
+        request.is_flags_disabled(),
+        "disable_flags=true should be detected"
+    );
+
+    // Test case 2: disable_flags=false should NOT be detected as disabled
+    let payload_with_enable = json!({
+        "token": "test_token",
+        "distinct_id": "test_user",
+        "disable_flags": false
+    });
+
+    let bytes = Bytes::from(payload_with_enable.to_string());
+    let request = crate::flags::flag_request::FlagRequest::from_bytes(bytes)
+        .expect("Failed to parse request with disable_flags=false");
+
+    assert!(
+        !request.is_flags_disabled(),
+        "disable_flags=false should not be detected as disabled"
+    );
+
+    // Test case 3: No disable_flags field should default to enabled
+    let payload_default = json!({
+        "token": "test_token",
+        "distinct_id": "test_user"
+    });
+
+    let bytes = Bytes::from(payload_default.to_string());
+    let request = crate::flags::flag_request::FlagRequest::from_bytes(bytes)
+        .expect("Failed to parse request without disable_flags");
+
+    assert!(
+        !request.is_flags_disabled(),
+        "Default should be flags enabled"
+    );
+}

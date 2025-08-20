@@ -5,6 +5,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
@@ -128,6 +129,7 @@ export async function createHub(
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
 
     const hub: Hub = {
         ...serverConfig,
@@ -171,6 +173,7 @@ export async function createHub(
         cookielessManager,
         pubSub,
         integrationManager,
+        quotaLimiting,
     }
 
     return hub

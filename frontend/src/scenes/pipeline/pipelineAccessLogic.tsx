@@ -1,5 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
@@ -11,7 +13,7 @@ import { Destination, NewDestinationItemType, SiteApp, Transformation } from './
 export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
     path(['scenes', 'pipeline', 'pipelineAccessLogic']),
     connect(() => ({
-        values: [userLogic, ['user', 'hasAvailableFeature']],
+        values: [userLogic, ['user', 'hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     })),
     selectors({
         // This is currently an organization level setting but might in the future be user level
@@ -19,9 +21,10 @@ export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
         canGloballyManagePlugins: [(s) => [s.user], (user) => canGloballyManagePlugins(user?.organization)],
         canConfigurePlugins: [(s) => [s.user], (user) => canConfigurePlugins(user?.organization)],
         canEnableNewDestinations: [
-            (s) => [s.user, s.hasAvailableFeature],
-            (user, hasAvailableFeature) =>
-                canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES),
+            (s) => [s.user, s.hasAvailableFeature, s.featureFlags],
+            (user, hasAvailableFeature, featureFlags) =>
+                canConfigurePlugins(user?.organization) &&
+                (hasAvailableFeature(AvailableFeature.DATA_PIPELINES) || !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]),
         ],
 
         canEnableDestination: [

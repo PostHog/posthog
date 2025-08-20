@@ -46,11 +46,11 @@ interface SchemasProps {
 
 const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
-    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
+    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id, availableSources: {} }))
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     return (
-        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
+        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id, availableSources: {} }}>
             <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
             {source?.source_type && REVENUE_ENABLED_SOURCES.includes(source.source_type) && (
                 <div className="flex justify-end">

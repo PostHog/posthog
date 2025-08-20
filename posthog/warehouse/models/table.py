@@ -89,6 +89,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # this also means we _always_ have two joins whenever we load tables
     objects = DataWarehouseTableManager()
 
+    # Use if it's certain externaldataschemas aren't needed
+    raw_objects = models.Manager()
+
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
         CSVWithNames = "CSVWithNames", "CSVWithNames"

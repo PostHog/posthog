@@ -50,7 +50,7 @@ export function loadPostHogJS(): void {
                             return
                         }
 
-                        const oneMinuteInMs = 60000
+                        const tenMinuteInMs = 60000 * 10
                         setInterval(() => {
                             // this is deprecated and not available in all browsers,
                             // but the supposed standard at https://developer.mozilla.org/en-US/docs/Web/API/Performance/measureUserAgentSpecificMemory
@@ -60,9 +60,11 @@ export function loadPostHogJS(): void {
                                 loadedInstance.capture('memory_usage', {
                                     totalJSHeapSize: memory.totalJSHeapSize,
                                     usedJSHeapSize: memory.usedJSHeapSize,
+                                    pageIsVisible: document.visibilityState === 'visible',
+                                    pageIsFocused: document.hasFocus(),
                                 })
                             }
-                        }, oneMinuteInMs)
+                        }, tenMinuteInMs)
                     }
                 }
 

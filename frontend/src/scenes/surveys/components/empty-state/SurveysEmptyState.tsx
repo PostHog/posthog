@@ -29,7 +29,10 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
-    const { isOnNewEmptyStateExperiment } = useValues(surveysLogic)
+    const {
+        isOnNewEmptyStateExperiment,
+        data: { surveysCount },
+    } = useValues(surveysLogic)
 
     if (!isOnNewEmptyStateExperiment) {
         return (
@@ -76,7 +79,9 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
             <div className="flex items-center justify-center">
                 <div className="space-y-6">
                     <div>
-                        <h2 className="mb-0">Create your first survey</h2>
+                        <h2 className="mb-0">
+                            {surveysCount > 0 ? 'Create your next survey' : 'Create your first survey'}
+                        </h2>
                         <p className="mb-0">
                             Choose from our most popular templates to get started quickly, or create your own from
                             scratch.

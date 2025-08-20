@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
@@ -38,17 +38,23 @@ export interface OperatorValueSelectProps {
     operatorSelectProps?: Partial<Omit<LemonSelectProps<any>, 'onChange'>>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
-    defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
     size?: 'xsmall' | 'small' | 'medium'
+    startVisible?: LemonDropdownProps['startVisible']
+    /**
+     * in some contexts you want to externally limit the available operators
+     * this won't add an operator if it isn't valid
+     * i.e. it limits the options shown from the options that would have been shown
+     * **/
+    operatorAllowlist?: Array<PropertyOperator>
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
-    defaultOpen?: boolean
+    startVisible?: LemonDropdownProps['startVisible']
 }
 
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
@@ -81,11 +87,12 @@ export function OperatorValueSelect({
     operatorSelectProps,
     propertyDefinitions = [],
     eventNames = [],
-    defaultOpen,
     addRelativeDateTimeOptions,
     groupTypeIndex = undefined,
     size,
     editable,
+    startVisible,
+    operatorAllowlist,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -132,7 +139,9 @@ export function OperatorValueSelect({
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
-        const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
+        const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+            return !operatorAllowlist || operatorAllowlist.includes(op)
+        })
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
@@ -147,7 +156,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>
@@ -184,7 +193,7 @@ export function OperatorValueSelect({
                         }}
                         {...operatorSelectProps}
                         size={size}
-                        defaultOpen={defaultOpen}
+                        startVisible={startVisible}
                     />
                 ) : (
                     <span>{allOperatorsToHumanName(currentOperator)} </span>
@@ -232,7 +241,14 @@ export function OperatorValueSelect({
     )
 }
 
-export function OperatorSelect({ operator, operators, onChange, className, size }: OperatorSelectProps): JSX.Element {
+export function OperatorSelect({
+    operator,
+    operators,
+    onChange,
+    className,
+    size,
+    startVisible,
+}: OperatorSelectProps): JSX.Element {
     const operatorOptions = operators.map((op) => ({
         label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
         value: op || PropertyOperator.Exact,
@@ -252,6 +268,7 @@ export function OperatorSelect({ operator, operators, onChange, className, size 
             menu={{
                 closeParentPopoverOnClickInside: false,
             }}
+            startVisible={startVisible}
         />
     )
 }

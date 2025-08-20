@@ -44,7 +44,10 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     """Return a list of subscription IDs that are due for delivery."""
 
     logger = get_internal_logger()
+    await logger.ainfo("Starting subscription fetch activity")
+
     now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
+    await logger.ainfo(f"Looking for subscriptions due before {now_with_buffer}")
 
     @database_sync_to_async
     def get_subscription_ids() -> list[Subscription]:
@@ -57,16 +60,32 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             .all()
         )
 
+    await logger.ainfo("Starting database query for subscriptions")
     subscriptions = await get_subscription_ids()
+    await logger.ainfo(f"Database query completed, found {len(subscriptions)} total subscriptions")
 
-    subscription_ids = []
+    subscription_ids: list[int] = []
+    team_count = 0
+    processed_teams = 0
+
+    await logger.ainfo("Starting team processing and feature flag checks")
 
     for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
+        team_count += 1
+        if team_count % 10 == 0:
+            await logger.ainfo(f"Processed {team_count} teams so far, {len(subscription_ids)} subscriptions collected")
+
         if team_use_temporal_flag(team):
+            processed_teams += 1
             for subscription in group_subscriptions:
                 subscription_ids.append(subscription.id)
 
-    await logger.ainfo("Fetched subscriptions", subscription_count=len(subscription_ids))
+    await logger.ainfo(
+        "Completed subscription fetch",
+        total_teams=team_count,
+        teams_using_temporal=processed_teams,
+        subscription_count=len(subscription_ids),
+    )
     return subscription_ids
 
 

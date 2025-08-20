@@ -1,10 +1,11 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Person, GroupTypeMapping
+from posthog.models import Person
 from posthog.models.group.util import create_group
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
@@ -48,10 +49,10 @@ class TestSessionRecordingsListByGroupProperties(ClickhouseTestMixin, APIBaseTes
         Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
 
         # there are two groups
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
         # each has an instance with properties

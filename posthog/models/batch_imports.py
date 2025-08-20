@@ -2,6 +2,7 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 from posthog.models.team import Team
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 
@@ -23,7 +24,7 @@ class ContentType(str, Enum):
         return {"type": self.value}
 
 
-class BatchImport(UUIDTModel):
+class BatchImport(ModelActivityMixin, UUIDTModel):
     class Status(models.TextChoices):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"

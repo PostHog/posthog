@@ -17,14 +17,13 @@ except ImportError:
     CORE_FILTER_DEFINITIONS_BY_GROUP = {}
 
 
-class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
+class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
     Calculates the top events for a team sorted by count. The EventDefinition model doesn't store the count of events,
     so this query mitigates that.
     """
 
     query: TeamTaxonomyQuery
-    response: TeamTaxonomyQueryResponse
     cached_response: CachedTeamTaxonomyQueryResponse
 
     def _calculate(self):

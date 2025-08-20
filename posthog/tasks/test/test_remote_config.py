@@ -21,6 +21,15 @@ class TestRemoteConfig(BaseTest):
         )
         self.other_team_2 = team
 
+        # Force synchronous RemoteConfig creation for tests since signals are async now
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        for team in [self.team, self.other_team_1, self.other_team_2]:
+            try:
+                RemoteConfig.objects.get(team=team)
+            except RemoteConfig.DoesNotExist:
+                update_team_remote_config(team.id)
+
     def test_sync_task_syncs_all_remote_configs(self) -> None:
         # Delete one teams config
         remote_config_deleted = RemoteConfig.objects.get(team=self.team)

@@ -16,9 +16,8 @@ from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItem
 ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
 
 
-class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsGrowthRateQueryResponse]):
     query: RevenueAnalyticsGrowthRateQuery
-    response: RevenueAnalyticsGrowthRateQueryResponse
     cached_response: CachedRevenueAnalyticsGrowthRateQueryResponse
 
     def to_query(self) -> ast.SelectQuery:

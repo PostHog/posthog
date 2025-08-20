@@ -16,9 +16,10 @@ import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
 import { HogFlow } from '~/schema/hogflow'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../../types'
-import { generateMailjetCustomId } from './email-tracking.service'
+import { PIXEL_GIF, generateEmailTrackingCode } from './email-tracking.service'
 import { MailjetEventBase, MailjetWebhookEvent } from './types'
 
 describe('EmailTrackingService', () => {
@@ -40,7 +41,7 @@ describe('EmailTrackingService', () => {
         await closeHub(hub)
     })
 
-    describe('handleWebhook', () => {
+    describe('api', () => {
         // NOTE: These tests are done via the CdpApi router so we can get full coverage of the code
         let api: CdpApi
         let app: express.Application
@@ -69,7 +70,7 @@ describe('EmailTrackingService', () => {
                 MessageID: 1,
                 Message_GUID: 'test-message-guid',
                 customcampaign: 'test-custom-campaign',
-                CustomID: generateMailjetCustomId({ functionId: hogFunction.id, id: invocationId }),
+                CustomID: generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }),
                 Payload: JSON.stringify({}),
             }
         })
@@ -78,118 +79,189 @@ describe('EmailTrackingService', () => {
             server.close()
         })
 
-        const sendValidEvent = async (mailjetEvent: MailjetEventBase): Promise<supertest.Response> => {
-            const timestamp = Date.now().toString()
-            const payload = JSON.stringify(mailjetEvent)
-            const signature = crypto
-                .createHmac('sha256', hub.MAILJET_SECRET_KEY)
-                .update(`${timestamp}.${payload}`)
-                .digest('hex')
-
-            const res = await supertest(app)
-                .post(`/public/messaging/mailjet_webhook`)
-                .set({
-                    'x-mailjet-signature': signature,
-                    'x-mailjet-timestamp': timestamp,
-                    'content-type': 'application/json',
-                })
-                .send(payload)
-
-            return res
-        }
-
-        describe('validation', () => {
-            it('should return 403 if required headers are missing', async () => {
-                const res = await supertest(app).post(`/public/messaging/mailjet_webhook`).send({})
-
-                expect(res.status).toBe(403)
-                expect(res.body).toMatchInlineSnapshot(`
-                {
-                  "message": "Missing required headers or body",
-                }
-            `)
-            })
-
-            it('should return 403 if signature is invalid', async () => {
+        describe('mailjet webhook', () => {
+            const sendValidEvent = async (mailjetEvent: MailjetEventBase): Promise<supertest.Response> => {
                 const timestamp = Date.now().toString()
+                const payload = JSON.stringify(mailjetEvent)
+                const signature = crypto
+                    .createHmac('sha256', hub.MAILJET_SECRET_KEY)
+                    .update(`${timestamp}.${payload}`)
+                    .digest('hex')
+
                 const res = await supertest(app)
-                    .post(`/public/messaging/mailjet_webhook`)
+                    .post(`/public/m/mailjet_webhook`)
                     .set({
-                        'x-mailjet-signature': 'invalid-signature',
+                        'x-mailjet-signature': signature,
                         'x-mailjet-timestamp': timestamp,
+                        'content-type': 'application/json',
                     })
-                    .send(exampleEvent)
+                    .send(payload)
 
-                expect(res.status).toBe(403)
-                expect(res.body).toMatchInlineSnapshot(`
-                {
-                  "message": "Invalid signature",
+                return res
+            }
+
+            describe('validation', () => {
+                it('should return 403 if required headers are missing', async () => {
+                    const res = await supertest(app).post(`/public/m/mailjet_webhook`).send({})
+
+                    expect(res.status).toBe(403)
+                    expect(res.body).toEqual({
+                        message: 'Missing required headers or body',
+                    })
+                })
+
+                it('should return 403 if signature is invalid', async () => {
+                    const timestamp = Date.now().toString()
+                    const res = await supertest(app)
+                        .post(`/public/m/mailjet_webhook`)
+                        .set({
+                            'x-mailjet-signature': 'invalid-signature',
+                            'x-mailjet-timestamp': timestamp,
+                        })
+                        .send(exampleEvent)
+
+                    expect(res.status).toBe(403)
+                    expect(res.body).toEqual({
+                        message: 'Invalid signature',
+                    })
+                })
+            })
+
+            it('should not track a metric if the hog function or flow is not found', async () => {
+                const mailjetEvent: MailjetEventBase = {
+                    ...exampleEvent,
+                    CustomID: 'ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id',
                 }
-            `)
+                const res = await sendValidEvent(mailjetEvent)
+
+                expect(res.status).toBe(200)
+                expect(res.body).toEqual({ message: 'OK' })
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(0)
+            })
+
+            it('should track a hog flow if given', async () => {
+                const mailjetEvent: MailjetEventBase = {
+                    ...exampleEvent,
+                    CustomID: generateEmailTrackingCode({ functionId: hogFlow.id, id: invocationId }),
+                }
+                const res = await sendValidEvent(mailjetEvent)
+
+                expect(res.status).toBe(200)
+                expect(res.body).toEqual({ message: 'OK' })
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(1)
+                expect(messages[0].value).toMatchObject({
+                    app_source: 'hog_flow',
+                    app_source_id: hogFlow.id,
+                    count: 1,
+                    instance_id: invocationId,
+                    metric_kind: 'email',
+                    metric_name: 'email_sent',
+                    team_id: team.id,
+                })
+            })
+
+            it.each([
+                ['open', 'email_opened'],
+                ['click', 'email_link_clicked'],
+                ['bounce', 'email_bounced'],
+                ['spam', 'email_spam'],
+                ['unsub', 'email_unsubscribed'],
+            ] as const)('should handle valid %s event', async (event, metric) => {
+                const mailjetEvent: MailjetEventBase = {
+                    ...exampleEvent,
+                    event,
+                }
+                const res = await sendValidEvent(mailjetEvent)
+
+                expect(res.status).toBe(200)
+                expect(res.body).toEqual({ message: 'OK' })
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(1)
+
+                expect(messages[0].value).toMatchObject({
+                    app_source: 'hog_function',
+                    app_source_id: hogFunction.id,
+                    count: 1,
+                    instance_id: invocationId,
+                    metric_kind: 'email',
+                    metric_name: metric,
+                    team_id: team.id,
+                })
             })
         })
 
-        it('should not track a metric if the hog function or flow is not found', async () => {
-            const mailjetEvent: MailjetEventBase = {
-                ...exampleEvent,
-                CustomID: 'ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id',
-            }
-            const res = await sendValidEvent(mailjetEvent)
+        describe('handleEmailTrackingRedirect', () => {
+            it('should redirect to the target url and track the click metric', async () => {
+                const res = await supertest(app).get(
+                    `/public/m/redirect?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}&target=https://example.com`
+                )
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe('https://example.com')
 
-            expect(res.status).toBe(200)
-            expect(res.body).toEqual({ message: 'OK' })
-            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-            expect(messages).toHaveLength(0)
-        })
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(1)
+                expect(messages[0].value).toMatchObject({
+                    app_source: 'hog_function',
+                    app_source_id: hogFunction.id,
+                    instance_id: invocationId,
+                    metric_kind: 'email',
+                    metric_name: 'email_link_clicked',
+                    team_id: team.id,
+                    count: 1,
+                })
+            })
 
-        it('should track a hog flow if given', async () => {
-            const mailjetEvent: MailjetEventBase = {
-                ...exampleEvent,
-                CustomID: generateMailjetCustomId({ functionId: hogFlow.id, id: invocationId }),
-            }
-            const res = await sendValidEvent(mailjetEvent)
+            it('should return 404 if the target is not provided', async () => {
+                const res = await supertest(app).get(
+                    `/public/m/redirect?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}`
+                )
+                expect(res.status).toBe(404)
+            })
 
-            expect(res.status).toBe(200)
-            expect(res.body).toEqual({ message: 'OK' })
-            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-            expect(messages).toHaveLength(1)
-            expect(messages[0].value).toMatchObject({
-                app_source: 'hog_flow',
-                app_source_id: hogFlow.id,
-                count: 1,
-                instance_id: invocationId,
-                metric_kind: 'email',
-                metric_name: 'email_sent',
-                team_id: team.id,
+            it('should redirect even if the tracking code is invalid', async () => {
+                const res = await supertest(app).get(
+                    `/public/m/redirect?ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id&target=https://example.com`
+                )
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe('https://example.com')
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(0)
             })
         })
 
-        it.each([
-            ['open', 'email_opened'],
-            ['click', 'email_clicked'],
-            ['bounce', 'email_bounced'],
-            ['spam', 'email_spam'],
-            ['unsub', 'email_unsubscribed'],
-        ] as const)('should handle valid %s event', async (event, metric) => {
-            const mailjetEvent: MailjetEventBase = {
-                ...exampleEvent,
-                event,
-            }
-            const res = await sendValidEvent(mailjetEvent)
+        describe('email tracking pixel', () => {
+            it('should return a 200 and a gif image, tracking the open metric', async () => {
+                const res = await supertest(app).get(
+                    `/public/m/pixel?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}`
+                )
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toBe('image/gif')
+                expect(res.body).toEqual(PIXEL_GIF)
 
-            expect(res.status).toBe(200)
-            expect(res.body).toEqual({ message: 'OK' })
-            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-            expect(messages).toHaveLength(1)
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(1)
+                expect(messages[0].value).toMatchObject({
+                    app_source: 'hog_function',
+                    app_source_id: hogFunction.id,
+                    instance_id: invocationId,
+                    metric_kind: 'email',
+                    metric_name: 'email_opened',
+                    team_id: team.id,
+                    count: 1,
+                })
+            })
 
-            expect(messages[0].value).toMatchObject({
-                app_source: 'hog_function',
-                app_source_id: hogFunction.id,
-                count: 1,
-                instance_id: invocationId,
-                metric_kind: 'email',
-                metric_name: metric,
-                team_id: team.id,
+            it('should return a 200 even if the tracking code is invalid', async () => {
+                const res = await supertest(app).get(`/public/m/pixel?ph_fn_id=${new UUIDT()}&ph_inv_id=${new UUIDT()}`)
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toBe('image/gif')
+                expect(res.body).toEqual(PIXEL_GIF)
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(0)
             })
         })
     })

@@ -23,7 +23,11 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import {
+    TaxonomicPopover,
+    TaxonomicPopoverProps,
+    TaxonomicStringPopover,
+} from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -177,7 +181,8 @@ export function ActionFilterRow({
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     filtersLeftPadding = false,
     addFilterDocLink,
-}: ActionFilterRowProps): JSX.Element {
+    excludedProperties,
+}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties'>): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
@@ -325,6 +330,7 @@ export function ActionFilterRow({
             disabled={disabled || readOnly}
             showNumericalPropsOnly={showNumericalPropsOnly}
             dataWarehousePopoverFields={dataWarehousePopoverFields}
+            excludedProperties={excludedProperties}
         />
     )
 
@@ -667,6 +673,7 @@ export function ActionFilterRow({
                                 : []
                         }
                         addFilterDocLink={addFilterDocLink}
+                        excludedProperties={excludedProperties}
                     />
                 </div>
             )}

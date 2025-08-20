@@ -55,7 +55,7 @@ export class PersonsManagerService {
     private async fetchPersons(ids: string[]): Promise<Record<string, PersonManagerPerson | undefined>> {
         const teamPersons = ids.map(fromKey)
 
-        logger.info('[PersonManager]', 'Fetching persons', { teamPersons })
+        logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
         // Build the WHERE clause for multiple team_id, distinct_id pairs
         const conditions = teamPersons

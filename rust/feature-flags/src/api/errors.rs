@@ -31,8 +31,6 @@ pub enum FlagError {
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
     RequestParsingError(#[from] serde_json::Error),
-    #[error("Empty distinct_id in request")]
-    EmptyDistinctId,
     #[error("No distinct_id in request")]
     MissingDistinctId,
     #[error("No api_key in request")]
@@ -95,9 +93,6 @@ impl IntoResponse for FlagError {
             }
             FlagError::RequestParsingError(err) => {
                 (StatusCode::BAD_REQUEST, format!("Failed to parse request: {err}. Please ensure your request is properly formatted and all required fields are present."))
-            }
-            FlagError::EmptyDistinctId => {
-                (StatusCode::BAD_REQUEST, "The distinct_id field cannot be empty. Please provide a valid identifier.".to_string())
             }
             FlagError::MissingDistinctId => {
                 (StatusCode::BAD_REQUEST, "The distinct_id field is missing from the request. Please include a valid identifier.".to_string())
@@ -195,12 +190,18 @@ impl IntoResponse for FlagError {
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
-                    CookielessManagerError::MissingProperty(prop) =>
-                        (StatusCode::BAD_REQUEST, format!("Missing required property: {prop}")),
-                    CookielessManagerError::UrlParseError(e) =>
-                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {e}")),
-                    CookielessManagerError::InvalidTimestamp(msg) =>
-                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}")),
+                    CookielessManagerError::MissingProperty(prop) => {
+                        tracing::warn!("Cookieless missing property: {}", prop);
+                        (StatusCode::BAD_REQUEST, format!("Missing required property: {prop}"))
+                    },
+                    CookielessManagerError::UrlParseError(e) => {
+                        tracing::warn!("Cookieless URL parse error: {}", e);
+                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {e}"))
+                    },
+                    CookielessManagerError::InvalidTimestamp(msg) => {
+                        tracing::warn!("Cookieless invalid timestamp: {}", msg);
+                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}"))
+                    },
 
                     // 500 Internal Server Error - server-side issues
                     err @ (CookielessManagerError::HashError(_) |

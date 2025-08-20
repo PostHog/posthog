@@ -5,17 +5,14 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
-    ActionsNode,
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetricStep,
-    ExperimentFunnelMetricTypeProps,
     ExperimentFunnelsQuery,
-    ExperimentMeanMetricTypeProps,
     ExperimentMetric,
+    ExperimentMetricSource,
     ExperimentMetricType,
-    ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     NodeKind,
     TrendsQuery,
@@ -109,7 +106,7 @@ function seriesToFilterLegacy(
     return null
 }
 
-function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | null {
+function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): UniversalFiltersGroupValue | null {
     if (series.kind === NodeKind.EventsNode) {
         return {
             id: series.event ?? null,
@@ -124,6 +121,14 @@ function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | nul
             id: series.id,
             name: series.name,
             type: 'actions',
+        }
+    }
+
+    if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+        return {
+            id: series.table_name,
+            name: series.name,
+            type: 'data_warehouse',
         }
     }
 
@@ -206,6 +211,21 @@ export function getViewRecordingFilters(
                 filters.push(funnelMetric)
             }
         })
+    }
+
+    /**
+     * for ratio metrics, we add both numerator and denominator events to the filters
+     */
+    if (metric.metric_type === ExperimentMetricType.RATIO) {
+        const numeratorFilter = seriesToFilter(metric.numerator)
+        const denominatorFilter = seriesToFilter(metric.denominator)
+
+        if (numeratorFilter) {
+            filters.push(numeratorFilter)
+        }
+        if (denominatorFilter) {
+            filters.push(denominatorFilter)
+        }
     }
 
     return filters
@@ -387,6 +407,26 @@ export function getDefaultCountMetric(): ExperimentMetric {
     }
 }
 
+export function getDefaultRatioMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
+        metric_type: ExperimentMetricType.RATIO,
+        numerator: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+        denominator: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+    }
+}
+
 /**
  * TODO: review. Probably deprecated
  */
@@ -394,6 +434,8 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
             return getDefaultFunnelMetric()
+        case ExperimentMetricType.RATIO:
+            return getDefaultRatioMetric()
         default:
             return getDefaultCountMetric()
     }
@@ -499,126 +541,12 @@ export function filterToExposureConfig(
 }
 
 /**
- * TODO: review for refactor.
- */
-export function filterToMetricConfig(
-    metricType: ExperimentMetricType,
-    actions: Record<string, any>[] | undefined,
-    events: Record<string, any>[] | undefined,
-    data_warehouse: Record<string, any>[] | undefined
-): ExperimentMetricTypeProps | undefined {
-    const getFunnelMetricConfig = (): ExperimentFunnelMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.FUNNEL) {
-            return undefined
-        }
-
-        // Combine events and actions and sort by order
-        const eventSteps =
-            events?.map(
-                (event) =>
-                    ({
-                        kind: NodeKind.EventsNode,
-                        event: event.id,
-                        properties: event.properties,
-                        order: event.order,
-                    }) as EventsNode & { order: number }
-            ) || []
-
-        const actionSteps =
-            actions?.map(
-                (action) =>
-                    ({
-                        kind: NodeKind.ActionsNode,
-                        id: action.id,
-                        name: action.name,
-                        properties: action.properties,
-                        order: action.order,
-                    }) as ActionsNode & { order: number }
-            ) || []
-
-        const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
-
-        // Remove the temporary order field
-        const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)
-
-        return {
-            metric_type: ExperimentMetricType.FUNNEL,
-            series,
-        }
-    }
-
-    const getEventMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.MEAN || !events?.[0]) {
-            return undefined
-        }
-
-        return {
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.EventsNode,
-                event: events[0].id,
-                name: events[0].name,
-                math: events[0].math || ExperimentMetricMathType.TotalCount,
-                math_property: events[0].math_property,
-                math_hogql: events[0].math_hogql,
-                properties: events[0].properties,
-            },
-        }
-    }
-
-    const getActionMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.MEAN || !actions?.[0]) {
-            return undefined
-        }
-
-        return {
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.ActionsNode,
-                id: actions[0].id,
-                name: actions[0].name,
-                math: actions[0].math || ExperimentMetricMathType.TotalCount,
-                math_property: actions[0].math_property,
-                math_hogql: actions[0].math_hogql,
-                properties: actions[0].properties,
-            },
-        }
-    }
-
-    const getDataWarehouseMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.MEAN || !data_warehouse?.[0]) {
-            return undefined
-        }
-
-        return {
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.ExperimentDataWarehouseNode,
-                name: data_warehouse[0].name,
-                table_name: data_warehouse[0].id,
-                timestamp_field: data_warehouse[0].timestamp_field,
-                events_join_key: data_warehouse[0].events_join_key,
-                data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
-                math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
-                math_property: data_warehouse[0].math_property,
-                math_hogql: data_warehouse[0].math_hogql,
-                properties: data_warehouse[0].properties,
-            },
-        }
-    }
-
-    // Return the first non-undefined configuration
-    return (
-        getFunnelMetricConfig() || getEventMetricConfig() || getActionMetricConfig() || getDataWarehouseMetricConfig()
-    )
-}
-
-/**
  * returns the math availability for a metric type
  */
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
+        case ExperimentMetricType.RATIO:
             return MathAvailability.All
         default:
             return MathAvailability.None
@@ -639,6 +567,14 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Max,
                 ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.HogQL,
+            ]
+        case ExperimentMetricType.RATIO:
+            return [
+                ExperimentMetricMathType.TotalCount,
+                ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.Avg,
+                ExperimentMetricMathType.Min,
+                ExperimentMetricMathType.Max,
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
@@ -684,8 +620,14 @@ export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLega
 export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
     let series: AnyEntityNode[] = []
 
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
-        const source = metric.source
+    if (metric.metric_type === ExperimentMetricType.MEAN || metric.metric_type === ExperimentMetricType.RATIO) {
+        let source: ExperimentMetricSource
+        // For now, we simplify things by just showing the number of numerator events for ratio metrics
+        if (metric.metric_type === ExperimentMetricType.RATIO) {
+            source = metric.numerator
+        } else {
+            source = metric.source
+        }
         if (source.kind === NodeKind.EventsNode) {
             series = [
                 {

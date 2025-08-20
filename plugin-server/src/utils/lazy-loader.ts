@@ -4,9 +4,6 @@ import { defaultConfig } from '../config/config'
 import { runInstrumentedFunction } from '../main/utils'
 import { logger } from './logger'
 
-const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
-const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
-
 const lazyLoaderCacheHits = new Counter({
     name: 'lazy_loader_cache_hits',
     help: 'The number of times we have hit the cache',
@@ -49,9 +46,11 @@ export type LazyLoaderOptions<T> = {
     /** Function to load the values */
     loader: (key: string[]) => Promise<Record<string, T | null | undefined>>
     /** How long to cache the value */
-    refreshAge?: number
+    refreshAgeMs?: number
     /** How long to cache null values */
-    refreshNullAge?: number
+    refreshNullAgeMs?: number
+    /** How long to cache the value before refreshing in the background - must be smaller than refreshAgeMs */
+    refreshBackgroundAgeMs?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
     /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
@@ -64,7 +63,13 @@ export class LazyLoader<T> {
     private cache: LazyLoaderMap<T>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
+    private backgroundRefreshAfter: Record<string, number | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
+
+    private refreshAgeMs: number
+    private refreshNullAgeMs: number
+    private refreshBackgroundAgeMs?: number
+    private refreshJitterMs: number
 
     private buffer:
         | {
@@ -77,7 +82,17 @@ export class LazyLoader<T> {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
+        this.backgroundRefreshAfter = {}
         this.pendingLoads = {}
+
+        this.refreshAgeMs = this.options.refreshAgeMs ?? 1000 * 60 * 5 // 5 minutes
+        this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
+        this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
+        this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
+
+        if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
+            throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
+        }
     }
 
     public getCache(): LazyLoaderMap<T> {
@@ -103,24 +118,24 @@ export class LazyLoader<T> {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
+        this.backgroundRefreshAfter = {}
         // this.pendingLoads = {} // NOTE: We don't clear this
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
-        const {
-            refreshAge = REFRESH_AGE,
-            refreshNullAge = REFRESH_AGE,
-            refreshJitterMs = REFRESH_JITTER_MS,
-        } = this.options
         for (const [key, value] of Object.entries(map)) {
             this.cache[key] = value ?? null
             // Always update the lastUsed time
             this.lastUsed[key] = Date.now()
             const valueOrNull = value ?? null
+            const jitter = Math.floor(Math.random() * this.refreshJitterMs)
             this.cacheUntil[key] =
-                Date.now() +
-                (valueOrNull === null ? refreshNullAge : refreshAge) +
-                Math.floor(Math.random() * refreshJitterMs)
+                Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshAgeMs) + jitter
+
+            if (this.refreshBackgroundAgeMs) {
+                this.backgroundRefreshAfter[key] =
+                    Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
+            }
         }
     }
 
@@ -148,10 +163,18 @@ export class LazyLoader<T> {
                         this.lastUsed[key] = Date.now()
 
                         const cacheUntil = this.cacheUntil[key] ?? 0
+                        const backgroundRefreshAfter = this.backgroundRefreshAfter[key]
 
                         if (Date.now() > cacheUntil) {
                             keysToLoad.add(key)
                             lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                            continue
+                        }
+
+                        // If we haven't triggered a hard refresh, we check for a background refresh
+                        if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
+                            void this.load([key])
+                            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
                             continue
                         }
                     } else {

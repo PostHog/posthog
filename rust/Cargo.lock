@@ -1339,6 +1339,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bytesize"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e93abca9e28e0a1b9877922aacb20576e05d4679ffa78c3d6dc22a26a216659"
+
+[[package]]
 name = "bzip2"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3790,6 +3796,7 @@ dependencies = [
  "aws-sdk-s3",
  "axum 0.7.5",
  "bincode",
+ "bytesize",
  "chrono",
  "common-types",
  "dashmap 6.1.0",

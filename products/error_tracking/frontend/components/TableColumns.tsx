@@ -20,10 +20,8 @@ import { RuntimeIcon } from './RuntimeIcon'
 
 export const IssueListTitleHeader = ({
     results,
-    columnName,
 }: {
     results: (ErrorTrackingIssue | ErrorTrackingCorrelatedIssue)[]
-    columnName: string
 }): JSX.Element => {
     const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingBulkSelectLogic)
@@ -35,7 +33,7 @@ export const IssueListTitleHeader = ({
                 checked={allSelected}
                 onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
             />
-            {columnName}
+            <span>Issue</span>
         </div>
     )
 }

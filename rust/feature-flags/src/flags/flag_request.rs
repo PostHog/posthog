@@ -156,11 +156,7 @@ impl FlagRequest {
         };
 
         match distinct_id.len() {
-            0 => {
-                tracing::warn!("Empty distinct_id provided in request");
-                Err(FlagError::EmptyDistinctId)
-            }
-            1..=200 => Ok(distinct_id.to_owned()),
+            0..=200 => Ok(distinct_id.to_owned()),
             _ => Ok(distinct_id.chars().take(200).collect()),
         }
     }
@@ -197,7 +193,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn empty_distinct_id_not_accepted() {
+    fn empty_distinct_id_is_accepted() {
         let json = json!({
             "distinct_id": "",
             "token": "my_token1",
@@ -207,8 +203,8 @@ mod tests {
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
 
         match flag_payload.extract_distinct_id() {
-            Err(FlagError::EmptyDistinctId) => (),
-            _ => panic!("expected empty distinct id error"),
+            Ok(distinct_id) => assert_eq!(distinct_id, ""),
+            Err(e) => panic!("expected empty distinct_id to be accepted, got error: {e}"),
         };
     }
 

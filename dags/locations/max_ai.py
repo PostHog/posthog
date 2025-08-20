@@ -1,10 +1,10 @@
 import dagster
 
-from dags.max_ai.snapshot_project_data import snapshot_project_data
+from dags.max_ai.run_evaluation import run_evaluation
 
 from . import resources
 
 defs = dagster.Definitions(
-    jobs=[snapshot_project_data],
+    jobs=[run_evaluation],
     resources=resources,
 )

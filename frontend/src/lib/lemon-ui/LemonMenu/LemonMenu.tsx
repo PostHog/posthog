@@ -95,6 +95,7 @@ export interface LemonMenuProps
             | 'className'
             | 'onClickOutside'
             | 'middleware'
+            | 'startVisible'
         >,
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */

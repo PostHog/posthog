@@ -108,7 +108,7 @@ const SortableRule = ({
                     {...listeners}
                 />
             )}
-            <LemonCard hoverEffect={false} className="flex flex-col flex-1 p-0">
+            <LemonCard hoverEffect={false} className="flex flex-col flex-1 p-0 w-full">
                 {children}
             </LemonCard>
         </div>

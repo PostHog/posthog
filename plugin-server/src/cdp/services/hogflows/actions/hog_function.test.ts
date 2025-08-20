@@ -15,6 +15,7 @@ import { HogFlowAction } from '../../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
 
@@ -24,6 +25,7 @@ describe('HogFunctionHandler', () => {
     let hogFunctionHandler: HogFunctionHandler
     let mockHogFunctionExecutor: HogExecutorService
     let mockHogFunctionTemplateManager: HogFunctionTemplateManagerService
+    let mockRecipientPreferencesService: RecipientPreferencesService
 
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'function' }>
@@ -35,7 +37,15 @@ describe('HogFunctionHandler', () => {
 
         mockHogFunctionExecutor = new HogExecutorService(hub)
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
-        hogFunctionHandler = new HogFunctionHandler(hub, mockHogFunctionExecutor, mockHogFunctionTemplateManager)
+        mockRecipientPreferencesService = {
+            shouldSkipAction: jest.fn().mockResolvedValue(false),
+        } as any
+        hogFunctionHandler = new HogFunctionHandler(
+            hub,
+            mockHogFunctionExecutor,
+            mockHogFunctionTemplateManager,
+            mockRecipientPreferencesService
+        )
 
         // Simple hog function that prints the inputs
         const exampleHog = `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`
@@ -85,7 +95,6 @@ describe('HogFunctionHandler', () => {
                                     value: 1,
                                 },
                             },
-                            message_category_id: 'test-category-id', // Example category ID
                         },
                     },
                     exit: {
@@ -156,5 +165,37 @@ describe('HogFunctionHandler', () => {
         await expect(hogFunctionHandler.execute(invocation, action, invocationResult)).rejects.toThrow(
             "Template 'template_123' not found"
         )
+    })
+
+    it('should check recipient preferences before execution', async () => {
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute(invocation, action, invocationResult)
+
+        const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
+        expect(callArgs[0]).toBeTruthy()
+        expect(callArgs[1]).toBe(action)
+    })
+
+    it('should skip execution if recipient preferences service returns true', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute(invocation, action, invocationResult)
+
+        const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
+        expect(callArgs[0]).toBeTruthy()
+        expect(callArgs[1]).toBe(action)
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.logs).toHaveLength(1)
+        expect(invocationResult.logs[0].message).toContain(`[Action:function] Recipient opted out for action function`)
+        expect(mockFetch).not.toHaveBeenCalled()
     })
 })

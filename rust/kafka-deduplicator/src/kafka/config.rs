@@ -41,6 +41,16 @@ impl ConsumerConfigBuilder {
         self
     }
 
+    /// Enable TLS/SSL for Kafka connection
+    pub fn with_tls(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.config
+                .set("security.protocol", "ssl")
+                .set("enable.ssl.certificate.verification", "false");
+        }
+        self
+    }
+
     /// Build the final configuration
     pub fn build(self) -> ClientConfig {
         self.config

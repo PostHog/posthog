@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import base64
 import json
 import random
@@ -118,7 +119,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
     ):
         if self.use_remote_config:
             # We test a lot with settings changes so the idea is to refresh the remote config
-            remote_config = RemoteConfig.objects.get(team=self.team)
+            try:
+                remote_config = RemoteConfig.objects.get(team=self.team)
+            except RemoteConfig.DoesNotExist:
+                # Force cache update to happen synchronously in tests
+                from posthog.tasks.remote_config import update_team_remote_config
+
+                update_team_remote_config(self.team.id)
+                remote_config = RemoteConfig.objects.get(team=self.team)
+
             # Force as sync as lots of the tests are clearing redis purposefully which messes with things
             remote_config.sync(force=True)
 
@@ -618,7 +627,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         with self.settings(
             SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
+            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list or [],
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
@@ -2401,7 +2410,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert self.team is not None
         self.team.save()
         self.client.logout()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         Person.objects.create(
@@ -4924,10 +4933,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
 
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

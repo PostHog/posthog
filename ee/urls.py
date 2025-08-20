@@ -2,7 +2,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.admin.sites import NotRegistered
+from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
 from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
@@ -10,7 +10,6 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from ee.api import integration
-
 from ee.api.mcp.http import mcp_view
 from ee.support_sidebar_max.views import MaxChatViewSet
 from posthog.utils import opt_slash_path

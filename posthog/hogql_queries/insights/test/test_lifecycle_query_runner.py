@@ -28,8 +28,8 @@ from posthog.test.base import (
 )
 from posthog.models import Action, Cohort
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def create_action(**kwargs):
@@ -78,7 +78,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
 
     def test_lifecycle_query_group_0(self):
         # Create group type mapping for group_0
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -342,7 +342,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
 
     def test_lifecycle_query_group_1(self):
         # Create group type mapping for group_1
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 
@@ -616,7 +616,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
 
     def test_lifecycle_query_group_with_different_created_at(self):
         """Test that lifecycle query uses group's created_at, not person's created_at when aggregating by groups."""
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 

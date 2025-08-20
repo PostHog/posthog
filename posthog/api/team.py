@@ -165,6 +165,7 @@ TEAM_CONFIG_FIELDS = (
     "marketing_analytics_config",
     "onboarding_tasks",
     "base_currency",
+    "web_analytics_pre_aggregated_tables_enabled",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)

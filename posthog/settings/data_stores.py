@@ -357,9 +357,8 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
-# Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
-# The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
-# can cope with compressed and uncompressed reading at the same time
+# Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
+# The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
 USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
 
 # AWS ElastiCache supports "reader" endpoints.
@@ -390,7 +389,7 @@ CACHES = {
         "LOCATION": REDIS_URL if not REDIS_READER_URL else [REDIS_URL, REDIS_READER_URL],
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
         },
         "KEY_PREFIX": "posthog",
     }

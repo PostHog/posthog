@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime, timedelta
 
 from django.utils.timezone import now
@@ -6,7 +7,6 @@ from freezegun.api import freeze_time
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_lifecycle import TestLifecycleBase
 from posthog.queries.trends.trends import Trends
@@ -23,7 +23,7 @@ class TestClickhouseLifecycle(TestLifecycleBase):
         self.team.test_account_filters = [{"key": "key", "type": "group", "value": "value", "group_type_index": 0}]
         self.team.save()
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         create_group(

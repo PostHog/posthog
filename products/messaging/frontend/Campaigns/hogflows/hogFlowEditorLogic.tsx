@@ -17,6 +17,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { uuid } from 'lib/utils'
 
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
@@ -35,10 +36,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'edgesByActionId'],
+            optOutCategoriesLogic(),
+            ['categories', 'categoriesLoading'],
+        ],
         actions: [
             campaignLogic(props),
             ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            optOutCategoriesLogic(),
+            ['loadCategories'],
         ],
     })),
     actions({

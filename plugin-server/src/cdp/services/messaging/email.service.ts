@@ -2,29 +2,96 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Integr
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
-import { isDevEnv } from '~/utils/env-utils'
 import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
-import { generateMailjetCustomId } from './email-tracking.service'
+import { addTrackingToEmail, generateEmailTrackingCode } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 
 export class EmailService {
     constructor(private hub: Hub) {}
 
-    private validateEmailDomain(integration: IntegrationType, email: string): void {
-        // First check its a valid domain in general
-        const domain = email.split('@')[1]
-        // Then check its the same as the integration domain
-        if (!domain || (integration.config.domain && integration.config.domain !== domain)) {
-            throw new Error(
-                `The selected email integration domain (${integration.config.domain}) does not match the 'from' email domain (${domain})`
-            )
+    // Send email
+    public async executeSendEmail(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        if (invocation.queueParameters?.type !== 'email') {
+            throw new Error('Invocation passed to sendEmail is not an email function')
         }
+
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+            invocation,
+            {},
+            {
+                finished: true,
+            }
+        )
+        const addLog = createAddLogFunction(result.logs)
+
+        const params = invocation.queueParameters
+        const integration = await this.hub.integrationManager.get(params.from.integrationId)
+
+        let success: boolean = false
+
+        try {
+            if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
+                throw new Error('Email integration not found')
+            }
+
+            this.validateEmailDomain(integration, params)
+
+            switch (this.getEmailDeliveryMode()) {
+                case 'maildev':
+                    await this.sendEmailWithMaildev(result, params)
+                    break
+                case 'mailjet':
+                    await this.sendEmailWithMailjet(result, params)
+                    break
+                case 'unsupported':
+                    throw new Error('Email delivery mode not supported')
+            }
+
+            addLog('info', `Email sent to ${params.to.email}`)
+            success = true
+        } catch (error) {
+            addLog('error', error.message)
+            result.error = error.message
+            result.finished = true
+        }
+
+        // Finally we create the response object as the VM expects
+        result.invocation.state.vmState!.stack.push({
+            success,
+        })
+
+        result.metrics.push({
+            team_id: invocation.teamId,
+            app_source_id: invocation.functionId,
+            instance_id: invocation.id,
+            metric_kind: 'email',
+            metric_name: success ? 'email_sent' : 'email_failed',
+            count: 1,
+        })
+
+        return result
+    }
+
+    private validateEmailDomain(
+        integration: IntegrationType,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): void {
+        // Currently we enforce using the name and email set on the integration
 
         if (!integration.config.mailjet_verified) {
             throw new Error('The selected email integration domain is not verified')
         }
+
+        if (!integration.config.email || !integration.config.name) {
+            throw new Error('The selected email integration is not configured correctly')
+        }
+
+        params.from.email = integration.config.email
+        params.from.name = integration.config.name
     }
 
     private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'unsupported' {
@@ -32,7 +99,7 @@ export class EmailService {
             return 'mailjet'
         }
 
-        if (isDevEnv() && mailDevTransport) {
+        if (mailDevTransport) {
             return 'maildev'
         }
         return 'unsupported'
@@ -67,7 +134,7 @@ export class EmailService {
                         Subject: params.subject,
                         TextPart: params.text,
                         HTMLPart: params.html,
-                        CustomID: generateMailjetCustomId(result.invocation),
+                        CustomID: generateEmailTrackingCode(result.invocation),
                     },
                 ],
             }),
@@ -84,12 +151,13 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
+        // This can timeout but there is no native timeout so we do our own one
         const response = await mailDevTransport!.sendMail({
             from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: params.subject,
             text: params.text,
-            html: params.html,
+            html: addTrackingToEmail(params.html, result.invocation),
         })
 
         if (!response.accepted) {
@@ -97,70 +165,5 @@ export class EmailService {
         }
 
         result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
-    }
-
-    // Send email
-    public async executeSendEmail(
-        invocation: CyclotronJobInvocationHogFunction
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        if (invocation.queueParameters?.type !== 'email') {
-            throw new Error('Invocation passed to sendEmail is not an email function')
-        }
-
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
-            invocation,
-            {},
-            {
-                finished: true,
-            }
-        )
-        const addLog = createAddLogFunction(result.logs)
-
-        const params = invocation.queueParameters
-        const integration = await this.hub.integrationManager.get(params.from.integrationId)
-
-        let success: boolean = false
-
-        try {
-            if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
-                throw new Error('Email integration not found')
-            }
-
-            this.validateEmailDomain(integration, params.from.email)
-
-            switch (this.getEmailDeliveryMode()) {
-                case 'maildev':
-                    await this.sendEmailWithMaildev(result, params)
-                    break
-                case 'mailjet':
-                    await this.sendEmailWithMailjet(result, params)
-                    break
-                case 'unsupported':
-                    throw new Error('Email delivery mode not supported')
-            }
-
-            addLog('info', `Email sent to ${params.to.email}`)
-            success = true
-        } catch (error) {
-            addLog('error', error.message)
-            result.error = error.message
-            result.finished = true
-        }
-
-        // Finally we create the response object as the VM expects
-        result.invocation.state.vmState!.stack.push({
-            success: !!success,
-        })
-
-        result.metrics.push({
-            team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
-            instance_id: invocation.id,
-            metric_kind: 'email',
-            metric_name: success ? 'email_sent' : 'email_failed',
-            count: 1,
-        })
-
-        return result
     }
 }

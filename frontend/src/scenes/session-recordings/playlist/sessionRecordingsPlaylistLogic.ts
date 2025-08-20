@@ -195,6 +195,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const properties: RecordingsQuery['properties'] = []
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
     const having_predicates: RecordingsQuery['having_predicates'] = []
+    let comment_text: RecordingsQuery['comment_text'] = undefined
 
     const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
     const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
@@ -232,6 +233,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     })
                 } else if (f.key === 'snapshot_source' && f.value) {
                     having_predicates.push(f)
+                } else if (f.key === 'comment_text') {
+                    comment_text = f
                 }
             } else {
                 properties.push(f)
@@ -250,6 +253,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         actions,
         console_log_filters,
         having_predicates,
+        comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
     }

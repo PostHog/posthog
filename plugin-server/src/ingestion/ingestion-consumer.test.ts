@@ -411,6 +411,79 @@ describe('IngestionConsumer', () => {
                         'force overflow messages multiple pairs'
                     )
                 })
+
+                describe('via headers (preprocessing)', () => {
+                    it('forces overflow using headers even if payload token/distinct_id differ', async () => {
+                        await ingester.stop()
+                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        ingester = await createIngestionConsumer(hub)
+
+                        const event = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const [message] = createKafkaMessages([event])
+
+                        message.headers = [
+                            { token: Buffer.from('forced-token') },
+                            { distinct_id: Buffer.from('forced-id') },
+                        ]
+
+                        await ingester.handleKafkaBatch([message])
+
+                        expect(
+                            mockProducerObserver.getProducedKafkaMessagesForTopic(
+                                'events_plugin_ingestion_overflow_test'
+                            )
+                        ).toHaveLength(1)
+                        expect(
+                            mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                        ).toHaveLength(0)
+                    })
+
+                    it('preserves partition locality when not skipping person; drops key when skipping person', async () => {
+                        // Not skipping person -> key preserved
+                        await ingester.stop()
+                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = ''
+                        hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = true
+                        ingester = await createIngestionConsumer(hub)
+
+                        const eventA = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const [messageA] = createKafkaMessages([eventA])
+                        const originalKeyA = messageA.key
+                        messageA.headers = [
+                            { token: Buffer.from('forced-token') },
+                            { distinct_id: Buffer.from('forced-id') },
+                        ]
+                        await ingester.handleKafkaBatch([messageA])
+                        const overflowA = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                            'events_plugin_ingestion_overflow_test'
+                        )
+                        expect(overflowA).toHaveLength(1)
+                        expect(overflowA[0].key).toEqual(originalKeyA)
+
+                        // Reset produced messages
+                        mockProducerObserver.resetKafkaProducer()
+
+                        // Skipping person -> key dropped when preserve locality disabled by config
+                        await ingester.stop()
+                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = false
+                        ingester = await createIngestionConsumer(hub)
+
+                        const eventB = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const [messageB] = createKafkaMessages([eventB])
+                        messageB.headers = [
+                            { token: Buffer.from('forced-token') },
+                            { distinct_id: Buffer.from('forced-id') },
+                        ]
+                        await ingester.handleKafkaBatch([messageB])
+                        const overflowB = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                            'events_plugin_ingestion_overflow_test'
+                        )
+                        expect(overflowB).toHaveLength(1)
+                        expect(overflowB[0].key).toBeNull()
+                    })
+                })
             })
         })
     })

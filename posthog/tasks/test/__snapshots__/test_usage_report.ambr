@@ -496,6 +496,19 @@
   '''
   
   SELECT team_id,
+         SUM(count) as count
+  FROM app_metrics2
+  WHERE app_source='hog_function'
+    AND metric_name IN ('billable_invocation')
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.35
+  '''
+  
+  SELECT team_id,
          COUNT() as count
   FROM events
   WHERE event LIKE '$ai_%'

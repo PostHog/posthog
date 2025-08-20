@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from django.db import models
 from django.utils import timezone
 
@@ -112,7 +112,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         )
 
 
-class ExperimentHoldout(RootTeamMixin, models.Model):
+class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -124,6 +124,13 @@ class ExperimentHoldout(RootTeamMixin, models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
+        if skip_activity_log:
+            # Bypass ModelActivityMixin.save() and call Model.save() directly
+            super(ModelActivityMixin, self).save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
 
 class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):

@@ -12,12 +12,10 @@ TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS = os.getenv("TEAM_ID_FOR_WEB_ANALYTICS_AS
 INTRA_DAY_HOURLY_CRON_SCHEDULE = os.getenv("WEB_PREAGGREGATED_INTRA_DAY_HOURLY_CRON_SCHEDULE", "*/20 * * * *")
 HISTORICAL_DAILY_CRON_SCHEDULE = os.getenv("WEB_PREAGGREGATED_HISTORICAL_DAILY_CRON_SCHEDULE", "0 1 * * *")
 
-DAILY_MAX_EXECUTION_TIME = os.getenv("WEB_PREAGGREGATED_DAILY_MAX_EXECUTION_TIME", "1600")
-INTRA_DAY_HOURLY_MAX_EXECUTION_TIME = os.getenv("WEB_PREAGGREGATED_INTRA_DAY_HOURLY_MAX_EXECUTION_TIME", "900")
+WEB_PRE_AGGREGATED_CLICKHOUSE_TIMEOUT = os.getenv("WEB_PRE_AGGREGATED_CLICKHOUSE_TIMEOUT", "2200")
 
 # Dagster execution timeout constants (should be higher than ClickHouse timeouts)
-DAGSTER_DAILY_JOB_TIMEOUT = int(os.getenv("WEB_PREAGGREGATED_DAGSTER_DAILY_TIMEOUT", "2000"))
-DAGSTER_HOURLY_JOB_TIMEOUT = int(os.getenv("WEB_PREAGGREGATED_DAGSTER_HOURLY_TIMEOUT", "1200"))
+DAGSTER_WEB_JOB_TIMEOUT = int(os.getenv("WEB_PREAGGREGATED_DAGSTER_JOB_TIMEOUT", "2400"))
 
 
 web_analytics_retry_policy_def = RetryPolicy(
@@ -28,25 +26,17 @@ web_analytics_retry_policy_def = RetryPolicy(
 )
 
 # Shared ClickHouse settings for web analytics pre-aggregation
-CLICKHOUSE_SETTINGS = {
-    "max_execution_time": DAILY_MAX_EXECUTION_TIME,
+WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS = {
+    "max_execution_time": WEB_PRE_AGGREGATED_CLICKHOUSE_TIMEOUT,
     "max_bytes_before_external_group_by": "51474836480",
     "max_memory_usage": "107374182400",
     "distributed_aggregation_memory_efficient": "1",
     "s3_truncate_on_insert": "1",
 }
 
-CLICKHOUSE_SETTINGS_HOURLY = {
-    "max_execution_time": INTRA_DAY_HOURLY_MAX_EXECUTION_TIME,
-    "max_bytes_before_external_group_by": "51474836480",
-    "max_memory_usage": "107374182400",
-    "distributed_aggregation_memory_efficient": "1",
-}
-
 # Add higher partition limit for development environments (backfills)
 if DEBUG:
-    CLICKHOUSE_SETTINGS["max_partitions_per_insert_block"] = "1000"
-    CLICKHOUSE_SETTINGS_HOURLY["max_partitions_per_insert_block"] = "1000"
+    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS["max_partitions_per_insert_block"] = "1000"
 
 
 def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:

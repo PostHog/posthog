@@ -3,6 +3,8 @@ import React, { useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
 
+import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
     LemonMenu,
@@ -77,7 +79,8 @@ export interface LemonSelectPropsBase<T>
     placeholder?: string
     size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
-    visible?: boolean
+    visible?: LemonDropdownProps['visible']
+    startVisible?: LemonDropdownProps['startVisible']
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -115,6 +118,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     menu,
     renderButtonContent,
     visible,
+    startVisible,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -144,6 +148,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
             visible={visible}
+            startVisible={startVisible}
         >
             <LemonButton
                 className={clsx(className, 'LemonSelect')}

@@ -30,7 +30,9 @@ impl KafkaDeduplicatorService {
         // Create deduplication store config
         let store_config = DeduplicationStoreConfig {
             path: config.store_path_buf(),
-            max_capacity: config.max_store_capacity,
+            max_capacity: config
+                .parse_storage_capacity()
+                .context("Failed to parse max_store_capacity")?,
         };
 
         // Create deduplication processor
@@ -80,6 +82,7 @@ impl KafkaDeduplicatorService {
         // Create consumer config using the kafka module's builder
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
+                .with_tls(self.config.kafka_tls)
                 .offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 

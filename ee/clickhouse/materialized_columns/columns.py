@@ -134,6 +134,7 @@ class MaterializedColumnDetails:
                 raise ValueError(f"unexpected comment format: {comment!r}")
 
 
+@cache_for(timedelta(minutes=15), background_refresh=True)
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
@@ -143,7 +144,7 @@ def get_materialized_columns(
     }
 
 
-@cache_for(timedelta(minutes=15))
+@cache_for(timedelta(minutes=15), background_refresh=True)
 def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:

@@ -135,9 +135,8 @@ const sourceFieldToElement = (
                         <LemonSelect
                             options={field.options}
                             value={
-                                value === undefined || value === null
-                                    ? lastValue?.[field.name]
-                                    : value || field.defaultValue
+                                (value === undefined || value === null ? lastValue?.[field.name] : value) ||
+                                field.defaultValue
                             }
                             onChange={onChange}
                         />

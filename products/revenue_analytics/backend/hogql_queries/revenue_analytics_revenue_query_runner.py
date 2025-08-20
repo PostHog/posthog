@@ -23,9 +23,8 @@ LOOKBACK_PERIOD_DAYS = 30
 LOOKBACK_PERIOD = timedelta(days=LOOKBACK_PERIOD_DAYS)
 
 
-class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsRevenueQueryResponse]):
     query: RevenueAnalyticsRevenueQuery
-    response: RevenueAnalyticsRevenueQueryResponse
     cached_response: CachedRevenueAnalyticsRevenueQueryResponse
 
     def to_query(self) -> ast.SelectQuery:

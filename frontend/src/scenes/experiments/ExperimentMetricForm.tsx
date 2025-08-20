@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -17,6 +18,7 @@ import {
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType, FilterType } from '~/types'
 
@@ -24,14 +26,9 @@ import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConver
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
-import { getFilter } from './metricQueryUtils'
-import {
-    filterToMetricConfig,
-    getAllowedMathTypes,
-    getDefaultExperimentMetric,
-    getEventCountQuery,
-    getMathAvailability,
-} from './utils'
+import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
+import { createFilterForSource, getFilter } from './metricQueryUtils'
+import { getAllowedMathTypes, getDefaultExperimentMetric, getEventCountQuery, getMathAvailability } from './utils'
 
 const loadEventCount = async (
     metric: ExperimentMetric,
@@ -100,12 +97,18 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
+    // if the metric already is a ratio metric, we want to show the option regardless of the feature state
+    const isRatioMetricEnabled =
+        useFeatureFlag('EXPERIMENTS_RATIO_METRIC') || metric.metric_type == ExperimentMetricType.RATIO
+
     const getEventTypeLabel = (): string => {
         if (metric.metric_type === ExperimentMetricType.MEAN) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
         } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
             const lastStep = metric.series[metric.series.length - 1]
             return lastStep?.kind === NodeKind.ActionsNode ? 'actions' : 'events'
+        } else if (metric.metric_type === ExperimentMetricType.RATIO) {
+            return 'events'
         }
         return 'events'
     }
@@ -129,30 +132,38 @@ export function ExperimentMetricForm({
             value: ExperimentMetricType.FUNNEL,
             label: 'Funnel',
             description:
-                'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
+                'Calculates the percentage of users exposed to the experiment who completed the funnel. Useful for measuring conversion rates.',
         },
         {
             value: ExperimentMetricType.MEAN,
             label: 'Mean',
             description:
-                'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
+                'Calculates the value per user exposed to the experiment. Useful for measuring count of clicks, revenue or other numeric values.',
         },
+        ...(isRatioMetricEnabled
+            ? [
+                  {
+                      value: ExperimentMetricType.RATIO,
+                      label: 'Ratio',
+                      description:
+                          'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
+                  },
+              ]
+            : []),
     ]
 
     const metricFilter = getFilter(metric)
 
-    useEffect(
-        () => {
-            loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
-        },
+    // dependencies for the loadEventCount useEffect call
+    const meanSource = isExperimentMeanMetric(metric) ? metric.source : null
+    const funnelSeries = isExperimentFunnelMetric(metric) ? metric.series : null
+    const ratioNumerator = isExperimentRatioMetric(metric) ? metric.numerator : null
+    const ratioDenominator = isExperimentRatioMetric(metric) ? metric.denominator : null
+
+    useEffect(() => {
+        loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [
-            metric.metric_type,
-            isExperimentMeanMetric(metric) ? metric.source : null,
-            isExperimentFunnelMetric(metric) ? metric.series : null,
-            filterTestAccounts,
-        ]
-    )
+    }, [metric.metric_type, meanSource, funnelSeries, ratioNumerator, ratioDenominator, filterTestAccounts])
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
@@ -224,6 +235,76 @@ export function ExperimentMetricForm({
                         )}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
+                )}
+
+                {metric.metric_type === ExperimentMetricType.RATIO && (
+                    <div className="space-y-4">
+                        <div>
+                            <LemonLabel className="mb-1">Numerator (what you're measuring)</LemonLabel>
+                            <ActionFilter
+                                bordered
+                                filters={isExperimentRatioMetric(metric) ? createFilterForSource(metric.numerator) : {}}
+                                setFilters={(filters) => {
+                                    if (isExperimentRatioMetric(metric)) {
+                                        const source = filterToMetricSource(
+                                            filters.actions,
+                                            filters.events,
+                                            filters.data_warehouse
+                                        )
+                                        if (source) {
+                                            handleSetMetric({
+                                                ...metric,
+                                                numerator: source,
+                                            })
+                                        }
+                                    }
+                                }}
+                                typeKey="experiment-metric-numerator"
+                                buttonCopy="Add numerator event"
+                                showSeriesIndicator={false}
+                                hideRename={true}
+                                entitiesLimit={1}
+                                showNumericalPropsOnly={true}
+                                mathAvailability={mathAvailability}
+                                allowedMathTypes={allowedMathTypes}
+                                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                {...commonActionFilterProps}
+                            />
+                        </div>
+                        <div>
+                            <LemonLabel className="mb-1">Denominator (what you're dividing by)</LemonLabel>
+                            <ActionFilter
+                                bordered
+                                filters={
+                                    isExperimentRatioMetric(metric) ? createFilterForSource(metric.denominator) : {}
+                                }
+                                setFilters={(filters) => {
+                                    if (isExperimentRatioMetric(metric)) {
+                                        const source = filterToMetricSource(
+                                            filters.actions,
+                                            filters.events,
+                                            filters.data_warehouse
+                                        )
+                                        if (source) {
+                                            handleSetMetric({
+                                                ...metric,
+                                                denominator: source,
+                                            })
+                                        }
+                                    }
+                                }}
+                                typeKey="experiment-metric-denominator"
+                                buttonCopy="Add denominator event"
+                                showSeriesIndicator={false}
+                                hideRename={true}
+                                entitiesLimit={1}
+                                mathAvailability={mathAvailability}
+                                allowedMathTypes={allowedMathTypes}
+                                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                {...commonActionFilterProps}
+                            />
+                        </div>
+                    </div>
                 )}
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />

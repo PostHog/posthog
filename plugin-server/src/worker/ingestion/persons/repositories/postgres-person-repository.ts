@@ -452,20 +452,45 @@ export class PostgresPersonRepository
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
+        limit?: number,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
-            movedDistinctIdResult = await this.postgres.query(
-                tx ?? PostgresUse.PERSONS_WRITE,
+            const hasLimit = limit !== undefined
+            const query = hasLimit
+                ? `
+                    WITH rows_to_update AS (
+                        SELECT id
+                        FROM posthog_persondistinctid
+                        WHERE person_id = $2
+                          AND team_id = $3
+                        ORDER BY id
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT $4
+                    )
+                    UPDATE posthog_persondistinctid
+                    SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
+                    WHERE id IN (SELECT id FROM rows_to_update)
+                    RETURNING *
                 `
+                : `
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = $2
                       AND team_id = $3
                     RETURNING *
-                `,
-                [target.id, source.id, target.team_id],
+                `
+
+            const values = [target.id, source.id, target.team_id]
+            if (hasLimit) {
+                values.push(limit)
+            }
+
+            movedDistinctIdResult = await this.postgres.query(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                query,
+                values,
                 'updateDistinctIdPerson'
             )
         } catch (error) {
@@ -528,6 +553,38 @@ export class PostgresPersonRepository
             messages: kafkaMessages,
             distinctIdsMoved: movedDistinctIdResult.rows.map((row) => row.distinct_id),
         }
+    }
+
+    async fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]> {
+        const hasLimit = limit !== undefined
+        const queryString = hasLimit
+            ? `
+                SELECT distinct_id
+                FROM posthog_persondistinctid
+                WHERE person_id = $1 AND team_id = $2
+                ORDER BY id
+                LIMIT $3
+            `
+            : `
+                SELECT distinct_id
+                FROM posthog_persondistinctid
+                WHERE person_id = $1 AND team_id = $2
+                ORDER BY id
+            `
+
+        const values = [person.id, person.team_id]
+        if (hasLimit) {
+            values.push(limit)
+        }
+
+        const { rows } = await this.postgres.query<{ distinct_id: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            queryString,
+            values,
+            'fetchPersonDistinctIds'
+        )
+
+        return rows.map((row) => row.distinct_id)
     }
 
     async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {

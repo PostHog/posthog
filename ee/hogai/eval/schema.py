@@ -13,6 +13,11 @@ from posthog.models import (
     PropertyDefinition,
     Team,
 )
+from posthog.schema import (
+    ActorsPropertyTaxonomyResponse,
+    EventTaxonomyItem,
+    TeamTaxonomyItem,
+)
 
 T = TypeVar("T", bound=Model)
 
@@ -44,7 +49,11 @@ class TeamSnapshot(BaseSnapshot[Team]):
     @classmethod
     def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs) -> Generator[Team, None, None]:
         for model in models:
-            yield Team(id=project_id, name=model.name, test_account_filters=json.loads(model.test_account_filters))
+            yield Team(
+                id=project_id,
+                name=model.name,
+                test_account_filters=json.loads(model.test_account_filters),
+            )
 
 
 # posthog/models/property_definition.py
@@ -113,7 +122,7 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
 class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
     name: str
     format: str
-    columns: list[str]
+    columns: dict
 
     @classmethod
     def serialize_for_project(cls, project_id: int):
@@ -141,3 +150,27 @@ class PostgresProjectDataSnapshot(BaseModel):
     property_definitions: str
     group_type_mappings: str
     data_warehouse_tables: str
+
+
+# posthog/hogql_queries/ai/team_taxonomy_query_runner.py
+class TeamTaxonomyItemSnapshot(AvroBase):
+    results: list[TeamTaxonomyItem]
+
+
+# posthog/hogql_queries/ai/event_taxonomy_query_runner.py
+class PropertyTaxonomySnapshot(AvroBase):
+    event: str
+    results: list[EventTaxonomyItem]
+
+
+# posthog/hogql_queries/ai/actors_property_taxonomy_query_runner.py
+class ActorsPropertyTaxonomySnapshot(AvroBase):
+    group_type_index: int | None
+    property: str
+    results: ActorsPropertyTaxonomyResponse
+
+
+class ClickhouseProjectDataSnapshot(BaseModel):
+    event_taxonomy: str
+    properties_taxonomy: str
+    actors_property_taxonomy: str
