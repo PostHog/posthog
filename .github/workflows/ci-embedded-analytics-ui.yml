@@ -1,4 +1,4 @@
-name: Embedded-Analytics-UI CI
+name: Embedded analytics UI library
 on:
     pull_request:
     push:
@@ -42,7 +42,7 @@ jobs:
                         - pnpm-lock.yaml
 
     Embedded-Analytics-UI-format:
-        name: Embedded analytics UI library JS checks
+        name: JS checks
         needs: changes
         runs-on: depot-ubuntu-24.04
         steps:
@@ -76,15 +76,13 @@ jobs:
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+                  key: ${{ runner.os }}-pnpm-embedded-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-embedded-
 
-            - name: Debug node
-              if: needs.changes.outputs.Embedded-Analytics-UI == 'true'
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
               run: |
-                  node --version
-                  pnpm --version
-                  ls node_modules packages/*/node_modules products/*/node_modules
+                  pnpm --filter=@posthog/embedded-analytics-ui install --frozen-lockfile
 
             - name: Check TypeScript types
               if: needs.changes.outputs.Embedded-Analytics-UI == 'true'
