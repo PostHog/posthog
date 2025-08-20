@@ -7,8 +7,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -19,10 +21,12 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/SceneContent'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
+import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
@@ -65,6 +69,8 @@ function DashboardScene(): JSX.Element {
         hasVariables,
     } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     useOnMountEffect(() => {
         reportDashboardViewed()
@@ -111,7 +117,7 @@ function DashboardScene(): JSX.Element {
     }
 
     return (
-        <div className="dashboard">
+        <SceneContent className={cn('dashboard', !newSceneLayout && 'space-y-0')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
             {canEditDashboard && <AddInsightToDashboardModal />}
 
@@ -121,7 +127,9 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="Dashboard_filters">
+                    <DashboardOverridesBanner />
+
+                    <div className={cn('Dashboard_filters', newSceneLayout && '-mt-2')}>
                         <div className="flex gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
@@ -163,6 +171,6 @@ function DashboardScene(): JSX.Element {
                     <DashboardItems />
                 </div>
             )}
-        </div>
+        </SceneContent>
     )
 }
