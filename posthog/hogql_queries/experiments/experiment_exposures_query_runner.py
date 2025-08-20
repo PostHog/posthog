@@ -35,7 +35,6 @@ QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * varia
 
 class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
-    response: ExperimentExposureQueryResponse
     cached_response: CachedExperimentExposureQueryResponse
 
     def __init__(self, *args, **kwargs):
