@@ -1,9 +1,10 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from django.test import override_settings
 
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import (
     ActorsPropertyTaxonomyQueryRunner,
 )
-from posthog.models import GroupTypeMapping, PropertyDefinition
+from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyType
 from posthog.schema import ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyResponse
@@ -64,7 +65,7 @@ class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_group_property_taxonomy_query_runner(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="Company", group_type_index=0
         )
         create_group(
