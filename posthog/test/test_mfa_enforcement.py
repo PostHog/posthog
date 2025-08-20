@@ -284,7 +284,6 @@ class TestSessionAuthenticationMFA(TestCase):
             "/logout/",
             "/api/logout/",
             "/_health/",
-            "/decide/",
             "/static/css/app.css",
             "/uploaded_media/file.png",
         ]
