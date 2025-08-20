@@ -16,9 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, PipelineTab } from '~/types'
 
-import { externalDataSourcesLogic } from './externalDataSourcesLogic'
-import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
-import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
@@ -26,10 +24,9 @@ const LIST_SIZE = 5
 
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { activityPaginationState } = useValues(externalDataSourcesLogic)
-    const { setActivityCurrentPage } = useActions(externalDataSourcesLogic)
-    const { computedAllSources, totalRowsStats } = useValues(dataWarehouseSettingsLogic)
+    const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats } =
+        useValues(dataWarehouseSceneLogic)
+    const { setActivityCurrentPage } = useActions(dataWarehouseSceneLogic)
 
     const sourcesPagination = usePagination(computedAllSources, { pageSize: LIST_SIZE }, 'sources')
     const viewsPagination = usePagination(materializedViews || [], { pageSize: LIST_SIZE }, 'views')
@@ -191,7 +188,7 @@ export function DataWarehouseScene(): JSX.Element {
     }
 
     const materializedCount = materializedViews.length
-    const runningCount = materializedViews.filter((v) => v.status?.toLowerCase() === 'running').length
+    const runningCount = materializedViews.filter((v: any) => v.status?.toLowerCase() === 'running').length
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
         return <NotFound object="Data Warehouse" />

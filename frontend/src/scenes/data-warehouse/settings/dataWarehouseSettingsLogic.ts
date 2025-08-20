@@ -4,25 +4,13 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import type { PaginatedResponse } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import {
-    BillingPeriod,
-    DataWarehouseActivityRecord,
-    DataWarehouseDashboardDataSource,
-    DataWarehouseSourceRowCount,
-    ExternalDataSchemaStatus,
-    ExternalDataSource,
-    ExternalDataSourceSchema,
-} from '~/types'
+import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -35,11 +23,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             databaseTableListLogic,
             ['dataWarehouseTables'],
             externalDataSourcesLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading', 'recentActivity'],
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             availableSourcesDataLogic,
             ['availableSources'],
-            billingLogic,
-            ['billingPeriodUTC'],
         ],
         actions: [
             databaseTableListLogic,
@@ -79,14 +65,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     actions.loadSources(null)
 
                     return null
-                },
-            },
-        ],
-        totalRowsStats: [
-            {} as DataWarehouseSourceRowCount,
-            {
-                loadTotalRowsStats: async () => {
-                    return await api.dataWarehouse.totalRowsStats()
                 },
             },
         ],
@@ -130,61 +108,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
                 return dataWarehouseTables.filter((table) => !table.source)
-            },
-        ],
-        computedAllSources: [
-            (s) => [
-                s.dataWarehouseSources,
-                s.recentActivity,
-                s.selfManagedTables,
-                s.billingPeriodUTC,
-                s.totalRowsStats,
-            ],
-            (
-                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                recentActivity: DataWarehouseActivityRecord[],
-                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
-                billingPeriodUTC: BillingPeriod,
-                totalRowsStats: DataWarehouseSourceRowCount
-            ): DataWarehouseDashboardDataSource[] => {
-                const billingPeriodStart = billingPeriodUTC?.start
-                const billingPeriodEnd = billingPeriodUTC?.end
-
-                const managed: DataWarehouseDashboardDataSource[] = (dataWarehouseSources?.results || []).map(
-                    (source: ExternalDataSource): DataWarehouseDashboardDataSource => {
-                        const sourceActivities = (recentActivity || []).filter(
-                            (a) =>
-                                !billingPeriodStart ||
-                                !billingPeriodEnd ||
-                                (dayjs(a.created_at).isAfter(billingPeriodStart.subtract(1, 'millisecond')) &&
-                                    dayjs(a.created_at).isBefore(billingPeriodEnd))
-                        )
-                        const totalRows = totalRowsStats?.breakdown_of_rows_by_source?.[source.id] ?? 0
-                        const sortedActivities = sourceActivities.sort(
-                            (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
-                        )
-                        const lastSync = sortedActivities.length > 0 ? sortedActivities[0].created_at : null
-                        return {
-                            id: source.id,
-                            name: source.source_type,
-                            status: source.status,
-                            lastSync,
-                            rowCount: totalRows,
-                            url: urls.dataWarehouseSource(`managed-${source.id}`),
-                        }
-                    }
-                )
-
-                const selfManaged: DataWarehouseDashboardDataSource[] = (selfManagedTables || []).map((table) => ({
-                    id: table.id,
-                    name: table.name,
-                    status: null,
-                    lastSync: null,
-                    rowCount: table.row_count ?? null,
-                    url: urls.dataWarehouseSource(`self-managed-${table.id}`),
-                }))
-
-                return [...managed, ...selfManaged]
             },
         ],
         filteredSelfManagedTables: [
@@ -285,7 +208,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
-        actions.loadTotalRowsStats()
     }),
     beforeUnmount(({ cache }) => {
         clearTimeout(cache.refreshTimeout)
