@@ -4,7 +4,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { CreatePersonResult } from '../../../../utils/db/db'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 
@@ -50,8 +50,6 @@ export interface PersonRepository {
     deletePerson(person: InternalPerson): Promise<TopicMessage[]>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
-
-    moveDistinctIds(source: InternalPerson, target: InternalPerson, limit?: number): Promise<MoveDistinctIdsResult>
 
     fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]>
 

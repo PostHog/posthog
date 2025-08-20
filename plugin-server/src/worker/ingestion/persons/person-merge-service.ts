@@ -9,7 +9,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
-import { personMergePartialCounter } from './metrics'
+import { personMergeFailureCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
@@ -64,6 +64,13 @@ export class MergeRaceConditionError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'MergeRaceConditionError'
+    }
+}
+
+export class PersonMergeLimitExceededError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'PersonMergeLimitExceededError'
     }
 }
 
@@ -453,7 +460,6 @@ export class PersonMergeService {
                     })
                     .inc()
 
-                let partialMove = false
                 const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                     'mergePeople',
                     async (tx) => {
@@ -522,8 +528,9 @@ export class PersonMergeService {
                                 1
                             )
                             if (remaining.length > 0) {
-                                partialMove = true
-                                return [person, [...updatePersonMessages, ...distinctIdMessages]]
+                                personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
+                                // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
+                                throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
                             }
                         }
 
@@ -539,21 +546,6 @@ export class PersonMergeService {
                         newPersonIdentified: String(currentTargetPerson.is_identified),
                     })
                     .inc()
-
-                if (partialMove) {
-                    personMergePartialCounter.labels({ call: this.context.event.event }).inc()
-                    await captureIngestionWarning(
-                        this.context.kafkaProducer,
-                        this.context.team.id,
-                        'merge_distinct_ids_over_limit',
-                        {
-                            sourcePersonDistinctId: sourceDistinctId,
-                            targetPersonDistinctId: targetDistinctId,
-                            eventUuid: this.context.event.uuid,
-                        },
-                        { alwaysSend: true }
-                    )
-                }
 
                 const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
 

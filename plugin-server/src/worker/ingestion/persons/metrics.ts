@@ -65,9 +65,9 @@ export const personPropertyKeyUpdateCounter = new Counter({
     labelNames: ['key'],
 })
 
-export const personMergePartialCounter = new Counter({
-    name: 'person_merge_partial_total',
-    help: 'Number of merges that resulted in a partial move due to distinct ID move limit',
+export const personMergeFailureCounter = new Counter({
+    name: 'person_merge_failure_total',
+    help: 'Number of person merges that failed',
     labelNames: ['call'], // $identify, $create_alias, $merge_dangerously
 })
 
