@@ -288,7 +288,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         attrs["team"] = team
 
-        has_addon = has_data_pipelines_addon(self.context["request"].user, team)
+        has_addon = has_data_pipelines_addon(team, self.context["request"].user)
 
         if not has_addon:
             # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things

@@ -381,9 +381,12 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         raise serializers.ValidationError({"hog": "Hog code has errors."})
 
 
-def has_data_pipelines_addon(user: User, team: Team) -> bool:
+def has_data_pipelines_addon(team: Team, user: Optional[User]) -> bool:
     if team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES):
         return True
+
+    if user is None:
+        return False
 
     return posthoganalytics.feature_enabled(
         "cdp-new-pricing",

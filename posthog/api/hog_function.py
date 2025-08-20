@@ -157,8 +157,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def to_internal_value(self, data):
         self.initial_data = data
         team = self.context["get_team"]()
-        user = self.context["user"]
-        has_addon = has_data_pipelines_addon(user, team)
+        request = self.context.get("request", None)
+        has_addon = has_data_pipelines_addon(team, request.user if request else None)
         bypass_addon_check = self.context.get("bypass_addon_check", False)
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
