@@ -45,7 +45,7 @@ const Table = (): JSX.Element => {
 
     const columns: LemonTableColumns<ErrorTrackingCorrelatedIssue> = [
         {
-            title: <IssueListTitleHeader results={issues} columnName="Issue" />,
+            title: <IssueListTitleHeader results={issues} />,
             render: function RenderTitle(_, record, recordIndex) {
                 return <IssueListTitleColumn results={issues} record={record} recordIndex={recordIndex} />
             },
