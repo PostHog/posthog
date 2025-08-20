@@ -11,7 +11,7 @@
     white-space: nowrap;
     vertical-align: bottom;
     background-color: var(--color-accent-highlight-secondary);
-    border: 1px solid hsl(19deg 80% 48% / 14%);
+    border: 1px solid var(--color-accent-highlight-secondary-border);
     border-radius: 9999px;
     outline: 0;
 
@@ -22,7 +22,7 @@
 
     &:hover,
     &:focus {
-        border-color: hsl(19deg 70% 48% / 35%);
+        border-color: var(--color-accent-highlight-secondary-hover-border);
     }
 
     &:not(.BreakdownTag--clickable) {
