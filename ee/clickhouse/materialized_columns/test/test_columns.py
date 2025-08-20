@@ -1,3 +1,4 @@
+import datetime
 from datetime import timedelta
 from time import sleep
 from collections.abc import Iterable
@@ -93,41 +94,40 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual(get_materialized_columns("person"), [])
 
     def test_caching_and_materializing(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        base_time = datetime.datetime.fromisoformat("2020-01-04T13:01:01Z")
+        with freeze_time(base_time):
             materialize("events", "$foo", create_minmax_index=True)
             materialize("events", "$bar", create_minmax_index=True)
             materialize("person", "$zeta", create_minmax_index=True)
 
-            self.assertCountEqual(
+            assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
-                ],
-                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
-            )
-            self.assertCountEqual(
-                get_enabled_materialized_columns("person", use_cache=True).keys(),
-                [("$zeta", "properties")],
+                ]
+            ) == sorted(["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
+            assert sorted(get_enabled_materialized_columns("person", use_cache=True).keys()) == sorted(
+                [("$zeta", "properties")]
             )
 
             materialize("events", "abc", create_minmax_index=True)
 
-            self.assertCountEqual(
+            assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
-                ],
-                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
-            )
+                ]
+            ) == sorted(["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
 
-        with freeze_time("2020-01-04T14:00:01Z"):
-            self.assertCountEqual(
+        # call once to kick off background refresh
+        get_enabled_materialized_columns("events", use_cache=True)
+        with freeze_time(base_time + timedelta(minutes=59)):
+            assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
-                ],
-                ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
-            )
+                ]
+            ) == sorted(["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
 
     @patch("secrets.choice", return_value="X")
     def test_materialized_column_naming(self, mock_choice):
