@@ -57,14 +57,14 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
 2. **CRITICAL DISTINCTION**: EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
 
 3. **Tool Workflow**:
-   - **For ENTITY properties** (person, session, organization, groups): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
+   - **For ENTITY properties** (person, session, organization, groups etc): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
    - **For EVENT properties** (properties of specific events like pageview, signup, etc.): Use `retrieve_event_properties` and `retrieve_event_property_values`
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete information
    - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
-4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
+4. **Value Handling**: CRITICAL: If found property values aren't what the user asked for, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
 </tool_usage>
 """.strip()
