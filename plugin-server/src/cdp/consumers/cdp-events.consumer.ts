@@ -33,6 +33,12 @@ export const counterMissingAddon = new Counter({
     labelNames: ['team_id'],
 })
 
+export const counterQuotaLimited = new Counter({
+    name: 'cdp_function_quota_limited',
+    help: 'A function invocation was quota limited',
+    labelNames: ['team_id'],
+})
+
 export const counterHogFunctionStateOnEvent = new Counter({
     name: 'cdp_hog_function_state_on_event',
     help: 'Metric the state of a hog function that matched an event',
@@ -121,27 +127,38 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
             // Iterate over adding them to the list and updating their priority
-            possibleInvocations.forEach((item) => {
+            for (const item of possibleInvocations) {
                 // Disable invocations for teams that don't have the addon (for now just metric them out..)
 
-                if (
-                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
-                    item.hogFunction.is_addon_required
-                ) {
-                    // NOTE: This counter is temporary until we are confident in enabling this
-                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
-                    // TODO: Later add the below code
+                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_invocations')
+
+                // The legacy addon was not usage based so we skip dropping if they are on it
+                const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
+
+                if (isQuotaLimited && !isTeamOnLegacyAddon) {
+                    counterQuotaLimited.labels({ team_id: item.teamId }).inc()
+
+                    // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
+
                     // this.hogFunctionMonitoringService.queueAppMetric(
                     //     {
                     //         team_id: item.teamId,
                     //         app_source_id: item.functionId,
                     //         metric_kind: 'failure',
-                    //         metric_name: 'missing_addon',
+                    //         metric_name: 'quota_limited',
                     //         count: 1,
                     //     },
                     //     'hog_function'
                     // )
-                    // return
+                    // continue
+                }
+
+                if (
+                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
+                    item.hogFunction.is_addon_required
+                ) {
+                    // NOTE: This will be removed in favour of the quota limited metric
+                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
                 }
 
                 const state = states[item.hogFunction.id].state
@@ -164,7 +181,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         },
                         'hog_function'
                     )
-                    return
+                    continue
                 }
 
                 if (state === HogWatcherState.degraded) {
@@ -175,7 +192,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 }
 
                 validInvocations.push(item)
-            })
+            }
 
             // Now we can filter by masking configs
             const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
@@ -191,59 +208,19 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-            const eventsTriggeredDestinationById: Record<string, { team_id: number; event_uuid: string }> = {}
-            const uniqueDestinationsById: Record<
-                string,
-                { team_id: number; template_id: string; invocation_id: string }
-            > = {}
-
-            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
-                const eventKey = `${state.globals.project.id}:${state.globals.event.uuid}`
-                if (!eventsTriggeredDestinationById[eventKey] && hogFunction.type === 'destination') {
-                    eventsTriggeredDestinationById[eventKey] = {
-                        team_id: state.globals.project.id,
-                        event_uuid: state.globals.event.uuid,
-                    }
-                }
-
-                const destinationKey = `${state.globals.project.id}:${id}`
-                if (!uniqueDestinationsById[destinationKey] && hogFunction.type === 'destination') {
-                    uniqueDestinationsById[destinationKey] = {
-                        team_id: state.globals.project.id,
-                        template_id: hogFunction.template_id ?? 'custom',
-                        invocation_id: id,
-                    }
-                }
-            })
-
-            const uniqueEventMetrics: MinimalAppMetric[] = Object.values(eventsTriggeredDestinationById).map(
-                ({ team_id, event_uuid }) => {
+            const billingMetrics = Object.values(notMaskedInvocations)
+                .filter((inv) => inv.hogFunction.type === 'destination')
+                .map((inv): MinimalAppMetric => {
                     return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'event_triggered_destination',
-                        team_id,
-                        app_source_id: event_uuid,
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                        team_id: inv.teamId,
+                        app_source_id: inv.hogFunction.id,
                         count: 1,
                     }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
+                })
 
-            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.values(uniqueDestinationsById).map(
-                ({ team_id, template_id, invocation_id }) => {
-                    return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'destination_invoked',
-                        team_id,
-                        app_source_id: template_id,
-                        instance_id: invocation_id,
-                        count: 1,
-                    }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
+            this.hogFunctionMonitoringService.queueAppMetrics(billingMetrics, 'hog_function')
 
             return notMaskedInvocations
         })

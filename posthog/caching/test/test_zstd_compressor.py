@@ -1,12 +1,12 @@
 from django.test import TestCase
 from parameterized import parameterized
 
-from posthog.caching.tolerant_zlib_compressor import TolerantZlibCompressor
+from posthog.caching.zstd_compressor import ZstdCompressor
 
 
-class TestTolerantZlibCompressor(TestCase):
+class TestZstdCompressor(TestCase):
     # compressors take an options in init but don't use it 🤷
-    compressor = TolerantZlibCompressor({})
+    compressor = ZstdCompressor({})
 
     short_uncompressed_bytes = b"hello world"
     # needs to be long enough to trigger compression
@@ -36,7 +36,7 @@ class TestTolerantZlibCompressor(TestCase):
             ),
         ]
     )
-    def test_the_zlib_compressor_compression(self, _, setting: bool, input: bytes, output: bytes) -> None:
+    def test_the_zstd_compressor_compression(self, _, setting: bool, input: bytes, output: bytes) -> None:
         with self.settings(USE_REDIS_COMPRESSION=setting):
             compressed = self.compressor.compress(input)
             assert compressed == output
@@ -50,25 +50,19 @@ class TestTolerantZlibCompressor(TestCase):
                 uncompressed_bytes,
             ),
             (
-                "test_when_enabled_can_decompress",
-                True,
-                zlib_compressed_bytes,
-                uncompressed_bytes,
-            ),
-            (
                 "test_when_enabled_can_decompress_zstd",
                 True,
                 zstd_compressed_bytes,
                 uncompressed_bytes,
             ),
             (
-                "test_when_disabled_can_still_decompress",
+                "test_when_disabled_can_still_decompress_zstd",
                 False,
-                zlib_compressed_bytes,
+                zstd_compressed_bytes,
                 uncompressed_bytes,
             ),
         ]
     )
-    def test_the_zlib_compressor_decompression(self, _, setting: bool, input: bytes, output: bytes) -> None:
+    def test_the_zstd_compressor_decompression(self, _, setting: bool, input: bytes, output: bytes) -> None:
         with self.settings(USE_REDIS_COMPRESSION=setting):
             assert self.compressor.decompress(input) == output
