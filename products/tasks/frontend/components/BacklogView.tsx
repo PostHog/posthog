@@ -4,14 +4,14 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
-import { taskTrackerLogic } from '../taskTrackerLogic'
+import { tasksLogic } from '../tasksLogic'
 import { TaskCard } from './TaskCard'
 import { TaskCreateModal } from './TaskCreateModal'
 import { TaskModal } from './TaskModal'
 
 export function BacklogView(): JSX.Element {
-    const { backlogTasks, selectedTask, isCreateModalOpen } = useValues(taskTrackerLogic)
-    const { scopeTask, openTaskModal, closeTaskModal, openCreateModal, closeCreateModal } = useActions(taskTrackerLogic)
+    const { backlogTasks, selectedTask, isCreateModalOpen } = useValues(tasksLogic)
+    const { scopeTask, openTaskModal, closeTaskModal, openCreateModal, closeCreateModal } = useActions(tasksLogic)
     const { user } = useValues(userLogic)
 
     return (

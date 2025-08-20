@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS, STATUS_COLORS, STATUS_LABELS } from '../constants'
-import { taskTrackerLogic } from '../taskTrackerLogic'
+import { tasksLogic } from '../tasksLogic'
 import { Task, TaskStatus } from '../types'
 import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 import { TaskProgressDisplay } from './TaskProgressDisplay'
@@ -16,7 +16,7 @@ interface TaskModalProps {
 }
 
 export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Element {
-    const { scopeTask, updateTask } = useActions(taskTrackerLogic)
+    const { scopeTask, updateTask } = useActions(tasksLogic)
     const [isEditingRepository, setIsEditingRepository] = useState(false)
     const [repositoryConfig, setRepositoryConfig] = useState<RepositoryConfig>({
         integrationId: task?.github_integration || undefined,

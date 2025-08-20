@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { ORIGIN_PRODUCT_LABELS } from '../constants'
-import { taskTrackerLogic } from '../taskTrackerLogic'
+import { tasksLogic } from '../tasksLogic'
 import { OriginProduct, TaskStatus, TaskUpsertProps } from '../types'
 import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 
@@ -23,7 +23,7 @@ interface TaskFormData {
 }
 
 export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.Element {
-    const { createTask } = useActions(taskTrackerLogic)
+    const { createTask } = useActions(tasksLogic)
 
     const [formData, setFormData] = useState<TaskFormData>({
         title: '',

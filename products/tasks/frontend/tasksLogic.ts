@@ -5,11 +5,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { demoTasks } from './demoData'
-import type { taskTrackerLogicType } from './taskTrackerLogicType'
+import type { tasksLogicType } from './tasksLogicType'
 import { Task, TaskStatus, TaskUpsertProps } from './types'
 
-export const taskTrackerLogic = kea<taskTrackerLogicType>([
-    path(['products', 'tasks', 'frontend', 'taskTrackerLogic']),
+export const tasksLogic = kea<tasksLogicType>([
+    path(['products', 'tasks', 'frontend', 'tasksLogic']),
     actions({
         setActiveTab: (tab: 'backlog' | 'kanban' | 'settings') => ({ tab }),
         moveTask: (taskId: string, newStatus: TaskStatus, newPosition?: number) => ({

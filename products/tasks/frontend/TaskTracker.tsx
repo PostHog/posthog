@@ -8,16 +8,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { BacklogView } from './components/BacklogView'
 import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
 import { KanbanView } from './components/KanbanView'
-import { taskTrackerLogic } from './taskTrackerLogic'
+import { tasksLogic } from './tasksLogic'
 
 export const scene: SceneExport = {
     component: TaskTracker,
-    logic: taskTrackerLogic,
+    logic: tasksLogic,
 }
 
 export function TaskTracker(): JSX.Element {
-    const { activeTab } = useValues(taskTrackerLogic)
-    const { setActiveTab } = useActions(taskTrackerLogic)
+    const { activeTab } = useValues(tasksLogic)
+    const { setActiveTab } = useActions(tasksLogic)
     const isEnabled = useFeatureFlag('TASKS')
 
     if (!isEnabled) {

@@ -27,7 +27,7 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { taskTrackerLogic } from '../taskTrackerLogic'
+import { tasksLogic } from '../tasksLogic'
 import { Task, TaskStatus } from './../types'
 import { TaskCard } from './TaskCard'
 import { TaskModal } from './TaskModal'
@@ -55,12 +55,11 @@ function DroppableContainer({
 type Items = Record<UniqueIdentifier, Task[]>
 
 export function KanbanView(): JSX.Element {
-    const { tasks, kanbanColumns, selectedTask } = useValues(taskTrackerLogic)
-    const { openTaskModal, closeTaskModal, moveTask } = useActions(taskTrackerLogic)
+    const { tasks, kanbanColumns, selectedTask } = useValues(tasksLogic)
+    const { openTaskModal, closeTaskModal, moveTask } = useActions(tasksLogic)
 
     const [items, setItems] = useState<Items>(kanbanColumns)
     const [activeTask, setActiveTask] = useState<Task | null>(null)
-    // const lastOverId = useRef<UniqueIdentifier | null>(null)
     const recentlyMovedToNewContainer = useRef(false)
 
     const containers = Object.keys(kanbanColumns) as UniqueIdentifier[]
