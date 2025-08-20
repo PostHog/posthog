@@ -142,7 +142,7 @@ export const urls = {
     wizard: (): string => `/wizard`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     oauthAuthorize: (): string => '/oauth/authorize',
-    dataPipelines: (kind?: DataPipelinesSceneTab): string => `/pipeline/${kind ?? ''}`,
+    dataPipelines: (kind: DataPipelinesSceneTab = 'overview'): string => `/pipeline/${kind}`,
     dataPipelinesNew: (kind?: string): string => `/pipeline/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
         `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
