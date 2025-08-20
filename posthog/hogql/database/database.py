@@ -612,7 +612,7 @@ def create_hogql_database(
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
             tables = list(
-                DataWarehouseTable.objects.filter(team_id=team.pk)
+                DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
                 .select_related("credential", "external_data_source")
             )

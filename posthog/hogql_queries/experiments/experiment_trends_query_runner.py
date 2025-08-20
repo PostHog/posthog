@@ -50,7 +50,6 @@ from posthog.schema import (
 
 class ExperimentTrendsQueryRunner(QueryRunner):
     query: ExperimentTrendsQuery
-    response: ExperimentTrendsQueryResponse
     cached_response: CachedExperimentTrendsQueryResponse
 
     def __init__(self, *args, **kwargs):
