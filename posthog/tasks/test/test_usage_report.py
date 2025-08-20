@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import gzip
 import json
 import base64
@@ -28,7 +29,6 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.error_tracking import ErrorTrackingIssue
@@ -296,13 +296,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # Some groups
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="organization",
                 group_type_index=0,
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="company",

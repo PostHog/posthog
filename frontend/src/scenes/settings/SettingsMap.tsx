@@ -69,6 +69,7 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -334,6 +335,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Pre-aggregated tables',
                 component: <PreAggregatedTablesSetting />,
                 flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+            },
+            {
+                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
+                title: 'New query engine',
+                component: <WebAnalyticsEnablePreAggregatedTables />,
+                flag: 'WEB_ANALYTICS_API',
             },
         ],
     },

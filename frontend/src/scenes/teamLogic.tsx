@@ -34,6 +34,10 @@ const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
         return 'Authorized URLs'
     }
 
+    if (attr === 'web_analytics_pre_aggregated_tables_enabled') {
+        return 'New query engine'
+    }
+
     if (attr === 'session_recording_minimum_duration_milliseconds') {
         return 'Session recording minimum duration'
     }
