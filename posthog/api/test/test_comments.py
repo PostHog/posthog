@@ -178,8 +178,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                 [
                     {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "another comment", "scope": "Notebook", "item_id": "1"},
-                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
-                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
                     {
                         "content": "comment with context",
                         "scope": "Notebook",
@@ -195,8 +195,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                 [
                     {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "another comment", "scope": "Notebook", "item_id": "1"},
-                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
-                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
                     {
                         "content": "comment with context",
                         "scope": "Notebook",
@@ -213,23 +213,23 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                     {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "another comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "dashboard comment", "scope": "Dashboard", "item_id": "2"},
-                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
-                    {"content": "❤️", "scope": "Dashboard", "item_id": "2", "item_context": {"is_emoji_reaction": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "❤️", "scope": "Dashboard", "item_id": "2", "item_context": {"is_emoji": True}},
                 ],
                 "?scope=Notebook&exclude_emoji_reactions=true",
                 2,
             ),
             (
-                "includes_comments_with_is_emoji_reaction_false",
+                "includes_comments_with_is_emoji_false",
                 [
                     {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
                     {
                         "content": "explicitly not emoji",
                         "scope": "Notebook",
                         "item_id": "1",
-                        "item_context": {"is_emoji_reaction": False},
+                        "item_context": {"is_emoji": False},
                     },
-                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji_reaction": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
                 ],
                 "?exclude_emoji_reactions=true",
                 2,
