@@ -468,7 +468,7 @@ def _update_team_remote_config(team_id: int):
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    _update_team_remote_config(instance.id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.id))
 
 
 @receiver(post_save, sender=FeatureFlag)
@@ -481,20 +481,20 @@ def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
 @receiver(post_save, sender=PluginConfig)
 def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
     if instance.team_id:
-        _update_team_remote_config(instance.team_id)
+        transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=HogFunction)
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
     if instance.enabled and instance.type in ("site_destination", "site_app"):
-        _update_team_remote_config(instance.team_id)
+        transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
