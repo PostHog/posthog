@@ -28,7 +28,8 @@ import snappy from 'snappy'
 
 import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { MessageWithRetention } from '../retention/types'
+import { RetentionService } from '../retention/retention-service'
+import { MessageWithTeam } from '../teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
@@ -48,6 +49,7 @@ describe('session recording integration', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockRetentionService: jest.Mocked<RetentionService>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -93,12 +95,17 @@ describe('session recording integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
+        mockRetentionService = {
+            getSessionRetention: jest.fn().mockResolvedValue('30d'),
+        } as unknown as jest.Mocked<RetentionService>
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-01T10:00:00.000Z')
+            new Date('2025-01-01T10:00:00.000Z'),
+            mockRetentionService
         )
     })
 
@@ -106,13 +113,12 @@ describe('session recording integration', () => {
         sessionId: string,
         teamId: number,
         events: { type: EventType; data: any }[]
-    ): MessageWithRetention => ({
-        retentionPeriod: '30d',
+    ): MessageWithTeam => ({
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
         },
-        data: {
+        message: {
             distinct_id: 'distinct_id',
             session_id: sessionId,
             eventsByWindowId: {
@@ -177,7 +183,9 @@ describe('session recording integration', () => {
         ]
 
         // Record all messages
-        messages.forEach((message) => recorder.record(message))
+        for (const message of messages) {
+            await recorder.record(message)
+        }
 
         // Flush and get metadata
         const metadata = await recorder.flush()
@@ -189,8 +197,8 @@ describe('session recording integration', () => {
         // Read and verify each session's data
         for (const block of metadata) {
             const events = await readSessionFromBatch(block)
-            const originalMessage = messages.find((m) => m.data.session_id === block.sessionId)!
-            const originalEvents = originalMessage.data.eventsByWindowId.window1
+            const originalMessage = messages.find((m) => m.message.session_id === block.sessionId)!
+            const originalEvents = originalMessage.message.eventsByWindowId.window1
 
             expect(block.teamId).toBe(originalMessage.team.teamId)
             expect(events).toHaveLength(originalEvents.length)

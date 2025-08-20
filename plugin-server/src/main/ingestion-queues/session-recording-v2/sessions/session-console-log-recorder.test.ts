@@ -53,7 +53,7 @@ describe('SessionConsoleLogRecorder', () => {
             teamId,
             consoleLogIngestionEnabled,
         },
-        data: {
+        message: {
             distinct_id: distinctId,
             session_id: sessionId,
             eventsByWindowId: {
@@ -601,7 +601,7 @@ describe('SessionConsoleLogRecorder', () => {
             )
 
             // Add events from window2 to the same message
-            message.data.eventsByWindowId['window2'] = [
+            message.message.eventsByWindowId['window2'] = [
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate message'],

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { MessageWithRetention } from '../retention/types'
+import { MessageWithTeam } from '../teams/types'
 import { LibVersionMonitor } from './lib-version-monitor'
 import { VersionMetrics } from './version-metrics'
 
@@ -16,10 +16,9 @@ describe('LibVersionMonitor', () => {
         monitor = new LibVersionMonitor(mockCaptureWarning)
     })
 
-    const createMessage = (headers: any[] = []): MessageWithRetention => ({
-        retentionPeriod: '30d',
+    const createMessage = (headers: any[] = []): MessageWithTeam => ({
         team: { teamId: 1, consoleLogIngestionEnabled: false },
-        data: {
+        message: {
             metadata: {
                 partition: 1,
                 topic: 'test-topic',

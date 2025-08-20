@@ -2,6 +2,7 @@ import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { RetentionService } from '../retention/retention-service'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -22,6 +23,8 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Optional switchover date for v2 metadata logic */
     metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
+    /** Manages reading retention periods from Redis and PostGres */
+    retentionService: RetentionService
 }
 
 /**
@@ -67,6 +70,7 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
     private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
+    private readonly retentionService: RetentionService
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -76,12 +80,15 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.metadataSwitchoverDate = config.metadataSwitchoverDate
+        this.retentionService = config.retentionService
+
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.metadataSwitchoverDate
+            this.metadataSwitchoverDate,
+            this.retentionService
         )
     }
 
@@ -103,7 +110,8 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.metadataSwitchoverDate
+            this.metadataSwitchoverDate,
+            this.retentionService
         )
     }
 

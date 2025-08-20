@@ -4,10 +4,8 @@ import { BackgroundRefresher } from '../../../../utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { logger } from '../../../../utils/logger'
 import { ValidRetentionPeriods } from '../constants'
-import { MessageWithTeam } from '../teams/types'
 import { RetentionPeriod } from '../types'
 import { RetentionServiceMetrics } from './metrics'
-import { MessageWithRetention } from './types'
 
 function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is RetentionPeriod {
     return ValidRetentionPeriods.includes(retentionPeriod as RetentionPeriod)
@@ -51,44 +49,33 @@ export class RetentionService {
         return retentionPeriods[teamId]
     }
 
-    public async addRetentionToMessage(message: MessageWithTeam): Promise<MessageWithRetention> {
+    public async getSessionRetention(teamId: TeamId, sessionId: string): Promise<RetentionPeriod> {
         let retentionPeriod: string | null = null
 
         const client = await this.redisPool.acquire()
-        const redisKey = this.generateRedisKey(message.data.session_id)
+        const redisKey = this.generateRedisKey(sessionId)
 
         try {
-            // Check if the session already had a retention period set in Redis
-            if ((await client.exists(redisKey)) === 1) {
-                // ...if so, fetch it
-                retentionPeriod = await client.get(redisKey)
-            } else {
-                // ...otherwise, get the value from Postgres
-                retentionPeriod = await this.getRetentionByTeamId(message.team.teamId)
+            // Attempt to look up the retention period for the session in Redis
+            retentionPeriod = await client.get(redisKey)
 
-                // ...and then set it in Redis for future batches
-                await client.set(redisKey, retentionPeriod)
+            // ...if no retention period exists for the session
+            if (retentionPeriod === null) {
+                // ...get the value from Postgres
+                retentionPeriod = await this.getRetentionByTeamId(teamId)
 
-                // ...and set TTL to 24 hours
-                await client.expire(redisKey, 24 * 60 * 60)
+                // ...and then set it in Redis for future batches, with a TTL of 24 hours
+                await client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60)
             }
         } finally {
             await this.redisPool.release(client)
         }
 
         if (retentionPeriod !== null && isValidRetentionPeriod(retentionPeriod)) {
-            return {
-                retentionPeriod: retentionPeriod,
-                team: message.team,
-                data: message.data,
-            }
+            return retentionPeriod
         } else {
             throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
         }
-    }
-
-    public async processBatch(messages: MessageWithTeam[]): Promise<MessageWithRetention[]> {
-        return await Promise.all(messages.map((message) => this.addRetentionToMessage(message)))
     }
 }
 

@@ -111,7 +111,7 @@ export class SessionConsoleLogRecorder {
 
         const logsToStore: ConsoleLogEntry[] = []
 
-        for (const events of Object.values(message.data.eventsByWindowId)) {
+        for (const events of Object.values(message.message.eventsByWindowId)) {
             for (const event of events) {
                 const eventData = event.data as
                     | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }

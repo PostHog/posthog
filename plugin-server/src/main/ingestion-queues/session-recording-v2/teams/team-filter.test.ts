@@ -52,7 +52,7 @@ describe('TeamFilter', () => {
 
             const result = await teamFilter.filterBatch([message])
 
-            expect(result).toEqual([{ team: validTeam, data: message }])
+            expect(result).toEqual([{ team: validTeam, message: message }])
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('valid-token')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledTimes(1)
         })
@@ -90,8 +90,8 @@ describe('TeamFilter', () => {
             const result = await teamFilter.filterBatch(messages)
 
             expect(result).toEqual([
-                { team: validTeam, data: messages[0] },
-                { team: validTeam, data: messages[1] },
+                { team: validTeam, message: messages[0] },
+                { team: validTeam, message: messages[1] },
             ])
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('token1')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('token2')
@@ -111,8 +111,8 @@ describe('TeamFilter', () => {
             const result = await teamFilter.filterBatch(messages)
 
             expect(result).toEqual([
-                { team: validTeam, data: messages[0] },
-                { team: team2, data: messages[1] },
+                { team: validTeam, message: messages[0] },
+                { team: team2, message: messages[1] },
             ])
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('token1')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('token2')
@@ -131,8 +131,8 @@ describe('TeamFilter', () => {
             const result = await teamFilter.filterBatch(messages)
 
             expect(result).toEqual([
-                { team: validTeam, data: messages[0] },
-                { team: validTeam, data: messages[2] },
+                { team: validTeam, message: messages[0] },
+                { team: validTeam, message: messages[2] },
             ])
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('token1')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('token2')

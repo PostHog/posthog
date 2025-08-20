@@ -29,7 +29,6 @@ import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { RetentionService } from './retention/retention-service'
-import { MessageWithRetention } from './retention/types'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
@@ -39,6 +38,7 @@ import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
+import { MessageWithTeam } from './teams/types'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
@@ -55,7 +55,6 @@ export class SessionRecordingIngester {
     private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
     private readonly teamFilter: TeamFilter
-    private readonly retentionService: RetentionService
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
 
@@ -120,7 +119,7 @@ export class SessionRecordingIngester {
             this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
 
-        this.retentionService = new RetentionService(postgres, this.redisPool)
+        const retentionService = new RetentionService(postgres, this.redisPool)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
@@ -149,6 +148,7 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             metadataSwitchoverDate,
+            retentionService,
         })
     }
 
@@ -193,10 +193,9 @@ export class SessionRecordingIngester {
             func: async () => {
                 const parsedMessages = await this.kafkaParser.parseBatch(messages)
                 const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
-                const messagesWithRetention = await this.retentionService.processBatch(messagesWithTeam)
                 const processedMessages = this.libVersionMonitor
-                    ? await this.libVersionMonitor.processBatch(messagesWithRetention)
-                    : messagesWithRetention
+                    ? await this.libVersionMonitor.processBatch(messagesWithTeam)
+                    : messagesWithTeam
 
                 return processedMessages
             },
@@ -219,18 +218,18 @@ export class SessionRecordingIngester {
         }
     }
 
-    private async processMessages(parsedMessages: MessageWithRetention[]) {
+    private async processMessages(parsedMessages: MessageWithTeam[]) {
         const batch = this.sessionBatchManager.getCurrentBatch()
         for (const message of parsedMessages) {
             await this.consume(message, batch)
         }
     }
 
-    private async consume(message: MessageWithRetention, batch: SessionBatchRecorder) {
+    private async consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         SessionRecordingIngesterMetrics.resetSessionsRevoked()
-        const { team, data: parsedMessage } = message
+        const { team, message: parsedMessage } = message
         const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
 
         if (debugEnabled) {

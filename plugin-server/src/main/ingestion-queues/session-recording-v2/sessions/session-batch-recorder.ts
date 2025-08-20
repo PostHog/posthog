@@ -4,7 +4,8 @@ import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { MessageWithRetention } from '../retention/types'
+import { RetentionService } from '../retention/retention-service'
+import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBlockMetadata } from './session-block-metadata'
@@ -71,7 +72,8 @@ export class SessionBatchRecorder {
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate,
+        private readonly retentionService: RetentionService
     ) {
         this.batchId = uuidv7()
         this.createdAt = Date.now()
@@ -84,11 +86,10 @@ export class SessionBatchRecorder {
      * @param message - The message to record, including team context
      * @returns Number of raw bytes written (without compression)
      */
-    public async record(message: MessageWithRetention): Promise<number> {
-        const { partition } = message.data.metadata
-        const sessionId = message.data.session_id
+    public async record(message: MessageWithTeam): Promise<number> {
+        const { partition } = message.message.metadata
+        const sessionId = message.message.session_id
         const teamId = message.team.teamId
-        const retentionPeriod = message.retentionPeriod
         const teamSessionKey = `${teamId}$${sessionId}`
 
         if (!this.partitionSessions.has(partition)) {
@@ -111,6 +112,8 @@ export class SessionBatchRecorder {
                 return 0
             }
         } else {
+            const retentionPeriod = await this.retentionService.getSessionRetention(teamId, sessionId)
+
             sessions.set(teamSessionKey, [
                 new SnappySessionRecorder(
                     sessionId,
@@ -130,7 +133,7 @@ export class SessionBatchRecorder {
         }
 
         const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(teamSessionKey)!
-        const bytesWritten = sessionBlockRecorder.recordMessage(message.data)
+        const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
         await consoleLogRecorder.recordMessage(message)
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
@@ -138,8 +141,8 @@ export class SessionBatchRecorder {
         this._size += bytesWritten
 
         this.offsetManager.trackOffset({
-            partition: message.data.metadata.partition,
-            offset: message.data.metadata.offset,
+            partition: message.message.metadata.partition,
+            offset: message.message.metadata.offset,
         })
 
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
