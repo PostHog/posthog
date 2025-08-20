@@ -79,7 +79,7 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('loading session core', () => {
-        it('loads metadata and snapshots by default', async () => {
+        it('loads metadata only by default', async () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActionsInAnyOrder([
@@ -89,8 +89,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
 
-            // Now snapshots should load even without autoPlay to avoid buffering screen
-            await expectLogic(logic).toDispatchActions([
+            await expectLogic(logic).toNotHaveDispatchedActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
