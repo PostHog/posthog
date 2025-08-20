@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
-import empty from 'scenes/pipeline/__mocks__/empty.json'
+import empty from 'scenes/data-pipelines/__mocks__/empty.json'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'

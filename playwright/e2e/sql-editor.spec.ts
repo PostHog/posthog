@@ -23,7 +23,7 @@ test.describe('SQL Editor', () => {
 
     test('Add source link', async ({ page }) => {
         await page.locator('[data-attr=sql-editor-add-source]').click()
-        await expect(page).toHaveURL(/.*\/pipeline\/new\/source/)
+        await expect(page).toHaveURL(/.*\/data-warehouse\/new-source/)
     })
 
     test('Run query', async ({ page }) => {
