@@ -136,7 +136,7 @@ async def resolve_smart_select_repositories(issue) -> list[RepositoryContext]:
 
     # For now, return available repositories
     # In future iterations, this will include AI analysis
-    max_repos = constraints.get("max_repositories", 5)
+    max_repos = int(constraints.get("max_repositories", 5))
     selected_repos = available_repos[:max_repos]
 
     # Mark first as primary
@@ -235,7 +235,7 @@ async def _meets_smart_select_constraints(org: str, repo: str, constraints: dict
     return True
 
 
-async def _update_issue_selected_repositories(issue, selected_repos: list[RepositoryContext]):
+async def _update_issue_selected_repositories(issue, selected_repos: list[RepositoryContext]) -> None:
     """Update issue configuration with selected repositories"""
     Task = apps.get_model("tasks", "Task")
 
@@ -262,7 +262,7 @@ async def ai_select_repositories(
     issue_keywords = issue.title.lower().split() + issue.description.lower().split()
 
     for repo in available_repositories:
-        score = 0
+        score: float = 0.0
         repo_name = repo.repository.lower()
 
         # Score based on keyword matches

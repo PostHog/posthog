@@ -1,7 +1,7 @@
 import temporalio
 from temporalio import activity
 import os
-from typing import Any
+from typing import Any, Optional
 
 from posthog.temporal.common.logger import bind_contextvars, get_logger
 from posthog.sync import database_sync_to_async
@@ -348,7 +348,7 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
         return {"success": False, "error": str(e), "task_id": task_id, "branch_name": branch_name}
 
 
-async def _parse_claude_message_for_progress(message, turn_number: int) -> str:
+async def _parse_claude_message_for_progress(message, turn_number: int) -> Optional[str]:
     """Parse Claude Code SDK messages to extract meaningful progress information."""
     try:
         # Get the message type - it's usually the class name

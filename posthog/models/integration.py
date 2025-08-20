@@ -1251,7 +1251,7 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[dict]:
+    def list_repositories(self, page: int = 1) -> list[str]:
         access_token = self.integration.sensitive_config["access_token"]
 
         response = requests.get(
@@ -1505,9 +1505,10 @@ class GitHubIntegration:
         org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
 
+        params: dict[str, str | int] = {"state": state, "per_page": 100}
         response = requests.get(
             f"https://api.github.com/repos/{org}/{repository}/pulls",
-            params={"state": state, "per_page": 100},
+            params=params,
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
