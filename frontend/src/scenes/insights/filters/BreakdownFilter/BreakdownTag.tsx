@@ -1,7 +1,11 @@
+import './BreakdownTag.scss'
+
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
+import { IconEllipsis, IconX } from '@posthog/icons'
+import { LemonButton, LemonButtonDropdown, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
@@ -24,6 +28,7 @@ type EditableBreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
     isTrends: boolean
+    disablePropertyInfo?: boolean
     size?: 'small' | 'medium'
 }
 
@@ -31,6 +36,7 @@ export function EditableBreakdownTag({
     breakdown,
     breakdownType,
     isTrends,
+    disablePropertyInfo,
     size = 'medium',
 }: EditableBreakdownTagProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -61,8 +67,6 @@ export function EditableBreakdownTag({
                                 breakdown={breakdown}
                                 breakdownType={breakdownType}
                                 // display remove button only if we can edit and don't have a separate menu
-                                closable={false}
-                                onClose={removeBreakdown}
                                 onClick={() => {
                                     setFilterOpen(!filterOpen)
                                 }}
@@ -73,7 +77,7 @@ export function EditableBreakdownTag({
                                         setMenuOpen(visible)
                                     },
                                 }}
-                                disablePropertyInfo={filterOpen || menuOpen}
+                                disablePropertyInfo={disablePropertyInfo || filterOpen || menuOpen}
                                 size={size}
                             />
                         </PopoverReferenceContext.Provider>
@@ -84,12 +88,11 @@ export function EditableBreakdownTag({
                         <BreakdownTag
                             breakdown={breakdown}
                             breakdownType={breakdownType}
-                            closable
                             onClose={removeBreakdown}
                             onClick={() => {
                                 setFilterOpen(!filterOpen)
                             }}
-                            disablePropertyInfo={filterOpen || menuOpen}
+                            disablePropertyInfo={disablePropertyInfo || filterOpen || menuOpen}
                             size={size}
                         />
                     </div>
@@ -103,13 +106,20 @@ type BreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType | null | undefined
     disablePropertyInfo?: boolean
-} & Omit<LemonTagProps, 'children'>
+    onClose?: () => void
+    onClick?: (e: React.MouseEvent<HTMLDivElement | HTMLButtonElement>) => void
+    popover?: LemonButtonDropdown
+    size?: 'small' | 'medium'
+}
 
 export function BreakdownTag({
     breakdown,
     breakdownType = 'event',
     disablePropertyInfo,
-    ...props
+    onClose,
+    onClick,
+    popover,
+    size = 'medium',
 }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { groupTypes } = useValues(groupsModel)
@@ -131,8 +141,18 @@ export function BreakdownTag({
         propertyName = extractExpressionComment(propertyName as string)
     }
 
+    const clickable = onClick !== undefined
+    const closeable = onClose !== undefined
+    const ButtonComponent = clickable ? 'button' : 'div'
+
     return (
-        <LemonTag type="breakdown" {...props}>
+        <ButtonComponent
+            className={clsx('BreakdownTag', `BreakdownTag--${size}`, {
+                'BreakdownTag--clickable': clickable,
+            })}
+            type={ButtonComponent === 'button' ? 'button' : undefined}
+            onClick={onClick}
+        >
             {breakdownType === 'hogql' ? (
                 <HoqQLPropertyInfo value={propertyName as string} />
             ) : (
@@ -146,6 +166,29 @@ export function BreakdownTag({
                     }
                 />
             )}
-        </LemonTag>
+            {popover?.overlay && (
+                <LemonButtonWithDropdown
+                    size="xsmall"
+                    icon={<IconEllipsis />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                    }}
+                    dropdown={popover}
+                    className="p-0.5"
+                />
+            )}
+
+            {closeable && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconX />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClose()
+                    }}
+                    className="p-0.5"
+                />
+            )}
+        </ButtonComponent>
     )
 }
