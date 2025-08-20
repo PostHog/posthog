@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
+from django.http import HttpResponse
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
 
@@ -31,7 +32,7 @@ class TestMFASessionUtils(TestCase):
 
     def _create_request(self):
         request = self.factory.get("/test/")
-        middleware = SessionMiddleware(lambda req: None)
+        middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(request)
         request.session.save()
         return request
@@ -112,7 +113,7 @@ class TestSessionAuthenticationMFA(TestCase):
         http_request = request_factory.get(path)
         http_request.user = user if user is not None else self.user
 
-        middleware = SessionMiddleware(lambda req: None)
+        middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(http_request)
         http_request.session.save()
 
@@ -319,7 +320,7 @@ class TestMFAImpersonationIntegration(TestCase):
         http_request = request_factory.get(path)
         http_request.user = user if user is not None else Mock(is_authenticated=True, is_active=True)
 
-        middleware = SessionMiddleware(lambda req: None)
+        middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(http_request)
         http_request.session.save()
 
@@ -390,7 +391,7 @@ class TestAPIAuthenticationMFABypass(TestCase):
         user.organization = org
         http_request.user = user
 
-        middleware = SessionMiddleware(lambda req: None)
+        middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(http_request)
         http_request.session.save()
         self._set_session_after_enforcement_date(http_request)
@@ -454,7 +455,7 @@ class TestUserMFASessionIntegration(TestCase):
         factory = RequestFactory()
         request = factory.post("/api/users/@me/two_factor_validate/", {"token": "123456"})
 
-        middleware = SessionMiddleware(lambda req: None)
+        middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(request)
         after_date = time.mktime((MFA_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
         request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
