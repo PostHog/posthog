@@ -830,7 +830,7 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(len(result.messages), 1)
             failure_message = result.messages[0]
             assert isinstance(failure_message, FailureMessage)
-            self.assertEqual(failure_message.content, "Max has failed to generate an answer. Please try again.")
+            self.assertEqual(failure_message.content, "The navigate tool raised an internal error.")
             self.assertEqual(result.root_tool_calls_count, 1)
 
     async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
@@ -1409,5 +1409,5 @@ Query results: 42 events
             self.assertEqual(len(result.messages), 1)
             failure_message = result.messages[0]
             assert isinstance(failure_message, FailureMessage)
-            self.assertEqual(failure_message.content, "Max has failed to generate an answer. Please try again.")
+            self.assertEqual(failure_message.content, "The search session recordings tool raised an internal error.")
             self.assertEqual(result.root_tool_calls_count, 1)
