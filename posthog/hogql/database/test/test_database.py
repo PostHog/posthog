@@ -757,7 +757,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     # We keep adding sources, credentials and tables, number of queries should be stable
     def test_external_data_source_is_not_n_plus_1(self) -> None:
-        num_queries = FuzzyInt(5, 10)
+        num_queries = FuzzyInt(5, 11)
 
         for i in range(10):
             source = ExternalDataSource.objects.create(

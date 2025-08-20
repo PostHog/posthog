@@ -18,6 +18,8 @@ import {
     Webhook,
 } from '@posthog/plugin-scaffold'
 
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
@@ -421,6 +423,7 @@ export interface Hub extends PluginsServerConfig {
     cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
+    quotaLimiting: QuotaLimiting
 }
 
 export interface PluginServerCapabilities {
