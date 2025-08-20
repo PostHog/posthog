@@ -45,7 +45,6 @@ from posthog.batch_exports.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
-from posthog.cdp.validation import has_data_pipelines_addon
 from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -287,14 +286,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict) -> dict:
         team = self.context["get_team"]()
         attrs["team"] = team
-
-        has_addon = has_data_pipelines_addon(team, self.context["request"].user)
-
-        if not has_addon:
-            # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things
-
-            if not is_impersonated_session(self.context["request"]):
-                raise serializers.ValidationError("The Data Pipelines addon is required for batch exports.")
 
         return attrs
 
