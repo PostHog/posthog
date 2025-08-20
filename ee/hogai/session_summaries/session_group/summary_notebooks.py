@@ -177,23 +177,13 @@ class SummaryNotebookIntermediateState:
             if self.current_step in self.plan_items:
                 step_name, _ = self.plan_items[self.current_step]
                 content.append(create_heading_with_text(f"Step: {step_name} (In progress)", 2))
-            # Extract content from the doc node if it's wrapped
-            # TODO: Do I need the check of I can guarantee `doc` every time?
-            if isinstance(self.current_step_content, dict) and self.current_step_content.get("type") == "doc":
-                content.extend(self.current_step_content.get("content", []))
-            else:
-                content.append(self.current_step_content)
+            content.extend(self.current_step_content.get("content", []))
 
         # Add completed steps in reverse order (most recent first)
         for step_name, step_content in reversed(list(self.completed_steps.items())):
             content.append(create_empty_paragraph())
             content.append(create_heading_with_text(f"Step: {step_name} (Completed)", 2))
-            # Extract content from the doc node if it's wrapped
-            # TODO: Do I need the check of I can guarantee `doc` every time?
-            if isinstance(step_content, dict) and step_content.get("type") == "doc":
-                content.extend(step_content.get("content", []))
-            else:
-                content.append(step_content)
+            content.extend(step_content.get("content", []))
 
         return {"type": "doc", "content": content}
 
