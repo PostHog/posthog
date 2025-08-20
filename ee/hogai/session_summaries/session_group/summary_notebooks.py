@@ -35,8 +35,7 @@ def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNod
         items.append(f"{emoji} {session_id}")
 
     bullet_list = create_bullet_list(items)
-    # Return just the bullet list without wrapping in doc
-    return bullet_list
+    return {"type": "doc", "content": [bullet_list]}
 
 
 def format_extracted_patterns_status(patterns: list[RawSessionGroupSummaryPattern]) -> TipTapNode:

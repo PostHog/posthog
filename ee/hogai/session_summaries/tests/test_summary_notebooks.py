@@ -526,14 +526,10 @@ class TestNotebookCreation(APIBaseTest):
     def test_format_single_sessions_status_empty(self) -> None:
         result: dict[str, Any] = format_single_sessions_status({})
         assert result["type"] == "doc"
-        assert len(result["content"]) == 2  # heading + bullet list
-        # Check heading
-        assert result["content"][0]["type"] == "heading"
-        assert result["content"][0]["attrs"]["level"] == 2
-        assert result["content"][0]["content"][0]["text"] == "Session Processing Status"
+        assert len(result["content"]) == 1  # just bullet list
         # Check empty bullet list
-        assert result["content"][1]["type"] == "bulletList"
-        assert result["content"][1]["content"] == []
+        assert result["content"][0]["type"] == "bulletList"
+        assert result["content"][0]["content"] == []
 
     def test_format_single_sessions_status_all_pending(self) -> None:
         sessions_status: dict[str, bool] = {
@@ -544,12 +540,9 @@ class TestNotebookCreation(APIBaseTest):
         result: dict[str, Any] = format_single_sessions_status(sessions_status)
         # Check structure
         assert result["type"] == "doc"
-        assert len(result["content"]) == 2  # heading + bullet list
-        # Check heading
-        assert result["content"][0]["type"] == "heading"
-        assert result["content"][0]["content"][0]["text"] == "Session Processing Status"
+        assert len(result["content"]) == 1  # just bullet list
         # Check bullet list
-        bullet_list: dict[str, Any] = result["content"][1]
+        bullet_list: dict[str, Any] = result["content"][0]
         assert bullet_list["type"] == "bulletList"
         assert len(bullet_list["content"]) == 3
         # Check each item
@@ -560,7 +553,7 @@ class TestNotebookCreation(APIBaseTest):
             assert paragraph["type"] == "paragraph"
             text: dict[str, Any] = paragraph["content"][0]
             assert text["type"] == "text"
-            assert text["text"] == f"{session_id} ❌"
+            assert text["text"] == f"⏳ {session_id}"
 
     def test_format_single_sessions_status_mixed(self) -> None:
         sessions_status: dict[str, bool] = {
@@ -572,12 +565,9 @@ class TestNotebookCreation(APIBaseTest):
         result: dict[str, Any] = format_single_sessions_status(sessions_status)
         # Check structure
         assert result["type"] == "doc"
-        assert len(result["content"]) == 2  # heading + bullet list
-        # Check heading
-        assert result["content"][0]["type"] == "heading"
-        assert result["content"][0]["content"][0]["text"] == "Session Processing Status"
+        assert len(result["content"]) == 1  # just bullet list
         # Check bullet list
-        bullet_list: dict[str, Any] = result["content"][1]
+        bullet_list: dict[str, Any] = result["content"][0]
         assert bullet_list["type"] == "bulletList"
         assert len(bullet_list["content"]) == 4
         # Check each item
@@ -588,8 +578,8 @@ class TestNotebookCreation(APIBaseTest):
             assert paragraph["type"] == "paragraph"
             text: dict[str, Any] = paragraph["content"][0]
             assert text["type"] == "text"
-            emoji: str = "✅" if is_completed else "❌"
-            assert text["text"] == f"{session_id} {emoji}"
+            emoji: str = "✅" if is_completed else "⏳"
+            assert text["text"] == f"{emoji} {session_id}"
 
     def test_format_single_sessions_status_all_completed(self) -> None:
         sessions_status: dict[str, bool] = {
@@ -600,12 +590,9 @@ class TestNotebookCreation(APIBaseTest):
         result: dict[str, Any] = format_single_sessions_status(sessions_status)
         # Check structure
         assert result["type"] == "doc"
-        assert len(result["content"]) == 2  # heading + bullet list
-        # Check heading
-        assert result["content"][0]["type"] == "heading"
-        assert result["content"][0]["content"][0]["text"] == "Session Processing Status"
+        assert len(result["content"]) == 1  # just bullet list
         # Check bullet list
-        bullet_list: dict[str, Any] = result["content"][1]
+        bullet_list: dict[str, Any] = result["content"][0]
         assert bullet_list["type"] == "bulletList"
         assert len(bullet_list["content"]) == 3
         # Check each item
@@ -616,19 +603,16 @@ class TestNotebookCreation(APIBaseTest):
             assert paragraph["type"] == "paragraph"
             text: dict[str, Any] = paragraph["content"][0]
             assert text["type"] == "text"
-            assert text["text"] == f"{session_id} ✅"
+            assert text["text"] == f"✅ {session_id}"
 
     def test_format_single_sessions_status_single_session(self) -> None:
         sessions_status: dict[str, bool] = {"single-session": True}
         result: dict[str, Any] = format_single_sessions_status(sessions_status)
         # Check structure
         assert result["type"] == "doc"
-        assert len(result["content"]) == 2  # heading + bullet list
-        # Check heading
-        assert result["content"][0]["type"] == "heading"
-        assert result["content"][0]["content"][0]["text"] == "Session Processing Status"
+        assert len(result["content"]) == 1  # just bullet list
         # Check bullet list
-        bullet_list: dict[str, Any] = result["content"][1]
+        bullet_list: dict[str, Any] = result["content"][0]
         assert bullet_list["type"] == "bulletList"
         assert len(bullet_list["content"]) == 1
         # Check the single item
@@ -638,19 +622,15 @@ class TestNotebookCreation(APIBaseTest):
         assert paragraph["type"] == "paragraph"
         text: dict[str, Any] = paragraph["content"][0]
         assert text["type"] == "text"
-        assert text["text"] == "single-session ✅"
+        assert text["text"] == "✅ single-session"
 
     def test_format_extracted_patterns_status_empty(self) -> None:
         result: dict[str, Any] = format_extracted_patterns_status([])
         assert result["type"] == "doc"
-        assert len(result["content"]) == 2  # heading + message
-        # Check heading
-        assert result["content"][0]["type"] == "heading"
-        assert result["content"][0]["attrs"]["level"] == 2
-        assert result["content"][0]["content"][0]["text"] == "Extracted Patterns"
+        assert len(result["content"]) == 1  # just message
         # Check empty message
-        assert result["content"][1]["type"] == "paragraph"
-        assert "No patterns extracted yet" in str(result["content"][1])
+        assert result["content"][0]["type"] == "paragraph"
+        assert "No patterns extracted yet" in str(result["content"][0])
 
     def test_format_extracted_patterns_status_with_patterns(self) -> None:
         patterns: list[RawSessionGroupSummaryPattern] = [
@@ -673,26 +653,25 @@ class TestNotebookCreation(APIBaseTest):
         result: dict[str, Any] = format_extracted_patterns_status(patterns)
         # Check structure
         assert result["type"] == "doc"
-        assert len(result["content"]) == 2  # heading + bullet list
-        # Check heading
-        assert result["content"][0]["type"] == "heading"
-        assert result["content"][0]["content"][0]["text"] == "Extracted Patterns"
+        assert len(result["content"]) == 1  # just bullet list
         # Check bullet list
-        bullet_list: dict[str, Any] = result["content"][1]
+        bullet_list: dict[str, Any] = result["content"][0]
         assert bullet_list["type"] == "bulletList"
         assert len(bullet_list["content"]) == 2  # Two patterns
 
         # Check first pattern
         first_item: dict[str, Any] = bullet_list["content"][0]
         assert first_item["type"] == "listItem"
-        assert len(first_item["content"]) == 3  # header, description, indicators
+        assert len(first_item["content"]) == 2  # header and description paragraphs
 
         # Verify pattern content includes name and severity
         first_header: dict[str, Any] = first_item["content"][0]
         assert first_header["type"] == "paragraph"
-        header_text: str = first_header["content"][0]["text"]
-        assert "Login Flow Issues" in header_text
-        assert "HIGH" in header_text  # Enum value is uppercase
+        # Pattern name should be bold
+        assert first_header["content"][0]["marks"] == [{"type": "bold"}]
+        assert first_header["content"][0]["text"] == "Login Flow Issues"
+        # Severity should follow
+        assert "High" in first_header["content"][1]["text"]
 
     def test_format_extracted_patterns_status_with_minimal_indicators(self) -> None:
         patterns: list[RawSessionGroupSummaryPattern] = [
@@ -708,13 +687,13 @@ class TestNotebookCreation(APIBaseTest):
         result: dict[str, Any] = format_extracted_patterns_status(patterns)
         # Check structure
         assert result["type"] == "doc"
-        bullet_list: dict[str, Any] = result["content"][1]
+        bullet_list: dict[str, Any] = result["content"][0]
         assert bullet_list["type"] == "bulletList"
 
-        # Check pattern item has 3 parts: header, description, and indicators
+        # Check pattern item has 2 parts: header and description
         first_item: dict[str, Any] = bullet_list["content"][0]
         assert first_item["type"] == "listItem"
-        assert len(first_item["content"]) == 3  # header, description, indicators
+        assert len(first_item["content"]) == 2  # header and description
 
 
 class TestTaskListUtilities(APIBaseTest):
@@ -781,7 +760,7 @@ class TestNotebookIntermediateState(APIBaseTest):
         assert state.team_name == "Test Team"
         assert len(state.plan_items) == 3
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", False)
-        assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", False)
+        assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find initial patterns", False)
         assert state.plan_items[SessionSummaryStep.GENERATING_REPORT] == ("Generate final report", False)
         assert state.current_step == SessionSummaryStep.WATCHING_SESSIONS
         assert state.current_step_content is None
@@ -865,7 +844,7 @@ class TestNotebookIntermediateState(APIBaseTest):
         step_two = state.current_step
         assert step_two == SessionSummaryStep.FINDING_PATTERNS
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
-        assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", False)
+        assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find initial patterns", False)
         assert state.current_step_content == content_step_two
 
         # Verify the completed step was preserved
@@ -888,14 +867,14 @@ class TestNotebookIntermediateState(APIBaseTest):
 
         # Check state
         assert state.plan_items[SessionSummaryStep.WATCHING_SESSIONS] == ("Watch sessions", True)
-        assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find patterns", True)
+        assert state.plan_items[SessionSummaryStep.FINDING_PATTERNS] == ("Find initial patterns", True)
         assert state.plan_items[SessionSummaryStep.GENERATING_REPORT] == ("Generate final report", False)
         assert state.current_step == SessionSummaryStep.GENERATING_REPORT
 
         completed = state.completed_steps
         assert len(completed) == 2
         assert completed["Watch sessions"] == content_step_one
-        assert completed["Find patterns"] == content_step_two
+        assert completed["Find initial patterns"] == content_step_two
 
     def test_format_initial_state(self) -> None:
         state = NotebookIntermediateState(team_name="Test Team")
@@ -930,11 +909,6 @@ class TestNotebookIntermediateState(APIBaseTest):
         progress_content: dict[str, Any] = {
             "type": "doc",
             "content": [
-                {
-                    "type": "heading",
-                    "attrs": {"level": 2},
-                    "content": [{"type": "text", "text": "Session Processing Status"}],
-                },
                 {"type": "paragraph", "content": [{"type": "text", "text": "Processing session 1 of 5"}]},
             ],
         }
@@ -943,19 +917,13 @@ class TestNotebookIntermediateState(APIBaseTest):
         formatted: dict[str, Any] = state.format_intermediate_state()
         content: list[dict[str, Any]] = formatted["content"]
 
-        # Should have: title, empty, plan heading, task list, empty, progress heading, progress paragraph
+        # Should have: title, empty, plan heading, task list, empty, separator, empty, progress heading, progress content
         assert len(content) > 5
 
-        # Find the progress content (should be after the task list)
-        found_progress: bool = False
-        for item in content:
-            if item.get("type") == "heading" and item.get("content"):
-                heading_text: str = item["content"][0].get("text", "")
-                if "Session Processing Status" in heading_text:
-                    found_progress = True
-                    break
-
-        assert found_progress, "Progress content not found in formatted output"
+        # Find the progress content (should be in the current step section)
+        formatted_str: str = json.dumps(formatted)
+        assert "Processing session 1 of 5" in formatted_str
+        assert "Step: Watch sessions (In progress)" in formatted_str
 
     def test_format_state_with_completed_steps(self) -> None:
         state = NotebookIntermediateState(team_name="Test Team")
@@ -985,7 +953,7 @@ class TestNotebookIntermediateState(APIBaseTest):
 
         # Check that first step is marked as completed in plan
         assert "[x] Watch sessions" in content_str
-        assert "[ ] Find patterns" in content_str
+        assert "[ ] Find initial patterns" in content_str
 
         # Check that completed step appears with "Completed" marker
         assert "Step: Watch sessions (Completed)" in content_str
@@ -1002,7 +970,7 @@ class TestNotebookIntermediateState(APIBaseTest):
         initial_str: str = json.dumps(initial_formatted)
         assert "Session Group Analysis - PostHog" in initial_str
         assert "[ ] Watch sessions" in initial_str
-        assert "[ ] Find patterns" in initial_str
+        assert "[ ] Find initial patterns" in initial_str
         assert "[ ] Generate final report" in initial_str
 
         # Step 1: Watching sessions
@@ -1017,11 +985,10 @@ class TestNotebookIntermediateState(APIBaseTest):
 
         step1_formatted: dict[str, Any] = state.format_intermediate_state()
         step1_str: str = json.dumps(step1_formatted)
-        assert "Session Processing Status" in step1_str
         assert "session-1" in step1_str
         assert "session-2" in step1_str
         assert "\\u2705" in step1_str  # ✅ emoji escaped in JSON
-        assert "\\u274c" in step1_str  # ❌ emoji escaped in JSON
+        assert "\\u23f3" in step1_str  # ⏳ emoji escaped in JSON
 
         # Move to step 2: Finding patterns
         patterns: list[RawSessionGroupSummaryPattern] = [
@@ -1039,8 +1006,7 @@ class TestNotebookIntermediateState(APIBaseTest):
         step2_formatted: dict[str, Any] = state.format_intermediate_state()
         step2_str: str = json.dumps(step2_formatted)
         assert "[x] Watch sessions" in step2_str
-        assert "[ ] Find patterns" in step2_str
-        assert "Extracted Patterns" in step2_str
+        assert "[ ] Find initial patterns" in step2_str
         assert "Login Issues" in step2_str
         assert "Step: Watch sessions (Completed)" in step2_str
 
@@ -1054,13 +1020,13 @@ class TestNotebookIntermediateState(APIBaseTest):
         step3_formatted: dict[str, Any] = state.format_intermediate_state()
         step3_str: str = json.dumps(step3_formatted)
         assert "[x] Watch sessions" in step3_str
-        assert "[x] Find patterns" in step3_str
+        assert "[x] Find initial patterns" in step3_str
         assert "[ ] Generate final report" in step3_str
         assert "Generating final report..." in step3_str
-        assert "Step: Find patterns (Completed)" in step3_str
+        assert "Step: Find initial patterns (Completed)" in step3_str
         assert "Step: Watch sessions (Completed)" in step3_str
 
         # Verify the order of completed steps (should be reverse)
-        pos_patterns: int = step3_str.find("Step: Find patterns (Completed)")
+        pos_patterns: int = step3_str.find("Step: Find initial patterns (Completed)")
         pos_sessions: int = step3_str.find("Step: Watch sessions (Completed)")
         assert pos_patterns < pos_sessions, "Most recent completed step should appear first"
