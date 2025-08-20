@@ -120,9 +120,7 @@ async def get_data_class_from_redis(
         return target_class(**json.loads(redis_data_str))
     except Exception as err:
         # Should be an actual exception as the data is already in Redis, but malformed
-        raise ValueError(
-            f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label.value}): {err}"
-        ) from err
+        raise ValueError(f"Failed to parse output data for Redis key {redis_key} ({label.value}): {err}") from err
 
 
 async def get_data_str_from_redis(
