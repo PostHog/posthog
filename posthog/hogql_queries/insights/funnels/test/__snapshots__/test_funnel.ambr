@@ -101,7 +101,7 @@
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                  FROM events AS e
                  LEFT JOIN
-                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                   (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                            groups.group_type_index AS index,
                            groups.group_key AS key
                     FROM groups
