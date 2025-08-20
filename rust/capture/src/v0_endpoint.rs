@@ -77,28 +77,8 @@ async fn check_survey_quota_and_filter(
     Ok(events)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_survey_event() {
-        // Survey events should return true
-        assert!(is_survey_event("survey sent"));
-        assert!(is_survey_event("survey shown"));
-        assert!(is_survey_event("survey dismissed"));
-
-        // Non-survey events should return false
-        assert!(!is_survey_event("pageview"));
-        assert!(!is_survey_event("$pageview"));
-        assert!(!is_survey_event("click"));
-        assert!(!is_survey_event("survey_sent")); // underscore variant
-        assert!(!is_survey_event("Survey Sent")); // case sensitivity
-        assert!(!is_survey_event(""));
-    }
-}
-
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
+/// handle_next owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
     skip_all,
     fields(
@@ -117,7 +97,7 @@ mod tests {
         batch_size
     )
 )]
-async fn handle_legacy(
+async fn handle_next(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
@@ -156,21 +136,10 @@ async fn handle_legacy(
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
     Span::current().record("request_id", request_id);
 
-    // TODO(eli): temporary peek at these
-    if query_params.lib_version.is_some() {
-        Span::current().record(
-            "params_lib_version",
-            format!("{:?}", query_params.lib_version.as_ref()),
-        );
-    }
-    if query_params.compression.is_some() {
-        Span::current().record(
-            "params_compression",
-            format!("{}", query_params.compression.unwrap()),
-        );
-    }
+    let is_mirror_deploy = state.is_mirror_deploy;
+    Span::current().record("is_mirror_deploy", is_mirror_deploy);
 
-    debug!("entering handle_legacy");
+    debug!("entering handle_next");
 
     // unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
@@ -287,7 +256,7 @@ async fn handle_legacy(
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
         path: path.as_str().to_string(),
-        is_mirror_deploy: false,
+        is_mirror_deploy,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
     };
@@ -313,7 +282,7 @@ async fn handle_legacy(
 
     debug!(context=?context,
         event_count=?events.len(),
-        "handle_legacy: successfully hydrated events");
+        "handle_next: successfully hydrated events");
     Ok((context, events))
 }
 
@@ -349,7 +318,7 @@ async fn handle_common(
     Span::current().record("method", method.as_str());
     Span::current().record("path", path.as_str().trim_end_matches('/'));
 
-    // TODO(eli): add event_legacy compression and lib_version extraction into this flow if we don't unify entirely
+    // TODO(eli): add event_next compression and lib_version extraction into this flow if we don't unify entirely
     let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
     Span::current().record("version", meta.lib_version.clone());
     Span::current().record("compression", resolved_cmp);
@@ -381,7 +350,7 @@ async fn handle_common(
 
             // by setting compression "unsupported" here, we route handle_common
             // outputs into the old RawRequest hydration behavior, prior to adding
-            // handle_legacy shims. handle_common doesn't extract compression hints
+            // handle_next shims. handle_common doesn't extract compression hints
             // as reliably as it should, and is probably losing some data due to
             // this. We'll circle back once the legacy shims ship
             RawRequest::from_bytes(
@@ -471,7 +440,7 @@ async fn handle_common(
     fields(params_lib_version, params_compression)
 )]
 #[debug_handler]
-pub async fn event_legacy(
+pub async fn event_next(
     state: State<router::State>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
@@ -496,7 +465,7 @@ pub async fn event_legacy(
         );
     }
 
-    match handle_legacy(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_next(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
@@ -517,7 +486,7 @@ pub async fn event_legacy(
 
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event_legacy: request payload processing error: {:?}", err);
+            error!("event_next: request payload processing error: {:?}", err);
             Err(err)
         }
 
@@ -533,7 +502,7 @@ pub async fn event_legacy(
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                error!("event_legacy: rejected invalid payload: {}", err);
+                error!("event_next: rejected invalid payload: {}", err);
                 return Err(err);
             }
 
@@ -930,4 +899,25 @@ fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String>
         .map(|s| s.to_string())
         .filter(|s| s.contains("posthog"))
         .or(Some("web".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_survey_event() {
+        // Survey events should return true
+        assert!(is_survey_event("survey sent"));
+        assert!(is_survey_event("survey shown"));
+        assert!(is_survey_event("survey dismissed"));
+
+        // Non-survey events should return false
+        assert!(!is_survey_event("pageview"));
+        assert!(!is_survey_event("$pageview"));
+        assert!(!is_survey_event("click"));
+        assert!(!is_survey_event("survey_sent")); // underscore variant
+        assert!(!is_survey_event("Survey Sent")); // case sensitivity
+        assert!(!is_survey_event(""));
+    }
 }

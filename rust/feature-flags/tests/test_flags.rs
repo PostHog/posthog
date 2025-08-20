@@ -1,5 +1,6 @@
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
+use base64::{engine::general_purpose, Engine as _};
 
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
 use limiters::redis::ServiceName;
@@ -315,7 +316,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_rejects_empty_distinct_id() -> Result<()> {
+async fn it_accepts_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
@@ -338,10 +339,16 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
     let res = server
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
-    assert_eq!(
-        res.text().await?,
-        "The distinct_id field cannot be empty. Please provide a valid identifier."
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Should return a valid response even with empty distinct_id
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {}
+        })
     );
     Ok(())
 }
@@ -427,6 +434,59 @@ async fn it_handles_malformed_json() -> Result<()> {
         response_text.contains("Failed to decode request: invalid JSON"),
         "Unexpected error message: {response_text:?}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    // Set up Redis and PostgreSQL clients
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let json_payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+        "disable_flags": false
+    });
+
+    // Test 1: Normal JSON
+    let res = server
+        .send_flags_request(json_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Test 2: Base64 encoded JSON with compression not specified
+    let json_string = json_payload.to_string();
+    let base64_payload = general_purpose::STANDARD.encode(json_string.as_bytes());
+
+    let res = server
+        .send_flags_request(base64_payload, Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Test 3: Invalid base64 should fail gracefully
+    let invalid_base64 = "this is not valid base64 at all!";
+    let res = server
+        .send_flags_request(invalid_base64.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+
+    let response_text = res.text().await?;
+    assert!(
+        response_text.contains("Failed to decode request: invalid JSON"),
+        "Should fail with invalid JSON error for invalid base64: {response_text:?}"
+    );
+
     Ok(())
 }
 

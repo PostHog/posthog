@@ -29,6 +29,45 @@
      HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
+     WHERE team_id = 99999
+       AND group_type_index = 0
+     GROUP BY group_key
+     HAVING 1=1
+     AND (group_key = 'special-workspace'))
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 99999
+    AND group_type_index = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
+     WHERE team_id = 99999
+       AND group_type_index = 0
+     GROUP BY group_key
+     HAVING 1=1
+     AND (group_key ILIKE '%org:%'))
+  '''
+# ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups
   '''
   /* user_id:0 request:_snapshot_ */
@@ -660,6 +699,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -942,6 +982,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -1070,6 +1111,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -1245,6 +1287,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -1373,6 +1416,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -1827,6 +1871,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -2221,6 +2266,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -2349,6 +2395,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -2652,6 +2699,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -2818,6 +2866,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -2946,6 +2995,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -3375,6 +3425,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -3620,6 +3671,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -3760,6 +3812,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
@@ -4187,6 +4240,7 @@
          "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."flags_persistence_default",
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",

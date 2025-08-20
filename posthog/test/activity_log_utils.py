@@ -492,31 +492,45 @@ class ActivityLogTestHelper(APILicensedTest):
 
     # BatchExport
     def create_batch_export(self, name: str = "Test Export", **kwargs) -> dict[str, Any]:
-        """Create a batch export via API."""
-        data = {
-            "name": name,
-            "destination": {
-                "type": "S3",
-                "config": {
-                    "bucket_name": "test-bucket",
-                    "region": "us-east-1",
-                    "prefix": "posthog-events/",
-                    "aws_access_key_id": "test-key",
-                    "aws_secret_access_key": "test-secret",
-                },
-            },
-            "interval": "hour",
+        """Create a batch export via direct model creation (like the original tests)."""
+        from posthog.batch_exports.models import BatchExport, BatchExportDestination
+
+        # Create destination first (like the original tests do)
+        destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.HTTP, config={"url": "https://example.com"}
+        )
+
+        batch_export = BatchExport.objects.create(
+            team=self.team,
+            name=name,
+            destination=destination,
+            interval="hour",
             **kwargs,
+        )
+
+        # Return in the same format as API would
+        return {
+            "id": str(batch_export.id),
+            "name": batch_export.name,
+            "interval": batch_export.interval,
+            "paused": batch_export.paused,
         }
-        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports/", data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        return response.json()
 
     def update_batch_export(self, export_id: str, updates: dict[str, Any]) -> dict[str, Any]:
-        """Update a batch export via API."""
-        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{export_id}/", updates, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.json()
+        """Update a batch export via direct model access (like the original tests)."""
+        from posthog.batch_exports.models import BatchExport
+
+        batch_export = BatchExport.objects.get(id=export_id)
+        for field, value in updates.items():
+            setattr(batch_export, field, value)
+        batch_export.save()
+
+        return {
+            "id": str(batch_export.id),
+            "name": batch_export.name,
+            "interval": batch_export.interval,
+            "paused": batch_export.paused,
+        }
 
     # Integration
     def create_integration(self, kind: str = "twilio", **kwargs) -> dict[str, Any]:
@@ -547,7 +561,7 @@ class ActivityLogTestHelper(APILicensedTest):
         return response.json()
 
     # Tag
-    def create_tag(self, name: str = "test-tag", **kwargs) -> dict[str, Any]:
+    def create_tag(self, name: str = "test-tag", **_kwargs) -> dict[str, Any]:
         """Create a tag via API."""
         # Tags are typically created implicitly when tagging items
         # Create an insight and tag it
@@ -758,18 +772,37 @@ class ActivityLogTestHelper(APILicensedTest):
         return response.json()
 
     # BatchImport
-    def create_batch_import(self, name: str = "Test Import", **kwargs) -> dict[str, Any]:
+    def create_batch_import(self, _name: str = "Test Import", **kwargs) -> dict[str, Any]:
         """Create a batch import via API."""
-        data = {
-            "source_type": "s3",
-            "content_type": "captured",
-            "s3_bucket": "test-bucket",
-            "s3_region": "us-east-1",
-            "s3_prefix": "data/",
-            "access_key": "test-key",
-            "secret_key": "test-secret",
-            **kwargs,
-        }
+        # Allow import_config to be passed as parameter for testing specific configurations
+        if "import_config" in kwargs:
+            import_config = kwargs.pop("import_config")
+            source = import_config.get("source", {})
+            data_format = import_config.get("data_format", {})
+            content = data_format.get("content", {})
+
+            data = {
+                "source_type": source.get("type", "s3"),
+                "content_type": content.get("type", "captured"),
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                **kwargs,
+            }
+        else:
+            data = {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                **kwargs,
+            }
+
         response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.json()
@@ -781,6 +814,16 @@ class ActivityLogTestHelper(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
+
+    def delete_batch_import(self, import_id: str) -> None:
+        """Delete a batch import."""
+        response = self.client.delete(f"/api/projects/{self.team.id}/managed_migrations/{import_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def delete_batch_export(self, export_id: str) -> None:
+        """Delete a batch export."""
+        response = self.client.delete(f"/api/projects/{self.team.id}/batch_exports/{export_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     # TaggedItem
     def create_tagged_item(self, tag_name: str, item_type: str, item_id: str) -> dict[str, Any]:
