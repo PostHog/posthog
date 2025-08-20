@@ -15,6 +15,7 @@ import {
 import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
+import { HealthCheckResult } from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -210,32 +211,44 @@ export class KafkaConsumer {
         }
     }
 
-    public isHealthy(): boolean {
+    public isHealthy(): HealthCheckResult {
         // Multi-dimensional health check
+        const details: Record<string, any> = {
+            topic: this.config.topic,
+            groupId: this.config.groupId,
+        }
 
         // 1. Basic connectivity check
         if (!this.rdKafkaConsumer.isConnected()) {
-            logger.debug('🔴', 'Consumer health check failed: not connected')
-            return false
+            return {
+                healthy: false,
+                message: 'Consumer not connected to Kafka broker',
+                details,
+            }
         }
 
         // 2. Consumer loop liveness check (ensure loop is not stalled)
         const timeSinceLastLoop = Date.now() - this.lastConsumerLoopTime
         if (this.lastConsumerLoopTime > 0 && timeSinceLastLoop > CONSUMER_LOOP_STALL_THRESHOLD_MS) {
-            logger.warn('🔴', 'Consumer health check failed: consumer loop appears stalled', {
-                lastLoopTime: this.lastConsumerLoopTime,
-                timeSinceLastLoop,
-                threshold: CONSUMER_LOOP_STALL_THRESHOLD_MS,
-            })
-            return false
+            return {
+                healthy: false,
+                message: `Consumer loop appears stalled (no activity for ${Math.round(timeSinceLastLoop / 1000)}s)`,
+                details: {
+                    ...details,
+                    lastConsumerLoopTime: this.lastConsumerLoopTime,
+                    timeSinceLastLoop,
+                    threshold: CONSUMER_LOOP_STALL_THRESHOLD_MS,
+                },
+            }
         }
+
+        // Build status message with warnings
+        const warnings: string[] = []
 
         // 3. Check librdkafka internal state if available
         if (this.consumerState && this.consumerState !== 'up') {
-            logger.debug('🟡', 'Consumer state not optimal but still healthy', {
-                state: this.consumerState,
-            })
-            // Note: We still return true here as the consumer might be initializing or rebalancing
+            warnings.push(`Consumer state: ${this.consumerState}`)
+            details.consumerState = this.consumerState
         }
 
         // 4. Check if statistics are being emitted (indicates librdkafka is responsive)
@@ -243,23 +256,31 @@ export class KafkaConsumer {
             const timeSinceLastStats = Date.now() - this.lastStatsEmitTime
             // Allow for 3x the statistics interval as buffer
             if (timeSinceLastStats > STATISTICS_INTERVAL_MS * 3) {
-                logger.warn('🟡', 'Consumer health check warning: statistics not being emitted', {
-                    lastStatsEmitTime: this.lastStatsEmitTime,
-                    timeSinceLastStats,
-                })
-                // Not failing health check as this might be a transient issue
+                warnings.push(`Statistics not emitted for ${Math.round(timeSinceLastStats / 1000)}s`)
+                details.lastStatsEmitTime = this.lastStatsEmitTime
+                details.timeSinceLastStats = timeSinceLastStats
             }
         }
 
-        // 5. Rebalancing is normal operation, log but don't fail
+        // 5. Rebalancing is normal operation, note it but don't fail
         if (this.rebalanceCoordination.isRebalancing) {
-            logger.info('🟡', 'Consumer is rebalancing but considered healthy', {
-                rebalanceStartTime: this.rebalanceCoordination.rebalanceStartTime,
-                duration: Date.now() - this.rebalanceCoordination.rebalanceStartTime,
-            })
+            const duration = Date.now() - this.rebalanceCoordination.rebalanceStartTime
+            warnings.push(`Rebalancing in progress (${Math.round(duration / 1000)}s)`)
+            details.rebalancing = true
+            details.rebalanceDuration = duration
         }
 
-        return true
+        // Add assignments info
+        const assignments = this.assignments()
+        if (assignments.length > 0) {
+            details.assignments = assignments.map((a) => ({ topic: a.topic, partition: a.partition }))
+        }
+
+        return {
+            healthy: true,
+            message: warnings.length > 0 ? `Healthy with warnings: ${warnings.join(', ')}` : 'Healthy',
+            details,
+        }
     }
 
     public assignments(): Assignment[] {
