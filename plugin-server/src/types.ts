@@ -96,10 +96,16 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
+export interface HealthCheckResult {
+    healthy: boolean
+    message?: string
+    details?: Record<string, any>
+}
+
 export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
-    healthcheck: () => boolean | Promise<boolean>
+    healthcheck: () => boolean | HealthCheckResult | Promise<boolean | HealthCheckResult>
 }
 
 export type CdpConfig = {
