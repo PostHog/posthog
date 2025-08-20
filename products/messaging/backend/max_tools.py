@@ -89,7 +89,8 @@ Now, create a template for these instructions: {instructions}
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
-            raise final_error
+            if final_error is not None:
+                raise final_error
 
         template_json = json.dumps(parsed_result.model_dump(), indent=2)
         return f"```json\n{template_json}\n```", template_json
