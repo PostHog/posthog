@@ -73,6 +73,7 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseDailyRowsBreakdown,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
@@ -3391,6 +3392,15 @@ const api = {
                 .dataWarehouse()
                 .withAction('recent_activity')
                 .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .get(options)
+        },
+
+        async breakdownOfRowsSyncedByDayInBillingPeriod(
+            options?: ApiMethodOptions
+        ): Promise<DataWarehouseDailyRowsBreakdown> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('breakdown_of_rows_synced_by_day_in_billing_period')
                 .get(options)
         },
     },
