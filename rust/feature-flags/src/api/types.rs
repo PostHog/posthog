@@ -413,6 +413,41 @@ impl Default for SessionRecordingField {
     }
 }
 
+/// Generic deserializer that treats empty strings as None for any type that implements FromStr
+fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: fmt::Display,
+{
+    let opt = Option::<String>::deserialize(de)?;
+    match opt.as_deref() {
+        None | Some("") => Ok(None),
+        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
+    }
+}
+
+/// Deserializer for timestamps that handles both strings and integers
+fn deserialize_optional_timestamp<'de, D>(de: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum IntOrString {
+        Int(i64),
+        String(String),
+    }
+
+    let opt = Option::<IntOrString>::deserialize(de)?;
+    match opt {
+        None => Ok(None),
+        Some(IntOrString::Int(i)) => Ok(Some(i)),
+        Some(IntOrString::String(s)) if s.is_empty() => Ok(None),
+        Some(IntOrString::String(s)) => s.parse().map(Some).map_err(de::Error::custom),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,40 +672,5 @@ mod tests {
         // Config fields should be present when set
         assert!(obj.contains_key("analytics"));
         assert!(obj.contains_key("supportedCompression"));
-    }
-}
-
-/// Generic deserializer that treats empty strings as None for any type that implements FromStr
-fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: FromStr,
-    T::Err: fmt::Display,
-{
-    let opt = Option::<String>::deserialize(de)?;
-    match opt.as_deref() {
-        None | Some("") => Ok(None),
-        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
-    }
-}
-
-/// Deserializer for timestamps that handles both strings and integers
-fn deserialize_optional_timestamp<'de, D>(de: D) -> Result<Option<i64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum IntOrString {
-        Int(i64),
-        String(String),
-    }
-
-    let opt = Option::<IntOrString>::deserialize(de)?;
-    match opt {
-        None => Ok(None),
-        Some(IntOrString::Int(i)) => Ok(Some(i)),
-        Some(IntOrString::String(s)) if s.is_empty() => Ok(None),
-        Some(IntOrString::String(s)) => s.parse().map(Some).map_err(de::Error::custom),
     }
 }

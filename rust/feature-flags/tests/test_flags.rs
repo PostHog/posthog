@@ -5250,8 +5250,7 @@ async fn it_handles_empty_query_parameters() -> Result<()> {
         ))
         .header("Content-Type", "application/json")
         .body(format!(
-            r#"{{"token": "{}", "distinct_id": "{}"}}"#,
-            token, distinct_id
+            r#"{{"token": "{token}", "distinct_id": "{distinct_id}"}}"#
         ))
         .send()
         .await?;
