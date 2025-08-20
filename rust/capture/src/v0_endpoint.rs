@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::Arc;
 
 use axum::{debug_handler, Json};
@@ -7,7 +6,6 @@ use bytes::Bytes;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
@@ -18,7 +16,7 @@ use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::v0_request::{
-    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
+    DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
 };
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
@@ -139,7 +137,7 @@ async fn handle_event_payload(
     let is_mirror_deploy = state.is_mirror_deploy;
     Span::current().record("is_mirror_deploy", is_mirror_deploy);
 
-    debug!("entering handle_next");
+    debug!("entering handle_event_payload");
 
     // unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
@@ -282,149 +280,7 @@ async fn handle_event_payload(
 
     debug!(context=?context,
         event_count=?events.len(),
-        "handle_next: successfully hydrated events");
-    Ok((context, events))
-}
-
-/// handle_deprecated is the request payload processor we're attempting to eliminate via
-/// consolidation with the handle_event_payload function.
-async fn handle_deprecated(
-    state: &State<router::State>,
-    InsecureClientIp(ip): &InsecureClientIp,
-    meta: &EventQuery,
-    headers: &HeaderMap,
-    method: &Method,
-    path: &MatchedPath,
-    body: Bytes,
-) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
-    let user_agent = headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = headers
-        .get("content-encoding")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let request_id = headers
-        .get("x-request-id")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    Span::current().record("user_agent", user_agent);
-    Span::current().record("content_encoding", content_encoding);
-    Span::current().record("request_id", request_id);
-    Span::current().record("method", method.as_str());
-    Span::current().record("path", path.as_str().trim_end_matches('/'));
-
-    let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
-    Span::current().record("version", meta.lib_version.clone());
-    Span::current().record("compression", resolved_cmp);
-
-    let request = match headers
-        .get("content-type")
-        .map_or("", |v| v.to_str().unwrap_or(""))
-    {
-        "application/x-www-form-urlencoded" => {
-            Span::current().record("content_type", "application/x-www-form-urlencoded");
-
-            let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                error!("failed to decode urlencoded form body: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
-            })?;
-
-            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
-                return Err(CaptureError::EmptyPayload);
-            }
-
-            let payload = base64::engine::general_purpose::STANDARD
-                .decode(input.data.unwrap())
-                .map_err(|e| {
-                    error!("failed to decode base64 form data: {}", e);
-                    CaptureError::RequestDecodingError(String::from(
-                        "missing or invalid data field",
-                    ))
-                })?;
-
-            // by setting compression "unsupported" here, we route handle_deprecated
-            // outputs into the old RawRequest hydration behavior, prior to adding
-            // handle_next shims. handle_deprecated doesn't extract compression hints
-            // as reliably as it should, and is probably losing some data due to
-            // this. We'll circle back once the legacy shims ship
-            RawRequest::from_bytes(
-                payload.into(),
-                Compression::Unsupported,
-                request_id,
-                state.event_size_limit,
-                path.as_str().to_string(),
-            )
-        }
-        ct => {
-            Span::current().record("content_type", ct);
-            // see above for details
-            RawRequest::from_bytes(
-                body,
-                Compression::Unsupported,
-                request_id,
-                state.event_size_limit,
-                path.as_str().to_string(),
-            )
-        }
-    }?;
-
-    let sent_at = request.sent_at().or(meta.sent_at());
-    let historical_migration = request.historical_migration();
-    Span::current().record("historical_migration", historical_migration);
-
-    // if this was a batch request, retrieve this now for later validation
-    let maybe_batch_token = request.get_batch_token();
-
-    // consumes the parent request, so it's no longer in scope to extract metadata from
-    let mut events = match request.events(path.as_str()) {
-        Ok(events) => events,
-        Err(e) => return Err(e),
-    };
-    Span::current().record("batch_size", events.len());
-
-    let token = match extract_and_verify_token(&events, maybe_batch_token) {
-        Ok(token) => token,
-        Err(err) => {
-            return Err(err);
-        }
-    };
-    Span::current().record("token", &token);
-
-    counter!("capture_events_received_total").increment(events.len() as u64);
-
-    let context = ProcessingContext {
-        lib_version: meta.lib_version.clone(),
-        sent_at,
-        token,
-        now: state.timesource.current_time(),
-        client_ip: ip.to_string(),
-        request_id: request_id.to_string(),
-        path: path.as_str().to_string(),
-        is_mirror_deploy: false,
-        historical_migration,
-        user_agent: Some(user_agent.to_string()),
-    };
-
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if billing_limited {
-        let start_len = events.len();
-        // TODO - right now the exception billing limits are applied only in ET's pipeline,
-        // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
-        report_dropped_events("over_quota", (start_len - events.len()) as u64);
-        if events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-    }
-
-    // Check for survey quota limiting if any events are survey-related
-    events = check_survey_quota_and_filter(state, &context, events).await?;
-
-    debug!(context=?context, events=?events, "decoded request");
-
+        "handle_event_payload: successfully hydrated events");
     Ok((context, events))
 }
 
@@ -545,14 +401,7 @@ pub async fn recording(
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
-    let result: Result<(ProcessingContext, Vec<RawEvent>), CaptureError> = if state.is_mirror_deploy
-    {
-        handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await
-    } else {
-        handle_deprecated(&state, &ip, &params, &headers, &method, &path, body).await
-    };
-
-    match result {
+    match handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
