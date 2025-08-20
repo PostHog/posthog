@@ -15,7 +15,9 @@ MAX_BACKFILL_PARTITIONS_PER_RUN_ENV_VAR = "WEB_ANALYTICS_BACKFILL_MAX_PARTITIONS
 DEFAULT_MAX_BACKFILL_PARTITIONS = 7
 
 backfill_lookback_days = int(os.getenv(BACKFILL_LOOKBACK_DAYS_ENV_VAR, DEFAULT_BACKFILL_LOOKBACK_DAYS))
-max_backfill_partitions_per_run = int(os.getenv(MAX_BACKFILL_PARTITIONS_PER_RUN_ENV_VAR, DEFAULT_MAX_BACKFILL_PARTITIONS))
+max_backfill_partitions_per_run = int(
+    os.getenv(MAX_BACKFILL_PARTITIONS_PER_RUN_ENV_VAR, DEFAULT_MAX_BACKFILL_PARTITIONS)
+)
 
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_backfill_partitions_per_run)
 partition_def = DailyPartitionsDefinition(start_date="2024-01-01")
@@ -28,7 +30,7 @@ def get_teams_missing_data(
 ) -> dict[str, set[str]]:
     """
     Identify teams that have missing data in pre-aggregated tables using direct queries.
-    
+
     Returns:
         Dict mapping table names to sets of missing partition dates for teams
     """
@@ -52,9 +54,9 @@ def get_teams_missing_data(
 
         # Query to find missing partitions for enabled teams
         query = f"""
-        WITH 
+        WITH
             enabled_teams AS (
-                SELECT team_id 
+                SELECT team_id
                 FROM (SELECT {enabled_teams_str} as team_id)
                 ARRAY JOIN [team_id] AS team_id
             ),
@@ -63,7 +65,7 @@ def get_teams_missing_data(
                 FROM numbers(dateDiff('day', toDate('{start_date}'), toDate('{end_date}')) + 1)
             ),
             expected_partitions AS (
-                SELECT 
+                SELECT
                     et.team_id,
                     dr.partition_date,
                     formatDateTime(dr.partition_date, '%Y%m%d') AS partition_id
@@ -80,13 +82,13 @@ def get_teams_missing_data(
                   AND toDate(period_bucket) <= toDate('{end_date}')
                   AND team_id IN ({enabled_teams_str})
             )
-        SELECT 
+        SELECT
             ep.team_id,
             ep.partition_date,
             ep.partition_id
         FROM expected_partitions ep
         LEFT JOIN existing_partitions exp ON (
-            ep.team_id = exp.team_id 
+            ep.team_id = exp.team_id
             AND ep.partition_date = exp.partition_date
         )
         WHERE exp.team_id IS NULL
@@ -115,7 +117,7 @@ def get_teams_missing_data(
 def should_run_backfill(context: dagster.OpExecutionContext, missing_data: dict[str, set[str]]) -> bool:
     """
     Determine if backfill should run based on missing data.
-    
+
     Implements 80/20 rule: only run if there's meaningful missing data.
     """
     total_missing = sum(len(partitions) for partitions in missing_data.values())
@@ -181,34 +183,34 @@ def check_missing_data_op(
     Run with: dagster job execute -j check_missing_data_job
     """
     context.log.info("Checking for missing web analytics data")
-    
+
     missing_data = get_teams_missing_data(context, cluster)
     total_missing = sum(len(partitions) for partitions in missing_data.values())
-    
+
     results = {
         "total_missing_partitions": total_missing,
         "tables_with_missing_data": len(missing_data),
         "should_run_backfill": should_run_backfill(context, missing_data),
         "lookback_days": backfill_lookback_days,
-        "details": {}
+        "details": {},
     }
-    
+
     for table_name, missing_partitions in missing_data.items():
         results["details"][table_name] = {
             "missing_count": len(missing_partitions),
-            "sample_dates": sorted(list(missing_partitions))[:10]  # Show first 10
+            "sample_dates": sorted(missing_partitions)[:10],  # Show first 10
         }
-        
+
         context.log.info(
             f"Table {table_name}: {len(missing_partitions)} missing partitions. "
-            f"Sample: {sorted(list(missing_partitions))[:5]}"
+            f"Sample: {sorted(missing_partitions)[:5]}"
         )
-    
+
     if total_missing == 0:
         context.log.info("✅ No missing data found!")
     else:
         context.log.info(f"📊 Found {total_missing} missing partitions across {len(missing_data)} tables")
-    
+
     return results
 
 
@@ -227,51 +229,51 @@ def show_data_gaps_detailed_op(
     """
     days_back = context.op_config["days_back"]
     context.log.info(f"Showing detailed data gaps for last {days_back} days")
-    
+
     missing_data = get_teams_missing_data(context, cluster, days_back)
-    
+
     detailed_gaps = {}
-    
+
     for table_name, missing_partitions in missing_data.items():
         context.log.info(f"\n--- Analyzing {table_name} ---")
-        
+
         if not missing_partitions:
             context.log.info("  ✅ No missing data found")
             detailed_gaps[table_name] = {"missing_count": 0, "missing_dates": []}
             continue
-            
-        sorted_dates = sorted(list(missing_partitions))
-        
+
+        sorted_dates = sorted(missing_partitions)
+
         # Group consecutive dates for better readability
         date_ranges = []
         if sorted_dates:
             start = end = sorted_dates[0]
-            
+
             for i in range(1, len(sorted_dates)):
                 current = sorted_dates[i]
-                if (datetime.strptime(current, "%Y-%m-%d").date() - 
-                    datetime.strptime(end, "%Y-%m-%d").date()).days == 1:
+                if (
+                    datetime.strptime(current, "%Y-%m-%d").date() - datetime.strptime(end, "%Y-%m-%d").date()
+                ).days == 1:
                     end = current
                 else:
                     date_ranges.append(f"{start}" if start == end else f"{start} to {end}")
                     start = end = current
-            
+
             date_ranges.append(f"{start}" if start == end else f"{start} to {end}")
-        
+
         detailed_gaps[table_name] = {
             "missing_count": len(missing_partitions),
             "missing_dates": sorted_dates[:20],  # Show first 20
-            "date_ranges": date_ranges
+            "date_ranges": date_ranges,
         }
-        
+
         context.log.info(f"  📊 {len(missing_partitions)} missing dates: {', '.join(date_ranges)}")
-    
+
     return detailed_gaps
 
 
 def get_partition_requests_for_missing_data(
-    context: dagster.OpExecutionContext,
-    missing_data: dict[str, set[str]]
+    context: dagster.OpExecutionContext, missing_data: dict[str, set[str]]
 ) -> list[dagster.RunRequest]:
     """
     Generate partition-based run requests for missing data.
@@ -287,8 +289,7 @@ def get_partition_requests_for_missing_data(
 
     if len(sorted_dates) > max_backfill_partitions_per_run:
         context.log.info(
-            f"Limiting backfill to {max_backfill_partitions_per_run} partitions "
-            f"out of {len(sorted_dates)} missing"
+            f"Limiting backfill to {max_backfill_partitions_per_run} partitions " f"out of {len(sorted_dates)} missing"
         )
 
     run_requests = []
@@ -299,7 +300,7 @@ def get_partition_requests_for_missing_data(
                 tags={
                     "backfill_run": "true",
                     "missing_data_detected": "true",
-                }
+                },
             )
         )
 
@@ -311,10 +312,14 @@ def get_partition_requests_for_missing_data(
     asset_selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
     minimum_interval_seconds=3600 * 6,  # Run every 6 hours
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    default_status=dagster.DefaultSensorStatus.STOPPED,  # Start in stopped state for safety
 )
 def web_analytics_backfill_sensor(context: dagster.SensorEvaluationContext):
     """
     Sensor that triggers backfill when missing data is detected.
+
+    SAFETY: This sensor starts in STOPPED state by default.
+    Manually start it in Dagster UI when ready for production use.
     """
     from posthog.clickhouse.cluster import ClickhouseCluster
 
@@ -331,9 +336,13 @@ def web_analytics_backfill_sensor(context: dagster.SensorEvaluationContext):
     # Generate run requests for missing partitions
     run_requests = get_partition_requests_for_missing_data(context, missing_data)
 
-    context.log.info(f"Triggering backfill for {len(run_requests)} partitions")
+    context.log.info(f"Would trigger backfill for {len(run_requests)} partitions")
+    partitions = [req.partition_key for req in run_requests]
+    context.log.info(f"Partitions that would be backfilled: {partitions}")
 
-    return run_requests
+    # TODO: Remove this comment to enable actual backfill
+    # return run_requests
+    return dagster.SkipReason(f"Backfill disabled - would process {len(run_requests)} partitions: {partitions}")
 
 
 @dagster.schedule(
@@ -341,11 +350,15 @@ def web_analytics_backfill_sensor(context: dagster.SensorEvaluationContext):
     job_name="web_pre_aggregate_job",
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "backfill_schedule": "true"},
+    default_status=dagster.DefaultScheduleStatus.STOPPED,  # Start in stopped state for safety
 )
 def web_analytics_backfill_schedule(context: dagster.ScheduleEvaluationContext):
     """
     Daily schedule that checks for and triggers backfill of missing data.
     Only runs if there are teams with missing data periods.
+
+    SAFETY: This schedule starts in STOPPED state by default.
+    Manually start it in Dagster UI when ready for production use.
     """
     from posthog.clickhouse.cluster import ClickhouseCluster
 
@@ -361,13 +374,16 @@ def web_analytics_backfill_schedule(context: dagster.ScheduleEvaluationContext):
     # Generate run requests for missing partitions
     run_requests = get_partition_requests_for_missing_data(context, missing_data)
 
-    context.log.info(f"Scheduled backfill for {len(run_requests)} partitions")
+    context.log.info(f"Would schedule backfill for {len(run_requests)} partitions")
+    partitions = [req.partition_key for req in run_requests]
+    context.log.info(f"Partitions that would be backfilled: {partitions}")
 
+    # TODO: Remove this comment to enable actual backfill
     # Return the first run request (Dagster schedules return single requests)
-    if run_requests:
-        return run_requests[0]
+    # if run_requests:
+    #     return run_requests[0]
 
-    return dagster.SkipReason("No partitions to backfill")
+    return dagster.SkipReason(f"Backfill disabled - would process {len(run_requests)} partitions: {partitions}")
 
 
 # Dagster Jobs for CLI execution
@@ -388,14 +404,8 @@ def check_missing_data_job():
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "type": "diagnostic"},
     config=dagster.ConfigMapping(
         config_schema={"days_back": dagster.Field(int, default_value=7)},
-        config_fn=lambda cfg: {
-            "ops": {
-                "show_data_gaps_detailed": {
-                    "config": {"days_back": cfg["days_back"]}
-                }
-            }
-        }
-    )
+        config_fn=lambda cfg: {"ops": {"show_data_gaps_detailed": {"config": {"days_back": cfg["days_back"]}}}},
+    ),
 )
 def show_data_gaps_job():
     """

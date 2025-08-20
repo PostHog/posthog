@@ -1,6 +1,5 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from unittest.mock import Mock, patch
-import pytest
 import dagster
 
 from dags.web_preaggregated_backfill import (
@@ -12,7 +11,6 @@ from dags.web_preaggregated_backfill import (
 
 
 class TestWebAnalyticsBackfill:
-
     @patch("dags.web_preaggregated_backfill.get_team_ids_from_sources")
     @patch("dags.web_preaggregated_backfill.sync_execute")
     def test_get_teams_missing_data(self, mock_sync_execute, mock_get_team_ids):
