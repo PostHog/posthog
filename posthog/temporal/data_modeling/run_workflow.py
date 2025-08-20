@@ -456,6 +456,7 @@ async def materialize_model(
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            # batch = _normalize_timestamps(batch)
 
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
@@ -739,13 +740,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "ENUM": ("toString", ()),
         "IPv4": ("toString", ()),
         "IPv6": ("toString", ()),
-        "DateTime64(3": (
-            "toDateTime64",
-            (
-                ast.Constant(value=6),
-                ast.Constant(value="UTC"),
-            ),
-        ),
+        # "DateTime64(3": ("toDateTime64", (ast.Constant(value=6), ast.Constant(value="UTC"),)),
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
     }
 
@@ -879,8 +874,22 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
             or pa.types.is_timestamp(field.type)
             or pa.types.is_date(field.type)
         ):
-            new_columns.append(column)
-            new_fields.append(field)
+            new_column = column
+            new_field = field
+
+            if pa.types.is_timestamp(field.type):
+                ts_type: pa.TimestampType = typing.cast(pa.TimestampType, field.type)
+
+                if ts_type.tz is not None:
+                    normalized = pc.cast(column, pa.timestamp("us"))
+                    new_column = pc.cast(normalized, pa.timestamp("us", tz="UTC"))
+                    new_field = field.with_type(pa.timestamp("us", tz="UTC"))
+                else:
+                    new_column = pc.cast(column, pa.timestamp("us"))
+                    new_field = field.with_type(pa.timestamp("us"))
+
+            new_columns.append(new_column)
+            new_fields.append(new_field)
             continue
 
         if "datetime" in type.lower():
