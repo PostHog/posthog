@@ -668,6 +668,7 @@ const config = {
 
                 primary: 'var(--color-text-primary)',
                 'primary-inverse': 'var(--color-text-primary-inverse)',
+                'secondary-inverse': 'var(--color-text-secondary-inverse)',
                 secondary: 'var(--color-text-secondary)',
                 tertiary: 'var(--color-text-tertiary)',
                 success: 'var(--color-text-success)',

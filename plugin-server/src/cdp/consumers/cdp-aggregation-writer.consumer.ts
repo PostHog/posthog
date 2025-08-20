@@ -5,6 +5,7 @@ import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { sanitizeString } from '../../utils/db/utils'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -129,7 +130,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         const params = [
             personEvents.map((e) => e.teamId),
             personEvents.map((e) => e.personId),
-            personEvents.map((e) => e.eventName),
+            personEvents.map((e) => sanitizeString(e.eventName)),
         ]
 
         return { cte, params }
@@ -143,7 +144,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         const cte = `behavioural_inserts AS (
             INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
             SELECT * FROM unnest($${paramOffset}::int[], $${paramOffset + 1}::uuid[], $${paramOffset + 2}::text[], $${paramOffset + 3}::date[], $${paramOffset + 4}::int[])
-            ON CONFLICT (team_id, person_id, filter_hash, date) 
+            ON CONFLICT (date, team_id, person_id, filter_hash) 
             DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
             RETURNING 1
         )`
@@ -151,8 +152,8 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         const params = [
             behaviouralEvents.map((e) => e.teamId),
             behaviouralEvents.map((e) => e.personId),
-            behaviouralEvents.map((e) => e.filterHash),
-            behaviouralEvents.map((e) => e.date),
+            behaviouralEvents.map((e) => sanitizeString(e.filterHash)),
+            behaviouralEvents.map((e) => sanitizeString(e.date)),
             behaviouralEvents.map((e) => e.counter),
         ]
 

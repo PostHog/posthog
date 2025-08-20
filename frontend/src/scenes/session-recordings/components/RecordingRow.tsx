@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useActions } from 'kea'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'

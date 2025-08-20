@@ -10,7 +10,7 @@ import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { logger } from '../../../../utils/logger'
 import { captureException } from '../../../../utils/posthog'
 import { eventDroppedCounter } from '../../metrics'
-import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
+import { ConsoleLogEntry, RRWebEventType, gatherConsoleLogEvents } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 

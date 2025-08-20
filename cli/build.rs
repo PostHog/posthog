@@ -5,10 +5,7 @@ const DEBUG_POSTHOG_API_TOKEN: &str = "phc_raG2H9V246hkNZk6K89DZGG98qQyPrKKlicif
 pub fn main() {
     let profile = std::env::var("PROFILE").expect("Profile variable is set by cargo");
     if profile == "debug" {
-        println!(
-            "cargo:rustc-env=POSTHOG_API_TOKEN={}",
-            DEBUG_POSTHOG_API_TOKEN
-        );
+        println!("cargo:rustc-env=POSTHOG_API_TOKEN={DEBUG_POSTHOG_API_TOKEN}");
     } else {
         eprintln!("Not setting debug posthog api token");
     }

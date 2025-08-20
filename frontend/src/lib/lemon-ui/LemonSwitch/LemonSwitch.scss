@@ -83,6 +83,13 @@
             cursor: not-allowed; // A label with for=* also toggles the switch, so it shouldn't have the text select cursor
         }
     }
+
+    &.LemonSwitch--loading {
+        .LemonSwitch__button {
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+    }
 }
 
 .LemonSwitch__button {
@@ -117,6 +124,7 @@
         calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - 2 * var(--lemon-switch-handle-gutter))
     );
 
+    position: relative;
     width: var(--lemon-switch-handle-width);
     height: var(--lemon-switch-handle-height);
     pointer-events: none;
@@ -145,4 +153,9 @@
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: var(--lemon-switch-active-translate);
     }
+}
+
+.LemonSwitch__spinner-icon {
+    width: calc(var(--lemon-switch-handle-size) + 2px);
+    height: calc(var(--lemon-switch-handle-size) + 2px);
 }

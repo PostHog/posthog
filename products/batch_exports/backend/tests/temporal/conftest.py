@@ -15,7 +15,6 @@ from temporalio.testing import ActivityEnvironment
 from posthog import constants
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger_async
@@ -297,8 +296,6 @@ async def setup_postgres_test_db(postgres_config):
 
 @pytest_asyncio.fixture
 async def temporal_worker(temporal_client, workflows, activities):
-    initialize_otel()
-
     worker = temporalio.worker.Worker(
         temporal_client,
         task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,

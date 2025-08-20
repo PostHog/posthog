@@ -1,13 +1,15 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AccessLevel, OrganizationResourcePermissionType, Resource, RoleType } from '~/types'
 
-import type { permissionsLogicType } from './permissionsLogicType'
 import { rolesLogic } from './Roles/rolesLogic'
+import type { permissionsLogicType } from './permissionsLogicType'
 
 const ResourceDisplayMapping: Record<Resource, string> = {
     [Resource.FEATURE_FLAGS]: 'Feature Flags',

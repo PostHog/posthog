@@ -1,12 +1,11 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { parseJSON } from '../utils/json-parse'
-import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
@@ -16,6 +15,7 @@ import {
     LogEntrySerialized,
     MinimalLogEntry,
 } from './types'
+
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
@@ -112,6 +112,19 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
         }
     }
 
+    let properties = data.event.properties
+
+    // KLUDGE: spread the properties of the exception event that caused the internal issue event
+    // so those properties can be used to filter CDP destinations for error tracking alerts
+    if (
+        isInternalErrorTrackingEvent(data.event) &&
+        'exception_props' in properties &&
+        typeof properties.exception_props === 'object'
+    ) {
+        properties = { ...properties, ...properties.exception_props }
+        delete properties.exception_props
+    }
+
     const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
@@ -123,7 +136,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
             event: data.event.event,
             elements_chain: '', // Not applicable but left here for compatibility
             distinct_id: data.event.distinct_id,
-            properties: data.event.properties,
+            properties: properties,
             timestamp: data.event.timestamp,
             url: data.event.url ?? '',
         },
@@ -210,6 +223,10 @@ export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolea
 
 export function isNativeHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('native-') ?? false
+}
+
+export function isInternalErrorTrackingEvent(event: CdpInternalEvent['event']): boolean {
+    return ['$error_tracking_issue_created', '$error_tracking_issue_reopened'].includes(event.event)
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {

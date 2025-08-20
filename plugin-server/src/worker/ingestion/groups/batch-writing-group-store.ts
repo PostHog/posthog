@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { GroupTypeIndex, Hub, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
@@ -11,9 +12,9 @@ import { RaceConditionError } from '../../../utils/utils'
 import { FlushResult } from '../persons/persons-store-for-batch'
 import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
-import { GroupStore } from './group-store.interface'
 import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch.interface'
-import { calculateUpdate, fromGroup, GroupUpdate } from './group-update'
+import { GroupStore } from './group-store.interface'
+import { GroupUpdate, calculateUpdate, fromGroup } from './group-update'
 import {
     groupCacheOperationsCounter,
     groupCacheSizeHistogram,
@@ -22,8 +23,8 @@ import {
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
 import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
-import { GroupRepository } from './repositories/group-repository.interface'
 import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
+import { GroupRepository } from './repositories/group-repository.interface'
 
 export type GroupHub = Pick<Hub, 'db' | 'groupRepository' | 'clickhouseGroupRepository'>
 

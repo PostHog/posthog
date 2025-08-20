@@ -664,7 +664,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request) if request else None
+        dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
         dashboard_variables_override = variables_override_requested_by_client(
             request, dashboard, list(self.context["insight_variables"])
         )
@@ -731,7 +731,7 @@ class InsightSerializer(InsightBasicSerializer):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
-                filters_override = filters_override_requested_by_client(self.context["request"])
+                filters_override = filters_override_requested_by_client(self.context["request"], dashboard)
                 variables_override = variables_override_requested_by_client(
                     self.context["request"], dashboard, list(self.context["insight_variables"])
                 )
@@ -1218,12 +1218,22 @@ When set, the specified dashboard's filters and date range override will be appl
     # ******************************************
     @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
+
+        insight = self.get_object()
         InsightViewed.objects.update_or_create(
             team=self.team,
             user=request.user,
-            insight=self.get_object(),
+            insight=insight,
             defaults={"last_viewed_at": now()},
         )
+
+        log_event_usage_from_insight(
+            insight,
+            team_id=self.team_id,
+            user_id=self.request.user.pk,
+        )
+
         return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

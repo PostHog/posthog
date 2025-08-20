@@ -2071,6 +2071,7 @@
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -2161,6 +2162,7 @@
   
       min(timestamp) AS min_timestamp,
       max(timestamp) AS max_timestamp,
+      max(coalesce(inserted_at, now64())) AS max_inserted_at, -- use coalesce to ensure we have a value even if the event is created with inserted_at=NULL
   
       -- urls
       groupUniqArray(nullIf(JSONExtractString(properties, '$current_url'), '')) AS urls,
@@ -2885,6 +2887,7 @@
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -3772,6 +3775,7 @@
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -4704,6 +4708,7 @@
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),

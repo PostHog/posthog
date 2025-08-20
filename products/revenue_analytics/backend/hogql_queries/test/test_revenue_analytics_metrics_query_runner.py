@@ -17,6 +17,7 @@ from posthog.schema import (
     IntervalType,
     HogQLQueryModifiers,
     RevenueAnalyticsPropertyFilter,
+    SubscriptionDropoffMode,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -33,10 +34,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
+    STRIPE_CHARGE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
@@ -47,6 +50,7 @@ SUBSCRIPTIONS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insig
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
+CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges"
 
 ALL_MONTHS_LABELS = [
     "Nov 2024",
@@ -181,6 +185,19 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
+        self.charges_csv_path = Path(__file__).parent / "data" / "stripe_charges.csv"
+        self.charges_table, _, _, self.charges_csv_df, self.charges_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.charges_csv_path,
+                "stripe_charge",
+                STRIPE_CHARGE_COLUMNS,
+                CHARGES_TEST_BUCKET,
+                self.team,
+                source=self.source,
+                credential=self.credential,
+            )
+        )
+
         # Besides the default creation above, also create the external data schema
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.subscriptions_schema = ExternalDataSchema.objects.create(
@@ -219,12 +236,22 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             last_synced_at="2024-01-01",
         )
 
+        self.charges_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
+            source=self.source,
+            table=self.charges_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
         self.team.save()
 
     def tearDown(self):
+        self.charges_cleanup_filesystem()
         self.subscriptions_cleanup_filesystem()
         self.products_cleanup_filesystem()
         self.customers_cleanup_filesystem()
@@ -270,6 +297,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.products_table.delete()
         self.customers_table.delete()
         self.invoices_table.delete()
+        self.charges_table.delete()
         results = self._run_revenue_analytics_metrics_query().results
 
         self.assertEqual(results, [])
@@ -829,6 +857,13 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         ("2025-01-01", s2, 43, "BRL", {"subscription": "sub3"}),
                         ("2025-02-04", s3, 87, "BRL", {"subscription": "sub3"}),
                         ("2025-03-06", s4, 126, "BRL", {"subscription": "sub3"}),
+                        (
+                            "2025-03-06",
+                            s4,
+                            385,
+                            "BRL",
+                            {"subscription": 47},
+                        ),  # Works with numerical subscription_properties
                     ],
                 ),  # 3 events, 1 customer
             ]
@@ -863,9 +898,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [result["data"] for result in results],
             [
-                [0, 1, 1, 1, 1, 0, 0],  # Subscription Count
-                [0, 1, 1, 0, 0, 0, 0],  # New Subscription Count
-                [0, 1, 0, 0, 1, 0, 0],  # Churned Subscription Count
+                [0, 1, 1, 1, 2, 0, 0],  # Subscription Count
+                [0, 1, 1, 0, 1, 0, 0],  # New Subscription Count
+                [0, 1, 0, 0, 2, 0, 0],  # Churned Subscription Count
                 [0, 1, 1, 1, 1, 0, 0],  # Customer Count
                 [0, 1, 1, 0, 0, 0, 0],  # New Customer Count
                 [0, 1, 0, 0, 1, 0, 0],  # Churned Customer Count
@@ -874,10 +909,50 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("33.0414"),
                     Decimal("5.5629321819"),
                     Decimal("11.2552348796"),
-                    Decimal("16.3006849981"),
+                    Decimal("66.1083336037"),
                     0,
                     0,
                 ],  # ARPU
-                [0, 33.0414, NaN, NaN, 16.3006849981, 0, 0],  # LTV
+                [0, 33.0414, NaN, NaN, 66.1083336037, 0, 0],  # LTV
+            ],
+        )
+
+        # Then, update the team to use the after_dropoff_period subscriptionDropoffMode
+        event_item = REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
+            update={"subscriptionDropoffMode": SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD}
+        )
+        self.team.revenue_analytics_config.events = [event_item]
+        self.team.revenue_analytics_config.save()
+
+        results = self._run_revenue_analytics_metrics_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.events.purchase"],
+                )
+            ],
+        ).results
+
+        self.assertEqual(len(results), 8)
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
+                [0, 1, 2, 1, 2, 2, 0],  # Subscription Count
+                [0, 1, 1, 0, 1, 0, 0],  # New Subscription Count
+                [0, 0, 1, 0, 0, 2, 0],  # Churned Subscription Count
+                [0, 1, 2, 1, 1, 1, 0],  # Customer Count
+                [0, 1, 1, 0, 0, 0, 0],  # New Customer Count
+                [0, 0, 1, 0, 0, 1, 0],  # Churned Customer Count
+                [
+                    0,
+                    Decimal("33.0414"),
+                    Decimal("2.7814660909"),
+                    Decimal("11.2552348796"),
+                    Decimal("66.1083336037"),
+                    0,
+                    0,
+                ],  # ARPU
+                [0, NaN, 5.5629321818, NaN, NaN, 0, 0],  # LTV
             ],
         )

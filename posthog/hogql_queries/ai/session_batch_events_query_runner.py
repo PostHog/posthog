@@ -25,7 +25,6 @@ class SessionBatchEventsQueryRunner(QueryRunner):
     """Query runner for batch session event queries using composition with EventsQueryRunner."""
 
     query: SessionBatchEventsQuery
-    response: SessionBatchEventsQueryResponse
     cached_response: CachedSessionBatchEventsQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -77,7 +76,7 @@ class SessionBatchEventsQueryRunner(QueryRunner):
         """Delegate to EventsQueryRunner."""
         return self._events_runner.columns(result_columns)
 
-    def calculate(self) -> SessionBatchEventsQueryResponse:
+    def _calculate(self) -> SessionBatchEventsQueryResponse:
         """
         Execute the session batch query and organize results by session.
 

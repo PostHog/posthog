@@ -402,6 +402,18 @@
         var(--color-brand-primary-lightness),
         10%
     );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
+    );
 
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
@@ -485,6 +497,7 @@
     // //////////////////////////////////////////////////////////
     --color-text-primary: var(--color-neutral-950);
     --color-text-primary-inverse: var(--color-neutral-100);
+    --color-text-secondary-inverse: var(--color-neutral-400);
     --color-text-secondary: var(--color-neutral-750);
     --color-text-tertiary: var(--color-neutral-600);
     --color-text-success: var(--color-green-600);
@@ -877,6 +890,18 @@
         var(--color-brand-primary-lightness),
         10%
     );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
+    );
 
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
@@ -938,6 +963,7 @@
     // //////////////////////////////////////////////////////////
     --color-text-primary: var(--color-neutral-100);
     --color-text-primary-inverse: var(--color-neutral-950);
+    --color-text-secondary-inverse: var(--color-neutral-650);
     --color-text-secondary: var(--color-neutral-350);
     --color-text-tertiary: var(--color-neutral-400);
     --color-text-success: var(--color-green-400);

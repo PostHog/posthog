@@ -1,5 +1,4 @@
 // This is the incoming message from Kafka
-
 import { Message } from 'node-rdkafka'
 
 export type PersistedRecordingMessage = {

@@ -1,4 +1,6 @@
 import equal from 'fast-deep-equal'
+
+import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils'
 
 import { examples } from '~/queries/examples'
@@ -25,7 +27,6 @@ import {
 
 import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { ApiError } from 'lib/api'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {

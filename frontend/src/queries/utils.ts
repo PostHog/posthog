@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import {
     ActionsNode,
@@ -8,10 +9,10 @@ import {
     BreakdownFilter,
     CalendarHeatmapQuery,
     CompareFilter,
-    DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DatabaseSchemaQuery,
     DateRange,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
@@ -63,7 +64,6 @@ import {
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (

@@ -1,14 +1,17 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import { BuiltLogic, actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
+
+import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { isEmptyObject } from 'lib/utils'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -18,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -33,21 +37,17 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
-import api from 'lib/api'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
-
-import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
-export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
+function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
     return (
         !filter ||
-        (filter.date_from === null &&
-            filter.date_to === null &&
-            (filter.properties === null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
-            filter.breakdown_filter === null)
+        (filter.date_from == null &&
+            filter.date_to == null &&
+            (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
+            filter.breakdown_filter == null)
     )
 }
 
@@ -59,7 +59,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             teamLogic,
             ['currentTeam', 'currentTeamId'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
             preflightLogic,
             ['disableNavigationHooks'],
             filterTestAccountsDefaultsLogic,
@@ -343,7 +343,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = alert_id !== values.alertId
 
             if (
-                currentScene?.activeScene === Scene.Insight &&
+                currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
@@ -360,7 +360,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
-            const filtersOverride = dashboardLogic.findMounted({ id: dashboard })?.values.temporaryFilters
+            const filtersOverride = searchParams['filters_override']
             const variablesOverride = searchParams['variables_override']
 
             if (
@@ -453,7 +453,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     beforeUnload(({ values }) => ({
         enabled: (newLocation?: CombinedLocation) => {
             // Don't run this check on other scenes
-            if (values.activeScene !== Scene.Insight) {
+            if (values.activeSceneId !== Scene.Insight) {
                 return false
             }
 

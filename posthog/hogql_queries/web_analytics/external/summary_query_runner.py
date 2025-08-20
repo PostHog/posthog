@@ -49,12 +49,11 @@ logger = structlog.get_logger(__name__)
 
 class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
     query: WebAnalyticsExternalSummaryQuery
-    response: WebAnalyticsExternalSummaryQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def calculate(self) -> WebAnalyticsExternalSummaryQueryResponse:
+    def _calculate(self) -> WebAnalyticsExternalSummaryQueryResponse:
         if not self.can_use_s3_tables:
             return WebAnalyticsExternalSummaryQueryResponse(
                 data={},

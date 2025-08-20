@@ -24,7 +24,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.query_log import RawQueryLogTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
@@ -545,9 +544,7 @@ class _Printer(Visitor[str]):
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not (
-                isinstance(table_type.table, S3Table) or isinstance(table_type.table, RawQueryLogTable)
-            ):
+            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
@@ -1376,6 +1373,7 @@ class _Printer(Visitor[str]):
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
 
+                relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
                     if len(args) != 1:
                         raise QueryError(f"Function '{node.name}' requires exactly one argument")
@@ -1878,7 +1876,13 @@ class _Printer(Visitor[str]):
         if node.exprs is not None and len(node.exprs) > 0:
             order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
 
+        # Preserve existing PARTITION BY if provided via an existing OVER () clause
+        partition_by: Optional[list[ast.Expr]] = None
+        if node.over_expr and node.over_expr.partition_by:
+            partition_by = [cast(ast.Expr, clone_expr(expr)) for expr in node.over_expr.partition_by]
+
         return ast.WindowExpr(
+            partition_by=partition_by,
             order_by=order_by,
             frame_method="ROWS",
             frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),

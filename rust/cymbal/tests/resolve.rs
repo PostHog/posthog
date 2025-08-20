@@ -75,7 +75,7 @@ async fn end_to_end_resolver_test() {
 
     let map_mock = server.mock(|when, then| {
         // Our minified example source uses a relative URL, formatted like this
-        when.method("GET").path(format!("{}.map", CHUNK_PATH));
+        when.method("GET").path(format!("{CHUNK_PATH}.map"));
         then.status(200).body(MAP);
     });
 

@@ -256,7 +256,7 @@ pub struct PgTransactionBatch<'c, J, M> {
     shared_txn: Arc<Mutex<Option<sqlx::Transaction<'c, sqlx::postgres::Postgres>>>>,
 }
 
-impl<'c, J, M> PgTransactionBatch<'_, J, M> {
+impl<J, M> PgTransactionBatch<'_, J, M> {
     pub async fn commit(self) -> PgQueueResult<()> {
         let mut txn_guard = self.shared_txn.lock().await;
 
