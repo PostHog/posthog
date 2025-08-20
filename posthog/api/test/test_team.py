@@ -210,9 +210,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -224,9 +226,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -1604,6 +1608,66 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
+        def test_filters_null_values_from_app_urls(self):
+            response = self.client.patch(
+                "/api/environments/@current/", {"app_urls": ["https://example.com", None, "https://test.com", None]}
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertEqual(response_data["app_urls"], ["https://example.com", "https://test.com"])
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.app_urls, ["https://example.com", "https://test.com"])
+
+        def test_handles_all_null_app_urls(self):
+            response = self.client.patch("/api/environments/@current/", {"app_urls": [None, None, None]})
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertEqual(response_data["app_urls"], [])
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.app_urls, [])
+
+        def test_handles_mixed_valid_and_null_values(self):
+            self.team.app_urls = ["https://existing.com"]
+            self.team.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"app_urls": ["https://new.com", None, "https://another.com"]}
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertEqual(response_data["app_urls"], ["https://new.com", "https://another.com"])
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.app_urls, ["https://new.com", "https://another.com"])
+
+        def test_filters_null_values_from_recording_domains(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"recording_domains": [None, "https://example.com", None, "https://test.com"]},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertEqual(response_data["recording_domains"], ["https://example.com", "https://test.com"])
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.recording_domains, ["https://example.com", "https://test.com"])
+
+        def test_preserves_none_for_recording_domains_field(self):
+            response = self.client.patch("/api/environments/@current/", {"recording_domains": None})
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertIsNone(response_data["recording_domains"])
+
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.recording_domains)
+
     return TestTeamAPI
 
 
@@ -1727,9 +1791,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response_data = response.json()
         self.assertEqual(
             response_data.get("detail"),
-            "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-            if self.client_class is not EnvironmentToProjectRewriteClient
-            else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+            (
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+            ),
         )
         self.assertEqual(response_data.get("type"), "authentication_error")
         self.assertEqual(response_data.get("code"), "permission_denied")

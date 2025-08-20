@@ -330,8 +330,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             [] as string[],
             {
                 setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
-                addUrl: (state, { url }) => (!state.includes(url) ? state.concat([url]) : state),
-                updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
+                addUrl: (state, { url }) => {
+                    if (!url) {
+                        return state
+                    }
+                    return !state.includes(url) ? state.concat([url]) : state
+                },
+                updateUrl: (state, { index, url }) => {
+                    if (!url) {
+                        return state
+                    }
+                    return Object.assign([...state], { [index]: url })
+                },
                 removeUrl: (state, { index }) => {
                     const newUrls = [...state]
                     newUrls.splice(index, 1)
