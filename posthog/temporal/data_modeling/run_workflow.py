@@ -739,6 +739,13 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "ENUM": ("toString", ()),
         "IPv4": ("toString", ()),
         "IPv6": ("toString", ()),
+        "DateTime64(3": (
+            "toDateTime64",
+            (
+                ast.Constant(value=6),
+                ast.Constant(value="UTC"),
+            ),
+        ),
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
     }
 
@@ -773,7 +780,6 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     query_typings.append((column_name, ch_type, call_tuple))
                 else:
                     query_typings.append((column_name, ch_type, None))
-
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
 
