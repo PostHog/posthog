@@ -1,11 +1,9 @@
 import json
 import logging
 from typing import Any, Optional
-import posthoganalytics
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.constants import AvailableFeature
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
@@ -15,8 +13,6 @@ from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_TRANSPILED_FILTERS,
 )
 from posthog.hogql import ast
-from posthog.models.team.team import Team
-from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 

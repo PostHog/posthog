@@ -7,7 +7,6 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from loginas.utils import is_impersonated_session
 from rest_framework import (
     filters,
     mixins,
