@@ -38,7 +38,6 @@ export const StepFunctionEmail: HogFlowStep<'function_email'> = {
                             },
                         },
                     },
-                    inputs_schema: [],
                 },
             },
         }

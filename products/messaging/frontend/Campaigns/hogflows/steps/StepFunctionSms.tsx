@@ -41,7 +41,6 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
                             value: false,
                         },
                     },
-                    inputs_schema: [],
                 },
             },
         }
