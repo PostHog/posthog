@@ -34,7 +34,7 @@ from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_even
 
 
 def create_usage_summary(**kwargs) -> dict[str, Any]:
-    data = {
+    data: dict[str, Any] = {
         "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
     }
     for resource in QuotaResource:

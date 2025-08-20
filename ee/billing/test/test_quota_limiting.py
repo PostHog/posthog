@@ -1,4 +1,5 @@
 import time
+from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -274,8 +275,8 @@ class TestQuotaLimiting(BaseTest):
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
-        def create_usage_summary(**kwargs) -> dict[str, dict[str, dict]]:
-            data = {
+        def create_usage_summary(**kwargs) -> dict[str, Any]:
+            data: dict[str, Any] = {
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
             for resource in QuotaResource:
