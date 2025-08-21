@@ -19,5 +19,5 @@ class GroupUsageMetricTestCase(BaseTest):
 
         self.assertIsNotNone(metric.bytecode)
         self.assertIsNone(metric.bytecode_error)
-        self.assertIsInstance(metric.bytecode, list)
+        assert isinstance(metric.bytecode, list)  # Using assert to help mypy with the types
         self.assertGreater(len(metric.bytecode), 0)
