@@ -21,7 +21,11 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupSummaryPatternsList,
 )
-from posthog.temporal.ai.session_summary.state import generate_state_key, store_data_in_redis
+from posthog.temporal.ai.session_summary.state import (
+    generate_state_key,
+    generate_state_id_from_session_ids,
+    store_data_in_redis,
+)
 from posthog.redis import get_async_client
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
@@ -260,7 +264,7 @@ async def test_assign_events_to_patterns_activity_standalone(
     patterns_key = generate_state_key(
         key_base=activity_input.redis_key_base,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-        state_id=",".join(session_ids),
+        state_id=generate_state_id_from_session_ids(session_ids),
     )
     await store_data_in_redis(
         redis_client=redis_client,
@@ -379,7 +383,7 @@ async def test_assign_events_to_patterns_threshold_check(
     patterns_key = generate_state_key(
         key_base=activity_input.redis_key_base,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-        state_id=",".join(session_ids),
+        state_id=generate_state_id_from_session_ids(session_ids),
     )
     await store_data_in_redis(
         redis_client=redis_client,

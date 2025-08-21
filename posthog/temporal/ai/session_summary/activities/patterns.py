@@ -42,6 +42,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
+    generate_state_id_from_session_ids,
     generate_state_key,
     get_data_class_from_redis,
     get_data_str_from_redis,
@@ -238,7 +239,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
     redis_client, _, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-        state_id=",".join(session_ids),
+        state_id=generate_state_id_from_session_ids(session_ids),
     )
     if redis_output_key is None:
         raise ValueError(
@@ -381,7 +382,7 @@ async def assign_events_to_patterns_activity(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         output_label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
-        state_id=",".join(session_ids),
+        state_id=generate_state_id_from_session_ids(session_ids),
     )
     # Check if patterns assignments are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
     patterns_with_events_context = await get_data_class_from_redis(

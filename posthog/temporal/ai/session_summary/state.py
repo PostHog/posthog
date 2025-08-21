@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import json
 
 from enum import Enum
@@ -17,6 +18,11 @@ class StateActivitiesEnum(Enum):
     SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
     SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patterns from all the summaries
     SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
+
+
+def generate_state_id_from_session_ids(session_ids: list[str]) -> str:
+    """Generate a short, but reproducible state id from a list of session ids."""
+    return hashlib.sha256(",".join(session_ids).encode()).hexdigest()[:16]
 
 
 def get_redis_state_client(
