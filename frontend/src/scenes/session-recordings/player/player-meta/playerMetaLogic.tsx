@@ -87,20 +87,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            [
-                'urls',
-                'sessionPlayerData',
-                'sessionEventsData',
-                'sessionPlayerMetaData',
-                'sessionPlayerMetaDataLoading',
-                'snapshotsLoading',
-                'windowIds',
-                'trackedWindow',
-            ],
+            ['urls', 'sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaData', 'windowIds', 'trackedWindow'],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById', 'recordingPropertiesLoading'],
+            ['recordingPropertiesById'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
@@ -139,28 +130,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     selectors(() => ({
         loading: [
-            (s) => [
-                s.sessionPlayerMetaDataLoading,
-                s.snapshotsLoading,
-                s.recordingPropertiesLoading,
-                s.sessionPlayerMetaData,
-                s.recordingPropertiesById,
-            ],
-            (
-                sessionPlayerMetaDataLoading,
-                snapshotsLoading,
-                recordingPropertiesLoading,
-                sessionPlayerMetaData,
-                recordingPropertiesById
-            ) => {
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
+            (sessionPlayerMetaData, recordingPropertiesById) => {
                 const hasSessionPlayerMetadata = !!sessionPlayerMetaData && !isEmptyObject(sessionPlayerMetaData)
                 const hasRecordingProperties = !!recordingPropertiesById && !isEmptyObject(recordingPropertiesById)
-                if (hasSessionPlayerMetadata && hasRecordingProperties) {
-                    // If we have session player metadata and recording properties, we are done loading
-                    return false
-                }
-
-                return sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading
+                return !hasSessionPlayerMetadata || !hasRecordingProperties
             },
         ],
         sessionPerson: [
