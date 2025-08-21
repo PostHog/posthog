@@ -48,7 +48,7 @@ export interface QueryTile {
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
-    path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
+    path(['products', 'llm_analytics', 'frontend', 'llmObservabilityLogic']),
 
     connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
