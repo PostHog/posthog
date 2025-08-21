@@ -4,7 +4,6 @@ import os
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
@@ -32,6 +31,7 @@ from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
@@ -51,7 +51,6 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
-    PersonalApiKeyRateThrottle,
 )
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery, RecordingPropertyFilter, PropertyOperator
@@ -67,13 +66,12 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
-    publish_subscription,
 )
 from tenacity import retry, wait_random_exponential, retry_if_exception_type, stop_after_attempt
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.storage import object_storage, session_recording_v2_object_storage
+from posthog.storage import session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -365,8 +363,13 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         end_blob_key = data.get("end_blob_key")
         is_personal_api_key = self.context.get("is_personal_api_key")
 
-        if source not in ["realtime", "blob", "blob_v2", None]:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2, None]")
+        if source == "blob":
+            raise serializers.ValidationError(
+                "blob v1 API is deprecated. see: https://posthog.com/docs/session-replay/snapshot-api"
+            )
+
+        if source not in ["blob_v2", None]:
+            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, None]")
 
         # Validate blob_v2 parameters
         if source == "blob_v2":
@@ -396,14 +399,6 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
                 max_blobs_allowed = 20 if is_personal_api_key else 100
                 if max_blob_key - min_blob_key > max_blobs_allowed:
                     raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
-
-        # Validate blob parameters (v1)
-        elif source == "blob" and blob_key:
-            if not blob_key:
-                raise serializers.ValidationError("Must provide a snapshot file blob key")
-            # blob key should be a string of the form 1619712000-1619712060
-            if not all(x.isdigit() for x in blob_key.split("-")):
-                raise serializers.ValidationError("Invalid blob key: " + blob_key)
 
         return data
 
@@ -457,44 +452,12 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
-    source: str | None = None
-    # these are defined in init in the SimpleRateThrottle
-    # but we define them here to avoid mypy errors
-    num_requests: int | None = None
-    duration: int | None = None
-
-    def _get_rate(self):
-        num_requests, duration = self.parse_rate(self.rate)
-
-        divisors = {
-            "realtime": 64,
-            "blob": 4,
-            "blob_v2": 1,
-        }
-
-        divisor: int = divisors.get(self.source if self.source else "", 1)
-        return None if num_requests is None else num_requests / divisor, duration
-
-    def allow_request(self, request, view):
-        """
-        num_requests is set on __init__ of the parent and not checked again
-        so we need to override it on every request
-        """
-        self.source = request.GET.get("source", None)
-        rates = self._get_rate()
-        self.num_requests = rates[0] if rates else self.num_requests
-        self.duration = rates[1] if rates else self.duration
-
-        return super().allow_request(request, view)
-
-
-class SnapshotsBurstRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsBurstRateThrottle(SimpleRateThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsSustainedRateThrottle(SimpleRateThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 
@@ -1002,15 +965,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         source = validated_data.get("source")
         source_log_label = source or "listing"
 
-        is_v2_enabled: bool = validated_data.get("blob_v2", False)
-        is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
-
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
-        # blob v1 API has been deprecated for a while now,
-        # we'll cut off access for new teams to give older teams time to migrate
-        # this defaults to True, and then is only maybe set to False for usage of personal api keys
-        blob_v1_sources_are_allowed = True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
@@ -1030,30 +986,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
-            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat(
-                settings.API_V1_DEPRECATION_DATE
-            )
-
         try:
             response: Response | HttpResponse
             if not source:
-                response = self._gather_session_recording_sources(recording, timer, is_v2_enabled, is_v2_lts_enabled)
-            elif source == "realtime":
-                if not blob_v1_sources_are_allowed:
-                    raise exceptions.ValidationError(
-                        "Realtime snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
-                    )
-                with timer("send_realtime_snapshots_to_client"):
-                    response = self._send_realtime_snapshots_to_client(recording)
-            elif source == "blob":
-                if not blob_v1_sources_are_allowed:
-                    raise exceptions.ValidationError(
-                        "blob snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
-                    )
-                with timer("stream_blob_to_client"):
-                    response = self._stream_blob_to_client(
-                        recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
-                    )
+                response = self._gather_session_recording_sources(recording, timer)
             elif source == "blob_v2":
                 if "min_blob_key" in validated_data:
                     response = self._stream_blob_v2_to_client(
@@ -1065,9 +1001,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 elif "blob_key" in validated_data:
                     response = self._stream_lts_blob_v2_to_client(blob_key=validated_data["blob_key"])
                 else:
-                    response = self._gather_session_recording_sources(
-                        recording, timer, is_v2_enabled, is_v2_lts_enabled
-                    )
+                    response = self._gather_session_recording_sources(recording, timer)
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
@@ -1141,103 +1075,56 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         self,
         recording: SessionRecording,
         timer: ServerTimingsGathered,
-        is_v2_enabled: bool = False,
-        is_v2_lts_enabled: bool = False,
     ) -> Response:
-        might_have_realtime = True
-        newest_timestamp = None
         response_data = {}
         sources: list[dict] = []
-        blob_keys: list[str] | None = None
-        blob_prefix = ""
 
-        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2" if is_v2_enabled else "v1").time():
-            if is_v2_enabled:
-                with posthoganalytics.new_context():
-                    posthoganalytics.tag("gather_session_recording_sources_version", "2")
-                    if is_v2_lts_enabled and recording.full_recording_v2_path:
-                        posthoganalytics.tag("recording_location", "recording.full_recording_v2_path")
-                        LOADING_V2_LTS_COUNTER.inc()
-                        try:
-                            # Parse S3 URL to extract prefix (path without query parameters)
-                            # Example: s3://bucket/path?range=bytes=0-1372588 -> path
-                            # s3:/the_bucket/the_session_recordings_lts_prefix/{uuid}?range=bytes=0-14468
-                            # for now we can ignore that v2 is in a different bucket and just use the path
-                            sources.append(
-                                {
-                                    "source": "blob_v2",
-                                    "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
-                                }
-                            )
-                        except Exception as e:
-                            capture_exception(e)
-                    else:
-                        with timer("list_blocks__gather_session_recording_sources"):
-                            blocks = list_blocks(recording)
+        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2").time():
+            # TODO: how long do we need to support v1 LTS for?
+            # if recording.object_storage_path:
+            #     LOADING_V1_LTS_COUNTER.inc()
+            #     # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
+            #     # /data has 1 to n files (it should be 1, but we support multiple files)
+            #     # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
+            #     blob_prefix = recording.object_storage_path
+            #     blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+            #     might_have_realtime = False
 
-                        for i, block in enumerate(blocks):
-                            sources.append(
-                                {
-                                    "source": "blob_v2",
-                                    "start_timestamp": block.start_time,
-                                    "end_timestamp": block.end_time,
-                                    "blob_key": str(i),
-                                }
-                            )
-            else:
-                with timer("list_objects__gather_session_recording_sources"):
-                    if recording.object_storage_path:
-                        LOADING_V1_LTS_COUNTER.inc()
-                        # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
-                        # /data has 1 to n files (it should be 1, but we support multiple files)
-                        # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
-                        blob_prefix = recording.object_storage_path
-                        blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                        might_have_realtime = False
-                    else:
-                        blob_prefix = recording.build_blob_ingestion_storage_path()
-                        blob_keys = object_storage.list_objects(blob_prefix)
-
-            with timer("prepare_sources__gather_session_recording_sources"):
-                if blob_keys:
-                    for full_key in blob_keys:
-                        # Keys are like 1619712000-1619712060
-                        blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                        blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                        time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
-
+            with posthoganalytics.new_context():
+                posthoganalytics.tag("gather_session_recording_sources_version", "2")
+                if recording.full_recording_v2_path:
+                    posthoganalytics.tag("recording_location", "recording.full_recording_v2_path")
+                    LOADING_V2_LTS_COUNTER.inc()
+                    try:
+                        # Parse S3 URL to extract prefix (path without query parameters)
+                        # Example: s3://bucket/path?range=bytes=0-1372588 -> path
+                        # s3:/the_bucket/the_session_recordings_lts_prefix/{uuid}?range=bytes=0-14468
+                        # for now we can ignore that v2 is in a different bucket and just use the path
                         sources.append(
                             {
-                                "source": "blob",
-                                "start_timestamp": time_range[0],
-                                "end_timestamp": time_range.pop(),
-                                "blob_key": blob_key,
+                                "source": "blob_v2",
+                                "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
                             }
                         )
+                    except Exception as e:
+                        capture_exception(e)
+                else:
+                    with timer("list_blocks__gather_session_recording_sources"):
+                        blocks = list_blocks(recording)
+
+                    for i, block in enumerate(blocks):
+                        sources.append(
+                            {
+                                "source": "blob_v2",
+                                "start_timestamp": block.start_time,
+                                "end_timestamp": block.end_time,
+                                "blob_key": str(i),
+                            }
+                        )
+
+            with timer("prepare_sources__gather_session_recording_sources"):
                 if sources:
                     sources = sorted(sources, key=lambda x: x.get("start_timestamp", None))
-
-                    if might_have_realtime and not is_v2_enabled:
-                        oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                        newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
-                        # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
-                        # so set this to False even if though it was True before
-                        might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
-
-                        if might_have_realtime:
-                            sources.append(
-                                {
-                                    "source": "realtime",
-                                    "start_timestamp": newest_timestamp,
-                                    "end_timestamp": None,
-                                }
-                            )
-
-                            # the UI will use this to try to load realtime snapshots
-                            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                            # it takes a short while for the subscription to be sync'd into redis
-                            # let's use the network round trip time to get started
-                            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
                 response_data["sources"] = sources
 
@@ -1245,18 +1132,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 serializer = SessionRecordingSourcesSerializer(response_data)
 
             return Response(serializer.data)
-
-    @staticmethod
-    def _validate_blob_key(blob_key: Any) -> None:
-        if not blob_key:
-            raise exceptions.ValidationError("Must provide a snapshot file blob key")
-
-        if not isinstance(blob_key, str):
-            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
-
-        # blob key should be a string of the form 1619712000-1619712060
-        if not all(x.isdigit() for x in blob_key.split("-")):
-            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
 
     @staticmethod
     def _distinct_id_from_request(request):
@@ -1308,62 +1183,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
-
-    def _stream_blob_to_client(
-        self, recording: SessionRecording, blob_key: str, if_none_match: str | None
-    ) -> HttpResponse:
-        # very short-lived pre-signed URL
-        with GENERATE_PRE_SIGNED_URL_HISTOGRAM.time():
-            if recording.object_storage_path:
-                if recording.storage_version == "2023-08-01":
-                    file_key = f"{recording.object_storage_path}/{blob_key}"
-                else:
-                    raise NotImplementedError(
-                        f"Unknown session replay object storage version {recording.storage_version}"
-                    )
-            else:
-                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                file_key = f"{recording.build_blob_ingestion_storage_path(root_prefix=blob_prefix)}/{blob_key}"
-            url = object_storage.get_presigned_url(file_key, expiration=60)
-            if not url:
-                raise exceptions.NotFound("Snapshot file not found")
-
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1").time():
-            # streams the file from S3 to the client
-            # will not decompress the possibly large file because of `stream=True`
-            #
-            # we pass some headers through to the client
-            # particularly we should signal the content-encoding
-            # to help the client know it needs to decompress
-            #
-            # if the client provides an e-tag we can use it to check if the file has changed
-            # object store will respect this and send back 304 if the file hasn't changed,
-            # and we don't need to send the large file over the wire
-
-            headers = {}
-            if if_none_match:
-                headers["If-None-Match"] = ensure_not_weak(if_none_match)
-
-            with stream_from(url=url, headers=headers) as streaming_response:
-                streaming_response.raise_for_status()
-
-                response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
-
-                etag = streaming_response.headers.get("ETag")
-                if etag:
-                    response["ETag"] = ensure_not_weak(etag)
-
-                # blobs are immutable, _really_ we can cache forever
-                # but let's cache for an hour since people won't re-watch too often
-                # we're setting cache control and ETag which might be considered overkill,
-                # but it helps avoid network latency from the client to PostHog, then to object storage, and back again
-                # when a client has a fresh copy
-                response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
-
-                response["Content-Type"] = "application/json"
-                response["Content-Disposition"] = "inline"
-
-                return response
 
     async def _stream_lts_blob_v2_to_client_async(
         self,
