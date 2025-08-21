@@ -133,7 +133,6 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
         selectedDate,
         selectedRows,
         selectedDateRunsBySource,
-        modalTitle,
     } = useValues(dataWarehouseSceneLogic)
     const { setSelectedDate, setSelectedRows } = useActions(dataWarehouseSceneLogic)
 
@@ -179,7 +178,7 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                 )}
             </div>
 
-            <LemonModal isOpen={!!selectedDate} onClose={() => setSelectedDate(null)} title={modalTitle} width={600}>
+            <LemonModal isOpen={!!selectedDate} onClose={() => setSelectedDate(null)} title="Sync Activity" width={600}>
                 <div className="space-y-2">
                     {selectedRows === null ? (
                         <div className="text-center py-8">
