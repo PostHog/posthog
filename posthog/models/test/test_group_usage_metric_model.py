@@ -17,7 +17,7 @@ class GroupUsageMetricTestCase(BaseTest):
             },
         )
 
-        self.assertNotEqual(metric.bytecode, {})
-        self.assertEqual(metric.bytecode_error, "")
+        self.assertIsNotNone(metric.bytecode)
+        self.assertIsNone(metric.bytecode_error)
         self.assertIsInstance(metric.bytecode, list)
         self.assertGreater(len(metric.bytecode), 0)

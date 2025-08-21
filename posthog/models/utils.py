@@ -203,6 +203,9 @@ class UUIDTClassicModel(models.Model):
 
 
 class BytecodeModelMixin(models.Model):
+    bytecode = models.JSONField(blank=True, null=True)
+    bytecode_error = models.TextField(blank=True, null=True)
+
     class Meta:
         abstract = True
 
@@ -219,12 +222,12 @@ class BytecodeModelMixin(models.Model):
             new_bytecode = create_bytecode(expr).bytecode
             if new_bytecode != self.bytecode or self.bytecode_error is None:
                 self.bytecode = new_bytecode
-                self.bytecode_error = ""
+                self.bytecode_error = None
         except BaseHogQLError as e:
             # There are several known cases when bytecode generation can fail.
             # Instead of spamming with errors, ignore those cases for now.
             if self.bytecode or self.bytecode_error != str(e):
-                self.bytecode = {}
+                self.bytecode = None
                 self.bytecode_error = str(e)
 
     def get_expr(self) -> ast.Expr:

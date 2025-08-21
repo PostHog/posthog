@@ -19,8 +19,6 @@ class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
     interval = models.IntegerField(default=7, help_text="In days")
     display = models.CharField(choices=Display.choices, default=Display.NUMBER, max_length=64)
     filters = models.JSONField()
-    bytecode = models.JSONField()
-    bytecode_error = models.TextField()
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "group_type_index", "name"], name="unique_metric_name")]
