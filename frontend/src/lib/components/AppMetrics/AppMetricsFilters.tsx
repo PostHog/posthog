@@ -12,16 +12,34 @@ export type AppMetricsFiltersProps = {
 
 export function AppMetricsFilters({ logicKey }: AppMetricsFiltersProps): JSX.Element {
     const logic = appMetricsLogic({ logicKey })
-    const { params } = useValues(logic)
+    const { params, availableIntervals } = useValues(logic)
     const { setParams } = useActions(logic)
 
     return (
         <div className="flex flex-row gap-2 mb-2 flex-wrap">
             <LemonSelect
                 options={[
-                    { label: 'Minute', value: 'minute' },
-                    { label: 'Hourly', value: 'hour' },
-                    { label: 'Daily', value: 'day' },
+                    {
+                        label: 'Minute',
+                        value: 'minute',
+                        disabledReason: !availableIntervals.includes('minute')
+                            ? 'Please select a smaller date range'
+                            : undefined,
+                    },
+                    {
+                        label: 'Hourly',
+                        value: 'hour',
+                        disabledReason: !availableIntervals.includes('hour')
+                            ? 'Please select a smaller date range'
+                            : undefined,
+                    },
+                    {
+                        label: 'Daily',
+                        value: 'day',
+                        disabledReason: !availableIntervals.includes('day')
+                            ? 'Please select a smaller date range'
+                            : undefined,
+                    },
                 ]}
                 size="small"
                 value={params.interval}

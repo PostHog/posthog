@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -215,26 +216,11 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.subtract(dateRange.diffMs).toISOString(),
                     }
 
-                    console.log('params previous', params, dateRange.diffMs)
                     return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
                 },
             },
         ],
     })),
-    reducers({
-        // filters: [
-        //     {
-        //         name: '',
-        //         date_from: '-7d',
-        //         date_to: undefined,
-        //         breakdown_by: 'name',
-        //         interval: 'day',
-        //     },
-        //     {
-        //         setFilters: (state, { filters }) => ({ ...state, ...filters }),
-        //     },
-        // ],
-    }),
     selectors(() => ({
         getSingleTrendSeries: [
             (s) => [s.appMetricsTrends, s.appMetricsTrendsPreviousPeriod],
@@ -271,11 +257,40 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                 return { dateFrom, dateTo, diffMs }
             },
         ],
+
+        availableIntervals: [
+            (s) => [s.getDateRangeAbsolute],
+            (getDateRangeAbsolute): AppMetricsCommonParams['interval'][] => {
+                const diffMs = getDateRangeAbsolute().diffMs
+
+                // If the diff is less than 2 days (ish), we can show the minute interval but not day
+                if (diffMs <= 1000 * 60 * 60 * 49) {
+                    return ['hour', 'minute']
+                }
+
+                // If the diff is less than 8 days, we can show the hour interval but not minute
+                if (diffMs <= 1000 * 60 * 60 * 24 * 8) {
+                    return ['day', 'hour']
+                }
+
+                // If the diff is greater than 8 days, we limit to day interval
+                return ['day']
+            },
+        ],
+    })),
+
+    subscriptions(({ values, actions }) => ({
+        availableIntervals: (availableIntervals) => {
+            if (!availableIntervals.includes(values.params.interval)) {
+                actions.setParams({ interval: availableIntervals[0] })
+            }
+        },
     })),
 
     listeners(({ actions, values, props }) => ({
         setParams: async (_, breakpoint) => {
             await breakpoint(100)
+
             if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
