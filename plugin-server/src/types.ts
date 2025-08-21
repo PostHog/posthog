@@ -96,16 +96,65 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
-export interface HealthCheckResult {
-    healthy: boolean
+interface HealthCheckResultResponse {
+    service: string
+    status: 'ok' | 'error' | 'degraded'
     message?: string
     details?: Record<string, any>
+}
+
+export abstract class HealthCheckResult {
+    public status: 'ok' | 'error' | 'degraded'
+
+    constructor(status: 'ok' | 'error' | 'degraded') {
+        this.status = status
+    }
+
+    public abstract toResponse(serviceId: string): HealthCheckResultResponse
+
+    public isError(): boolean {
+        return this.status === 'error'
+    }
+}
+
+export class HealthCheckResultOk extends HealthCheckResult {
+    constructor() {
+        super('ok')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status }
+    }
+}
+
+export class HealthCheckResultError extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('error')
+    }
+
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
+}
+
+export class HealthCheckResultDegraded extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('degraded')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
 }
 
 export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
-    healthcheck: () => boolean | HealthCheckResult | Promise<boolean | HealthCheckResult>
+    healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export type CdpConfig = {
