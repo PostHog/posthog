@@ -181,7 +181,7 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
             <LemonModal isOpen={!!selectedDate} onClose={() => setSelectedDate(null)} title="Sync Activity" width={600}>
                 <div className="space-y-2">
                     {selectedRows === null ? (
-                        <div className="text-center py-8">
+                        <div className="text-center py-6">
                             <div className="text-lg text-muted-alt mb-2">
                                 No sync activity on {dayjs(selectedDate!).format('MMM D, YYYY')}
                             </div>
@@ -192,10 +192,15 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                             {selectedDateRunsBySource && selectedDateRunsBySource.length > 0 ? (
                                 <div>
                                     <div className="text-center">
-                                        <div className="text-xl text-default mb-2">{selectedRows} rows synced: </div>
+                                        <div className="text-xl font-semibold text-default">
+                                            {selectedRows} {selectedRows === 1 ? 'row' : 'rows'} synced
+                                        </div>
+                                        <div className="text-sm text-muted">
+                                            on {dayjs(selectedDate!).format('MMM D, YYYY')}
+                                        </div>
                                     </div>
 
-                                    <div className="space-y-6">
+                                    <div className="space-y-3">
                                         {selectedDateRunsBySource.map(({ source, count, rows, runs }) => (
                                             <div key={source}>
                                                 <div className="flex items-center justify-between mb-2 px-3">
@@ -204,23 +209,20 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                                                         <span className="font-semibold text-default">{source}</span>
                                                     </div>
                                                     <div className="text-sm text-muted">
-                                                        {count} jobs • {rows.toLocaleString()} rows
+                                                        {count} jobs • {rows.toLocaleString()}{' '}
+                                                        {rows === 1 ? 'row' : 'rows'}
                                                     </div>
                                                 </div>
-
-                                                <div className="space-y-2 max-h-48 overflow-y-auto">
-                                                    {runs.slice(0, 10).map((run: any) => (
-                                                        <div
-                                                            key={run.id}
-                                                            className="flex items-center justify-between p-3 bg-bg-light rounded border"
-                                                        >
-                                                            <div className="flex-1">
+                                                <div className="mt-3 space-y-2">
+                                                    {runs.slice(0, runs.length).map((run: any) => (
+                                                        <div className="bg-white border rounded-lg">
+                                                            <div className="px-3 py-2 flex items-center justify-between">
                                                                 <div className="font-medium text-default">
-                                                                    {run.schema_name}
+                                                                    {run.schema_name} • {run.rows_synced}{' '}
+                                                                    {run.rows_synced === 1 ? 'row' : 'rows'}
                                                                 </div>
-                                                                <div className="text-sm text-muted flex items-center gap-2">
+                                                                <div className="text-sm text-muted">
                                                                     <TZLabel time={run.created_at} />
-                                                                    <span>• {run.rows_synced} rows</span>
                                                                 </div>
                                                             </div>
                                                         </div>
