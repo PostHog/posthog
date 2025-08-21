@@ -4,13 +4,15 @@ while technical details are logged for engineers.
 """
 
 import functools
-from typing import Any, TypeVar, cast
 from collections.abc import Callable
+from typing import Any, TypeVar, cast
+
 import structlog
 from rest_framework.exceptions import ValidationError
+
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
-from posthog.errors import ExposedCHQueryError
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -84,15 +86,18 @@ def experiment_error_handler(method: F) -> F:
         except Exception as e:
             # Get context for logging
             self = args[0] if args else None
-            experiment_id = "unknown"
-            if hasattr(self, "experiment_id"):
-                experiment_id = self.experiment_id
-            elif hasattr(self, "experiment") and hasattr(self.experiment, "id"):
-                experiment_id = self.experiment.id
 
-            metric_type = None
-            if hasattr(self, "metric"):
-                metric_type = getattr(self.metric, "__class__", type(self.metric)).__name__
+            experiment_id = getattr(self, "experiment_id", None)
+            if not experiment_id:
+                experiment = getattr(self, "experiment", None)
+                if experiment is not None:
+                    experiment_id = getattr(experiment, "id", None)
+
+            metric = getattr(self, "metric", None)
+            if metric:
+                metric_type = getattr(metric, "__class__", type(metric)).__name__
+            else:
+                metric_type = None
 
             # Log the technical error for engineers
             logger.error(
