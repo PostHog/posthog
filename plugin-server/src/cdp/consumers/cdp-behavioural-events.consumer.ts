@@ -5,7 +5,7 @@ import { Histogram } from 'prom-client'
 import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -162,7 +162,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Behavioural events consumer stopped!')
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
 }

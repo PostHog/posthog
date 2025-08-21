@@ -5,7 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 
-import { Hub, PluginServerService } from '../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
@@ -78,7 +78,7 @@ export class CdpApi {
         return {
             id: 'cdp-api',
             onShutdown: async () => await this.stop(),
-            healthcheck: () => this.isHealthy() ?? false,
+            healthcheck: () => this.isHealthy() ?? new HealthCheckResultError('CDP API is not healthy', {}),
         }
     }
 
@@ -90,9 +90,9 @@ export class CdpApi {
         await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
     }
 
-    isHealthy() {
+    isHealthy(): HealthCheckResult {
         // NOTE: There isn't really anything to check for here so we are just always healthy
-        return true
+        return new HealthCheckResultOk()
     }
 
     router(): express.Router {
