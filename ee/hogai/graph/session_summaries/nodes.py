@@ -239,11 +239,6 @@ class SessionSummarizationNode(AssistantNode):
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         writer = self._get_stream_writer()
-        # Check if the notebook is provided, create a notebook to fill if not
-        if not state.notebook_id:
-            notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
-            # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
-            state.notebook_id = notebook.short_id
         # If query was not provided for some reason
         if not state.session_summarization_query:
             self._log_failure(
@@ -286,6 +281,11 @@ class SessionSummarizationNode(AssistantNode):
                 )
                 summaries_content = await self._summarize_sessions_individually(session_ids=session_ids, writer=writer)
             else:
+                # Check if the notebook is provided, create a notebook to fill if not
+                if not state.notebook_id:
+                    notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
+                    # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
+                    state.notebook_id = notebook.short_id
                 # For large groups, process in detail, searching for patterns
                 # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
                 self._stream_progress(
