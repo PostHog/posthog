@@ -1,10 +1,15 @@
-import { BindLogic } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import MaxTool from 'scenes/max/MaxTool'
 import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { ChoiceQuestionResponseData, GraphType, InsightLogicProps } from '~/types'
 
@@ -16,6 +21,8 @@ const barColor = CHART_INSIGHTS_COLORS[2]
 
 interface Props {
     responseData: ChoiceQuestionResponseData[]
+    questionIndex?: number
+    questionText?: string
 }
 
 interface ProcessedData {
@@ -23,7 +30,13 @@ interface ProcessedData {
     openEndedResponses: ChoiceQuestionResponseData[]
 }
 
-export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element | null {
+export function MultipleChoiceQuestionViz({
+    responseData,
+    questionIndex = 0,
+    questionText,
+}: Props): JSX.Element | null {
+    const { survey } = useValues(surveyLogic)
+
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
         const nonPredefinedResponses = responseData.filter((d) => !d.isPredefined)
@@ -88,7 +101,31 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
 
             {openEndedResponses.length > 0 && (
                 <div>
-                    <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
+                    <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-sm text-muted-foreground">
+                            Open-ended responses ({openEndedResponses.length})
+                        </h4>
+                        {openEndedResponses.length >= 5 && survey?.id && (
+                            <MaxTool
+                                identifier="analyze_survey_responses"
+                                context={{
+                                    survey_id: survey.id,
+                                    question_index: questionIndex,
+                                    question_text:
+                                        questionText ||
+                                        survey?.questions?.[questionIndex]?.question ||
+                                        'Unknown question',
+                                    response_data: responseData,
+                                    open_ended_count: openEndedResponses.length,
+                                }}
+                                initialMaxPrompt={`I'd like to analyze the ${openEndedResponses.length} open-ended responses for this survey question: "${questionText || survey?.questions?.[questionIndex]?.question || 'this question'}". Please help me summarize the key insights and action items, or categorize the responses for better understanding.`}
+                            >
+                                <LemonButton type="secondary" size="small" icon={<IconSparkles />}>
+                                    Analyze with Max
+                                </LemonButton>
+                            </MaxTool>
+                        )}
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                         {openEndedResponses.slice(0, openEndedResponses.length > 20 ? 19 : 20).map((response, i) => (
                             <ResponseCard

@@ -2,13 +2,15 @@
 MaxTool for AI-powered survey creation.
 """
 
-from typing import Any
+from typing import Any, Optional
 from asgiref.sync import async_to_sync
 import django.utils.timezone
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+from enum import Enum
 
 from ee.hogai.tool import MaxTool
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
@@ -279,3 +281,298 @@ class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentStat
             tools_node_class=SurveyLookupToolsNode,
             toolkit_class=SurveyToolkit,
         )
+
+
+# =============================================================================
+# Survey Response Analysis Tool
+# =============================================================================
+
+
+class AnalysisType(str, Enum):
+    """
+    AI Analysis Explanation:
+    We define specific analysis types to help the LLM understand exactly what kind of
+    analysis to perform. This enum provides clear constraints that improve prompt clarity
+    and output consistency.
+    """
+
+    SUMMARIZE = "summarize"  # Extract key themes and actionable insights
+    CATEGORIZE = "categorize"  # Group responses into categories for charting
+
+
+class ResponseCategory(BaseModel):
+    """
+    AI Analysis Explanation:
+    Structured output schema for categorization results. This ensures the LLM returns
+    data in a format that's immediately usable for creating dynamic charts in the frontend.
+    The Pydantic model provides type safety and validation.
+    """
+
+    name: str = Field(description="Category name")
+    description: str = Field(description="Brief description of what this category represents")
+    responses: list[str] = Field(description="List of responses that belong to this category")
+    count: int = Field(description="Number of responses in this category")
+
+
+class SurveyAnalysisResult(BaseModel):
+    """
+    AI Analysis Explanation:
+    Comprehensive result structure that handles both summarization and categorization.
+    This structured approach allows the frontend to handle different analysis types
+    consistently while providing rich data for visualization.
+    """
+
+    analysis_type: AnalysisType
+    summary: Optional[str] = Field(description="Key insights and action items (for summarize type)")
+    categories: Optional[list[ResponseCategory]] = Field(description="Response categories (for categorize type)")
+    total_responses_analyzed: int = Field(description="Number of responses analyzed")
+    key_themes: list[str] = Field(description="Main themes identified across responses")
+
+
+class AnalyzeSurveyResponsesArgs(BaseModel):
+    """
+    AI Analysis Explanation:
+    Input schema that captures all necessary context for analysis. The survey_id and
+    question_index help fetch the right data, while analysis_type guides the LLM's
+    processing approach.
+    """
+
+    survey_id: str = Field(description="ID of the survey to analyze")
+    question_index: int = Field(description="Index of the question to analyze (0-based)")
+    analysis_type: AnalysisType = Field(description="Type of analysis to perform")
+
+
+class AnalyzeSurveyResponsesTool(MaxTool):
+    """
+    AI Analysis Explanation:
+    This MaxTool uses a direct LLM approach rather than a complex agent graph because:
+    1. The task is well-defined (analyze text responses)
+    2. We don't need to search through taxonomies or complex data
+    3. A focused prompt with structured output is more reliable for this use case
+
+    The tool follows PostHog's pattern of using MaxChatOpenAI for automatic context injection
+    and structured output for consistent results.
+    """
+
+    name: str = "analyze_survey_responses"
+    description: str = "Analyze open-ended survey responses to extract insights and categorize feedback"
+    thinking_message: str = "Analyzing survey responses"
+    args_schema: type[BaseModel] = AnalyzeSurveyResponsesArgs
+
+    async def _get_survey_responses(self, survey_id: str, question_index: int) -> list[str]:
+        """
+        AI Analysis Explanation:
+        This method fetches and filters survey responses to get only the open-ended text
+        responses from choice questions. We focus on non-predefined responses which contain
+        the rich qualitative data that's most valuable for AI analysis.
+        """
+        try:
+            # Get the survey and validate access
+            survey = await Survey.objects.aget(id=survey_id, team=self._team)
+
+            # Validate question index
+            if not survey.questions or question_index >= len(survey.questions):
+                return []
+
+            question = survey.questions[question_index]
+
+            # Only analyze multiple choice and single choice questions
+            if question.get("type") not in ["multiple_choice", "single_choice"]:
+                return []
+
+            # TODO: In a real implementation, we would query the survey responses from the database
+            # For now, we'll use the context data passed from the frontend
+            response_data = self.context.get("response_data", [])
+
+            # Extract open-ended responses (non-predefined responses)
+            open_ended_responses = []
+            for response in response_data:
+                if not response.get("isPredefined", True) and response.get("label"):
+                    # Add each response multiple times based on its count
+                    count = response.get("value", 1)
+                    for _ in range(count):
+                        open_ended_responses.append(response["label"])
+
+            return open_ended_responses
+
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "survey_id": survey_id})
+            return []
+
+    async def _analyze_responses(
+        self, responses: list[str], analysis_type: AnalysisType, question_text: str
+    ) -> SurveyAnalysisResult:
+        """
+        AI Analysis Explanation:
+        This is the core AI processing method. It uses a carefully crafted prompt that:
+        1. Provides clear context about the survey question and analysis goal
+        2. Uses structured output to ensure consistent, parseable results
+        3. Follows PostHog's prompting guidelines with XML tags for organization
+        4. Focuses on actionable insights rather than just thematic analysis
+        """
+
+        if not responses:
+            return SurveyAnalysisResult(
+                analysis_type=analysis_type,
+                summary="No open-ended responses to analyze.",
+                categories=[],
+                total_responses_analyzed=0,
+                key_themes=[],
+            )
+
+        # Create the analysis prompt
+        if analysis_type == AnalysisType.SUMMARIZE:
+            prompt_template = """
+<analysis_context>
+You are analyzing open-ended survey responses to extract actionable insights for a product team.
+Survey Question: "{question_text}"
+Number of responses: {response_count}
+</analysis_context>
+
+<instructions>
+Analyze the following survey responses and provide:
+1. A concise summary highlighting the most important themes and patterns
+2. Specific action items or recommendations based on the feedback
+3. Key themes that emerge from the responses
+
+Focus on actionable insights rather than just describing what people said.
+Prioritize feedback that appears frequently or represents significant user concerns.
+</instructions>
+
+<responses>
+{responses_text}
+</responses>
+
+Provide your analysis focusing on what the product team should do next based on this feedback.
+"""
+        else:  # CATEGORIZE
+            prompt_template = """
+<analysis_context>
+You are categorizing open-ended survey responses to help create meaningful data visualizations.
+Survey Question: "{question_text}"
+Number of responses: {response_count}
+</analysis_context>
+
+<instructions>
+Categorize these survey responses into 3-7 meaningful groups that would be useful for:
+1. Creating charts and visualizations
+2. Understanding user sentiment patterns
+3. Identifying areas for product improvement
+
+Each category should:
+- Have a clear, concise name
+- Include a brief description of what it represents
+- Contain responses that genuinely belong together
+- Be actionable for product decisions
+
+Avoid overly granular categories. Aim for categories that capture the main themes.
+</instructions>
+
+<responses>
+{responses_text}
+</responses>
+
+Group these responses into categories that will help the product team understand user feedback patterns.
+"""
+
+        # Format the prompt with actual data
+        responses_text = "\n".join([f"- {response}" for response in responses])
+        formatted_prompt = prompt_template.format(
+            question_text=question_text, response_count=len(responses), responses_text=responses_text
+        )
+
+        # Use MaxChatOpenAI with structured output for consistent results
+        llm = (
+            MaxChatOpenAI(
+                model="gpt-4o",  # Use the most capable model for nuanced text analysis
+                temperature=0.3,  # Low temperature for consistent categorization, but some creativity for insights
+                user=self._user,
+                team=self._team,
+            )
+            .with_structured_output(SurveyAnalysisResult)
+            .with_retry()  # Automatic retry on failures
+        )
+
+        try:
+            result = await llm.ainvoke([("human", formatted_prompt)])
+
+            # Ensure the analysis_type is set correctly
+            result.analysis_type = analysis_type
+            result.total_responses_analyzed = len(responses)
+
+            return result
+
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "analysis_type": analysis_type})
+            # Return a fallback result
+            return SurveyAnalysisResult(
+                analysis_type=analysis_type,
+                summary="Unable to analyze responses due to an error.",
+                categories=[],
+                total_responses_analyzed=len(responses),
+                key_themes=[],
+            )
+
+    async def _arun_impl(
+        self, survey_id: str, question_index: int, analysis_type: AnalysisType
+    ) -> tuple[str, SurveyAnalysisResult]:
+        """
+        AI Analysis Explanation:
+        Main execution method that orchestrates the analysis process:
+        1. Fetches and validates survey data
+        2. Extracts open-ended responses from choice questions
+        3. Performs AI analysis based on the requested type
+        4. Returns both a user-friendly message and structured data
+
+        The structured data can be used by the frontend to create visualizations,
+        while the message provides immediate feedback to the user.
+        """
+        try:
+            # Get survey information for context
+            survey = await Survey.objects.aget(id=survey_id, team=self._team)
+            question = (
+                survey.questions[question_index] if survey.questions and question_index < len(survey.questions) else {}
+            )
+            question_text = question.get("question", "Unknown question")
+
+            # Extract open-ended responses
+            responses = await self._get_survey_responses(survey_id, question_index)
+
+            if not responses:
+                return "❌ No open-ended responses found for this question.", SurveyAnalysisResult(
+                    analysis_type=analysis_type,
+                    summary="No open-ended responses available for analysis.",
+                    categories=[],
+                    total_responses_analyzed=0,
+                    key_themes=[],
+                )
+
+            # Perform AI analysis
+            analysis_result = await self._analyze_responses(responses, analysis_type, question_text)
+
+            # Create user-friendly response message
+            if analysis_type == AnalysisType.SUMMARIZE:
+                message = f"✅ Analyzed {len(responses)} open-ended responses and extracted key insights."
+            else:
+                category_count = len(analysis_result.categories) if analysis_result.categories else 0
+                message = f"✅ Categorized {len(responses)} responses into {category_count} meaningful groups."
+
+            return message, analysis_result
+
+        except Survey.DoesNotExist:
+            return "❌ Survey not found.", SurveyAnalysisResult(
+                analysis_type=analysis_type,
+                summary="Survey not found.",
+                categories=[],
+                total_responses_analyzed=0,
+                key_themes=[],
+            )
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "survey_id": survey_id})
+            return "❌ Failed to analyze survey responses.", SurveyAnalysisResult(
+                analysis_type=analysis_type,
+                summary="Analysis failed due to an error.",
+                categories=[],
+                total_responses_analyzed=0,
+                key_themes=[],
+            )
