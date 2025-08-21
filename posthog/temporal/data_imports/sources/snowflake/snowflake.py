@@ -9,9 +9,9 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from snowflake.connector.cursor import SnowflakeCursor
+from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
@@ -46,7 +46,9 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]
         auth_connect_args = {
             "user": config.auth_type.user,
             "private_key_file": file_name,
-            "private_key_file_pwd": config.auth_type.passphrase,
+            "private_key_file_pwd": config.auth_type.passphrase
+            if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
+            else None,
         }
     else:
         auth_connect_args = {

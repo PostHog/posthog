@@ -51,7 +51,7 @@ export interface ComparisonItem {
 }
 
 export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLogicType>([
-    path(['products', 'llm_observability', 'frontend', 'llmObservabilityPlaygroundLogic']),
+    path(['products', 'llm_analytics', 'frontend', 'llmObservabilityPlaygroundLogic']),
 
     actions({
         setModel: (model: string) => ({ model }),

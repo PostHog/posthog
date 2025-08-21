@@ -8,17 +8,19 @@ import temporalio.activity
 import temporalio.common
 import temporalio.workflow
 from asgiref.sync import sync_to_async
+from structlog import get_logger
 
-from posthog.clickhouse.query_tagging import tag_queries, Product
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.models import Team
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
-from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.models import Team
 from posthog.temporal.session_recordings.queries import get_session_metadata
-from posthog.temporal.session_recordings.snapshot_utils import fetch_v1_snapshots, fetch_v2_snapshots
-from posthog.temporal.session_recordings.session_comparer import count_events_per_window
 from posthog.temporal.session_recordings.segmentation import compute_active_milliseconds
+from posthog.temporal.session_recordings.session_comparer import count_events_per_window
+from posthog.temporal.session_recordings.snapshot_utils import fetch_v1_snapshots, fetch_v2_snapshots
+
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -41,7 +43,7 @@ class CompareRecordingSnapshotsActivityInputs:
 @temporalio.activity.defn
 async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshotsActivityInputs) -> None:
     """Compare session recording snapshots between v1 and v2 for a specific session."""
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
     start_time = dt.datetime.now()
     await logger.ainfo(
         "Starting snapshot comparison activity for session %s",
@@ -588,7 +590,7 @@ class CompareRecordingSnapshotsWorkflow(PostHogWorkflow):
         """Run the comparison of session recording snapshots."""
         await temporalio.workflow.wait_condition(lambda: not self.paused)
 
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
         workflow_start = dt.datetime.now()
         logger.info(
             "Starting snapshot comparison workflow for session %s",

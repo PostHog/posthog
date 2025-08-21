@@ -62,7 +62,7 @@ def call_root(demo_org_team_user):
                 # Some requests will go via Inkeep, and this is realistic! Inkeep needs to adhere to our intended style too
                 "search_documentation": AssistantNodeName.INKEEP_DOCS,
                 "root": AssistantNodeName.ROOT,
-                "billing": AssistantNodeName.BILLING,
+                "billing": AssistantNodeName.END,
                 "insights": AssistantNodeName.END,
                 "insights_search": AssistantNodeName.END,
                 "session_summarization": AssistantNodeName.END,

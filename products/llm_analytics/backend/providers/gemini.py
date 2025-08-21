@@ -1,16 +1,16 @@
-from posthoganalytics.ai.gemini import genai
-from google.genai.types import GenerateContentConfig
-from google.genai.errors import APIError
-
 import json
-from collections.abc import Generator
-from django.conf import settings
-import posthoganalytics
-from anthropic.types import MessageParam
 import logging
 import uuid
+from collections.abc import Generator
 
-from products.llm_observability.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
+import posthoganalytics
+from anthropic.types import MessageParam
+from django.conf import settings
+from google.genai.errors import APIError
+from google.genai.types import GenerateContentConfig
+from posthoganalytics.ai.gemini import genai
+
+from products.llm_analytics.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
 
 logger = logging.getLogger(__name__)
 
