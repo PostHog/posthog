@@ -44,7 +44,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
     await logger.ainfo(f"Looking for subscriptions due before {now_with_buffer}")
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=False)
     def get_subscription_ids() -> list[Subscription]:
         return list(
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
