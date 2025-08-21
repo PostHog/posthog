@@ -1,14 +1,16 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
+import api from 'lib/api'
+import { isEmptyObject } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { userLogic } from 'scenes/userLogic'
+
+import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
-import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
-import { isEmptyObject } from 'lib/utils'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
@@ -35,6 +37,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
     connect(() => ({
         actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
+        values: [userLogic, ['user']],
     })),
 
     actions({
@@ -42,6 +45,7 @@ export const commentsLogic = kea<commentsLogicType>([
         maybeLoadComments: true,
         setComposedComment: (content: string) => ({ content }),
         sendComposedContent: true,
+        sendEmojiReaction: (emoji: string, sourceCommentId: string) => ({ emoji, sourceCommentId }),
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
@@ -142,7 +146,7 @@ export const commentsLogic = kea<commentsLogicType>([
                 deleteComment: async ({ comment }) => {
                     await deleteWithUndo({
                         endpoint: `projects/@current/comments`,
-                        object: { name: 'Comment', id: comment.id },
+                        object: { name: comment.item_context?.is_emoji ? 'Reaction' : 'Comment', id: comment.id },
                         callback: (isUndo) => {
                             if (isUndo) {
                                 actions.loadCommentsSuccess([
@@ -154,6 +158,22 @@ export const commentsLogic = kea<commentsLogicType>([
                     })
 
                     return values.comments?.filter((c) => c.id !== comment.id) ?? null
+                },
+
+                sendEmojiReaction: async ({ emoji, sourceCommentId }) => {
+                    const existingComments = values.comments ?? []
+
+                    const newComment = await api.comments.create({
+                        content: emoji,
+                        scope: props.scope,
+                        item_id: props.item_id,
+                        source_comment: sourceCommentId,
+                        item_context: {
+                            is_emoji: true,
+                        },
+                    })
+
+                    return [...existingComments, newComment]
                 },
             },
         ],
@@ -204,6 +224,11 @@ export const commentsLogic = kea<commentsLogicType>([
                 const commentsById: Record<string, CommentWithRepliesType> = {}
 
                 for (const comment of sortedComments ?? []) {
+                    // Skip emoji reactions from the reply tree - they'll be handled separately
+                    if (comment.item_context?.is_emoji) {
+                        continue
+                    }
+
                     let commentsWithReplies = commentsById[comment.source_comment ?? comment.id]
 
                     if (!commentsWithReplies) {
@@ -222,6 +247,35 @@ export const commentsLogic = kea<commentsLogicType>([
                 }
 
                 return Object.values(commentsById)
+            },
+        ],
+
+        emojiReactionsByComment: [
+            (s) => [s.sortedComments],
+            (sortedComments: CommentType[]) => {
+                const reactions: Record<CommentType['id'], Record<string, CommentType[]>> = {}
+
+                for (const comment of sortedComments ?? []) {
+                    if (comment.item_context?.is_emoji && comment.source_comment) {
+                        if (!reactions[comment.source_comment]) {
+                            reactions[comment.source_comment] = {}
+                        }
+                        const emoji = comment.content
+                        if (!reactions[comment.source_comment][emoji]) {
+                            reactions[comment.source_comment][emoji] = []
+                        }
+                        reactions[comment.source_comment][emoji].push(comment)
+                    }
+                }
+
+                return reactions
+            },
+        ],
+
+        isMyComment: [
+            (s) => [s.user],
+            (user) => {
+                return (comment: CommentType): boolean => comment.created_by?.uuid === user?.uuid
             },
         ],
     }),

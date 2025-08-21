@@ -1,4 +1,4 @@
-import { createContext, RefObject, useContext, useEffect, useState } from 'react'
+import { RefObject, createContext, useContext, useEffect, useState } from 'react'
 
 /**
  * Typically floating things like popovers and tooltips are portaled to the root of the document, but sometimes

@@ -2,7 +2,7 @@
 
 Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a minimal amount of other files. Below is a step-by-step guide:
 
-1. Add a new enum value to `ExternalDataSource.Type` (posthog/warehouse/models/external_data_source.py). The key should be fully capitalized and the value should be in pascal case.
+1. Add a new enum value to `ExternalDataSourceType` (posthog/warehouse/types.py). The key should be fully capitalized and the value should be in pascal case.
 2. Run django migrations - `DEBUG=1 ./bin/migrate`
 3. Add a new folder in `posthog/temporal/data_imports/sources` for your source, add a new file within this folder called `source.py` using the template below
 4. Define the fields you'd like to collect via the `get_source_config()` method. Look at the other sources in `posthog/temporal/data_imports/sources` for examples. More info on the type of fields available is below
@@ -15,7 +15,7 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
 ```python
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
@@ -23,19 +23,19 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class TemplateSource(BaseSource[Config]): # Replace this after config generation
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.SOURCE_TYPE # Replace this
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SOURCE_TYPE # Replace this
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.SOURCE_TYPE, # Replace this
+            name=SchemaExternalDataSourceType.SOURCE_TYPE, # Replace this
             label="Template", # Replace this
             caption="",
             fields=cast(list[FieldType], []), # Add source fields here

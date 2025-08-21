@@ -1,20 +1,23 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
-
-import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
-import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
-import { routes } from 'scenes/scenes'
-import { IconBook, IconCompass, IconEye } from '@posthog/icons'
-import { Scene } from 'scenes/sceneTypes'
-import { SidePanelTab } from '~/types'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { routes } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { SidePanelTab } from '~/types'
+
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import type { maxGlobalLogicType } from './maxGlobalLogicType'
+import { maxLogic } from './maxLogic'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -30,13 +33,15 @@ export const STATIC_TOOLS: ToolRegistration[] = [
                 throw new Error(`${pageKey} not in urls`)
             }
             const url = urls[pageKey as AssistantNavigateUrls]()
-            router.actions.push(url)
+            // Include the conversation ID and panel to ensure the side panel is open
+            // (esp. when the navigate tool is used from the full-page Max)
+            router.actions.push(url, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
             // First wait for navigation to complete
             await new Promise<void>((resolve, reject) => {
                 const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
                 const startTime = performance.now()
                 const checkPathname = (): void => {
-                    if (sceneLogic.values.activeScene === routes[url]?.[0]) {
+                    if (sceneLogic.values.activeSceneId === routes[url]?.[0]) {
                         resolve()
                     } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
                         reject(new Error('Navigation timeout'))
@@ -55,10 +60,16 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         icon: <IconBook />,
     },
     {
+        identifier: 'session_summarization' as const,
+        name: TOOL_DEFINITIONS['session_summarization'].name,
+        description: TOOL_DEFINITIONS['session_summarization'].description,
+        icon: <IconRewindPlay />,
+    },
+    {
         identifier: 'create_and_query_insight' as const,
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
-        icon: <IconEye />,
+        icon: <IconGraph />,
     },
 ]
 
@@ -69,7 +80,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             organizationLogic,
             ['currentOrganization'],
             sceneLogic,
-            ['scene', 'sceneConfig'],
+            ['sceneId', 'sceneConfig'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -147,18 +158,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     selectors({
         showFloatingMax: [
             (s) => [
-                s.scene,
+                s.sceneId,
                 s.sceneConfig,
                 s.isFloatingMaxExpanded,
                 sidePanelLogic.selectors.sidePanelOpen,
                 sidePanelLogic.selectors.selectedTab,
                 s.featureFlags,
             ],
-            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
+            (sceneId, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
                 sceneConfig &&
                 !sceneConfig.onlyUnauthenticated &&
                 sceneConfig.layout !== 'plain' &&
-                !(scene === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
+                !(sceneId === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
                 !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
                 featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
                 featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
@@ -175,13 +186,26 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
                     : null,
         ],
+        availableStaticTools: [
+            (s) => [s.featureFlags],
+            (featureFlags): ToolRegistration[] =>
+                STATIC_TOOLS.filter((tool) => {
+                    // Only register the static tools that either aren't flagged or have their flag enabled
+                    const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
+                    return !toolDefinition.flag || featureFlags[toolDefinition.flag]
+                }),
+        ],
         toolMap: [
-            (s) => [s.registeredToolMap],
-            (registeredToolMap) => ({
-                ...Object.fromEntries(STATIC_TOOLS.map((tool) => [tool.identifier, tool])),
+            (s) => [s.registeredToolMap, s.availableStaticTools],
+            (registeredToolMap, availableStaticTools) => ({
+                ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
                 ...registeredToolMap,
             }),
         ],
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
+        editInsightToolRegistered: [
+            (s) => [s.registeredToolMap],
+            (registeredToolMap) => !!registeredToolMap.create_and_query_insight,
+        ],
     }),
 ])

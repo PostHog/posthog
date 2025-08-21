@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCalendar, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,7 +12,7 @@ import {
     LemonTagProps,
     Link,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils'

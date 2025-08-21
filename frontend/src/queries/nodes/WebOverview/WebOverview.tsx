@@ -1,16 +1,18 @@
-import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
 import { getColorVar } from 'lib/colors'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

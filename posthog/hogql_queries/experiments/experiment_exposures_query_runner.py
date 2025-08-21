@@ -35,7 +35,6 @@ QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * varia
 
 class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
-    response: ExperimentExposureQueryResponse
     cached_response: CachedExperimentExposureQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -146,7 +145,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         return exposure_query
 
-    def calculate(self) -> ExperimentExposureQueryResponse:
+    def _calculate(self) -> ExperimentExposureQueryResponse:
         try:
             # Adding experiment specific tags to the tag collection
             # This will be available as labels in Prometheus

@@ -420,3 +420,48 @@ class SQLSemanticsCorrectness(LLMClassifier):
         if not output or output.strip() == "":
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
         return super()._run_eval_sync(output, expected, database_schema=database_schema, **kwargs)
+
+
+class InsightSearchOutput(TypedDict, total=False):
+    """Output structure for insight search evaluations."""
+
+    selected_insights: list[int]
+    search_query: str | None
+    evaluation_result: dict | None
+
+
+class InsightEvaluationAccuracy(ScorerWithPartial):
+    """Evaluate the accuracy of the insight evaluation decision (use existing vs create new)."""
+
+    def _run_eval_sync(self, output: InsightSearchOutput, expected: bool | None = None, **kwargs):
+        evaluation_result = output.get("evaluation_result")
+        if not evaluation_result:
+            return Score(name=self._name(), score=None, metadata={"reason": "No evaluation result provided"})
+
+        if expected is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expected decision provided"})
+
+        if "should_use_existing" not in evaluation_result:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={
+                    "reason": "Missing 'should_use_existing' key in evaluation result",
+                    "evaluation_result_keys": list(evaluation_result.keys()),
+                },
+            )
+
+        actual_decision = evaluation_result["should_use_existing"]
+
+        # Binary accuracy score
+        score = 1.0 if actual_decision == expected else 0.0
+
+        return Score(
+            name=self._name(),
+            score=score,
+            metadata={
+                "expected_decision": expected,
+                "actual_decision": actual_decision,
+                "evaluation_explanation": evaluation_result.get("explanation", ""),
+            },
+        )

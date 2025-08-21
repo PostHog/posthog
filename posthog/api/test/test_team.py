@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -16,7 +17,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -100,13 +100,13 @@ def team_api_test_factory():
             self.assertEqual(response_data["has_group_types"], False)
             self.assertEqual(response_data["group_types"], [])
 
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="person", group_type_index=0
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="thing", group_type_index=2
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="place", group_type_index=1
             )
 
@@ -125,6 +125,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "place",
@@ -133,6 +134,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "thing",
@@ -141,6 +143,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                 ],
             )
@@ -207,9 +210,9 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
                 if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -221,9 +224,9 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
                 if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -1811,9 +1814,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response_data = response.json()
         self.assertEqual(
             response_data.get("detail"),
-            "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+            "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
             if self.client_class is not EnvironmentToProjectRewriteClient
-            else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
         self.assertEqual(response_data.get("type"), "authentication_error")
         self.assertEqual(response_data.get("code"), "permission_denied")

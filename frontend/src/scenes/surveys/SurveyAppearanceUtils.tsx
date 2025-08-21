@@ -1,5 +1,7 @@
-import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+
+import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
+
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { SurveyQuestionDescriptionContentType } from '~/types'

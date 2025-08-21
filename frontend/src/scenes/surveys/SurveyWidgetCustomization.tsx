@@ -1,5 +1,7 @@
-import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 

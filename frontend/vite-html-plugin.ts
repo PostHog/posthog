@@ -1,6 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { dirname, resolve } from 'path'
 import type { Plugin } from 'vite'
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs'
-import { resolve, dirname } from 'path'
 
 const distHtmlFiles = ['dist/index.html', 'dist/layout.html']
 

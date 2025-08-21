@@ -3,6 +3,8 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { chunk } from 'lodash'
+import { DateTime } from 'luxon'
 
 import {
     CyclotronJob,
@@ -11,8 +13,6 @@ import {
     CyclotronManager,
     CyclotronWorker,
 } from '@posthog/cyclotron'
-import { chunk } from 'lodash'
-import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 

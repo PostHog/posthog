@@ -1,12 +1,12 @@
 from datetime import datetime
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSwitchGroupConfig,
-    Type4,
+    SourceFieldInputConfigType,
     SourceFieldFileUploadJsonFormatConfig,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
@@ -22,14 +22,18 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
+
+
+def build_destination_table_prefix(schema_id: str | None) -> str:
+    return f"__posthog_import_{schema_id if schema_id else ''}"
 
 
 @SourceRegistry.register
 class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.BIGQUERY
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.BIGQUERY
 
     def get_schemas(self, config: BigQuerySourceConfig, team_id: int) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
@@ -52,6 +56,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                 ],
             )
             for table_name, columns in filtered_results
+            if not table_name.startswith(build_destination_table_prefix(None))
         ]
 
     def validate_credentials(self, config: BigQuerySourceConfig, team_id: int) -> tuple[bool, str | None]:
@@ -93,7 +98,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
         # relaxed with using a relatively long UUID as part of the prefix.
         # Some special characters do need to be replaced, so we use the hex
         # representation of the UUID.
-        destination_table_prefix = f"__posthog_import_{inputs.schema_id}"
+        destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
 
         destination_table_dataset_id = dataset_project_id if using_temporary_dataset else config.dataset_id
         destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.job_id}_{str(datetime.now().timestamp()).replace('.', '')}"
@@ -144,7 +149,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.BIG_QUERY,
+            name=SchemaExternalDataSourceType.BIG_QUERY,
             caption="",
             fields=cast(
                 list[FieldType],
@@ -159,7 +164,11 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                         required=True,
                     ),
                     SourceFieldInputConfig(
-                        name="dataset_id", label="Dataset ID", type=Type4.TEXT, required=True, placeholder=""
+                        name="dataset_id",
+                        label="Dataset ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="temporary-dataset",
@@ -172,7 +181,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                                 SourceFieldInputConfig(
                                     name="temporary_dataset_id",
                                     label="Dataset ID for temporary tables",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
                                 )
@@ -190,7 +199,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                                 SourceFieldInputConfig(
                                     name="dataset_project_id",
                                     label="Project ID for dataset",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
                                 )
