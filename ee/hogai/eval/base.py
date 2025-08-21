@@ -16,6 +16,7 @@ async def BaseMaxEval(
     pytestconfig: pytest.Config,
     metadata: Metadata | None = None,
     is_public: bool = False,
+    no_send_logs: bool = True,
 ):
     # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
@@ -45,7 +46,8 @@ async def BaseMaxEval(
         trial_count=trial_count,
         timeout=timeout,
         max_concurrency=100,
-        is_public=is_public or False,
+        is_public=is_public,
+        no_send_logs=no_send_logs,
         metadata=metadata,
     )
 
@@ -60,8 +62,8 @@ async def BaseMaxEval(
     return result
 
 
-MaxPublicEval = partial(BaseMaxEval, is_public=True)
+MaxPublicEval = partial(BaseMaxEval, is_public=True, no_send_logs=False)
 """Evaluation case that is publicly accessible."""
 
-MaxPrivateEval = partial(BaseMaxEval, is_public=False)
+MaxPrivateEval = partial(BaseMaxEval, is_public=False, no_send_logs=True)
 """Evaluation case is not accessible publicly."""

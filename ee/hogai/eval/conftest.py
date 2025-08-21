@@ -1,17 +1,11 @@
-import os
 from collections import namedtuple
 from unittest import mock
 
 import pytest
 from _pytest.terminal import TerminalReporter
-from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 
 # We want the PostHog django_db_setup fixture here
 from posthog.conftest import django_db_setup  # noqa: F401
-
-handler = BraintrustCallbackHandler()
-if os.environ.get("BRAINTRUST_API_KEY"):
-    set_global_handler(handler)
 
 
 def pytest_addoption(parser):

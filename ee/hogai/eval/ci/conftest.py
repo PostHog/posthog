@@ -1,7 +1,9 @@
 import datetime
+import os
 from collections.abc import Generator
 
 import pytest
+from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from django.test import override_settings
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -16,6 +18,11 @@ from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Organization, Team, User
 from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
+
+handler = BraintrustCallbackHandler()
+if os.environ.get("EVAL_MODE") == "ci" and os.environ.get("BRAINTRUST_API_KEY"):
+    set_global_handler(handler)
+
 
 EVAL_USER_FULL_NAME = "Karen Smith"
 

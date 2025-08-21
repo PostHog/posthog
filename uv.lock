@@ -520,7 +520,7 @@ wheels = [
 
 [[package]]
 name = "braintrust"
-version = "0.2.0"
+version = "0.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "chevron" },
@@ -533,9 +533,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/2d/c1edc49d8ea3548552a844251de01946e566621b2f6a42af284a058c360d/braintrust-0.2.0.tar.gz", hash = "sha256:fd45665b9521276d581c12a947bf9033a51c5365c986454df6332e01729da270", size = 145441, upload-time = "2025-07-25T05:34:44.555Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/c3/01db8b072d56b3bcebe443af7acc57466c87bf2f49612a444ea707f76a90/braintrust-0.2.4.tar.gz", hash = "sha256:b1866a646d2368bd4c2ccba305e5c1e1d97c7f8c715833d3fc69810644fdc66f", size = 159340, upload-time = "2025-08-20T21:15:18.8Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/60/83fb8bcc84f7fe408b7373c520187e777859c79bc6aa9ad5d1eb7d4b4c8a/braintrust-0.2.0-py3-none-any.whl", hash = "sha256:dffc74fe85f9c855461712210a852c543d8573767544403b3f73fbc0e645f5a2", size = 171651, upload-time = "2025-07-25T05:34:43.249Z" },
+    { url = "https://files.pythonhosted.org/packages/31/32/4a48037e9956592f3a7cfae442ecf23c4ea6884950932126561916c089b4/braintrust-0.2.4-py3-none-any.whl", hash = "sha256:7dc30f32ec5e909b0b35e75ee6596090bdc15e4ed9f4d82eda52103b1aaaf721", size = 185252, upload-time = "2025-08-20T21:15:17.137Z" },
 ]
 
 [[package]]
@@ -549,15 +549,15 @@ wheels = [
 
 [[package]]
 name = "braintrust-langchain"
-version = "0.0.2"
+version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "braintrust" },
     { name = "langchain" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/77/1d/9f1def0527de67191c41fa3941a8cc72b187c6fd52c1f8b7a9b24fc6240a/braintrust_langchain-0.0.2.tar.gz", hash = "sha256:f5af5ebc600cd45fd67a4ba4b6e0b99248eb6f6caea79f521d0bee1f045ac4b0", size = 42543, upload-time = "2025-03-10T21:24:25.926Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/28/c302623e8d1ad293b2a7029dd7a2de3feaa50a486335f6d37a577b7453eb/braintrust_langchain-0.0.4.tar.gz", hash = "sha256:5ee372f97857f436d3f81d19a9600d4a741e570b6bf80a714caf424406713cfb", size = 43081, upload-time = "2025-08-06T19:40:11.861Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/7e/235c99c8d934b922b8ffd9cd2220f21e14fabb4cc126eb2e3a914baa54f1/braintrust_langchain-0.0.2-py3-none-any.whl", hash = "sha256:8a5cab14b84f375e43500eb5feae64d5311683a268a3d7c4c70e592dfdbaa444", size = 43040, upload-time = "2025-03-10T21:24:24.421Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/f3/aaf624f046902454c0ebf84e8426864be9587938d8ef85e4484502c444ed/braintrust_langchain-0.0.4-py3-none-any.whl", hash = "sha256:c9bb9cfbcb938f71b0344821fdb8e69091e207d3691c0fead8e780088798bbc6", size = 43492, upload-time = "2025-08-06T19:40:10.456Z" },
 ]
 
 [[package]]
@@ -4400,8 +4400,8 @@ dev = [
     { name = "autoevals", specifier = "==0.0.129" },
     { name = "black", specifier = "~=23.9.1" },
     { name = "boto3-stubs", extras = ["s3"], specifier = ">=1.34.84" },
-    { name = "braintrust", specifier = "==0.2.0" },
-    { name = "braintrust-langchain", specifier = "==0.0.2" },
+    { name = "braintrust", specifier = "==0.2.4" },
+    { name = "braintrust-langchain", specifier = "==0.0.4" },
     { name = "dagster-dg-cli", specifier = ">=1.10.18" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
     { name = "deepdiff", specifier = ">=8.5.0" },

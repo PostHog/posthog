@@ -128,7 +128,7 @@ def spawn_evaluation_container(
             "BRAINTRUST_API_KEY": settings.BRAINTRUST_API_KEY,
         },
         extras=evaluation_config.model_dump(exclude_unset=True),
-        # registry=get_registry_credentials(),
+        registry=get_registry_credentials(),
     ).get_materialize_result()
 
     context.log_event(
