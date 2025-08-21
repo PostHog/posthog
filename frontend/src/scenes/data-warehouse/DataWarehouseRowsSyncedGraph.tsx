@@ -1,94 +1,14 @@
-import { actions, afterMount, kea, path, selectors, useValues } from 'kea'
-import { loaders } from 'kea-loaders'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { Chart, ChartDataset, ChartOptions } from 'lib/Chart'
-import api from 'lib/api'
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
-import { DataWarehouseDailyRowsBreakdown } from '~/types'
-
-import type { dataWarehouseRowsSyncedGraphLogicType } from './DataWarehouseRowsSyncedGraphType'
-
-export interface DailyRowsSyncedData {
-    date: string
-    rows_synced: number | null
-}
-
-const dataWarehouseRowsSyncedGraphLogic = kea<dataWarehouseRowsSyncedGraphLogicType>([
-    path(['scenes', 'data-warehouse', 'dataWarehouseRowsSyncedGraphLogic']),
-    actions({
-        loadDailyBreakdown: true,
-    }),
-    loaders(() => ({
-        dailyBreakdownData: [
-            null as DataWarehouseDailyRowsBreakdown | null,
-            {
-                loadDailyBreakdown: async () => {
-                    return await api.dataWarehouse.breakdownOfRowsSyncedByDayInBillingPeriod()
-                },
-            },
-        ],
-    })),
-    selectors({
-        dailyRowsSyncedData: [
-            (s: any) => [s.dailyBreakdownData],
-            (dailyBreakdownData: DataWarehouseDailyRowsBreakdown | null): DailyRowsSyncedData[] => {
-                if (!dailyBreakdownData?.billing_available) {
-                    return []
-                }
-
-                const billingStart = dayjs(dailyBreakdownData.billing_period_start)
-                const billingEnd = dayjs(dailyBreakdownData.billing_period_end)
-                const today = dayjs()
-
-                if (!billingStart.isValid() || !billingEnd.isValid()) {
-                    return []
-                }
-
-                const dailyData = new Map<string, number | null>()
-
-                // Initialize all days in billing period
-                let currentDate = billingStart
-                while (currentDate.isSameOrBefore(billingEnd, 'day')) {
-                    // Set future dates to null instead of 0
-                    const isFutureDate = currentDate.isAfter(today, 'day')
-                    dailyData.set(currentDate.format('YYYY-MM-DD'), isFutureDate ? null : 0)
-                    currentDate = currentDate.add(1, 'day')
-                }
-
-                // Add actual data for past dates
-                if (dailyBreakdownData.breakdown_of_rows_by_day) {
-                    dailyBreakdownData.breakdown_of_rows_by_day.forEach(({ date, rows_synced }) => {
-                        const dateObj = dayjs(date)
-                        if (dateObj.isSameOrBefore(today, 'day')) {
-                            dailyData.set(date, rows_synced)
-                        }
-                    })
-                }
-
-                return Array.from(dailyData.entries())
-                    .map(([date, rows_synced]) => ({ date, rows_synced }))
-                    .sort((a) => dayjs(a.date).unix() - dayjs(a.date).unix())
-            },
-        ],
-        hasData: [
-            (s: any) => [s.dailyRowsSyncedData],
-            (dailyData: DailyRowsSyncedData[]): boolean =>
-                dailyData.some((item) => item.rows_synced && item.rows_synced > 0),
-        ],
-        totalRowsInPeriod: [
-            (s: any) => [s.dailyRowsSyncedData],
-            (dailyData: DailyRowsSyncedData[]): number =>
-                dailyData.reduce((sum, item) => sum + (item.rows_synced || 0), 0),
-        ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadDailyBreakdown()
-    }),
-])
+import { DailyRowsSyncedData, dataWarehouseRowsSyncedGraphLogic } from './dataWarehouseSceneLogic'
+import { DataWarehouseSourceIcon } from './settings/DataWarehouseSourceIcon'
 
 function SimpleLineChart({
     data,
@@ -99,19 +19,6 @@ function SimpleLineChart({
 }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<any>(null)
-
-    const formatRows = (value: number): string => {
-        if (value === 0) {
-            return '0'
-        }
-        if (value < 1000) {
-            return value.toLocaleString()
-        }
-        if (value < 1000000) {
-            return `${(value / 1000).toFixed(1)}K`
-        }
-        return `${(value / 1000000).toFixed(1)}M`
-    }
 
     useEffect(() => {
         if (!canvasRef.current || !data.length) {
@@ -135,7 +42,7 @@ function SimpleLineChart({
                     pointBackgroundColor: '#111827',
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 2,
-                    tension: 0, // Remove curves - straight lines between points
+                    tension: 0.3,
                     fill: false,
                     spanGaps: true,
                     pointHitRadius: 10,
@@ -148,7 +55,7 @@ function SimpleLineChart({
         const options: ChartOptions<'line'> = {
             responsive: true,
             maintainAspectRatio: false,
-            onClick: (event, elements) => {
+            onClick: (_event, elements) => {
                 if (elements.length > 0) {
                     const element = elements[0]
                     const dataIndex = element.index
@@ -172,7 +79,7 @@ function SimpleLineChart({
                         title: (context) => dayjs(data[context[0].dataIndex].date).format('MMM D, YYYY'),
                         label: (context) => {
                             const value = context.parsed.y
-                            return value === null ? 'No data' : `${formatRows(value)} rows synced`
+                            return value === null ? 'No data' : `${value} rows synced`
                         },
                     },
                 },
@@ -200,7 +107,7 @@ function SimpleLineChart({
                         lineWidth: 0.5,
                     },
                     ticks: {
-                        callback: (value) => (value === null ? '' : formatRows(value as number)),
+                        callback: (value) => (value === null ? '' : (value as number)),
                         color: '#6b7280',
                         padding: 8,
                         maxTicksLimit: 6,
@@ -253,33 +160,19 @@ function SimpleLineChart({
 }
 
 export function DataWarehouseRowsSyncedGraph(): JSX.Element {
-    const { dailyRowsSyncedData, hasData, dailyBreakdownDataLoading } = useValues(dataWarehouseRowsSyncedGraphLogic)
-    const [selectedDate, setSelectedDate] = useState<string | null>(null)
-    const [selectedRows, setSelectedRows] = useState<number | null>(null)
+    const { dailyRowsSyncedData, hasData, dailyBreakdownDataLoading, selectedDate, selectedRows, activitySummary } =
+        useValues(dataWarehouseRowsSyncedGraphLogic)
+    const { setSelectedDate, setSelectedRows } = useActions(dataWarehouseRowsSyncedGraphLogic)
 
-    // Memoize the click handler to prevent re-renders
-    const handlePointClick = useCallback((date: string, rows: number | null) => {
+    const handlePointClick = (date: string, rows: number | null): void => {
         setSelectedDate(date)
         setSelectedRows(rows)
-    }, [])
-
-    const formatRows = (value: number): string => {
-        if (value === 0) {
-            return '0'
-        }
-        if (value < 1000) {
-            return value.toLocaleString()
-        }
-        if (value < 1000000) {
-            return `${(value / 1000).toFixed(1)}K`
-        }
-        return `${(value / 1000000).toFixed(1)}M`
     }
 
     return (
         <>
             <div className="bg-white rounded-lg border border-border shadow-sm">
-                <div className="p-4 border-b border-border">
+                <div className="p-2">
                     <div>
                         <h3 className="text-xl font-semibold text-default">Daily Rows Synced</h3>
                         {hasData && (
@@ -315,55 +208,103 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
             <LemonModal
                 isOpen={!!selectedDate}
                 onClose={() => setSelectedDate(null)}
-                title={`Sync Details for ${selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}`}
-                footer={
-                    <div className="flex justify-end">
-                        <button
-                            onClick={() => setSelectedDate(null)}
-                            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                        >
-                            Close
-                        </button>
-                    </div>
-                }
+                title={selectedDate ? `Sync Activity - ${dayjs(selectedDate).format('MMM D, YYYY')}` : 'Sync Activity'}
+                width={600}
             >
-                <div className="p-6">
+                <div className="space-y-6">
                     {selectedRows === null ? (
-                        <div className="text-center">
-                            <div className="text-lg text-gray-600 mb-2">
-                                No sync activity on {selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}
+                        <div className="text-center py-8">
+                            <div className="text-lg text-muted-alt mb-2">
+                                No sync activity on {dayjs(selectedDate!).format('MMM D, YYYY')}
                             </div>
-                            <div className="text-sm text-gray-500">This date is in the future or has no sync jobs.</div>
+                            <div className="text-sm text-muted">This date is in the future or has no sync jobs.</div>
                         </div>
                     ) : (
-                        <div className="space-y-4">
-                            <div className="text-center">
-                                <div className="text-3xl font-bold text-gray-900 mb-2">{formatRows(selectedRows)}</div>
-                                <div className="text-lg text-gray-600">
-                                    rows synced on {selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}
+                        <>
+                            <div className="text-center border-b pb-6">
+                                <div className="text-4xl font-bold text-default mb-2">{selectedRows}</div>
+                                <div className="text-lg text-muted-alt">
+                                    rows synced on {dayjs(selectedDate!).format('MMM D, YYYY')}
                                 </div>
                             </div>
 
-                            <div className="border-t pt-4">
-                                <div className="text-sm text-gray-500 mb-2">Sync Details:</div>
-                                <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Date:</span>
-                                        <span className="font-medium">
-                                            {selectedDate ? dayjs(selectedDate).format('MMM D, YYYY') : ''}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Rows Processed:</span>
-                                        <span className="font-medium">{formatRows(selectedRows)}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Status:</span>
-                                        <span className="font-medium text-green-600">Completed</span>
+                            {activitySummary ? (
+                                <div className="space-y-4">
+                                    {activitySummary.hasMultipleSources && (
+                                        <div>
+                                            <h4 className="font-semibold mb-3">Sources</h4>
+                                            <div className="space-y-2">
+                                                {Object.entries(activitySummary.runsBySource).map(([source, data]) => {
+                                                    const sourceData = data as {
+                                                        count: number
+                                                        rows: number
+                                                        schemas: string[]
+                                                    }
+                                                    return (
+                                                        <div
+                                                            key={source}
+                                                            className="flex items-center justify-between p-3 bg-bg-light rounded border"
+                                                        >
+                                                            <div className="flex-1">
+                                                                <div className="font-medium text-default">{source}</div>
+                                                                <div className="text-sm text-muted">
+                                                                    {sourceData.schemas.join(', ')}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-sm text-muted flex items-center gap-3">
+                                                                <span>{sourceData.count} jobs</span>
+                                                                <span>• {sourceData.rows} rows</span>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {activitySummary.timeSpanMinutes > 0 && (
+                                        <div className="text-center text-sm text-muted-alt">
+                                            Sync activity spanned {activitySummary.timeSpanMinutes} minutes
+                                        </div>
+                                    )}
+
+                                    {activitySummary.runs.length > 0 && (
+                                        <div>
+                                            <div className="space-y-3 max-h-64 overflow-y-auto">
+                                                {activitySummary.runs.slice(0, 10).map((run: any) => (
+                                                    <div
+                                                        key={run.id}
+                                                        className="flex items-center justify-between p-3 bg-bg-light rounded border"
+                                                    >
+                                                        <div className="flex-1">
+                                                            <div className="font-medium text-default flex items-center gap-2">
+                                                                <DataWarehouseSourceIcon
+                                                                    type={run.source_type}
+                                                                    size="xsmall"
+                                                                />{' '}
+                                                                {run.source_type} • {run.schema_name}
+                                                            </div>
+                                                            <div className="text-sm text-muted flex items-center gap-2">
+                                                                <TZLabel time={run.created_at} />
+                                                                <span>• {run.rows_synced} rows</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="text-center py-4">
+                                    <div className="text-lg text-muted-alt mb-2">No sync data available</div>
+                                    <div className="text-sm text-muted">
+                                        This date may not have any data warehouse sync activity or the data may not be
+                                        available yet.
                                     </div>
                                 </div>
-                            </div>
-                        </div>
+                            )}
+                        </>
                     )}
                 </div>
             </LemonModal>
