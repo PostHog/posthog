@@ -24,6 +24,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
             loadCountedUsers: async (_, breakpoint): Promise<{ person: PersonType; count: number }[]> => {
                 const q = hogql`
                     WITH
+            -- get the session ids for any recorded sessions in the last 7 days
             recorded_sessions AS (
                 SELECT session_id
                 FROM raw_session_replay_events
@@ -32,6 +33,9 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                 GROUP BY session_id
                 HAVING date_diff('second', min(min_first_timestamp), max(max_last_timestamp)) > 5
             ),
+            -- way faster to get person props from the events table
+            -- so get the mapping of person_id/person_properties to session_id
+            -- from the events table that has the same session_id as the recorded sessions
             session_persons AS (
                 SELECT
                     $session_id as session_id,
@@ -44,6 +48,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                   AND event IN ('$pageview', '$screen', '$autocapture', '$feature_flag_called', '$pageleave', '$identify', '$web_vitals', '$set', 'Application Opened', 'Application Backgrounded')
                 GROUP BY $session_id
             )
+            -- now we can count the distinct sessions per person
             SELECT
                 sp.person_id,
                 sp.pp,
