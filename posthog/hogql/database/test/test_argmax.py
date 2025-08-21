@@ -16,10 +16,20 @@ class TestArgmax(BaseTest):
                 ast.Alias(
                     alias="moo",
                     expr=ast.Call(
-                        name="argMax",
+                        name="untuple",
                         args=[
-                            ast.Field(chain=["raw_persons", "properties", "moo"]),
-                            ast.Field(chain=["raw_persons", "version"]),
+                            ast.Call(
+                                name="argMax",
+                                args=[
+                                    ast.Call(
+                                        name="tuple",
+                                        args=[
+                                            ast.Field(chain=["raw_persons", "properties", "moo"]),
+                                        ],
+                                    ),
+                                    ast.Field(chain=["raw_persons", "version"]),
+                                ],
+                            )
                         ],
                     ),
                 ),
@@ -43,10 +53,17 @@ class TestArgmax(BaseTest):
                 ast.Alias(
                     alias="moo",
                     expr=ast.Call(
-                        name="argMax",
+                        name="untuple",
                         args=[
-                            ast.Field(chain=["raw_persons", "properties", "moo"]),
-                            ast.Field(chain=["raw_persons", "version"]),
+                            ast.Call(
+                                name="argMax",
+                                args=[
+                                    ast.Call(
+                                        name="tuple", args=[ast.Field(chain=["raw_persons", "properties", "moo"])]
+                                    ),
+                                    ast.Field(chain=["raw_persons", "version"]),
+                                ],
+                            ),
                         ],
                     ),
                 ),
@@ -57,10 +74,20 @@ class TestArgmax(BaseTest):
             having=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Call(
-                    name="argMax",
+                    name="untuple",
                     args=[
-                        ast.Field(chain=["raw_persons", "is_deleted"]),
-                        ast.Field(chain=["raw_persons", "version"]),
+                        ast.Call(
+                            name="argMax",
+                            args=[
+                                ast.Call(
+                                    name="tuple",
+                                    args=[
+                                        ast.Field(chain=["raw_persons", "is_deleted"]),
+                                    ],
+                                ),
+                                ast.Field(chain=["raw_persons", "version"]),
+                            ],
+                        ),
                     ],
                 ),
                 right=ast.Constant(value=0),

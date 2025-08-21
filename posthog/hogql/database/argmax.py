@@ -16,8 +16,34 @@ def argmax_select(
 ) -> "SelectQuery":
     from posthog.hogql import ast
 
+    # Note: argmax will try to return the closest non null value which means
+    # if the value corresponding to the highest argmax is null, it won't be returned
+    #
+    # ┌─a────┬────b─┐
+    # │ a    │    1 │
+    # │ b    │    2 │
+    # │ c    │    2 │
+    # │ ᴺᵁᴸᴸ │    3 │
+    # │ ᴺᵁᴸᴸ │ ᴺᵁᴸᴸ │
+    # │ d    │ ᴺᵁᴸᴸ │
+    # └──────┴──────┘
+
+    # SELECT argMax(a, b), max(b) FROM test;
+    #
+    # ┌─argMax(a, b)─┬─max(b)─┐
+    # │ b            │      3 │ -- argMax = 'b' because it the first not Null value, max(b) is from another row!
+    # └──────────────┴────────┘
+
+    # see more: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/argmax
+
+    # we use tuple to force nulls to be treated as values and untuple it after the call
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=[table_name, argmax_field])]
+        name="untuple",
+        args=[
+            ast.Call(
+                name="argMax", args=[ast.Call(name="tuple", args=[field]), ast.Field(chain=[table_name, argmax_field])]
+            )
+        ],
     )
 
     fields_to_group: list[ast.Expr] = []
