@@ -42,7 +42,10 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const fieldsWithErrors = validationResult.error
         ? // err.path.length - 2, because - 1 always be "value" for hog function inputs
           validationResult.error.errors
-              .map((err) => `${capitalizeFirstLetter(String(err.path[err.path.length - 2]))}: ${err.message}`)
+              .map(
+                  (err) =>
+                      `${capitalizeFirstLetter(String(err.path[err.path.length - 2])).replaceAll('_', ' ')}: ${err.message}`
+              )
               .join(', ')
         : ''
 
