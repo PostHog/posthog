@@ -117,6 +117,8 @@ export function HogFunctionList({
                                         appSourceId: hogFunction.id,
                                         metricKind: ['success', 'failure'],
                                         breakdownBy: 'metric_kind',
+                                        interval: 'day',
+                                        dateFrom: '-7d',
                                     }}
                                 />
                             </FlaggedFeature>

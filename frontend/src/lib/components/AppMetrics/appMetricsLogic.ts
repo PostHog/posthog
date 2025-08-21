@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,7 +11,7 @@ import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import type { appMetricsLogicType } from './appMetricsLogicType'
 
-const DEFAULT_INTERVAL = 'hour'
+const DEFAULT_INTERVAL = 'day'
 
 export type AppMetricsCommonParams = {
     appSource?: string
@@ -161,7 +161,7 @@ const loadAppMetricsTimeSeries = async (
     }
 }
 
-const convertDateFieldToDayJs = (date: string, timezone: string): dayjs.Dayjs => {
+const convertDateFieldToDayJs = (date: string, timezone: string): Dayjs => {
     return dateStringToDayJs(date, timezone) ?? dayjs().tz(timezone)
 }
 
@@ -244,7 +244,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
 
         getDateRangeAbsolute: [
             (s) => [s.params, s.currentTeam],
-            (params, currentTeam) => (): { dateFrom: dayjs.Dayjs; dateTo: dayjs.Dayjs; diffMs: number } => {
+            (params, currentTeam) => (): { dateFrom: Dayjs; dateTo: Dayjs; diffMs: number } => {
                 const dateFrom = convertDateFieldToDayJs(params.dateFrom ?? '-7d', currentTeam?.timezone ?? 'UTC')
                 const dateTo = params.dateTo
                     ? convertDateFieldToDayJs(params.dateTo, currentTeam?.timezone ?? 'UTC')

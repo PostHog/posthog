@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -11,7 +11,7 @@ import { AppMetricsLogicProps, appMetricsLogic } from './appMetricsLogic'
 
 export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
     const logic = appMetricsLogic(props)
-    const { appMetricsTrends, appMetricsTrendsLoading } = useValues(logic)
+    const { appMetricsTrends, appMetricsTrendsLoading, params } = useValues(logic)
     const { loadAppMetricsTrends } = useActions(logic)
     const { ref: inViewRef, inView } = useInView()
 
@@ -21,12 +21,27 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
         }
     }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const displayData: SparklineTimeSeries[] =
-        appMetricsTrends?.series.map((s) => ({
-            color: s.name === 'success' ? 'success' : 'danger',
-            name: s.name,
-            values: s.values,
-        })) || []
+    const displayData: SparklineTimeSeries[] = useMemo(() => {
+        // We sort the series based on the given metricKind
+
+        const sortListValue = params.breakdownBy === 'metric_kind' ? params.metricKind : params.metricName
+        const sortList = sortListValue ? (Array.isArray(sortListValue) ? sortListValue : [sortListValue]) : []
+
+        const sortedSeries =
+            sortList.length > 0
+                ? appMetricsTrends?.series.sort((a, b) => {
+                      return sortList.indexOf(a.name) - sortList.indexOf(b.name)
+                  })
+                : appMetricsTrends?.series
+
+        return (
+            sortedSeries?.map((s) => ({
+                color: s.name === 'success' ? 'success' : 'danger',
+                name: s.name,
+                values: s.values,
+            })) || []
+        )
+    }, [appMetricsTrends, params])
 
     const labels = appMetricsTrends?.labels || []
 
