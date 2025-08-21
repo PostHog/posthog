@@ -46,7 +46,9 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]
         auth_connect_args = {
             "user": config.auth_type.user,
             "private_key_file": file_name,
-            "private_key_file_pwd": config.auth_type.passphrase,
+            "private_key_file_pwd": config.auth_type.passphrase
+            if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
+            else None,
         }
     else:
         auth_connect_args = {

@@ -187,7 +187,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                 ast.Alias(
                     alias="contraction_amount",
                     expr=parse_expr(
-                        "if(isNotNull(previous_amount) AND total_amount < previous_amount AND total_amount > 0, previous_amount - total_amount, {zero})",
+                        "negate(if(isNotNull(previous_amount) AND total_amount < previous_amount AND total_amount > 0, previous_amount - total_amount, {zero}))",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),
@@ -197,7 +197,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                     # Else, if the amount went to zero, then assume the previous amount is the churned amount
                     # Else, just use 0, it's an ongoing subscription
                     expr=parse_expr(
-                        "multiIf(isNull(subscription_id), total_amount, total_amount = 0, coalesce(previous_amount, {zero}), {zero})",
+                        "negate(multiIf(isNull(subscription_id), total_amount, total_amount = 0, coalesce(previous_amount, {zero}), {zero}))",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),

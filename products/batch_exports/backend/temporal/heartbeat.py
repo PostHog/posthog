@@ -3,18 +3,17 @@ import dataclasses
 import datetime as dt
 import typing
 
-import structlog
-
 from posthog.temporal.common.heartbeat import (
     EmptyHeartbeatError,
     HeartbeatDetails,
     HeartbeatParseError,
     NotEnoughHeartbeatValuesError,
 )
+from posthog.temporal.common.logger import get_write_only_logger
 
 DateRange = tuple[dt.datetime, dt.datetime]
 
-logger = structlog.get_logger()
+logger = get_write_only_logger()
 
 
 @dataclasses.dataclass

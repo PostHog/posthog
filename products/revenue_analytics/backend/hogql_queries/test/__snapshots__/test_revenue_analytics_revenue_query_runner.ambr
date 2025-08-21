@@ -24,8 +24,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -200,8 +200,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -578,8 +578,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -956,8 +956,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -1238,8 +1238,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -1520,8 +1520,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -1919,8 +1919,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -2222,8 +2222,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -2504,8 +2504,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -2882,8 +2882,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -3261,8 +3261,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -3660,8 +3660,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
@@ -3963,8 +3963,8 @@
                                      ORDER BY day_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
                                     if(isNull(previous_amount), total_amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
                                     if(and(isNotNull(previous_amount), ifNull(greater(total_amount, previous_amount), 0)), minus(total_amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                    if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS contraction_amount,
-                                    multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)')) AS churn_amount
+                                    negate(if(and(isNotNull(previous_amount), ifNull(less(total_amount, previous_amount), 0), ifNull(greater(total_amount, 0), 0)), minus(previous_amount, total_amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                    negate(multiIf(isNull(subscription_id), total_amount, ifNull(equals(total_amount, 0), 0), coalesce(previous_amount, accurateCastOrNull(0, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (
           (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
