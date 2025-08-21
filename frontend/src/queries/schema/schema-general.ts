@@ -121,6 +121,9 @@ export enum NodeKind {
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
+    // Session recordings queries
+    ReplayActiveUsersQuery = 'ReplayActiveUsersQuery',
+
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
     RevenueAnalyticsMetricsQuery = 'RevenueAnalyticsMetricsQuery',
@@ -181,6 +184,7 @@ export type AnyDataNode =
     | WebPageURLSearchQuery
     | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
+    | ReplayActiveUsersQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
@@ -232,6 +236,9 @@ export type QuerySchema =
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
     | WebAnalyticsExternalSummaryQuery
+
+    // Session recordings
+    | ReplayActiveUsersQuery
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
@@ -1889,6 +1896,22 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     offset?: integer
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
+
+// Session recordings queries
+export interface ReplayActiveUsersQuery extends DataNode<ReplayActiveUsersQueryResponse> {
+    kind: NodeKind.ReplayActiveUsersQuery
+    modifiers?: HogQLQueryModifiers
+}
+
+export interface ReplayActiveUsersQueryResponse extends AnalyticsQueryResponseBase {
+    results: Array<{ person: { id: string; properties: Record<string, any> }; count: number }>
+    types?: unknown[]
+    columns?: unknown[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedReplayActiveUsersQueryResponse = CachedQueryResponse<ReplayActiveUsersQueryResponse>
 
 export type WebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99

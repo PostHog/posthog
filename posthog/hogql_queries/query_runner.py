@@ -73,6 +73,7 @@ from posthog.schema import (
     QueryStatus,
     QueryStatusResponse,
     QueryTiming,
+    ReplayActiveUsersQuery,
     RetentionQuery,
     SamplingRate,
     SessionAttributionExplorerQuery,
@@ -166,6 +167,7 @@ RunnableQueryNode = Union[
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
     ActorsPropertyTaxonomyQuery,
+    ReplayActiveUsersQuery,
 ]
 
 
@@ -421,6 +423,19 @@ def get_query_runner(
         )
 
         return SessionAttributionExplorerQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ReplayActiveUsersQuery":
+        from posthog.session_recordings.replay_active_users.replay_active_users_query_runner import (
+            ReplayActiveUsersQueryRunner,
+        )
+
+        return ReplayActiveUsersQueryRunner(
             query=query,
             team=team,
             timings=timings,
