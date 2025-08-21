@@ -31,7 +31,6 @@ from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
@@ -51,6 +50,7 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    PersonalApiKeyRateThrottle,
 )
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery, RecordingPropertyFilter, PropertyOperator
@@ -91,16 +91,6 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
     labelnames=["source"],
 )
 
-GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
-    "session_snapshots_generate_pre_signed_url_histogram",
-    "Time taken to generate a pre-signed URL for a session snapshot",
-)
-
-GET_REALTIME_SNAPSHOTS_FROM_REDIS = Histogram(
-    "session_snapshots_get_realtime_snapshots_from_redis_histogram",
-    "Time taken to get realtime snapshots from Redis",
-)
-
 GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
     "session_snapshots_gather_recording_sources_histogram",
     "Time taken to gather recording sources",
@@ -111,10 +101,6 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
     labelnames=["blob_version"],
-)
-
-LOADING_V1_LTS_COUNTER = Counter(
-    "session_snapshots_loading_v1_lts_counter", "Count of times we loaded a v1 recording from the lts path"
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
@@ -202,10 +188,8 @@ class SurrogatePairSafeJSONEncoder(JSONEncoder):
 
 class SurrogatePairSafeJSONRenderer(JSONRenderer):
     """
-    Blob snapshots are compressed data which we pass through from blob storage.
-    Realtime snapshot API returns "bare" JSON from Redis.
-    We can be sure that the "bare" data could contain surrogate pairs
-    from the browser's console logs.
+    We can't be sure that the data contains no surrogate pairs
+    e.g. from the browser's console logs.
 
     This JSON renderer ensures that the stringified JSON does not have any unescaped surrogate pairs.
 
@@ -449,12 +433,12 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SnapshotsBurstRateThrottle(SimpleRateThrottle):
+class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(SimpleRateThrottle):
+class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 

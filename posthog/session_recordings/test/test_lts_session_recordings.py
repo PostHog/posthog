@@ -1,10 +1,11 @@
-import uuid
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
+from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.models import Team
+from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.test import setup_stream_from
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 # this is the utf-16 surrogate pass encoded, gzipped and base64 encoded version of the above
@@ -19,114 +20,102 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Create a new team each time to ensure no clashing between tests
         self.team = Team.objects.create(organization=self.organization, name="New Team")
 
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch(
+        "posthog.session_recordings.session_recording_api.list_blocks",
+        side_effect=Exception(
+            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
+        ),
+    )
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_2023_08_01_version_stored_snapshots_can_be_gathered(
-        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_get_snapshot_sources_blobby_v2_from_lts(
+        self,
+        _mock_feature_enabled: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_v2_list_blocks: MagicMock,
     ) -> None:
-        session_id = str(uuid.uuid4())
-        lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
+        session_id = str(uuid7())
 
-        def list_objects_func(path: str) -> list[str]:
-            # this mock simulates a recording whose blob storage has been deleted by TTL
-            # but which has been stored in LTS blob storage
-            if path == lts_storage_path:
-                return [
-                    f"{lts_storage_path}/1-2",
-                    f"{lts_storage_path}/3-4",
-                ]
-            else:
-                return []
-
-        mock_list_objects.side_effect = list_objects_func
-
-        # this recording was shared several days ago, it has been stored in LTS storage
         SessionRecording.objects.create(
             team=self.team,
             session_id=session_id,
+            deleted=False,
             storage_version="2023-08-01",
-            object_storage_path=lts_storage_path,
+            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
-
-        assert mock_list_objects.call_args_list == [
-            call(lts_storage_path),
-        ]
 
         assert response_data == {
             "sources": [
                 {
-                    "blob_key": "1-2",
-                    "source": "blob",
-                    "start_timestamp": "1970-01-01T00:00:00.001000Z",
-                    "end_timestamp": "1970-01-01T00:00:00.002000Z",
+                    "source": "blob_v2",
+                    "blob_key": "the_lts_path/the_session_uuid",
+                    # it's ok for these to be None, since we don't use the data anyway
+                    # and this key is the whole session
+                    "start_timestamp": None,
+                    "end_timestamp": None,
                 },
-                {
-                    "blob_key": "3-4",
-                    "source": "blob",
-                    "start_timestamp": "1970-01-01T00:00:00.003000Z",
-                    "end_timestamp": "1970-01-01T00:00:00.004000Z",
-                },
-            ],
+            ]
         }
 
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
+    @patch(
+        "posthog.session_recordings.session_recording_api.list_blocks",
+        side_effect=Exception(
+            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
+        ),
+    )
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_2023_08_01_version_stored_snapshots_can_be_loaded(
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_get_snapshot_for_lts_source_blobby_v2(
         self,
-        mock_list_objects: MagicMock,
-        mock_get_presigned_url: MagicMock,
-        _mock_stream_from: MagicMock,
+        _mock_feature_enabled: MagicMock,
         _mock_exists: MagicMock,
+        _mock_v2_list_blocks: MagicMock,
+        mock_object_storage_client: MagicMock,
     ) -> None:
-        session_id = str(uuid.uuid4())
-        lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
+        session_id = str(uuid7())
 
-        def list_objects_func(path: str) -> list[str]:
-            # this mock simulates a recording whose blob storage has been deleted by TTL
-            # but which has been stored in LTS blob storage
-            if path == lts_storage_path:
-                return [
-                    f"{lts_storage_path}/1-2",
-                    f"{lts_storage_path}/3-4",
-                ]
-            else:
-                return []
-
-        mock_list_objects.side_effect = list_objects_func
-        mock_get_presigned_url.return_value = "https://example.com"
+        # Mock the client fetch_block method
+        mock_client_instance = MagicMock()
+        mock_object_storage_client.return_value = mock_client_instance
+        mock_client_instance.fetch_block.side_effect = Exception(
+            "if the LTS loading works then we'll not call fetch_block, we throw in the mock to enforce this"
+        )
+        mock_client_instance.fetch_file.return_value = """
+            {"timestamp": 1000, "type": "snapshot1"}
+            {"timestamp": 2000, "type": "snapshot2"}
+        """
 
         SessionRecording.objects.create(
             team=self.team,
             session_id=session_id,
+            deleted=False,
             storage_version="2023-08-01",
-            object_storage_path=lts_storage_path,
+            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
         )
 
-        query_parameters = [
-            "source=blob",
-            "version=2",
-            "blob_key=1-2",
-        ]
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?{'&'.join(query_parameters)}"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true&source=blob_v2&blob_key=/the_lts_path/the_session_uuid"
         )
-        response_data = response.content.decode("utf-8")
-
-        assert mock_list_objects.call_args_list == []
-
-        assert mock_get_presigned_url.call_args_list == [
-            call(f"{lts_storage_path}/1-2", expiration=60),
-        ]
-
-        assert response_data == "Example content"
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert (
+            response.content
+            == b"""
+            {"timestamp": 1000, "type": "snapshot1"}
+            {"timestamp": 2000, "type": "snapshot2"}
+        """
+        )

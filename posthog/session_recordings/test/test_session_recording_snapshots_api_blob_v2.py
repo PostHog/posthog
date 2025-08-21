@@ -1,3 +1,4 @@
+import datetime
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
@@ -14,6 +15,7 @@ from posthog.session_recordings.models.session_recording_event import (
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -51,6 +53,51 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             ensure_analytics_event_in_session=False,
         )
 
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    def test_get_snapshots_v2_listing_sources(self, mock_list_blocks: MagicMock, _mock_exists: MagicMock) -> None:
+        session_id = str(uuid7())
+
+        # Mock blocks - need at least 3 blocks for our test
+        mock_blocks: list[RecordingBlock] = [
+            RecordingBlock(
+                url="http://test.com/block0",
+                start_time=datetime.datetime.fromisoformat("2022-12-31T23:59:50Z"),
+                end_time=datetime.datetime.fromisoformat("2022-12-31T00:00:05Z"),
+            ),
+            RecordingBlock(
+                url="http://test.com/block1",
+                start_time=datetime.datetime.fromisoformat("2022-12-31T23:59:55Z"),
+                end_time=datetime.datetime.fromisoformat("2023-01-01T00:00:00Z"),
+            ),
+        ]
+        mock_list_blocks.return_value = mock_blocks
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response_data = response.json()
+
+        assert response_data == {
+            "sources": [
+                {
+                    "source": "blob_v2",
+                    "start_timestamp": "2022-12-31T23:59:50Z",
+                    "end_timestamp": "2022-12-31T00:00:05Z",
+                    "blob_key": "0",
+                },
+                {
+                    "source": "blob_v2",
+                    "start_timestamp": "2022-12-31T23:59:55Z",
+                    "end_timestamp": "2023-01-01T00:00:00Z",
+                    "blob_key": "1",
+                },
+            ]
+        }
+
     @parameterized.expand(
         [
             ("blob_v2", status.HTTP_400_BAD_REQUEST),  # 400 because blob_v2 requires blob keys
@@ -65,26 +112,15 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
     def test_snapshots_source_parameter_validation(
         self,
         source,
         expected_status,
-        mock_realtime_snapshots,
-        mock_list_objects,
-        mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
         session_id = str(uuid7())
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
-
-        # Basic mocking for successful cases
-        mock_realtime_snapshots.return_value = []
-        mock_list_objects.return_value = []
-        mock_presigned_url.return_value = None
 
         if source is not None:
             url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source={source}"
@@ -301,118 +337,3 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Block index out of range" in response.json()["detail"]
-
-    @freeze_time("2023-01-01T00:00:00Z")
-    @patch(
-        "posthog.session_recordings.session_recording_api.list_blocks",
-        side_effect=Exception(
-            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
-        ),
-    )
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_get_snapshot_sources_blobby_v2_from_lts(
-        self,
-        _mock_feature_enabled: MagicMock,
-        mock_list_objects: MagicMock,
-        _mock_exists: MagicMock,
-        _mock_v2_list_blocks: MagicMock,
-    ) -> None:
-        session_id = str(uuid7())
-
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_id,
-            deleted=False,
-            storage_version="2023-08-01",
-            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
-        )
-
-        def list_objects_func(path: str) -> list[str]:
-            # we're not expecting to call this, since we know all the data in the stored path
-            raise Exception("we should not call list_objects for the LTS path")
-
-        mock_list_objects.side_effect = list_objects_func
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true"
-        )
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        response_data = response.json()
-
-        assert response_data == {
-            "sources": [
-                {
-                    "source": "blob_v2",
-                    "blob_key": "the_lts_path/the_session_uuid",
-                    # it's ok for these to be None, since we don't use the data anyway
-                    # and this key is the whole session
-                    "start_timestamp": None,
-                    "end_timestamp": None,
-                },
-            ]
-        }
-
-    @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
-    @patch(
-        "posthog.session_recordings.session_recording_api.list_blocks",
-        side_effect=Exception(
-            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
-        ),
-    )
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.session_recording_api.object_storage.list_objects",
-        side_effect=Exception(
-            "if the LTS loading works then we'll not call list_objects, we throw in the mock to enforce this"
-        ),
-    )
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_get_snapshot_for_lts_source_blobby_v2(
-        self,
-        _mock_feature_enabled: MagicMock,
-        _mock_list_objects: MagicMock,
-        _mock_exists: MagicMock,
-        _mock_v2_list_blocks: MagicMock,
-        mock_object_storage_client: MagicMock,
-    ) -> None:
-        session_id = str(uuid7())
-
-        # Mock the client fetch_block method
-        mock_client_instance = MagicMock()
-        mock_object_storage_client.return_value = mock_client_instance
-        mock_client_instance.fetch_block.side_effect = Exception(
-            "if the LTS loading works then we'll not call fetch_block, we throw in the mock to enforce this"
-        )
-        mock_client_instance.fetch_file.return_value = """
-            {"timestamp": 1000, "type": "snapshot1"}
-            {"timestamp": 2000, "type": "snapshot2"}
-        """
-
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_id,
-            deleted=False,
-            storage_version="2023-08-01",
-            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true&source=blob_v2&blob_key=/the_lts_path/the_session_uuid"
-        )
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert (
-            response.content
-            == b"""
-            {"timestamp": 1000, "type": "snapshot1"}
-            {"timestamp": 2000, "type": "snapshot2"}
-        """
-        )
