@@ -68,14 +68,21 @@ async def _get_session_group_single_session_summaries_inputs_from_redis(
     """Load input used for single-session-summaries generation, stored under given keys."""
     inputs = []
     for redis_input_key in redis_input_keys:
+        llm_input_raw = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
+        if llm_input_raw is None:
+            # No reason to retry activity, as the input data is not in Redis
+            raise ApplicationError(
+                f"No LLM input found for session {redis_input_key} when summarizing",
+                non_retryable=True,
+            )
         llm_input = cast(
             SingleSessionSummaryLlmInputs,
-            await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=redis_input_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            ),
+            llm_input_raw,
         )
         inputs.append(llm_input)
     return inputs
@@ -404,14 +411,21 @@ async def assign_events_to_patterns_activity(
         for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)
     ]
     # Get extracted patterns from Redis to be able to assign events to them
+    patterns_extraction_raw = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_input_key,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        target_class=RawSessionGroupSummaryPatternsList,
+    )
+    if patterns_extraction_raw is None:
+        # No reason to retry activity, as the data from the previous activity is not in Redis
+        raise ApplicationError(
+            f"No patterns extraction found for sessions {session_ids} when assigning events to patterns",
+            non_retryable=True,
+        )
     patterns_extraction = cast(
         RawSessionGroupSummaryPatternsList,
-        await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-            target_class=RawSessionGroupSummaryPatternsList,
-        ),
+        patterns_extraction_raw,
     )
     # Assign events <> patterns through LLM calls in chunks to keep the content meaningful
     patterns_assignments_list_of_lists = await _generate_patterns_assignments(

@@ -127,14 +127,21 @@ async def get_llm_single_session_summary_activity(
         # Cached successfully
         return None
     # If not yet, or TTL expired - generate the summary with LLM
+    llm_input_raw = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_input_key,
+        label=StateActivitiesEnum.SESSION_DB_DATA,
+        target_class=SingleSessionSummaryLlmInputs,
+    )
+    if llm_input_raw is None:
+        # No reason to retry activity, as the input data is not in Redis
+        raise ApplicationError(
+            f"No LLM input found for session {inputs.session_id} when summarizing",
+            non_retryable=True,
+        )
     llm_input = cast(
         SingleSessionSummaryLlmInputs,
-        await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        ),
+        llm_input_raw,
     )
     # Get summary from LLM
     session_summary_str = await get_llm_single_session_summary(
@@ -187,15 +194,19 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
             f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {inputs.session_id}: {inputs}",
             non_retryable=True,
         )
-    llm_input = cast(
-        SingleSessionSummaryLlmInputs,
-        await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        ),
+    llm_input_raw = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_input_key,
+        label=StateActivitiesEnum.SESSION_DB_DATA,
+        target_class=SingleSessionSummaryLlmInputs,
     )
+    if llm_input_raw is None:
+        # No reason to retry activity, as the input data is not in Redis
+        raise ApplicationError(
+            f"No LLM input found for session {inputs.session_id} when summarizing",
+            non_retryable=True,
+        )
+    llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
     last_summary_state_str = ""
     temporalio.activity.heartbeat()
     last_heartbeat_timestamp = time.time()
