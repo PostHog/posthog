@@ -17,7 +17,7 @@ class DatasetSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict, *args, **kwargs):
         request = self.context["request"]
-        validated_data["team"] = self.context["team"]
+        validated_data["team"] = self.context["get_team"]()
         validated_data["created_by"] = request.user
         return super().create(validated_data, *args, **kwargs)
 
