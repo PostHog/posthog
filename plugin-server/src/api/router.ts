@@ -92,7 +92,7 @@ const buildGetHealth =
                     return {
                         service: service.id,
                         status: 'error',
-                        message: error.message,
+                        message: error.message || 'Unknown error',
                     }
                 }
             })
