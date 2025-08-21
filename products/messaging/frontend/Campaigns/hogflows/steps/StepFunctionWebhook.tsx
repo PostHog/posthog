@@ -1,10 +1,11 @@
-import { IconWebhooks } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 
+import { IconWebhooks } from '@posthog/icons'
+
 import { HogFlowAction } from '../types'
+import { StepFunctionConfiguration } from './StepFunction'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
-import { StepFunctionConfiguration } from './StepFunction'
 
 export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
     type: 'function_webhook',

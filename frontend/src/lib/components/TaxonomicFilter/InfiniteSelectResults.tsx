@@ -1,13 +1,15 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
 import { IconCheck, IconSort } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'

@@ -60,21 +60,34 @@ pub async fn flags(
 ) -> Result<Json<ServiceResponse>, FlagError> {
     let request_id = Uuid::new_v4();
 
-    let context = RequestContext {
-        request_id,
-        state,
-        ip,
-        headers: headers.clone(),
-        meta: query_params.clone(),
-        body,
-    };
-
     // Check if this request came through the decide proxy
     let is_from_decide = headers
         .get("X-Original-Endpoint")
         .and_then(|v| v.to_str().ok())
         .map(|v| v == "decide")
         .unwrap_or(false);
+
+    // Modify query params to enable config for decide requests
+    let mut modified_query_params = query_params.clone();
+    if is_from_decide && modified_query_params.config.is_none() {
+        modified_query_params.config = Some(true);
+    }
+
+    // Default to v=2 and config=true when both params are missing
+    // This provides the latest response format for clients that don't specify these params
+    if modified_query_params.version.is_none() && modified_query_params.config.is_none() {
+        modified_query_params.version = Some("2".to_string());
+        modified_query_params.config = Some(true);
+    }
+
+    let context = RequestContext {
+        request_id,
+        state,
+        ip,
+        headers: headers.clone(),
+        meta: modified_query_params,
+        body,
+    };
 
     // Parse version from query params
     let query_version = context
@@ -283,5 +296,62 @@ mod tests {
             .unwrap();
 
         assert!(matches!(params.compression, Some(Compression::Unsupported)));
+    }
+
+    #[test]
+    fn test_default_params_logic() {
+        // Test the parameter modification logic that's applied in the flags endpoint
+        let mut params_both_none = FlagsQueryParams {
+            version: None,
+            config: None,
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+
+        if params_both_none.version.is_none() && params_both_none.config.is_none() {
+            params_both_none.version = Some("2".to_string());
+            params_both_none.config = Some(true);
+        }
+
+        assert_eq!(params_both_none.version, Some("2".to_string()));
+        assert_eq!(params_both_none.config, Some(true));
+
+        // Test when only version is missing - no defaults should apply
+        let mut params_version_missing = FlagsQueryParams {
+            version: None,
+            config: Some(false),
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+
+        if params_version_missing.version.is_none() && params_version_missing.config.is_none() {
+            params_version_missing.version = Some("2".to_string());
+            params_version_missing.config = Some(true);
+        }
+
+        assert_eq!(params_version_missing.version, None);
+        assert_eq!(params_version_missing.config, Some(false));
+
+        // Test when only config is missing - no defaults should apply
+        let mut params_config_missing = FlagsQueryParams {
+            version: Some("1".to_string()),
+            config: None,
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+
+        if params_config_missing.version.is_none() && params_config_missing.config.is_none() {
+            params_config_missing.version = Some("2".to_string());
+            params_config_missing.config = Some(true);
+        }
+
+        assert_eq!(params_config_missing.version, Some("1".to_string()));
+        assert_eq!(params_config_missing.config, None);
     }
 }

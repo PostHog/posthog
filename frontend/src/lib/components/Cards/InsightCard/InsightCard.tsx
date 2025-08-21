@@ -3,21 +3,30 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import React, { useState } from 'react'
+import { Layout } from 'react-grid-layout'
+import { useInView } from 'react-intersection-observer'
+
+import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useState } from 'react'
-import { Layout } from 'react-grid-layout'
-import { useInView } from 'react-intersection-observer'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import {
+    InsightErrorState,
+    InsightLoadingState,
+    InsightTimeoutState,
+    InsightValidationError,
+} from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { HogQLVariable } from '~/queries/schema/schema-general'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
     DashboardBasicType,
     DashboardPlacement,
@@ -30,14 +39,6 @@ import {
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
-import {
-    InsightErrorState,
-    InsightLoadingState,
-    InsightTimeoutState,
-    InsightValidationError,
-} from 'scenes/insights/EmptyStates'
-import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
-import { ApiError } from 'lib/api'
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -77,6 +78,8 @@ export interface InsightCardProps extends Resizeable {
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    /** Dashboard filters to override the ones in the insight */
+    filtersOverride?: DashboardFilter
     /** Dashboard variables to override the ones in the insight */
     variablesOverride?: Record<string, HogQLVariable>
     /** Dashboard breakdown colors to override the ones in the insight */
@@ -86,7 +89,6 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    noCache?: boolean
 }
 
 function InsightCardInternal(
@@ -117,9 +119,9 @@ function InsightCardInternal(
         placement,
         loadPriority,
         doNotLoad,
+        filtersOverride,
         variablesOverride,
         children,
-        noCache,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         ...divProps
@@ -155,8 +157,7 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
-    const cachedResults = noCache ? undefined : insight
-    const hasResults = !!cachedResults?.result || !!(cachedResults as any)?.results
+    const hasResults = !!insight?.result || !!(insight as any)?.results
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
@@ -212,6 +213,7 @@ function InsightCardInternal(
                             showEditingControls={showEditingControls}
                             showDetailsControls={showDetailsControls}
                             moreButtons={moreButtons}
+                            filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
                         />
                         <div className="InsightCard__viz">
@@ -220,7 +222,7 @@ function InsightCardInternal(
                             ) : (
                                 <Query
                                     query={insight.query}
-                                    cachedResults={cachedResults}
+                                    cachedResults={insight}
                                     context={{
                                         insightProps: insightLogicProps,
                                     }}

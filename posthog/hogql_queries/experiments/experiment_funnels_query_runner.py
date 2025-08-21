@@ -32,7 +32,6 @@ from datetime import datetime, timedelta, UTC
 
 class ExperimentFunnelsQueryRunner(QueryRunner):
     query: ExperimentFunnelsQuery
-    response: ExperimentFunnelsQueryResponse
     cached_response: CachedExperimentFunnelsQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -52,7 +51,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context
         )
 
-    def calculate(self) -> ExperimentFunnelsQueryResponse:
+    def _calculate(self) -> ExperimentFunnelsQueryResponse:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(

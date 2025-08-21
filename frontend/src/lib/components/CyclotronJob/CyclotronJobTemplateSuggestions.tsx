@@ -1,7 +1,8 @@
-import { IconCode, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+
+import { IconCode, IconExternal } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import {
     CyclotronJobTemplateOption,

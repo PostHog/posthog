@@ -3,9 +3,10 @@
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from dataclasses import dataclass
 import json
+import uuid
 
 import dagster
 from django.conf import settings
@@ -24,8 +25,7 @@ from dagster import (
 from dagster._core.definitions.backfill_policy import BackfillPolicy
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.cluster import Query, get_cluster
 from dags.common import JobOwners
 
 
@@ -61,12 +61,15 @@ etl_retry_policy = RetryPolicy(
 
 def get_postgres_connection():
     """Get a connection to the Postgres database."""
+    # Get database config from Django settings
+    db_config = settings.DATABASES["default"]
+
     return psycopg2.connect(
-        host=settings.DATABASE_HOST,
-        port=settings.DATABASE_PORT,
-        database=settings.DATABASE_NAME,
-        user=settings.DATABASE_USER,
-        password=settings.DATABASE_PASSWORD,
+        host=db_config["HOST"],
+        port=db_config["PORT"],
+        database=db_config["NAME"],
+        user=db_config["USER"],
+        password=db_config["PASSWORD"],
         cursor_factory=psycopg2.extras.RealDictCursor,
     )
 
@@ -75,11 +78,10 @@ def get_organization_table_sql() -> str:
     """Get SQL for creating the organization table."""
     return """
         CREATE TABLE IF NOT EXISTS models.posthog_organization (
-            id Int64,
-            uuid UUID,
+            id UUID,
             name String,
             slug String,
-            logo_media_id Nullable(Int64),
+            logo_media_id Nullable(UUID),
             created_at DateTime64(6),
             updated_at DateTime64(6),
             session_cookie_age Nullable(Int32),
@@ -104,7 +106,7 @@ def get_organization_table_sql() -> str:
             is_platform Nullable(UInt8),
             _inserted_at DateTime64(6) DEFAULT now64(6)
         )
-        ENGINE = ReplacingMergeTree(_inserted_at)
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_organization', '{shard}-{replica}', _inserted_at)
         ORDER BY (id, updated_at)
         SETTINGS index_granularity = 8192
     """
@@ -116,7 +118,7 @@ def get_team_table_sql() -> str:
         CREATE TABLE IF NOT EXISTS models.posthog_team (
             id Int64,
             uuid UUID,
-            organization_id Int64,
+            organization_id UUID,
             parent_team_id Nullable(Int64),
             project_id Int64,
             api_token String,
@@ -195,185 +197,296 @@ def get_team_table_sql() -> str:
             base_currency Nullable(String),
             _inserted_at DateTime64(6) DEFAULT now64(6)
         )
-        ENGINE = ReplacingMergeTree(_inserted_at)
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_team', '{shard}-{replica}', _inserted_at)
         ORDER BY (organization_id, id, updated_at)
         SETTINGS index_granularity = 8192
     """
 
 
-def create_clickhouse_tables() -> None:
-    """Create the organization and team tables in ClickHouse on all nodes."""
-    # Create tables on all nodes
-    run_sql_with_exceptions(get_organization_table_sql(), node_role=NodeRole.ALL)
-    run_sql_with_exceptions(get_team_table_sql(), node_role=NodeRole.ALL)
+def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
+    """Create the models database in ClickHouse if it doesn't exist on all nodes."""
+    if context:
+        context.log.info("Creating database 'models' if it doesn't exist...")
+    create_db_sql = "CREATE DATABASE IF NOT EXISTS models"
+
+    try:
+        # Use cluster API to create database on all nodes
+        cluster = get_cluster()
+        cluster.map_all_hosts(Query(create_db_sql)).result()
+        if context:
+            context.log.info("Database 'models' created/verified successfully on all nodes")
+    except Exception as e:
+        if context:
+            context.log.exception(f"Error creating database: {e}")
+        raise
+
+
+def create_clickhouse_tables(
+    context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None, force_recreate: bool = False
+) -> None:
+    """Create the organization and team tables in ClickHouse on all nodes.
+
+    Args:
+        context: Execution context for logging
+        force_recreate: If True, drop and recreate tables even if they exist
+    """
+    # First ensure the database exists
+    create_database_if_not_exists(context)
+
+    # Get cluster for executing commands on all nodes
+    cluster = get_cluster()
+
+    # Only drop tables if explicitly requested (e.g., schema changes)
+    if force_recreate:
+        if context:
+            context.log.info("Force recreate requested, dropping existing tables...")
+        try:
+            # Use Query class to drop tables on all nodes
+            cluster.map_all_hosts(Query("DROP TABLE IF EXISTS models.posthog_organization")).result()
+            cluster.map_all_hosts(Query("DROP TABLE IF EXISTS models.posthog_team")).result()
+            if context:
+                context.log.info("Dropped existing tables on all nodes")
+        except Exception as e:
+            if context:
+                context.log.warning(f"Error dropping tables (may not exist): {e}")
+
+    # Create tables if they don't exist on all nodes
+    # The IF NOT EXISTS clause ensures we don't error if tables already exist
+    if context:
+        context.log.info("Creating posthog_organization table if it doesn't exist...")
+    try:
+        cluster.map_all_hosts(Query(get_organization_table_sql())).result()
+        if context:
+            context.log.info("Created/verified posthog_organization table on all nodes")
+    except Exception as e:
+        if context:
+            context.log.exception(f"Error creating organization table: {e}")
+        raise
+
+    if context:
+        context.log.info("Creating posthog_team table if it doesn't exist...")
+    try:
+        cluster.map_all_hosts(Query(get_team_table_sql())).result()
+        if context:
+            context.log.info("Created/verified posthog_team table on all nodes")
+    except Exception as e:
+        if context:
+            context.log.exception(f"Error creating team table: {e}")
+        raise
+
+
+def fetch_organizations_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
+    """Fetch organizations from Postgres in batches to avoid memory issues.
+
+    Yields batches of organization records.
+    """
+    # Use unique cursor name to avoid conflicts with concurrent runs
+    cursor_name = f"organizations_cursor_{uuid.uuid4().hex[:8]}"
+    cursor = conn.cursor(name=cursor_name)  # Named cursor for server-side processing
+
+    try:
+        query = """
+            SELECT
+                id,
+                name,
+                slug,
+                logo_media_id,
+                created_at,
+                updated_at,
+                session_cookie_age,
+                is_member_join_email_enabled,
+                is_ai_data_processing_approved,
+                enforce_2fa,
+                members_can_invite,
+                members_can_use_personal_api_keys,
+                allow_publicly_shared_resources,
+                plugins_access_level,
+                for_internal_metrics,
+                default_experiment_stats_method,
+                is_hipaa,
+                customer_id,
+                available_product_features,
+                usage,
+                never_drop_data,
+                customer_trust_scores,
+                setup_section_2_completed,
+                personalization,
+                domain_whitelist,
+                is_platform
+            FROM posthog_organization
+        """
+
+        params = []
+        if last_sync:
+            query += " WHERE updated_at > %s"
+            params.append(last_sync)
+
+        query += " ORDER BY updated_at ASC"
+
+        cursor.execute(query, params)
+        cursor.itersize = batch_size  # Configure batch size for server-side cursor
+
+        while True:
+            batch = cursor.fetchmany(batch_size)
+            if not batch:
+                break
+            yield batch
+    finally:
+        cursor.close()
 
 
 def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
-    """Fetch organizations from Postgres."""
-    cursor = conn.cursor()
-
-    query = """
-        SELECT
-            id,
-            uuid,
-            name,
-            slug,
-            logo_media_id,
-            created_at,
-            updated_at,
-            session_cookie_age,
-            is_member_join_email_enabled,
-            is_ai_data_processing_approved,
-            enforce_2fa,
-            members_can_invite,
-            members_can_use_personal_api_keys,
-            allow_publicly_shared_resources,
-            plugins_access_level,
-            for_internal_metrics,
-            default_experiment_stats_method,
-            is_hipaa,
-            customer_id,
-            available_product_features,
-            usage,
-            never_drop_data,
-            customer_trust_scores,
-            setup_section_2_completed,
-            personalization,
-            domain_whitelist,
-            is_platform
-        FROM posthog_organization
-    """
-
-    params = []
-    if last_sync:
-        query += " WHERE updated_at > %s"
-        params.append(last_sync)
-
-    query += " ORDER BY updated_at ASC"
-
-    cursor.execute(query, params)
-
+    """Fetch all organizations from Postgres (legacy function for compatibility)."""
     rows = []
-    while True:
-        batch = cursor.fetchmany(batch_size)
-        if not batch:
-            break
+    for batch in fetch_organizations_in_batches(conn, last_sync, batch_size):
         rows.extend(batch)
-
-    cursor.close()
     return rows
+
+
+def fetch_teams_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
+    """Fetch teams from Postgres in batches to avoid memory issues.
+
+    Yields batches of team records.
+    """
+    # Use unique cursor name to avoid conflicts with concurrent runs
+    cursor_name = f"teams_cursor_{uuid.uuid4().hex[:8]}"
+    cursor = conn.cursor(name=cursor_name)  # Named cursor for server-side processing
+
+    try:
+        query = """
+            SELECT
+                id,
+                uuid,
+                organization_id,
+                parent_team_id,
+                project_id,
+                api_token,
+                app_urls,
+                name,
+                slack_incoming_webhook,
+                created_at,
+                updated_at,
+                anonymize_ips,
+                completed_snippet_onboarding,
+                has_completed_onboarding_for,
+                onboarding_tasks,
+                ingested_event,
+                autocapture_opt_out,
+                autocapture_web_vitals_opt_in,
+                autocapture_web_vitals_allowed_metrics,
+                autocapture_exceptions_opt_in,
+                autocapture_exceptions_errors_to_ignore,
+                person_processing_opt_out,
+                secret_api_token,
+                secret_api_token_backup,
+                session_recording_opt_in,
+                session_recording_sample_rate,
+                session_recording_minimum_duration_milliseconds,
+                session_recording_linked_flag,
+                session_recording_network_payload_capture_config,
+                session_recording_masking_config,
+                session_recording_url_trigger_config,
+                session_recording_url_blocklist_config,
+                session_recording_event_trigger_config,
+                session_recording_trigger_match_type_config,
+                session_replay_config,
+                survey_config,
+                capture_console_log_opt_in,
+                capture_performance_opt_in,
+                capture_dead_clicks,
+                surveys_opt_in,
+                heatmaps_opt_in,
+                flags_persistence_default,
+                feature_flag_confirmation_enabled,
+                feature_flag_confirmation_message,
+                session_recording_version,
+                signup_token,
+                is_demo,
+                access_control,
+                week_start_day,
+                inject_web_apps,
+                test_account_filters,
+                test_account_filters_default_checked,
+                path_cleaning_filters,
+                timezone,
+                data_attributes,
+                person_display_name_properties,
+                live_events_columns,
+                recording_domains,
+                human_friendly_comparison_periods,
+                cookieless_server_hash_mode,
+                primary_dashboard_id,
+                default_data_theme,
+                extra_settings,
+                modifiers,
+                correlation_config,
+                session_recording_retention_period_days,
+                plugins_opt_in,
+                opt_out_capture,
+                event_names,
+                event_names_with_usage,
+                event_properties,
+                event_properties_with_usage,
+                event_properties_numerical,
+                external_data_workspace_id,
+                external_data_workspace_last_synced_at,
+                api_query_rate_limit,
+                revenue_tracking_config,
+                drop_events_older_than,
+                base_currency
+            FROM posthog_team
+        """
+
+        params = []
+        if last_sync:
+            query += " WHERE updated_at > %s"
+            params.append(last_sync)
+
+        query += " ORDER BY updated_at ASC"
+
+        cursor.execute(query, params)
+        cursor.itersize = batch_size  # Configure batch size for server-side cursor
+
+        while True:
+            batch = cursor.fetchmany(batch_size)
+            if not batch:
+                break
+            yield batch
+    finally:
+        cursor.close()
 
 
 def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
-    """Fetch teams from Postgres."""
-    cursor = conn.cursor()
-
-    query = """
-        SELECT
-            id,
-            uuid,
-            organization_id,
-            parent_team_id,
-            project_id,
-            api_token,
-            app_urls,
-            name,
-            slack_incoming_webhook,
-            created_at,
-            updated_at,
-            anonymize_ips,
-            completed_snippet_onboarding,
-            has_completed_onboarding_for,
-            onboarding_tasks,
-            ingested_event,
-            autocapture_opt_out,
-            autocapture_web_vitals_opt_in,
-            autocapture_web_vitals_allowed_metrics,
-            autocapture_exceptions_opt_in,
-            autocapture_exceptions_errors_to_ignore,
-            person_processing_opt_out,
-            secret_api_token,
-            secret_api_token_backup,
-            session_recording_opt_in,
-            session_recording_sample_rate,
-            session_recording_minimum_duration_milliseconds,
-            session_recording_linked_flag,
-            session_recording_network_payload_capture_config,
-            session_recording_masking_config,
-            session_recording_url_trigger_config,
-            session_recording_url_blocklist_config,
-            session_recording_event_trigger_config,
-            session_recording_trigger_match_type_config,
-            session_replay_config,
-            survey_config,
-            capture_console_log_opt_in,
-            capture_performance_opt_in,
-            capture_dead_clicks,
-            surveys_opt_in,
-            heatmaps_opt_in,
-            flags_persistence_default,
-            feature_flag_confirmation_enabled,
-            feature_flag_confirmation_message,
-            session_recording_version,
-            signup_token,
-            is_demo,
-            access_control,
-            week_start_day,
-            inject_web_apps,
-            test_account_filters,
-            test_account_filters_default_checked,
-            path_cleaning_filters,
-            timezone,
-            data_attributes,
-            person_display_name_properties,
-            live_events_columns,
-            recording_domains,
-            human_friendly_comparison_periods,
-            cookieless_server_hash_mode,
-            primary_dashboard_id,
-            default_data_theme,
-            extra_settings,
-            modifiers,
-            correlation_config,
-            session_recording_retention_period_days,
-            plugins_opt_in,
-            opt_out_capture,
-            event_names,
-            event_names_with_usage,
-            event_properties,
-            event_properties_with_usage,
-            event_properties_numerical,
-            external_data_workspace_id,
-            external_data_workspace_last_synced_at,
-            api_query_rate_limit,
-            revenue_tracking_config,
-            drop_events_older_than,
-            base_currency
-        FROM posthog_team
-    """
-
-    params = []
-    if last_sync:
-        query += " WHERE updated_at > %s"
-        params.append(last_sync)
-
-    query += " ORDER BY updated_at ASC"
-
-    cursor.execute(query, params)
-
+    """Fetch all teams from Postgres (legacy function for compatibility)."""
     rows = []
-    while True:
-        batch = cursor.fetchmany(batch_size)
-        if not batch:
-            break
+    for batch in fetch_teams_in_batches(conn, last_sync, batch_size):
         rows.extend(batch)
-
-    cursor.close()
     return rows
+
+
+def handle_array_fields(row: dict, array_fields: list[str]) -> None:
+    """Handle array fields that might be None or contain None elements.
+
+    Args:
+        row: The data row to process (modified in place)
+        array_fields: List of field names that should be arrays
+    """
+    for field in array_fields:
+        if row.get(field) is None:
+            row[field] = []
+        elif isinstance(row[field], list):
+            # Filter out None values from the array
+            row[field] = [item for item in row[field] if item is not None]
 
 
 def transform_organization_row(row: dict) -> dict:
     """Transform a Postgres organization row for ClickHouse insertion."""
+    # Convert UUID fields to strings for ClickHouse
+    uuid_fields = ["id", "logo_media_id"]
+    for field in uuid_fields:
+        if row.get(field) is not None:
+            row[field] = str(row[field])
+
     # Convert JSON fields to strings
     json_fields = ["available_product_features", "usage", "customer_trust_scores", "personalization"]
 
@@ -400,11 +513,20 @@ def transform_organization_row(row: dict) -> dict:
         if row.get(field) is not None:
             row[field] = 1 if row[field] else 0
 
+    # Handle array fields
+    handle_array_fields(row, ["domain_whitelist"])
+
     return row
 
 
 def transform_team_row(row: dict) -> dict:
     """Transform a Postgres team row for ClickHouse insertion."""
+    # Convert UUID fields to strings for ClickHouse
+    uuid_fields = ["uuid", "organization_id"]
+    for field in uuid_fields:
+        if row.get(field) is not None:
+            row[field] = str(row[field])
+
     # Convert JSON fields to strings
     json_fields = [
         "has_completed_onboarding_for",
@@ -471,11 +593,8 @@ def transform_team_row(row: dict) -> dict:
     if row.get("drop_events_older_than") is not None:
         row["drop_events_older_than"] = int(row["drop_events_older_than"].total_seconds())
 
-    # Handle array fields that might be None
-    array_fields = ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"]
-    for field in array_fields:
-        if row.get(field) is None:
-            row[field] = []
+    # Handle array fields
+    handle_array_fields(row, ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"])
 
     return row
 
@@ -496,17 +615,12 @@ def insert_organizations_to_clickhouse(organizations: list[dict], batch_size: in
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
 
-        # Build parameterized query
-        placeholders = ", ".join([f"({', '.join(['%s'] * len(columns))})" for _ in batch])
-        query = f"INSERT INTO models.posthog_organization ({', '.join(columns)}) VALUES {placeholders}"
+        # ClickHouse requires passing data as list of tuples
+        data = [tuple(row.get(col) for col in columns) for row in batch]
 
-        # Flatten values for parameterized query
-        values = []
-        for row in batch:
-            for col in columns:
-                values.append(row.get(col))
+        query = f"INSERT INTO models.posthog_organization ({', '.join(columns)}) VALUES"
 
-        sync_execute(query, values)
+        sync_execute(query, data, with_column_types=False)
         total_inserted += len(batch)
 
     return total_inserted
@@ -528,17 +642,12 @@ def insert_teams_to_clickhouse(teams: list[dict], batch_size: int = 10000) -> in
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
 
-        # Build parameterized query
-        placeholders = ", ".join([f"({', '.join(['%s'] * len(columns))})" for _ in batch])
-        query = f"INSERT INTO models.posthog_team ({', '.join(columns)}) VALUES {placeholders}"
+        # ClickHouse requires passing data as list of tuples
+        data = [tuple(row.get(col) for col in columns) for row in batch]
 
-        # Flatten values for parameterized query
-        values = []
-        for row in batch:
-            for col in columns:
-                values.append(row.get(col))
+        query = f"INSERT INTO models.posthog_team ({', '.join(columns)}) VALUES"
 
-        sync_execute(query, values)
+        sync_execute(query, data, with_column_types=False)
         total_inserted += len(batch)
 
     return total_inserted
@@ -552,8 +661,10 @@ def sync_organizations(
     """Sync organizations from Postgres to ClickHouse."""
     state = ETLState()
 
+    context.log.info(f"Starting organization sync (full_refresh={config.full_refresh})")
+
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Get last sync timestamp from ClickHouse (if incremental)
     last_sync = None
@@ -565,21 +676,41 @@ def sync_organizations(
 
     # If full refresh, truncate the table
     if config.full_refresh:
-        sync_execute("TRUNCATE TABLE models.posthog_organization")
-        context.log.info("Truncated posthog_organization table for full refresh")
+        context.log.info("Full refresh requested, truncating posthog_organization table...")
+        try:
+            sync_execute("TRUNCATE TABLE models.posthog_organization")
+            context.log.info("Truncated posthog_organization table for full refresh")
+        except Exception as e:
+            context.log.warning(f"Could not truncate table (may not exist yet): {e}")
+            # Table might not exist, continue as it will be created
 
-    # Connect to Postgres and fetch data
+    # Connect to Postgres and fetch/insert data in streaming batches
     pg_conn = get_postgres_connection()
     try:
-        organizations = fetch_organizations(pg_conn, last_sync=last_sync, batch_size=config.batch_size)
-        context.log.info(f"Fetched {len(organizations)} organizations from Postgres")
+        total_rows = 0
+        last_updated = None
+        batch_num = 0
 
-        # Insert into ClickHouse
-        if organizations:
-            rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=config.batch_size)
-            state.rows_synced = rows_inserted
-            state.last_sync_timestamp = max(org["updated_at"] for org in organizations)
-            context.log.info(f"Inserted {rows_inserted} organizations into ClickHouse")
+        # Process data in streaming fashion to avoid memory issues
+        for batch in fetch_organizations_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
+            batch_num += 1
+            if batch:
+                context.log.info(f"Processing batch {batch_num} with {len(batch)} organizations")
+
+                # Insert this batch into ClickHouse
+                rows_inserted = insert_organizations_to_clickhouse(batch, batch_size=config.batch_size)
+                total_rows += rows_inserted
+
+                # Track the latest timestamp for state
+                batch_last_updated = max(org["updated_at"] for org in batch)
+                if last_updated is None or batch_last_updated > last_updated:
+                    last_updated = batch_last_updated
+
+                context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
+
+        state.rows_synced = total_rows
+        state.last_sync_timestamp = last_updated
+        context.log.info(f"Completed sync: inserted {total_rows} organizations into ClickHouse")
 
     except Exception as e:
         state.errors.append(f"Error syncing organizations: {str(e)}")
@@ -610,8 +741,10 @@ def sync_teams(
     """Sync teams from Postgres to ClickHouse."""
     state = ETLState()
 
+    context.log.info(f"Starting team sync (full_refresh={config.full_refresh})")
+
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Get last sync timestamp from ClickHouse (if incremental)
     last_sync = None
@@ -623,21 +756,41 @@ def sync_teams(
 
     # If full refresh, truncate the table
     if config.full_refresh:
-        sync_execute("TRUNCATE TABLE models.posthog_team")
-        context.log.info("Truncated posthog_team table for full refresh")
+        context.log.info("Full refresh requested, truncating posthog_team table...")
+        try:
+            sync_execute("TRUNCATE TABLE models.posthog_team")
+            context.log.info("Truncated posthog_team table for full refresh")
+        except Exception as e:
+            context.log.warning(f"Could not truncate table (may not exist yet): {e}")
+            # Table might not exist, continue as it will be created
 
-    # Connect to Postgres and fetch data
+    # Connect to Postgres and fetch/insert data in streaming batches
     pg_conn = get_postgres_connection()
     try:
-        teams = fetch_teams(pg_conn, last_sync=last_sync, batch_size=config.batch_size)
-        context.log.info(f"Fetched {len(teams)} teams from Postgres")
+        total_rows = 0
+        last_updated = None
+        batch_num = 0
 
-        # Insert into ClickHouse
-        if teams:
-            rows_inserted = insert_teams_to_clickhouse(teams, batch_size=config.batch_size)
-            state.rows_synced = rows_inserted
-            state.last_sync_timestamp = max(team["updated_at"] for team in teams)
-            context.log.info(f"Inserted {rows_inserted} teams into ClickHouse")
+        # Process data in streaming fashion to avoid memory issues
+        for batch in fetch_teams_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
+            batch_num += 1
+            if batch:
+                context.log.info(f"Processing batch {batch_num} with {len(batch)} teams")
+
+                # Insert this batch into ClickHouse
+                rows_inserted = insert_teams_to_clickhouse(batch, batch_size=config.batch_size)
+                total_rows += rows_inserted
+
+                # Track the latest timestamp for state
+                batch_last_updated = max(team["updated_at"] for team in batch)
+                if last_updated is None or batch_last_updated > last_updated:
+                    last_updated = batch_last_updated
+
+                context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
+
+        state.rows_synced = total_rows
+        state.last_sync_timestamp = last_updated
+        context.log.info(f"Completed sync: inserted {total_rows} teams into ClickHouse")
 
     except Exception as e:
         state.errors.append(f"Error syncing teams: {str(e)}")
@@ -732,7 +885,7 @@ def organizations_in_clickhouse(
     config = PostgresToClickHouseETLConfig(full_refresh=False)
 
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Determine the time window for this partition
     partition_key = context.partition_key
@@ -749,7 +902,6 @@ def organizations_in_clickhouse(
             """
             SELECT
                 id,
-                uuid,
                 name,
                 slug,
                 logo_media_id,
@@ -808,7 +960,7 @@ def teams_in_clickhouse(
     config = PostgresToClickHouseETLConfig(full_refresh=False)
 
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Determine the time window for this partition
     partition_key = context.partition_key

@@ -1,11 +1,14 @@
+from typing import Optional, cast
+
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
-from typing import Optional
 from asgiref.sync import async_to_sync
-from ee.hogai.graph.schema_generator.parsers import parse_pydantic_structured_output
+
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
+from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
 from ee.hogai.tool import MaxTool
+from posthog.schema import AssistantHogQLQuery
 from products.data_warehouse.backend.prompts import (
     HOGQL_GENERATOR_USER_PROMPT,
     SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
@@ -17,7 +20,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from posthog.models import Team, User
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from posthoganalytics import capture_exception
 
 
 class HogQLGeneratorArgs(BaseModel):
@@ -46,6 +49,9 @@ class HogQLGeneratorToolkit(TaxonomyAgentToolkit):
         Override parent implementation to use YAML format instead of XML.
         """
         return self._format_properties_yaml(props)
+
+
+GENERATION_ATTEMPTS_ALLOWED = 3
 
 
 class HogQLGeneratorNode(
@@ -104,7 +110,7 @@ class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[F
         )
 
 
-class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
+class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     name: str = "generate_hogql_query"
     description: str = (
         "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor"
@@ -127,29 +133,36 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
             **self.context,
         }
 
-        final_error: Optional[Exception] = None
-        for _ in range(3):
+        final_result: SchemaGeneratorOutput[str] | None = None  # type: ignore
+        final_error: Optional[PydanticOutputParserException] = None
+        for _ in range(GENERATION_ATTEMPTS_ALLOWED):
             try:
-                result = await graph.ainvoke(graph_context)
-                if result.get("intermediate_steps"):
-                    if result["intermediate_steps"][-1]:
-                        return result["intermediate_steps"][-1][0].tool_input, ""
+                result_so_far = await graph.ainvoke(graph_context)
+                if result_so_far.get("intermediate_steps"):
+                    if result_so_far["intermediate_steps"][-1]:
+                        return result_so_far["intermediate_steps"][-1][0].tool_input, ""
                     else:
                         return "I need more information to generate the query.", ""
                 else:
-                    result = await self._parse_output(FinalAnswerArgs.model_validate(result["output"]))
-                    return "```sql\n" + result + "\n```", result
-
+                    final_result = result_so_far["output"]
+                    assert final_result is not None
+                    # If quality check raises, we will still iterate if we've got any attempts left,
+                    # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
+                    await self._quality_check_output(
+                        SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=final_result.query))
+                    )
+                    final_error = None
+                    break  # All good, let's go
             except PydanticOutputParserException as e:
-                graph_context["change"] += f"\n\nAvoid this error: {str(e)}"
+                graph_context["change"] += f"\n\nAvoid this error that we had with our previous attempt:\n\n{str(e)}"
                 final_error = e
-        else:
-            assert final_error is not None
-            raise final_error
 
-    async def _parse_output(self, output: dict) -> str:
-        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        database = await self._get_database()
-        hogql_context = self._get_default_hogql_context(database)
-        query = await self._parse_generated_hogql(result.query, hogql_context)
-        return query
+        if not final_result:
+            raise cast(Exception, final_error)  # We haven't managed to create valid query JSON even once
+
+        if final_error is not None:
+            # We've got some result but the last time still had some syntactic issue (_validate_hogql() raised)
+            # Well, better that that nothing - let's just capture the error and send what we've got
+            capture_exception(final_error)
+
+        return "```sql\n" + final_result.query + "\n```", final_result.query

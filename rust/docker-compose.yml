@@ -31,9 +31,10 @@ services:
             - '9092:9092'
         healthcheck:
             test: curl -f http://localhost:9644/v1/status/ready || exit 1
-            interval: 3s
-            timeout: 10s
-            retries: 10
+            interval: 5s
+            timeout: 15s
+            retries: 30
+            start_period: 60s
 
     redis:
         image: redis:6.2.7-alpine

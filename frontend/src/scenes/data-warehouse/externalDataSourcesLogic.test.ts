@@ -1,8 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
+
 import api, { PaginatedResponse } from 'lib/api'
 
-import { DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
 import { initKeaTests } from '~/test/init'
+import { DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
 
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 

@@ -1,4 +1,4 @@
-import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
+import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { InternalPerson } from '~/types'
 
@@ -63,6 +63,12 @@ export const personPropertyKeyUpdateCounter = new Counter({
     name: 'person_property_key_update_total',
     help: 'Number of person updates triggered by this property value changing.',
     labelNames: ['key'],
+})
+
+export const personMergeFailureCounter = new Counter({
+    name: 'person_merge_failure_total',
+    help: 'Number of person merges that failed',
+    labelNames: ['call'], // $identify, $create_alias, $merge_dangerously
 })
 
 export const personCacheSizeHistogram = new Histogram({

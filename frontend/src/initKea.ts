@@ -6,10 +6,11 @@ import { routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
+import posthog from 'posthog-js'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 /*

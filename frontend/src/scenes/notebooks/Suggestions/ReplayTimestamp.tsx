@@ -1,13 +1,15 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
+import { firstChildOfType, hasChildOfType } from 'lib/components/RichContentEditor/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
 import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
-import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
-import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
-import { firstChildOfType, hasChildOfType } from 'lib/components/RichContentEditor/utils'
 import { NotebookNodeType } from '../types'
+import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
 
 const insertTimestamp = ({
     editor,

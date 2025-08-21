@@ -1,9 +1,10 @@
 import './LemonSwitch.scss'
 
 import clsx from 'clsx'
+import { forwardRef, useMemo, useState } from 'react'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { forwardRef, useMemo, useState } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 export interface LemonSwitchProps {
