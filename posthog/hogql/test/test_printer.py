@@ -27,7 +27,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest
+from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest, clean_varying_query_parts
 from posthog.hogql.query import execute_hogql_query
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -2513,7 +2513,7 @@ class TestPrinter(BaseTest):
 
         assert "GLOBAL JOIN" in printed
 
-        assert printed == self.snapshot  # type: ignore
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_s3_tables_global_join_with_cte_nested(self):
@@ -2537,7 +2537,7 @@ class TestPrinter(BaseTest):
 
         assert "GLOBAL JOIN" in printed
 
-        assert printed == self.snapshot  # type: ignore
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
 
 class TestPrinted(APIBaseTest):
