@@ -77,6 +77,7 @@ async def generate_assets_async(
     """
     Async version of generate_assets that creates assets with bulk_create then exports them concurrently.
     """
+    logger.info("generate_assets_async.starting", resource_id=getattr(resource, "id", None))
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
         if resource.dashboard:
             tiles = [tile for tile in resource.dashboard.tiles.all() if tile.insight and not tile.insight.deleted]
@@ -105,10 +106,12 @@ async def generate_assets_async(
         # Create async tasks for each asset export
         async def export_single_asset(asset: ExportedAsset) -> None:
             try:
+                logger.info("generate_assets_async.exporting_asset", asset_id=asset.id)
                 await database_sync_to_async(exporter.export_asset, thread_sensitive=False)(asset.id)
+                logger.info("generate_assets_async.asset_exported", asset_id=asset.id)
             except Exception as e:
                 logger.error(
-                    "Failed to export asset for subscription",
+                    "generate_assets_async.export_failed",
                     asset_id=asset.id,
                     subscription_id=getattr(resource, "id", None),
                     error=str(e),
@@ -119,6 +122,8 @@ async def generate_assets_async(
                 await database_sync_to_async(asset.save, thread_sensitive=False)()
 
         # Run all exports concurrently
+        logger.info("generate_assets_async.starting_exports", asset_count=len(assets))
         await asyncio.gather(*[export_single_asset(asset) for asset in assets])
+        logger.info("generate_assets_async.exports_complete", asset_count=len(assets))
 
         return insights, assets
