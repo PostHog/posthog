@@ -14,18 +14,18 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
 
     def _has_time_component(self, date_str: str) -> bool:
         """Check if a date string contains a time component."""
-        if not date_str:
-            return False
-
-        # Check for relative dates (like "-3d", "-1h") - let parent handle these
-        if date_str.startswith("-") or date_str.startswith("+"):
-            return False
-
-        # Check for time components in absolute dates
         return "T" in date_str or " " in date_str or ":" in date_str
 
+    def _is_relative_date(self, date_str: str) -> bool:
+        """Check if a date string is a relative date."""
+        return date_str.startswith("-") or date_str.startswith("+")
+
     def date_from(self) -> datetime:
-        if self._date_range and isinstance(self._date_range.date_from, str):
+        if self._date_range and self._date_range.date_from:
+            # Check if it's a relative date first
+            if self._is_relative_date(self._date_range.date_from):
+                return super().date_from()
+
             # Check if the date has a time component
             has_time = self._has_time_component(self._date_range.date_from)
             if not has_time:
@@ -43,6 +43,10 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
 
     def date_to(self) -> datetime:
         if self._date_range and self._date_range.date_to:
+            # Check if it's a relative date first
+            if self._is_relative_date(self._date_range.date_to):
+                return super().date_to()
+
             # Check if the date has a time component
             has_time = self._has_time_component(self._date_range.date_to)
             if not has_time:
