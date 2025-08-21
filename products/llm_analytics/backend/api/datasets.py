@@ -6,6 +6,7 @@ from rest_framework.viewsets import ModelViewSet
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from products.llm_analytics.backend.models import Dataset
+from products.llm_analytics.backend.models.datasets import DatasetItem
 
 logger = structlog.get_logger(__name__)
 
@@ -36,3 +37,24 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
                 queryset = queryset.filter(name__icontains=filters["name"])
 
         return queryset
+
+
+class DatasetItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DatasetItem
+        fields = ["id", "dataset", "input", "output", "metadata", "ref_trace_id", "ref_trace_timestamp", "ref_span_id"]
+        read_only_fields = ["id", "created_at", "updated_at", "team", "created_by"]
+
+    def create(self, validated_data: dict, *args, **kwargs):
+        request = self.context["request"]
+        validated_data["team"] = self.context["get_team"]()
+        validated_data["created_by"] = request.user
+        return super().create(validated_data, *args, **kwargs)
+
+
+class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
+    scope_object = "dataset"
+    serializer_class = DatasetItemSerializer
+    queryset = DatasetItem.objects.all().exclude(deleted=True)
+    param_derived_from_user_current_team = "team_id"
+    filterset_fields = ["dataset"]

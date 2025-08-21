@@ -1,4 +1,4 @@
-from .datasets import DatasetViewSet
+from .datasets import DatasetViewSet, DatasetItemViewSet
 from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 
-__all__ = ["LLMProxyViewSet", "SUPPORTED_MODELS_WITH_THINKING", "DatasetViewSet"]
+__all__ = ["LLMProxyViewSet", "SUPPORTED_MODELS_WITH_THINKING", "DatasetViewSet", "DatasetItemViewSet"]
