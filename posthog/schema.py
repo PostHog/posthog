@@ -88,8 +88,10 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
+    CREATE_MESSAGE_TEMPLATE = "create_message_template"
     NAVIGATE = "navigate"
-    SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
+    FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
+    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     SEARCH_DOCS = "search_docs"
@@ -1083,12 +1085,11 @@ class Status2(StrEnum):
     ALL = "all"
 
 
-class Status3(StrEnum):
-    ARCHIVED = "archived"
-    ACTIVE = "active"
-    RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
-    SUPPRESSED = "suppressed"
+class ErrorTrackingIssueImpactToolOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[str]
 
 
 class Status4(StrEnum):
@@ -1097,7 +1098,6 @@ class Status4(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
-    ALL = "all"
 
 
 class EventDefinition(BaseModel):
@@ -1430,12 +1430,24 @@ class FunnelStepReference(StrEnum):
     PREVIOUS = "previous"
 
 
+class FunnelStepsBreakdownResults(RootModel[list[list[dict[str, Any]]]]):
+    root: list[list[dict[str, Any]]]
+
+
+class FunnelStepsResults(RootModel[list[dict[str, Any]]]):
+    root: list[dict[str, Any]]
+
+
 class FunnelTimeToConvertResults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     average_conversion_time: Optional[float] = None
     bins: list[list[int]]
+
+
+class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
+    root: list[dict[str, Any]]
 
 
 class FunnelVizType(StrEnum):
@@ -2281,12 +2293,15 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
-class RevenueAnalyticsRevenueQueryResult(BaseModel):
+class RevenueAnalyticsRevenueQueryResultItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    gross: list
-    mrr: list
+    churn: Any
+    contraction: Any
+    expansion: Any
+    new: Any
+    total: Any
 
 
 class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
@@ -4263,29 +4278,12 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
 
 
-class RevenueAnalyticsRevenueQueryResponse(BaseModel):
+class RevenueAnalyticsRevenueQueryResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: RevenueAnalyticsRevenueQueryResult
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
+    gross: list
+    mrr: list[RevenueAnalyticsRevenueQueryResultItem]
 
 
 class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -5944,7 +5942,7 @@ class CachedFunnelsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7878,6 +7876,43 @@ class ErrorTrackingIssue(BaseModel):
     status: Status
 
 
+class ErrorTrackingIssueFilteringToolOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
+    newFilters: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    orderBy: Optional[OrderBy] = None
+    orderDirection: Optional[OrderDirection] = None
+    removedFilterIndexes: Optional[list[int]] = None
+    searchQuery: Optional[str] = None
+    status: Optional[Status2] = None
+
+
 class ErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7916,44 +7951,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     first_seen: datetime
     id: str
     name: Optional[str] = None
-    status: Status3
-
-
-class ErrorTrackingSceneToolOutput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    filterTestAccounts: Optional[bool] = None
-    newFilters: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                EventMetadataPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                FlagPropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-                ErrorTrackingIssueFilter,
-                LogPropertyFilter,
-                RevenueAnalyticsPropertyFilter,
-            ]
-        ]
-    ] = None
-    orderBy: Optional[OrderBy] = None
-    orderDirection: Optional[OrderDirection] = None
-    removedFilterIndexes: Optional[list[int]] = None
-    searchQuery: Optional[str] = None
-    status: Optional[Status4] = None
+    status: Status4
 
 
 class EventTaxonomyQueryResponse(BaseModel):
@@ -8453,7 +8451,7 @@ class FunnelsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -9877,7 +9875,7 @@ class QueryResponseAlternative57(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10253,21 +10251,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10339,21 +10322,29 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsRevenueQuery(BaseModel):
+class RevenueAnalyticsRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: Optional[DateRange] = None
-    groupBy: list[RevenueAnalyticsGroupBy]
-    interval: IntervalType
-    kind: Literal["RevenueAnalyticsRevenueQuery"] = "RevenueAnalyticsRevenueQuery"
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: RevenueAnalyticsRevenueQueryResult
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class RevenueAnalyticsTopCustomersQuery(BaseModel):
@@ -11602,6 +11593,38 @@ class RetentionQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class RevenueAnalyticsBaseQueryRevenueAnalyticsRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsRevenueQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    groupBy: list[RevenueAnalyticsGroupBy]
+    interval: IntervalType
+    kind: Literal["RevenueAnalyticsRevenueQuery"] = "RevenueAnalyticsRevenueQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class StickinessQuery(BaseModel):

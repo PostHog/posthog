@@ -1,6 +1,6 @@
 from typing import Any, cast
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from rest_framework import exceptions, serializers, viewsets, pagination
 from posthog.api.utils import action
@@ -90,6 +90,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         if params.get("search"):
             queryset = queryset.filter(content__search=params.get("search"))
+
+        if params.get("exclude_emoji_reactions") == "true":
+            queryset = queryset.filter(
+                Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False)
+            )
 
         source_comment = params.get("source_comment")
         if self.action == "thread":
