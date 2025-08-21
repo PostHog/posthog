@@ -30,8 +30,7 @@ from typing import Literal
 import dlt
 from dlt.common.typing import TDataItems
 from dlt.sources import DltResource
-
-from posthog.temporal.common.logger import FilteringBoundLogger
+from structlog.types import FilteringBoundLogger
 
 from .helpers import _get_property_names, fetch_data, fetch_property_history
 from .settings import (

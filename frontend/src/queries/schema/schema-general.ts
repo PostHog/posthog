@@ -2025,9 +2025,18 @@ export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<
     interval: IntervalType
 }
 
+export interface RevenueAnalyticsRevenueQueryResultItem {
+    total: unknown
+    new: unknown
+    expansion: unknown
+    contraction: unknown
+    churn: unknown
+}
+
 export interface RevenueAnalyticsRevenueQueryResult {
+    // This is just the total, while mrr is then split with all of the individual total/new/expansion/contraction/churn calculations
     gross: unknown[]
-    mrr: unknown[]
+    mrr: RevenueAnalyticsRevenueQueryResultItem[]
 }
 export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
     results: RevenueAnalyticsRevenueQueryResult

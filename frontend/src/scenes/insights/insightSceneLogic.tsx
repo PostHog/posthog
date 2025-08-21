@@ -5,6 +5,8 @@ import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -64,6 +66,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ['disableNavigationHooks'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -180,8 +184,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName],
-            (insightLogicRef, insight, dashboardId, dashboardName): Breadcrumb[] => {
+            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName, s.featureFlags],
+            (insightLogicRef, insight, dashboardId, dashboardName, featureFlags): Breadcrumb[] => {
+                const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
                 return [
                     ...(dashboardId !== null && dashboardName
                         ? [
@@ -206,11 +211,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
                         name: insightLogicRef?.logic.values.insightName,
-                        onRename: insightLogicRef?.logic.values.canEditInsight
-                            ? async (name: string) => {
-                                  await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
-                              }
-                            : undefined,
+                        onRename:
+                            insightLogicRef?.logic.values.canEditInsight && !newSceneLayout
+                                ? async (name: string) => {
+                                      await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                                  }
+                                : undefined,
                         forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                     },
                 ]

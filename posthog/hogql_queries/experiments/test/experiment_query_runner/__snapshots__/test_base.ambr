@@ -569,7 +569,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_no_variant_events
+# name: TestExperimentQueryRunner.test_query_runner_no_variant_exposures
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
