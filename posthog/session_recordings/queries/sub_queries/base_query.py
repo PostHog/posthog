@@ -22,11 +22,9 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
 
     def date_from(self) -> datetime:
         if self._date_range and self._date_range.date_from:
-            # Check if it's a relative date first
             if self._is_relative_date(self._date_range.date_from):
                 return super().date_from()
 
-            # Check if the date has a time component
             has_time = self._has_time_component(self._date_range.date_from)
             if not has_time:
                 # For dates without time components, parse and set to start of day
@@ -43,11 +41,9 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
 
     def date_to(self) -> datetime:
         if self._date_range and self._date_range.date_to:
-            # Check if it's a relative date first
             if self._is_relative_date(self._date_range.date_to):
                 return super().date_to()
 
-            # Check if the date has a time component
             has_time = self._has_time_component(self._date_range.date_to)
             if not has_time:
                 # For dates without time components, parse and set to end of day
