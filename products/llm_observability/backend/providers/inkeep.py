@@ -1,15 +1,14 @@
-import os
 import json
-import uuid
 import logging
+import os
+import uuid
 from collections.abc import Generator
 from typing import Any
-
-from django.conf import settings
 
 import openai
 import posthoganalytics
 from anthropic.types import MessageParam
+from django.conf import settings
 
 <<<<<<<< HEAD:products/llm_analytics/backend/providers/inkeep.py
 from products.llm_analytics.backend.providers.formatters.openai_formatter import convert_to_openai_messages

@@ -28,7 +28,7 @@ import products.tasks.backend.api as tasks
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.llm_analytics.backend.api import LLMProxyViewSet
+from products.llm_analytics.backend.api import DatasetViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
@@ -806,4 +806,11 @@ projects_router.register(
     flag_value.FlagValueViewSet,
     "project_flag_value",
     ["project_id"],
+)
+
+environments_router.register(
+    r"datasets",
+    DatasetViewSet,
+    "environment_datasets",
+    ["team_id"],
 )

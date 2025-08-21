@@ -1,12 +1,11 @@
 import json
-import uuid
 import logging
+import uuid
 from collections.abc import Generator
-
-from django.conf import settings
 
 import posthoganalytics
 from anthropic.types import MessageParam
+from django.conf import settings
 from google.genai.errors import APIError
 from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
