@@ -88,14 +88,14 @@ def experiment_error_handler(method: F) -> F:
             self = args[0] if args else None
 
             experiment_id = getattr(self, "experiment_id", None)
-            if not experiment_id:
+            if experiment_id is None:
                 experiment = getattr(self, "experiment", None)
                 if experiment is not None:
                     experiment_id = getattr(experiment, "id", None)
 
             metric = getattr(self, "metric", None)
             if metric:
-                metric_type = getattr(metric, "__class__", type(metric)).__name__
+                metric_type = type(metric).__name__
             else:
                 metric_type = None
 
