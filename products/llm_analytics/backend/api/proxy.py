@@ -86,7 +86,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return False
 
         llm_analytics_enabled = posthoganalytics.feature_enabled(
-            "llm-analytics-playground", request.user.email, person_properties={"email": request.user.email}
+            "llm-observability-playground", request.user.email, person_properties={"email": request.user.email}
         )
         return llm_analytics_enabled
 
