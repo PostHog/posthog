@@ -135,7 +135,7 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         interval = input.args[0].interval.replace(" ", "_")
         histogram_attributes: Attributes = {"interval": interval}
 
-        async with SLAWaiter(name=workflow_info.workflow_id, sla=get_sla_from_interval(interval)):
+        async with SLAWaiter(batch_export_id=workflow_info.workflow_id, sla=get_sla_from_interval(interval)):
             with ExecutionTimeRecorder(
                 "batch_exports_workflow_interval_execution_latency",
                 description="Histogram tracking execution latency for batch export workflows by interval",
@@ -365,8 +365,8 @@ class SLAWaiter:
     """Wait until a batch export has exceeded SLA and log a warning.
 
     Attributes:
-        name: The name of the task we are waiting for. Will be used in the log
-            message if SLA is exceeded.
+        batch_export_id: The batch export we are waiting for. Will be included in the
+            log context if SLA is exceeded.
         sla: The SLA we are waiting for.
 
     Examples:
