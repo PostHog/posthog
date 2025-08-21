@@ -205,7 +205,12 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadStatus()
 
-        if (values.user && values.user.organization?.enforce_2fa && !values.user.is_2fa_enabled) {
+        if (
+            values.user &&
+            values.user.organization?.enforce_2fa &&
+            !values.user.is_2fa_enabled &&
+            !values.user.is_impersonated
+        ) {
             actions.openTwoFactorSetupModal(true)
         }
     }),
