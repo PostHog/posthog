@@ -42,7 +42,7 @@ const loadAppMetricsTimeSeries = async (
     request: AppMetricsTimeSeriesRequest,
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
-    const interval = request.interval || 'day'
+    const interval = request.interval || 'hour'
 
     let query = hogql`
         WITH

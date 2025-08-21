@@ -25,7 +25,6 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
             appSourceId: id,
             metricName: ['succeeded', 'failed', 'filtered', 'dropped', 'disabled_permanently'],
             breakdownBy: 'metric_name',
-            interval: 'day',
         },
     })
 

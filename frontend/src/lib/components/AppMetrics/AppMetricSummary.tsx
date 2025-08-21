@@ -41,16 +41,19 @@ export function AppMetricSummary({
         )
     }, [previousPeriodTimeSeries])
 
-    console.log(total, totalPreviousPeriod)
+    const diff = (total - totalPreviousPeriod) / totalPreviousPeriod
 
     return (
-        <div className="flex flex-1 flex-col gap-2 relative border rounded p-3 bg-surface-primary min-w-[16rem] max-w-[24rem]">
+        <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem] max-w-[24rem]">
             <div className="flex flex-row justify-between items-start">
                 <LemonLabel info={description}>{name}</LemonLabel>
                 <div className="text-right text-2xl text-muted-foreground">{humanFriendlyNumber(total)}</div>
             </div>
+            <div className="text-xs text-muted-foreground text-right">
+                {diff > 0 ? ` (+${(diff * 100).toFixed(1)}%)` : ` (-${(-diff * 100).toFixed(1)}%)`}
+            </div>
 
-            <div className="flex-1">
+            <div className="flex-1 mt-2">
                 <AppMetricsTrend
                     timeSeries={timeSeries}
                     color={color}
