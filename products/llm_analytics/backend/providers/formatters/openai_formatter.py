@@ -1,16 +1,17 @@
 import json
-from anthropic.types import MessageParam, TextBlockParam, ImageBlockParam, ToolResultBlockParam, ToolUseBlockParam
+
+from anthropic.types import ImageBlockParam, MessageParam, TextBlockParam, ToolResultBlockParam, ToolUseBlockParam
 from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionUserMessageParam,
     ChatCompletionAssistantMessageParam,
-    ChatCompletionToolMessageParam,
     ChatCompletionContentPartImageParam,
     ChatCompletionContentPartTextParam,
+    ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
+    ChatCompletionToolMessageParam,
+    ChatCompletionUserMessageParam,
 )
 
-from products.llm_observability.providers.formatters.anthropic_typeguards import (
+from products.llm_analytics.backend.providers.formatters.anthropic_typeguards import (
     is_base64_image_param,
     is_image_block_param,
     is_text_block_param,

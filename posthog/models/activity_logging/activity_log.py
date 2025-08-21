@@ -155,6 +155,11 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "media_location": obj.media_location,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+            }
 
         return json.JSONEncoder.default(self, obj)
 

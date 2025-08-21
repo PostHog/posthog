@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/products-llm-observability",
+    "name": "@posthog/products-llm-analytics",
     "scripts": {},
     "dependencies": {
         "kea": "^3.1.7",
