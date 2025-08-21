@@ -309,10 +309,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     .sort((a, b) => b.rows - a.rows)
             },
         ],
-        modalTitle: [
-            (s) => [s.selectedDate],
-            (selectedDate) => (selectedDate ? `Sync Activity - ${dayjs(selectedDate).format('MMM D, YYYY')}` : ''),
-        ],
     }),
     listeners(({ cache, values, actions }) => ({
         setActivityCurrentPage: () => {
