@@ -107,6 +107,21 @@ from .web_experiment import WebExperiment
 
 # Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
+
+# Temporary imports for persons_database models during migration
+# These will eventually replace the original models
+from products.persons_database.backend.models import (
+    Person as PersonsDBPerson,
+    PersonDistinctId as PersonsDBPersonDistinctId,
+    PersonlessDistinctId as PersonsDBPersonlessDistinctId,
+    PersonOverrideMapping as PersonsDBPersonOverrideMapping,
+    PersonOverride as PersonsDBPersonOverride,
+    PendingPersonOverride as PersonsDBPendingPersonOverride,
+    FlatPersonOverride as PersonsDBFlatPersonOverride,
+    FeatureFlagHashKeyOverride as PersonsDBFeatureFlagHashKeyOverride,
+    CohortPeople as PersonsDBCohortPeople,
+    Group as PersonsDBGroup,
+)
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
