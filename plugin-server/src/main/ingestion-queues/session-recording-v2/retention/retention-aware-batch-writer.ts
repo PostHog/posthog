@@ -15,10 +15,6 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
     private writerMap: { [key in RetentionPeriod]: SessionBatchFileWriter | null }
 
     constructor(
-        private readonly s3: S3Client,
-        private readonly bucket: string,
-        private readonly prefix: string,
-        private readonly timeout: number,
         private readonly retentionService: RetentionService,
         private readonly storageMap: { [key in RetentionPeriod]: SessionBatchFileStorage }
     ) {
@@ -86,14 +82,7 @@ export class RetentionAwareStorage implements SessionBatchFileStorage {
     }
 
     public newBatch(): RetentionAwareBatchFileWriter {
-        return new RetentionAwareBatchFileWriter(
-            this.s3,
-            this.bucket,
-            this.prefix,
-            this.timeout,
-            this.retentionService,
-            this.storageMap
-        )
+        return new RetentionAwareBatchFileWriter(this.retentionService, this.storageMap)
     }
 
     public checkHealth(): Promise<boolean> {

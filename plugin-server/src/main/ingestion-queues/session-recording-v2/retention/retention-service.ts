@@ -56,6 +56,7 @@ export class RetentionService {
         if (retentionPeriod !== null && isValidRetentionPeriod(retentionPeriod)) {
             return retentionPeriod
         } else {
+            RetentionServiceMetrics.incrementLookupErrors()
             throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
         }
     }

@@ -2,12 +2,11 @@ import { Redis } from 'ioredis'
 
 import { RedisPool, TeamId } from '../../../../types'
 import { TeamService } from '../teams/team-service'
+import { RetentionServiceMetrics } from './metrics'
 import { RetentionService } from './retention-service'
 
 jest.mock('./metrics', () => ({
     RetentionServiceMetrics: {
-        incrementRefreshErrors: jest.fn(),
-        incrementRefreshCount: jest.fn(),
         incrementLookupErrors: jest.fn(),
     },
 }))
@@ -32,9 +31,10 @@ describe('RetentionService', () => {
         const mockTeamService = {
             getRetentionPeriodByTeamId: jest.fn().mockImplementation((teamId: TeamId) => {
                 return {
-                    1: '30d',
-                    2: '1y',
-                    3: null,
+                    1: '30d', // Valid
+                    2: '1y', // Valid
+                    3: null, // Missing
+                    4: 'foobar', //Invalid
                 }[teamId]
             }),
         } as unknown as jest.Mocked<TeamService>
@@ -79,6 +79,13 @@ describe('RetentionService', () => {
             await expect(retentionPromise).rejects.toThrow('Error during retention period lookup: Unknown team id 3')
         })
 
+        it('should throw error for invalid retention period', async () => {
+            const retentionPromise = retentionService.getSessionRetention(4, '654')
+            await expect(retentionPromise).rejects.toThrow(
+                'Error during retention period lookup: Got invalid value foobar'
+            )
+        })
+
         it('should load retention from Redis if key exists', async () => {
             mockRedisClient.get = jest.fn().mockReturnValue('30d')
 
@@ -102,6 +109,22 @@ describe('RetentionService', () => {
                 'EX',
                 24 * 60 * 60
             )
+        })
+    })
+
+    describe('metrics', () => {
+        it('should increment lookup errors for unknown team id', async () => {
+            const retentionPromise = retentionService.getSessionRetention(3, '456')
+            await expect(retentionPromise).rejects.toThrow('Error during retention period lookup: Unknown team id 3')
+            expect(RetentionServiceMetrics.incrementLookupErrors).toHaveBeenCalledTimes(1)
+        })
+
+        it('should increment lookup errors for invalid retention period', async () => {
+            const retentionPromise = retentionService.getSessionRetention(4, '654')
+            await expect(retentionPromise).rejects.toThrow(
+                'Error during retention period lookup: Got invalid value foobar'
+            )
+            expect(RetentionServiceMetrics.incrementLookupErrors).toHaveBeenCalledTimes(1)
         })
     })
 })
