@@ -17,7 +17,8 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     name: string
     description: string
     icon: JSX.Element
-    color: string
+    color?: string
+    brandColor?: string
     renderNode: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
     create: () => {
@@ -131,9 +132,13 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 email: z.object({
                     value: z.object({
                         to: z.object({
-                            email: z.string().email(),
+                            email: z.string(),
+                            name: z.string().min(1).max(100).optional(),
                         }),
-                        from: z.string().email(),
+                        from: z.object({
+                            email: z.string().email(),
+                            name: z.string().min(1).max(100).optional(),
+                        }),
                         preheader: z.string().optional(),
                         subject: z.string().min(1),
                         text: z.string().min(1),
@@ -187,7 +192,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-slack'),
             inputs: z.object({
-                twilio_account: z.object({}),
+                slack_workspace: z.object({}),
+                slack_channel: z.object({}),
             }),
         }),
     }),

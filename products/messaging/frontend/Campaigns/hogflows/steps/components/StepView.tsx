@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
+
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
@@ -24,7 +25,7 @@ export function StepView({ action, children }: { action: HogFlowAction; children
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 border: `${isSelected ? '1px' : '0.5px'} solid var(--border)`,
-                boxShadow: `0px 2px 0px 0px ${Step?.color ? `${Step.color}20` : 'var(--border-primary)'}`,
+                boxShadow: `0px 2px 0px 0px ${Step?.color ? `${Step.color}20` : 'var(--border)'}`,
                 zIndex: 0,
             }}
         >
@@ -33,7 +34,8 @@ export function StepView({ action, children }: { action: HogFlowAction; children
                 <div
                     className="flex justify-center h-6 items-center aspect-square rounded"
                     style={{
-                        backgroundColor: Step?.color ? `${Step?.color}20` : 'var(--bg-surface-secondary)',
+                        backgroundColor:
+                            Step?.brandColor || (Step?.color ? `${Step?.color}20` : 'var(--bg-surface-secondary)'),
                         color: Step?.color || 'var(--text-secondary)',
                     }}
                 >
