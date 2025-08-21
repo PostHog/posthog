@@ -11,7 +11,13 @@ import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
+import {
+    capitalizeFirstLetter,
+    ceilMsToClosestSecond,
+    humanFriendlyDuration,
+    isEmptyObject,
+    percentage,
+} from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -133,9 +139,29 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     selectors(() => ({
         loading: [
-            (s) => [s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.recordingPropertiesLoading],
-            (sessionPlayerMetaDataLoading, snapshotsLoading, recordingPropertiesLoading) =>
-                sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading,
+            (s) => [
+                s.sessionPlayerMetaDataLoading,
+                s.snapshotsLoading,
+                s.recordingPropertiesLoading,
+                s.sessionPlayerMetaData,
+                s.recordingPropertiesById,
+            ],
+            (
+                sessionPlayerMetaDataLoading,
+                snapshotsLoading,
+                recordingPropertiesLoading,
+                sessionPlayerMetaData,
+                recordingPropertiesById
+            ) => {
+                const hasSessionPlayerMetadata = !!sessionPlayerMetaData && !isEmptyObject(sessionPlayerMetaData)
+                const hasRecordingProperties = !!recordingPropertiesById && !isEmptyObject(recordingPropertiesById)
+                if (hasSessionPlayerMetadata && hasRecordingProperties) {
+                    // If we have session player metadata and recording properties, we are done loading
+                    return false
+                }
+
+                return sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading
+            },
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
