@@ -16,7 +16,7 @@ export type AppMetricsCommonParams = {
     metricName?: string | string[]
     metricKind?: string | string[]
     breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
-    interval?: 'day' | 'hour' | 'minute' | 'second'
+    interval?: 'day' | 'hour' | 'minute'
     before?: string
     after?: string
 }
@@ -107,7 +107,7 @@ const loadAppMetricsTimeSeries = async (
     query = (query +
         hogql`
                 AND timestamp >= start_bucket
-                AND timestamp <  (end_bucket + step_s)           -- include last bucket
+                AND timestamp < (end_bucket + step_s)
                 GROUP BY breakdown, bucket
                 ORDER BY breakdown, bucket
             )
@@ -124,7 +124,16 @@ const loadAppMetricsTimeSeries = async (
         },
     })
 
-    const labels = response.results?.[0]?.[0].map((label: string) => dayjs(label).tz(timezone).format('YYYY-MM-DD'))
+    const labels = response.results?.[0]?.[0].map((label: string) => {
+        switch (interval) {
+            case 'day':
+                return dayjs(label).tz(timezone).format('YYYY-MM-DD')
+            case 'hour':
+                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
+            case 'minute':
+                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
+        }
+    })
 
     return {
         labels: labels || [],
@@ -155,7 +164,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                     const params: AppMetricsTimeSeriesRequest = {
                         ...props.forceParams,
                     }
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam.timezone)
+                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
                 },
             },
         ],

@@ -12,6 +12,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -25,7 +26,6 @@ import { HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
-import { AppMetricsSparkline } from '../metrics/AppMetricsSparkline'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
