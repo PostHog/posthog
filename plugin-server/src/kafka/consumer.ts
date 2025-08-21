@@ -195,7 +195,7 @@ export class KafkaConsumer {
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
             // Only enable statistics when using loop-based health check
-            ...(defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK
+            ...(defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK
                 ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
                 : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
@@ -228,7 +228,7 @@ export class KafkaConsumer {
 
     public isHealthy(): HealthCheckResult {
         // Use legacy heartbeat-based health check if feature flag is disabled
-        if (!defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK) {
+        if (!defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK) {
             // this is called as a readiness and a liveness probe
             const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
             const isConnected = this.rdKafkaConsumer.isConnected()

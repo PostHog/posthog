@@ -58,7 +58,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
-        KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
+        CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
