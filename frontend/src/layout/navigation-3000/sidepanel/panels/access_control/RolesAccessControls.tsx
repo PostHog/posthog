@@ -122,6 +122,7 @@ export function RolesAccessControls(): JSX.Element {
                     type="primary"
                     onClick={() => setEditingRoleId('new')}
                     icon={<IconPlus />}
+                    disabledReason={defaultRoleRestrictionReason}
                 >
                     Add a role
                 </LemonButton>
@@ -304,6 +305,7 @@ function RoleModal(): JSX.Element {
 
         LemonDialog.open({
             title: 'Delete role',
+            maxWidth: 400,
             content: (
                 <div>
                     <p>{baseContent}</p>
