@@ -4,7 +4,6 @@ import time
 import typing
 
 import structlog
-from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 from temporalio.worker import (
@@ -16,7 +15,9 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-LOGGER = get_logger(__name__)
+from posthog.temporal.common.logger import get_write_only_logger
+
+LOGGER = get_write_only_logger(__name__)
 
 
 def get_rows_exported_metric() -> MetricCounter:
