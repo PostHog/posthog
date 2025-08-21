@@ -15,9 +15,9 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.logger import get_write_only_logger
 
-LOGGER = get_logger(__name__)
+LOGGER = get_write_only_logger(__name__)
 
 
 def get_rows_exported_metric() -> MetricCounter:

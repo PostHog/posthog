@@ -9,33 +9,36 @@ import os
 import re
 import typing
 import uuid
-import pyarrow as pa
-import pyarrow.compute as pc
 
 import asyncstdlib
 import deltalake
+import pyarrow as pa
+import pyarrow.compute as pc
 import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
+from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 
-from posthog.clickhouse.query_tagging import Feature, tag_queries, Product
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql import ast
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import FilteringBoundLogger, bind_temporal_worker_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
@@ -48,7 +51,8 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.s3 import ensure_bucket_exists
-from posthog.sync import database_sync_to_async
+
+LOGGER = get_logger(__name__)
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -166,7 +170,8 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     6. If the number of models in the completed, failed, and ancestor failed sets is equal
        to the total number of models passed to this activity, exit the loop. Else, goto 5.
     """
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     completed = set()
     ancestor_failed = set()
@@ -1031,8 +1036,9 @@ class InvalidSelector(Exception):
 @temporalio.activity.defn
 async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     """Construct a DAG from provided selector inputs."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
-    logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
@@ -1165,7 +1171,8 @@ class CreateJobModelInputs:
 
 @temporalio.activity.defn
 async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     await logger.adebug(f"Creating DataModelingJob for {[selector.label for selector in inputs.select]}")
 
@@ -1194,7 +1201,8 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
     Since only one job can run at a time per team, any existing RUNNING jobs
     are orphaned when a new run starts.
     """
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     orphaned_count = await database_sync_to_async(
         DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
@@ -1213,7 +1221,8 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     try:
         async with asyncio.TaskGroup() as tg:
@@ -1248,7 +1257,8 @@ class FinishRunActivityInputs:
 @temporalio.activity.defn
 async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     run_at = dt.datetime.fromisoformat(inputs.run_at)
 
@@ -1286,7 +1296,8 @@ class CreateTableActivityInputs:
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Create/attach tables and persist their row-count."""
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     for model in inputs.models:
         try:
@@ -1319,9 +1330,9 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
 
 async def update_saved_query_status(
-    label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
+    label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime | None, team_id: int
 ):
-    logger = await bind_temporal_worker_logger(team_id)
+    logger = LOGGER.bind()
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
     try:
@@ -1361,7 +1372,8 @@ class FailJobsActivityInputs:
 @temporalio.activity.defn
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
@@ -1374,7 +1386,9 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 @temporalio.activity.defn
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
     job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
 
     await mark_job_as_failed(job, inputs.error, logger)

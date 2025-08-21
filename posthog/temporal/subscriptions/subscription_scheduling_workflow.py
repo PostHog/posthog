@@ -1,27 +1,23 @@
 import asyncio
 import dataclasses
 import datetime as dt
-import typing
 import json
+import typing
 from itertools import groupby
 
-
-import structlog
 import temporalio.activity
 import temporalio.common
 import temporalio.workflow
 from django.conf import settings
+from structlog import get_logger
 
-
+from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
 
-from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
-
-logger = structlog.get_logger(__name__)
+LOGGER = get_logger(__name__)
 
 # Changed 8/12/25 11:20 AM
 
@@ -42,8 +38,7 @@ class FetchDueSubscriptionsActivityInputs:
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[int]:
     """Return a list of subscription IDs that are due for delivery."""
-
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
     await logger.ainfo("Starting subscription fetch activity")
 
     now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
@@ -110,9 +105,7 @@ class DeliverSubscriptionReportActivityInputs:
 async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReportActivityInputs) -> None:
     """Deliver a subscription report."""
     async with Heartbeater():
-        logger = get_internal_logger()
-
-        await logger.ainfo(
+        LOGGER.ainfo(
             "Delivering subscription report",
             subscription_id=inputs.subscription_id,
         )
