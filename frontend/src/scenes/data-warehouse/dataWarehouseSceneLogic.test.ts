@@ -26,6 +26,7 @@ describe('dataWarehouseSceneLogic', () => {
                 finished_at: '2023-01-01T00:00:00Z',
                 latest_error: null,
                 rows: 100,
+                workflow_run_id: `workflow-${i}`,
             }))
 
             logic.mount()
@@ -53,6 +54,7 @@ describe('dataWarehouseSceneLogic', () => {
                 finished_at: '2023-01-01T00:00:00Z',
                 latest_error: null,
                 rows: 100,
+                workflow_run_id: `workflow-${i}`,
             }))
 
             logic.mount()
