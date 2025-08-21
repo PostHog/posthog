@@ -24,6 +24,7 @@ import { HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
+import { AppMetricsSparkline } from '../metrics/AppMetricsSparkline'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
@@ -105,6 +106,15 @@ export function HogFunctionList({
                     return (
                         <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
                             <HogFunctionMetricSparkLine id={hogFunction.id} />
+                            <AppMetricsSparkline
+                                logicKey={hogFunction.id}
+                                forceParams={{
+                                    appSource: 'hog_function',
+                                    appSourceId: hogFunction.id,
+                                    metricKind: ['success', 'failure'],
+                                    breakdownBy: 'metric_kind',
+                                }}
+                            />
                         </Link>
                     )
                 },
