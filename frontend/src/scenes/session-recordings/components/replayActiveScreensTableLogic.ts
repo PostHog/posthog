@@ -22,16 +22,22 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
         countedScreens: {
             loadCountedScreens: async (_, breakpoint): Promise<{ screen: string; count: number }[]> => {
                 const q = hogql`
-                    select cutQueryString(cutFragment(url)) as u, count(distinct session_id) as c
-                    from (select session_id, arrayJoin(all_urls) as url
-                          from raw_session_replay_events
-                          where min_first_timestamp >= now() - toIntervalDay(7)
-                            and min_first_timestamp <= now()
-                          group by session_id
-                          having date_diff('second', min(min_first_timestamp), max(max_last_timestamp)) > 5
-                          )
-                    group by u
-                    order by c desc limit 10
+                    SELECT 
+    cutQueryString(cutFragment(url)) as u, 
+    count(distinct session_id) as c
+FROM (
+    SELECT 
+        session_id, 
+        arrayJoin(any(all_urls)) as url
+    FROM raw_session_replay_events
+    WHERE min_first_timestamp >= now() - toIntervalDay(7)
+      AND min_first_timestamp <= now()
+    GROUP BY session_id
+    HAVING date_diff('second', min(min_first_timestamp), max(max_last_timestamp)) > 5
+)
+GROUP BY u
+ORDER BY c DESC 
+LIMIT 10
                 `
 
                 const qResponse = await api.queryHogQL(q)
