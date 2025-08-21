@@ -27,11 +27,11 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
     {
         value,
         type = TaxonomicFilterGroupType.EventProperties,
-        displayText = '',
         disablePopover = false,
         disableIcon = false,
         ellipsis = true,
         className = '',
+        displayText,
     },
     ref
 ): JSX.Element {
