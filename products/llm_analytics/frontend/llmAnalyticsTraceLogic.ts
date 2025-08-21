@@ -9,14 +9,14 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
-import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'
+import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
 }
 
-export interface LLMObservabilityTraceDataNodeLogicParams {
+export interface LLMAnalyticsTraceDataNodeLogicParams {
     traceId: string
     query: DataTableNode
     cachedResults?: AnyResponseType | null
@@ -26,7 +26,7 @@ export function getDataNodeLogicProps({
     traceId,
     query,
     cachedResults,
-}: LLMObservabilityTraceDataNodeLogicParams): DataNodeLogicProps {
+}: LLMAnalyticsTraceDataNodeLogicParams): DataNodeLogicProps {
     const insightProps: InsightLogicProps<DataTableNode> = {
         dashboardItemId: `new-Trace.${traceId}`,
         dataNodeCollectionId: traceId,
@@ -41,8 +41,8 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
-    path(['scenes', 'llm-observability', 'llmObservabilityTraceLogic']),
+export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
@@ -170,17 +170,17 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             (traceId): Breadcrumb[] => {
                 return [
                     {
-                        key: 'LLMObservability',
-                        name: 'LLM observability',
-                        path: urls.llmObservabilityDashboard(),
+                        key: 'LLMAnalytics',
+                        name: 'LLM analytics',
+                        path: urls.llmAnalyticsDashboard(),
                     },
                     {
-                        key: 'LLMObservabilityTraces',
+                        key: 'LLMAnalyticsTraces',
                         name: 'Traces',
-                        path: urls.llmObservabilityTraces(),
+                        path: urls.llmAnalyticsTraces(),
                     },
                     {
-                        key: ['LLMObservabilityTrace', traceId || ''],
+                        key: ['LLMAnalyticsTrace', traceId || ''],
                         name: traceId,
                     },
                 ]
@@ -190,19 +190,19 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
 
     listeners(({ actions, values }) => ({
         setIsRenderingMarkdown: ({ isRenderingMarkdown }) => {
-            localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(isRenderingMarkdown))
+            localStorage.setItem('llm-analytics-markdown-rendering', JSON.stringify(isRenderingMarkdown))
         },
         toggleMarkdownRendering: () => {
-            localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
+            localStorage.setItem('llm-analytics-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
         },
         setIsRenderingXml: ({ isRenderingXml }) => {
-            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(isRenderingXml))
+            localStorage.setItem('llm-analytics-xml-rendering', JSON.stringify(isRenderingXml))
         },
         toggleXmlRendering: () => {
-            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(values.isRenderingXml))
+            localStorage.setItem('llm-analytics-xml-rendering', JSON.stringify(values.isRenderingXml))
         },
         setDisplayOption: ({ displayOption }) => {
-            localStorage.setItem('llm-observability-display-option', JSON.stringify(displayOption))
+            localStorage.setItem('llm-analytics-display-option', JSON.stringify(displayOption))
         },
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
@@ -242,14 +242,14 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                     }
 
                     // Use router to update URL
-                    router.actions.replace(urls.llmObservabilityTrace(traceId, params))
+                    router.actions.replace(urls.llmAnalyticsTrace(traceId, params))
                 }
             }
         },
     })),
 
     afterMount(({ actions }) => {
-        const savedMarkdownState = localStorage.getItem('llm-observability-markdown-rendering')
+        const savedMarkdownState = localStorage.getItem('llm-analytics-markdown-rendering')
         if (savedMarkdownState !== null) {
             try {
                 const isRenderingMarkdown = JSON.parse(savedMarkdownState)
@@ -259,7 +259,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             }
         }
 
-        const savedXmlState = localStorage.getItem('llm-observability-xml-rendering')
+        const savedXmlState = localStorage.getItem('llm-analytics-xml-rendering')
         if (savedXmlState !== null) {
             try {
                 const isRenderingXml = JSON.parse(savedXmlState)
@@ -269,7 +269,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             }
         }
 
-        const savedDisplayOption = localStorage.getItem('llm-observability-display-option')
+        const savedDisplayOption = localStorage.getItem('llm-analytics-display-option')
         if (savedDisplayOption !== null) {
             try {
                 const displayOption = JSON.parse(savedDisplayOption)
@@ -281,7 +281,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, timestamp, search }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, search }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
             actions.setDateFrom(timestamp || null)

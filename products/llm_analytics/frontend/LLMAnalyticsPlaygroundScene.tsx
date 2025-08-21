@@ -18,8 +18,8 @@ import {
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
-import { ComparisonItem, Message, MessageRole, ModelOption } from './llmObservabilityPlaygroundLogic'
+import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
+import { ComparisonItem, Message, MessageRole, ModelOption } from './llmAnalyticsPlaygroundLogic'
 
 // Helper to format milliseconds
 const formatMs = (ms: number | null | undefined): string => {
@@ -33,13 +33,13 @@ const formatMs = (ms: number | null | undefined): string => {
 }
 
 export const scene: SceneExport = {
-    component: LLMObservabilityPlaygroundScene,
-    logic: llmObservabilityPlaygroundLogic,
+    component: LLMAnalyticsPlaygroundScene,
+    logic: llmAnalyticsPlaygroundLogic,
 }
 
-export function LLMObservabilityPlaygroundScene(): JSX.Element {
+export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     return (
-        <BindLogic logic={llmObservabilityPlaygroundLogic} props={{ key: 'llm-observability-playground-scene' }}>
+        <BindLogic logic={llmAnalyticsPlaygroundLogic} props={{ key: 'llm-analytics-playground-scene' }}>
             <PlaygroundLayout />
         </BindLogic>
     )
@@ -63,7 +63,7 @@ function PlaygroundLayout(): JSX.Element {
 }
 
 function ConversationPanel(): JSX.Element {
-    const { messages } = useValues(llmObservabilityPlaygroundLogic)
+    const { messages } = useValues(llmAnalyticsPlaygroundLogic)
     const [expandTextAreas, setExpandTextAreas] = useState(false)
     const messagesStartRef = useRef<HTMLDivElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -107,8 +107,8 @@ function ConversationPanel(): JSX.Element {
 }
 
 function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.Element {
-    const { tools } = useValues(llmObservabilityPlaygroundLogic)
-    const { setTools } = useActions(llmObservabilityPlaygroundLogic)
+    const { tools } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setTools } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
     const [localToolsJson, setLocalToolsJson] = useState<string | null>(null)
 
@@ -188,8 +188,8 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
 }
 
 function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.Element {
-    const { systemPrompt } = useValues(llmObservabilityPlaygroundLogic)
-    const { setSystemPrompt } = useActions(llmObservabilityPlaygroundLogic)
+    const { systemPrompt } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setSystemPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
 
     return (
@@ -257,7 +257,7 @@ function MessageDisplay({
     index: number
     expandTextAreas: boolean
 }): JSX.Element {
-    const { updateMessage, deleteMessage } = useActions(llmObservabilityPlaygroundLogic)
+    const { updateMessage, deleteMessage } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
 
     const longMessageThreshold = 300
@@ -374,8 +374,8 @@ function MessageDisplay({
 }
 
 function OutputSection(): JSX.Element {
-    const { submitting, currentResponse, lastRunDetails, responseHasError } = useValues(llmObservabilityPlaygroundLogic)
-    const { addResponseToHistory, addCurrentRunToComparison } = useActions(llmObservabilityPlaygroundLogic)
+    const { submitting, currentResponse, lastRunDetails, responseHasError } = useValues(llmAnalyticsPlaygroundLogic)
+    const { addResponseToHistory, addCurrentRunToComparison } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
         <div className="p-4">
@@ -434,10 +434,9 @@ function OutputSection(): JSX.Element {
 }
 
 function ConfigurationPanel(): JSX.Element {
-    const { maxTokens, thinking, reasoningLevel, model, modelOptions, modelOptionsLoading } = useValues(
-        llmObservabilityPlaygroundLogic
-    )
-    const { setMaxTokens, setThinking, setReasoningLevel, setModel } = useActions(llmObservabilityPlaygroundLogic)
+    const { maxTokens, thinking, reasoningLevel, model, modelOptions, modelOptionsLoading } =
+        useValues(llmAnalyticsPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel, setModel } = useActions(llmAnalyticsPlaygroundLogic)
 
     const handleThinkingToggle = (e: React.ChangeEvent<HTMLInputElement>): void => {
         setThinking(e.target.checked)
@@ -523,8 +522,8 @@ function ConfigurationPanel(): JSX.Element {
 }
 
 function ComparisonTablePanel(): JSX.Element {
-    const { comparisonItems } = useValues(llmObservabilityPlaygroundLogic)
-    const { clearComparison } = useActions(llmObservabilityPlaygroundLogic)
+    const { comparisonItems } = useValues(llmAnalyticsPlaygroundLogic)
+    const { clearComparison } = useActions(llmAnalyticsPlaygroundLogic)
 
     const columns: LemonTableColumns<ComparisonItem> = [
         {
@@ -588,12 +587,12 @@ function ComparisonTablePanel(): JSX.Element {
 }
 
 function StickyActionBar(): JSX.Element {
-    const { messages, submitting, model, maxTokens, reasoningLevel } = useValues(llmObservabilityPlaygroundLogic)
-    const { addMessage, clearConversation, submitPrompt } = useActions(llmObservabilityPlaygroundLogic)
+    const { messages, submitting, model, maxTokens, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
+    const { addMessage, clearConversation, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showConfigModal, setShowConfigModal] = useState(false)
 
     const scrollToTop = (): void => {
-        const element = document.querySelector('[data-attr="llm-observability-tabs"]') as HTMLElement
+        const element = document.querySelector('[data-attr="llm-analytics-tabs"]') as HTMLElement
         element?.scrollIntoView({ behavior: 'smooth' })
     }
 

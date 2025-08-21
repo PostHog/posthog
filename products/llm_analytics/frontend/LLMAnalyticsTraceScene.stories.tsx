@@ -7,11 +7,11 @@ import { urls } from 'scenes/urls'
 import { useStorybookMocks } from '~/mocks/browser'
 import { LLMTrace } from '~/queries/schema/schema-general'
 
-import { LLMObservabilityTraceScene } from './LLMObservabilityTraceScene'
+import { LLMAnalyticsTraceScene } from './LLMAnalyticsTraceScene'
 import fullTrace from './__mocks__/fullTrace.json'
 
 const meta: Meta = {
-    title: 'Scenes-App/LLM Observability/Trace',
+    title: 'Scenes-App/LLM Analytics/Trace',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -29,13 +29,13 @@ const Template: StoryFn<{ trace: LLMTrace; eventId?: string }> = ({ trace, event
 
     useOnMountEffect(() => {
         router.actions.push(
-            urls.llmObservabilityTrace(trace.id, eventId ? { event: eventId, timestamp: trace.createdAt } : undefined)
+            urls.llmAnalyticsTrace(trace.id, eventId ? { event: eventId, timestamp: trace.createdAt } : undefined)
         )
     })
 
     return (
         <div className="relative flex flex-col p-4">
-            <LLMObservabilityTraceScene />
+            <LLMAnalyticsTraceScene />
         </div>
     )
 }

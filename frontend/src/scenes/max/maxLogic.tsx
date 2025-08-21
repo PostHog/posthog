@@ -551,7 +551,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I set up the error tracking in…',
             },
             {
-                content: 'How can I set up the LLM Observability in…',
+                content: 'How can I set up the LLM Analytics in…',
             },
             {
                 content: 'How can I set up the product analytics in…',
