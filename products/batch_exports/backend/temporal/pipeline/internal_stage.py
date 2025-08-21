@@ -30,7 +30,7 @@ from posthog.temporal.common.clickhouse import (
     get_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -52,7 +52,7 @@ from products.batch_exports.backend.temporal.sql import (
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
-LOGGER = get_logger()
+LOGGER = get_write_only_logger()
 
 
 def _get_s3_endpoint_url() -> str:
