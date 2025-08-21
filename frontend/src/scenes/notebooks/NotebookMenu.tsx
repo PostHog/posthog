@@ -7,6 +7,7 @@ import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@po
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
@@ -57,6 +58,12 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             router.actions.push(urls.notebooks())
                         },
                     },
+                {
+                    label: () => (
+                        <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
+                    ),
+                    key: 'sync-info',
+                },
             ]}
         >
             <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
