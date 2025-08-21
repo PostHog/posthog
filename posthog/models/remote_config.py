@@ -341,9 +341,16 @@ class RemoteConfig(UUIDTModel):
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
         except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
+            # Try to find the team and create RemoteConfig if it exists
+            try:
+                from posthog.models.team import Team
+
+                team = Team.objects.get(api_token=token)
+                remote_config = cls(team=team)  # type: ignore[assignment]
+            except Team.DoesNotExist:
+                cache.set(key, "404", timeout=CACHE_TIMEOUT)
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
+                raise cls.DoesNotExist()
 
         data = remote_config.build_config()
         cache.set(key, data, timeout=CACHE_TIMEOUT)
@@ -468,33 +475,34 @@ def _update_team_remote_config(team_id: int):
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    _update_team_remote_config(instance.id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.id))
 
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    # Use transaction.on_commit to ensure cache update happens after DB transaction commits
-    # This prevents race condition where cache sees stale database state
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=PluginConfig)
 def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
-    if instance.team_id:
-        _update_team_remote_config(instance.team_id)
+    # PluginConfig allows null for team, hence this check.
+    # Use intermediate variable so it's properly captured by the lambda.
+    instance_team_id = instance.team_id
+    if instance_team_id is not None:
+        transaction.on_commit(lambda: _update_team_remote_config(instance_team_id))
 
 
 @receiver(post_save, sender=HogFunction)
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
     if instance.enabled and instance.type in ("site_destination", "site_app"):
-        _update_team_remote_config(instance.team_id)
+        transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
