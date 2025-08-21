@@ -29,6 +29,7 @@ import {
 
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -147,6 +148,7 @@ interface MessageGroupProps {
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
+    const { minimalHedgehogConfig } = useValues(hedgehogModeLogic)
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
@@ -158,7 +160,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     user={
                         groupType === 'human'
                             ? { ...user, hedgehog_config: undefined }
-                            : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
+                            : { hedgehog_config: minimalHedgehogConfig }
                     }
                     size="lg"
                     className="hidden @md/thread:flex mt-1 border"

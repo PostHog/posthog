@@ -7,10 +7,10 @@ import { useEffect, useRef } from 'react'
 import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
-import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
@@ -41,10 +41,10 @@ export const SIDE_PANEL_TABS: Record<
     [SidePanelTab.Max]: {
         label: 'Max AI',
         Icon: function IconMaxFromHedgehogConfig() {
-            const { user } = useValues(userLogic)
+            const { minimalHedgehogConfig } = useValues(hedgehogModeLogic)
             return (
                 <ProfilePicture
-                    user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
+                    user={{ hedgehog_config: minimalHedgehogConfig }}
                     size="md"
                     className="border bg-bg-light -scale-x-100" // Flip the hedegehog to face the scene
                 />

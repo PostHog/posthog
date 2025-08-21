@@ -10,7 +10,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { SidePanelTab } from '~/types'
+import { MinimalHedgehogConfig, SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -78,6 +78,13 @@ export function MaxTool({
         deregisterTool,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const forcedHedeghogProfile: MinimalHedgehogConfig = {
+        use_as_profile: true,
+        color: user?.hedgehog_config?.actor_options?.color,
+        skin: user?.hedgehog_config?.actor_options?.skin,
+        accessories: user?.hedgehog_config?.actor_options?.accessories,
+    }
+
     let content: JSX.Element
     if (!isMaxAvailable) {
         content = <>{typeof Children === 'function' ? <Children toolAvailable={false} /> : Children}</>
@@ -122,7 +129,7 @@ export function MaxTool({
                             <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--primary-3000)" />
                         </svg>
                         <ProfilePicture
-                            user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
+                            user={{ hedgehog_config: forcedHedeghogProfile }}
                             size="md"
                             className="bg-bg-light"
                         />
