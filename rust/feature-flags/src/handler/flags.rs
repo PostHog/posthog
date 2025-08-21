@@ -83,7 +83,7 @@ fn detect_evaluation_runtime_from_request(
         {
             return Some(EvaluationRuntime::Server);
         }
-        
+
         // Mobile SDK patterns - these indicate client-side mobile execution
         if user_agent.starts_with("posthog-android/")
             || user_agent.starts_with("posthog-ios/")
@@ -129,7 +129,7 @@ fn detect_evaluation_runtime_from_request(
 /// Filters flags to only include those that can be evaluated in the current runtime.
 /// If no runtime is specified for a flag (evaluation_runtime is None), it's included
 /// to maintain backward compatibility.
-/// 
+///
 /// Note: When specific flags are requested via flag_keys, they will be evaluated
 /// after this runtime filtering step. The runtime filter helps prevent unnecessary
 /// evaluation of flags that don't match the current runtime environment.
@@ -515,8 +515,7 @@ mod tests {
             assert_eq!(
                 result,
                 Some(EvaluationRuntime::Server),
-                "SDK {} should be detected as server-side",
-                sdk
+                "SDK {sdk} should be detected as server-side"
             );
         }
     }
@@ -538,8 +537,7 @@ mod tests {
             assert_eq!(
                 result,
                 Some(EvaluationRuntime::Client),
-                "Browser pattern {} should be detected as client-side",
-                pattern
+                "Browser pattern {pattern} should be detected as client-side"
             );
         }
     }
@@ -550,7 +548,7 @@ mod tests {
         // When specific flags are requested via flag_keys (flags_to_evaluate),
         // they still need to respect runtime filtering for security/correctness.
         // Only flags that match the runtime should be evaluated.
-        
+
         let flags = vec![
             create_test_flag(1, "client-flag", Some("client".to_string())),
             create_test_flag(2, "server-flag", Some("server".to_string())),
@@ -572,7 +570,7 @@ mod tests {
     fn test_runtime_filtering_takes_precedence_over_flag_keys() {
         // This test verifies that runtime filtering happens BEFORE flag_keys filtering
         // So if a client explicitly requests a server-only flag, they won't get it
-        
+
         // Create flags with different runtime requirements
         let all_flags = vec![
             create_test_flag(1, "client-only-flag", Some("client".to_string())),
@@ -580,11 +578,11 @@ mod tests {
             create_test_flag(3, "all-flag", Some("all".to_string())),
             create_test_flag(4, "no-runtime-flag", None),
         ];
-        
+
         // Simulate a client runtime
         let client_runtime = Some(EvaluationRuntime::Client);
         let filtered = filter_flags_by_runtime(all_flags.clone(), client_runtime);
-        
+
         // Client should get: client-only-flag, all-flag, no-runtime-flag
         // But NOT server-only-flag
         assert_eq!(filtered.len(), 3);
@@ -592,11 +590,11 @@ mod tests {
         assert!(filtered.iter().any(|f| f.key == "all-flag"));
         assert!(filtered.iter().any(|f| f.key == "no-runtime-flag"));
         assert!(!filtered.iter().any(|f| f.key == "server-only-flag"));
-        
+
         // Simulate a server runtime
         let server_runtime = Some(EvaluationRuntime::Server);
         let filtered = filter_flags_by_runtime(all_flags.clone(), server_runtime);
-        
+
         // Server should get: server-only-flag, all-flag, no-runtime-flag
         // But NOT client-only-flag
         assert_eq!(filtered.len(), 3);
@@ -604,7 +602,7 @@ mod tests {
         assert!(filtered.iter().any(|f| f.key == "all-flag"));
         assert!(filtered.iter().any(|f| f.key == "no-runtime-flag"));
         assert!(!filtered.iter().any(|f| f.key == "client-only-flag"));
-        
+
         // Note: Even if flag_keys explicitly requests a server-only flag from a client,
         // the runtime filter will prevent it from being evaluated
     }
