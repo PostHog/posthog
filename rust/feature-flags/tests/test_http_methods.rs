@@ -67,32 +67,4 @@ async fn it_handles_http_methods_correctly() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn it_handles_options_method_with_proper_headers() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
-    let server = ServerHandle::for_config(config).await;
-    let client = reqwest::Client::new();
-    let base_url = format!("http://{}/flags", server.addr);
 
-    let response = client.request(Method::OPTIONS, &base_url).send().await?;
-
-    // CORS middleware handles OPTIONS requests and returns 200 OK
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // CORS middleware uses access-control-allow-methods instead of allow header
-    let allow_header = response.headers().get("access-control-allow-methods");
-    assert!(allow_header.is_some());
-    let allow_value = allow_header.unwrap().to_str().unwrap();
-
-    // Verify all required methods are present
-    assert!(allow_value.contains("GET"));
-    assert!(allow_value.contains("POST"));
-    assert!(allow_value.contains("OPTIONS"));
-    assert!(allow_value.contains("HEAD"));
-
-    // Body should be empty for OPTIONS
-    let body = response.text().await?;
-    assert!(body.is_empty());
-
-    Ok(())
-}

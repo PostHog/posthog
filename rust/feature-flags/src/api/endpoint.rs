@@ -102,11 +102,12 @@ pub async fn flags(
             // POST requests continue with full processing logic below
         }
         Method::HEAD => {
-            // HEAD should return the same headers as GET but without body
-            let mut response =
-                (StatusCode::OK, [("content-type", "application/json")]).into_response();
-            // Clear the body for HEAD requests
-            *response.body_mut() = axum::body::Body::empty();
+            // HEAD returns the same headers as GET but without body
+            let response = (
+                StatusCode::OK,
+                [("content-type", "application/json")],
+                axum::body::Body::empty(),
+            ).into_response();
             return Ok(response);
         }
         Method::OPTIONS => {
