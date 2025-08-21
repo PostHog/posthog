@@ -10,14 +10,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import {
-    BillingPeriod,
-    DataWarehouseActivityRecord,
-    DataWarehouseDailyRowsBreakdown,
-    DataWarehouseDashboardDataSource,
-    DataWarehouseSourceRowCount,
-    ExternalDataSource,
-} from '~/types'
+import { DataWarehouseActivityRecord, DataWarehouseDailyRowsBreakdown, DataWarehouseSourceRowCount } from '~/types'
 
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
@@ -54,6 +47,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         loadMoreRecentActivity: true,
         setActivityCurrentPage: (page: number) => ({ page }),
         checkAutoLoadMore: true,
+        loadDailyBreakdown: true,
+        setSelectedDate: (date) => ({ date }),
+        setSelectedRows: (rows) => ({ rows }),
+        clearModal: true,
     }),
     loaders(() => ({
         totalRowsStats: [
@@ -72,6 +69,14 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 },
             },
         ],
+        dailyBreakdownData: [
+            null as DataWarehouseDailyRowsBreakdown | null,
+            {
+                loadDailyBreakdown: async () => {
+                    return await api.dataWarehouse.breakdownOfRowsSyncedByDayInBillingPeriod()
+                },
+            },
+        ],
     })),
     reducers(() => ({
         activityCurrentPage: [
@@ -86,6 +91,20 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             {
                 loadMoreRecentActivity: () => true,
                 loadRecentActivityResponseSuccess: () => false,
+            },
+        ],
+        selectedDate: [
+            null as string | null,
+            {
+                setSelectedDate: (_, { date }) => date,
+                clearModal: () => null,
+            },
+        ],
+        selectedRows: [
+            null as number | null,
+            {
+                setSelectedRows: (_, { rows }) => rows,
+                clearModal: () => null,
             },
         ],
     })),
@@ -116,42 +135,31 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 s.billingPeriodUTC,
                 s.totalRowsStats,
             ],
-            (
-                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                recentActivity: DataWarehouseActivityRecord[],
-                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
-                billingPeriodUTC: BillingPeriod,
-                totalRowsStats: DataWarehouseSourceRowCount
-            ): DataWarehouseDashboardDataSource[] => {
-                const billingPeriodStart = billingPeriodUTC?.start
-                const billingPeriodEnd = billingPeriodUTC?.end
-
-                const managed: DataWarehouseDashboardDataSource[] = (dataWarehouseSources?.results || []).map(
-                    (source: ExternalDataSource): DataWarehouseDashboardDataSource => {
-                        const sourceActivities = (recentActivity || []).filter(
+            (dataWarehouseSources, recentActivity, selfManagedTables, billingPeriodUTC, totalRowsStats) => {
+                const managed = (dataWarehouseSources?.results || []).map((source) => {
+                    const activities =
+                        recentActivity?.filter(
                             (a) =>
-                                !billingPeriodStart ||
-                                !billingPeriodEnd ||
-                                (dayjs(a.created_at).isAfter(billingPeriodStart.subtract(1, 'millisecond')) &&
-                                    dayjs(a.created_at).isBefore(billingPeriodEnd))
-                        )
-                        const totalRows = totalRowsStats?.breakdown_of_rows_by_source?.[source.id] ?? 0
-                        const sortedActivities = sourceActivities.sort(
-                            (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
-                        )
-                        const lastSync = sortedActivities.length > 0 ? sortedActivities[0].created_at : null
-                        return {
-                            id: source.id,
-                            name: source.source_type,
-                            status: source.status,
-                            lastSync,
-                            rowCount: totalRows,
-                            url: urls.dataWarehouseSource(`managed-${source.id}`),
-                        }
+                                !billingPeriodUTC ||
+                                !billingPeriodUTC.start ||
+                                !billingPeriodUTC.end ||
+                                (dayjs(a.created_at).isAfter(billingPeriodUTC.start.subtract(1, 'millisecond')) &&
+                                    dayjs(a.created_at).isBefore(billingPeriodUTC.end))
+                        ) || []
+                    const lastSync =
+                        activities.sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf())[0]
+                            ?.created_at || null
+                    return {
+                        id: source.id,
+                        name: source.source_type,
+                        status: source.status,
+                        lastSync,
+                        rowCount: totalRowsStats?.breakdown_of_rows_by_source?.[source.id] ?? 0,
+                        url: urls.dataWarehouseSource(`managed-${source.id}`),
                     }
-                )
+                })
 
-                const selfManaged: DataWarehouseDashboardDataSource[] = (selfManagedTables || []).map((table) => ({
+                const selfManaged = (selfManagedTables || []).map((table) => ({
                     id: table.id,
                     name: table.name,
                     status: null,
@@ -165,23 +173,21 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
         activityPaginationState: [
             (s) => [s.recentActivity, s.activityCurrentPage],
-            (recentActivity: DataWarehouseActivityRecord[], activityCurrentPage: number) => {
+            (recentActivity, activityCurrentPage) => {
                 const pageSize = 5
-                const totalData = recentActivity.length
-                const pageCount = Math.ceil(totalData / pageSize)
                 const startIndex = (activityCurrentPage - 1) * pageSize
-                const endIndex = Math.min(startIndex + pageSize, totalData)
-                const dataSourcePage = recentActivity.slice(startIndex, endIndex)
+                const endIndex = Math.min(startIndex + pageSize, recentActivity.length)
+                const pageCount = Math.ceil(recentActivity.length / pageSize)
 
                 return {
                     currentPage: activityCurrentPage,
                     pageCount,
-                    dataSourcePage,
+                    dataSourcePage: recentActivity.slice(startIndex, endIndex),
                     currentStartIndex: startIndex,
                     currentEndIndex: endIndex,
-                    entryCount: totalData,
+                    entryCount: recentActivity.length,
                     isOnLastPage: activityCurrentPage === pageCount,
-                    hasDataOnCurrentPage: dataSourcePage.length > 0,
+                    hasDataOnCurrentPage: endIndex > startIndex,
                 }
             },
         ],
@@ -203,6 +209,104 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (databaseLoading: boolean, dataWarehouseSourcesLoading: boolean): boolean => {
                 return databaseLoading || dataWarehouseSourcesLoading
             },
+        ],
+        dailyRowsSyncedData: [
+            (s) => [s.dailyBreakdownData],
+            (dailyBreakdownData): DailyRowsSyncedData[] => {
+                if (!dailyBreakdownData?.billing_available) {
+                    return []
+                }
+
+                const billingStart = dayjs(dailyBreakdownData.billing_period_start)
+                const billingEnd = dayjs(dailyBreakdownData.billing_period_end)
+                const today = dayjs()
+
+                if (!billingStart.isValid() || !billingEnd.isValid()) {
+                    return []
+                }
+
+                const dailyData = new Map<string, number | null>()
+                for (let d = billingStart; d.isSameOrBefore(billingEnd, 'day'); d = d.add(1, 'day')) {
+                    dailyData.set(d.format('YYYY-MM-DD'), d.isAfter(today, 'day') ? null : 0)
+                }
+
+                dailyBreakdownData.breakdown_of_rows_by_day?.forEach(({ date, rows_synced }) => {
+                    if (dayjs(date).isSameOrBefore(today, 'day')) {
+                        dailyData.set(date, rows_synced)
+                    }
+                })
+
+                return Array.from(dailyData.entries())
+                    .map(([date, rows_synced]) => ({ date, rows_synced }))
+                    .sort((a, b) => dayjs(a.date).unix() - dayjs(b.date).unix())
+            },
+        ],
+        hasData: [
+            (s) => [s.dailyRowsSyncedData],
+            (dailyData) => dailyData.some((item) => item.rows_synced && item.rows_synced > 0),
+        ],
+        totalRowsInPeriod: [
+            (s) => [s.dailyRowsSyncedData],
+            (dailyData) => dailyData.reduce((sum, item) => sum + (item.rows_synced || 0), 0),
+        ],
+        selectedDateBreakdown: [
+            (s) => [s.dailyBreakdownData, s.selectedDate],
+            (dailyBreakdownData, selectedDate) => {
+                if (!dailyBreakdownData?.breakdown_of_rows_by_day || !selectedDate) {
+                    return null
+                }
+                return (
+                    dailyBreakdownData.breakdown_of_rows_by_day.find((breakdown) => breakdown.date === selectedDate) ||
+                    null
+                )
+            },
+        ],
+        activitySummary: [
+            (s) => [s.selectedDateBreakdown],
+            (dateBreakdown) => {
+                if (!dateBreakdown?.runs) {
+                    return null
+                }
+
+                const runs = dateBreakdown.runs.sort(
+                    (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
+                )
+                const runsBySource = runs.reduce((acc: Record<string, any>, run) => {
+                    const source = run.source_type || 'Unknown'
+                    if (!acc[source]) {
+                        acc[source] = { count: 0, rows: 0, schemas: new Set() }
+                    }
+                    acc[source].count += 1
+                    acc[source].rows += run.rows_synced || 0
+                    acc[source].schemas.add(run.schema_name)
+                    return acc
+                }, {})
+
+                const timeSpanMinutes =
+                    runs.length > 1
+                        ? Math.round(dayjs(runs[0].created_at).diff(dayjs(runs[runs.length - 1].created_at), 'minute'))
+                        : 0
+
+                return {
+                    totalRuns: runs.length,
+                    avgRowsPerRun: runs.length
+                        ? Math.round(runs.reduce((sum, run) => sum + (run.rows_synced || 0), 0) / runs.length)
+                        : 0,
+                    runsBySource: Object.fromEntries(
+                        Object.entries(runsBySource).map(([source, data]: [string, any]) => [
+                            source,
+                            { ...data, schemas: Array.from(data.schemas) },
+                        ])
+                    ),
+                    runs: runs.slice(0, 10),
+                    hasMultipleSources: Object.keys(runsBySource).length > 1,
+                    timeSpanMinutes,
+                }
+            },
+        ],
+        modalTitle: [
+            (s) => [s.selectedDate],
+            (selectedDate) => (selectedDate ? `Sync Activity - ${dayjs(selectedDate).format('MMM D, YYYY')}` : ''),
         ],
     }),
     listeners(({ cache, values, actions }) => ({
@@ -247,198 +351,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions.loadSources(null)
         actions.loadRecentActivityResponse()
         actions.loadTotalRowsStats()
+        actions.loadDailyBreakdown()
     }),
     beforeUnmount(({ cache }) => {
         clearTimeout(cache.refreshTimeout)
-    }),
-])
-
-export const dataWarehouseRowsSyncedGraphLogic = kea([
-    path(['scenes', 'data-warehouse', 'dataWarehouseRowsSyncedGraphLogic']),
-    actions({
-        loadDailyBreakdown: true,
-        setSelectedDate: (date) => ({ date }),
-        setSelectedRows: (rows) => ({ rows }),
-        clearModal: true,
-    }),
-    loaders(() => ({
-        dailyBreakdownData: [
-            null as DataWarehouseDailyRowsBreakdown | null,
-            {
-                loadDailyBreakdown: async () => {
-                    return await api.dataWarehouse.breakdownOfRowsSyncedByDayInBillingPeriod()
-                },
-            },
-        ],
-    })),
-    reducers(() => ({
-        selectedDate: [
-            null as string | null,
-            {
-                setSelectedDate: (_, { date }) => date,
-                clearModal: () => null,
-            },
-        ],
-        selectedRows: [
-            null as number | null,
-            {
-                setSelectedRows: (_, { rows }) => rows,
-                clearModal: () => null,
-            },
-        ],
-    })),
-    selectors({
-        dailyRowsSyncedData: [
-            (s: any) => [s.dailyBreakdownData],
-            (dailyBreakdownData: DataWarehouseDailyRowsBreakdown | null): DailyRowsSyncedData[] => {
-                if (!dailyBreakdownData?.billing_available) {
-                    return []
-                }
-
-                const billingStart = dayjs(dailyBreakdownData.billing_period_start)
-                const billingEnd = dayjs(dailyBreakdownData.billing_period_end)
-                const today = dayjs()
-
-                if (!billingStart.isValid() || !billingEnd.isValid()) {
-                    return []
-                }
-
-                const dailyData = new Map<string, number | null>()
-                let currentDate = billingStart
-
-                while (currentDate.isSameOrBefore(billingEnd, 'day')) {
-                    const isFutureDate = currentDate.isAfter(today, 'day')
-                    dailyData.set(currentDate.format('YYYY-MM-DD'), isFutureDate ? null : 0)
-                    currentDate = currentDate.add(1, 'day')
-                }
-
-                if (dailyBreakdownData.breakdown_of_rows_by_day) {
-                    dailyBreakdownData.breakdown_of_rows_by_day.forEach(({ date, rows_synced }) => {
-                        const dateObj = dayjs(date)
-                        if (dateObj.isSameOrBefore(today, 'day')) {
-                            dailyData.set(date, rows_synced)
-                        }
-                    })
-                }
-
-                return Array.from(dailyData.entries())
-                    .map(([date, rows_synced]) => ({ date, rows_synced }))
-                    .sort((a, b) => dayjs(a.date).unix() - dayjs(b.date).unix())
-            },
-        ],
-        hasData: [
-            (s: any) => [s.dailyRowsSyncedData],
-            (dailyData: DailyRowsSyncedData[]): boolean =>
-                dailyData.some((item) => item.rows_synced && item.rows_synced > 0),
-        ],
-        totalRowsInPeriod: [
-            (s: any) => [s.dailyRowsSyncedData],
-            (dailyData: DailyRowsSyncedData[]): number =>
-                dailyData.reduce((sum, item) => sum + (item.rows_synced || 0), 0),
-        ],
-        selectedDateBreakdown: [
-            (s: any) => [s.dailyBreakdownData, s.selectedDate],
-            (dailyBreakdownData: DataWarehouseDailyRowsBreakdown | null, selectedDate: string | null) => {
-                if (!dailyBreakdownData?.breakdown_of_rows_by_day || !selectedDate) {
-                    return null
-                }
-                return (
-                    dailyBreakdownData.breakdown_of_rows_by_day.find((breakdown) => breakdown.date === selectedDate) ||
-                    null
-                )
-            },
-        ],
-        activitySummary: [
-            (s: any) => [s.selectedDateBreakdown],
-            (
-                dateBreakdown: {
-                    date: string
-                    rows_synced: number
-                    runs: Array<{
-                        id: string
-                        rows_synced: number
-                        status: string
-                        created_at: string
-                        finished_at: string | null
-                        schema_name: string
-                        source_type: string
-                        workflow_run_id: string
-                    }>
-                } | null
-            ) => {
-                if (!dateBreakdown) {
-                    return null
-                }
-
-                const runs = dateBreakdown.runs || []
-                const totalRowsProcessed = runs.reduce((sum, run) => sum + (run.rows_synced || 0), 0)
-                const sortedRuns = runs.sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf())
-
-                const runsBySource = runs.reduce(
-                    (acc, run) => {
-                        const sourceName = run.source_type || 'Unknown'
-                        if (!acc[sourceName]) {
-                            acc[sourceName] = { count: 0, rows: 0, schemas: new Set<string>() }
-                        }
-                        acc[sourceName].count += 1
-                        acc[sourceName].rows += run.rows_synced || 0
-                        acc[sourceName].schemas.add(run.schema_name)
-                        return acc
-                    },
-                    {} as Record<string, { count: number; rows: number; schemas: Set<string> }>
-                )
-
-                const statusCounts = runs.reduce(
-                    (acc, run) => {
-                        const status = run.status?.toLowerCase() || 'unknown'
-                        acc[status] = (acc[status] || 0) + 1
-                        return acc
-                    },
-                    {} as Record<string, number>
-                )
-
-                const avgRowsPerRun = runs.length > 0 ? Math.round(totalRowsProcessed / runs.length) : 0
-                const timeSpan =
-                    runs.length > 1
-                        ? dayjs(sortedRuns[0].created_at).diff(
-                              dayjs(sortedRuns[sortedRuns.length - 1].created_at),
-                              'minute'
-                          )
-                        : 0
-
-                return {
-                    date: dateBreakdown.date,
-                    totalRowsSynced: dateBreakdown.rows_synced,
-                    totalRuns: runs.length,
-                    totalRowsProcessed,
-                    avgRowsPerRun,
-                    timeSpanMinutes: timeSpan,
-                    runsBySource: Object.fromEntries(
-                        Object.entries(runsBySource).map(([source, data]) => [
-                            source,
-                            { ...data, schemas: Array.from(data.schemas) },
-                        ])
-                    ),
-                    statusCounts,
-                    runs: sortedRuns,
-                    hasMultipleSources: Object.keys(runsBySource).length > 1,
-                    mostActiveSource: Object.entries(runsBySource).sort((a, b) => b[1].rows - a[1].rows)[0]?.[0],
-                    hasActivityData: runs.length > 0,
-                    formattedDate: dayjs(dateBreakdown.date).format('MMM D, YYYY'),
-                }
-            },
-        ],
-        modalTitle: [
-            (s: any) => [s.selectedDate],
-            (selectedDate: string | null): string => {
-                if (!selectedDate) {
-                    return ''
-                }
-                return `Sync Activity - ${dayjs(selectedDate).format('MMM D, YYYY')}`
-            },
-        ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadDailyBreakdown()
     }),
 ])

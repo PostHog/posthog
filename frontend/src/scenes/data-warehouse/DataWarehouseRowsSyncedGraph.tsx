@@ -1,14 +1,50 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { Chart, ChartDataset, ChartOptions } from 'lib/Chart'
+import { Chart } from 'lib/Chart'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
-import { DailyRowsSyncedData, dataWarehouseRowsSyncedGraphLogic } from './dataWarehouseSceneLogic'
+import { DailyRowsSyncedData, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseSourceIcon } from './settings/DataWarehouseSourceIcon'
+
+const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: false },
+        tooltip: {
+            backgroundColor: 'rgba(17, 24, 39, 0.95)',
+            titleColor: '#ffffff',
+            bodyColor: '#ffffff',
+            borderColor: '#111827',
+            borderWidth: 1,
+            cornerRadius: 12,
+            displayColors: false,
+            padding: 12,
+        },
+    },
+    scales: {
+        x: {
+            grid: { color: 'rgba(17, 24, 39, 0.08)', lineWidth: 0.5 },
+            ticks: { maxTicksLimit: 8, color: '#6b7280', padding: 8 },
+            border: { display: false },
+        },
+        y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(17, 24, 39, 0.08)', lineWidth: 0.5 },
+            ticks: { color: '#6b7280', padding: 8, maxTicksLimit: 6 },
+            border: { display: false },
+        },
+    },
+    interaction: { intersect: false, mode: 'index' as const },
+    elements: { point: { hoverRadius: 8, hoverBorderWidth: 3 } },
+    animation: { duration: 1000, easing: 'easeOutQuart' as const },
+    hover: { mode: 'index' as const, intersect: false },
+    layout: { padding: 20 },
+}
 
 function SimpleLineChart({
     data,
@@ -29,145 +65,80 @@ function SimpleLineChart({
             chartRef.current.destroy()
         }
 
-        const chartData = {
-            labels: data.map((d) => dayjs(d.date).format('MMM D')),
-            datasets: [
-                {
-                    label: 'Rows synced',
-                    data: data.map((d) => d.rows_synced),
-                    borderColor: '#111827',
-                    borderWidth: 2,
-                    pointRadius: 6,
-                    pointHoverRadius: 8,
-                    pointBackgroundColor: '#111827',
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    tension: 0.3,
-                    fill: false,
-                    spanGaps: true,
-                    pointHitRadius: 10,
-                    pointHoverBackgroundColor: '#ffffff',
-                    pointHoverBorderColor: '#111827',
-                } as ChartDataset<'line'>,
-            ],
-        }
-
-        const options: ChartOptions<'line'> = {
-            responsive: true,
-            maintainAspectRatio: false,
-            onClick: (_event, elements) => {
+        const options = {
+            ...chartOptions,
+            onClick: (_: any, elements: any[]) => {
                 if (elements.length > 0) {
-                    const element = elements[0]
-                    const dataIndex = element.index
-                    const date = data[dataIndex].date
-                    const rows = data[dataIndex].rows_synced
-                    onPointClick(date, rows)
+                    const { index } = elements[0]
+                    onPointClick(data[index].date, data[index].rows_synced)
                 }
             },
             plugins: {
-                legend: { display: false },
+                ...chartOptions.plugins,
                 tooltip: {
-                    backgroundColor: 'rgba(17, 24, 39, 0.95)',
-                    titleColor: '#ffffff',
-                    bodyColor: '#ffffff',
-                    borderColor: '#111827',
-                    borderWidth: 1,
-                    cornerRadius: 12,
-                    displayColors: false,
-                    padding: 12,
+                    ...chartOptions.plugins.tooltip,
                     callbacks: {
-                        title: (context) => dayjs(data[context[0].dataIndex].date).format('MMM D, YYYY'),
-                        label: (context) => {
-                            const value = context.parsed.y
-                            return value === null ? 'No data' : `${value} rows synced`
-                        },
+                        title: (context: any) => dayjs(data[context[0].dataIndex].date).format('MMM D, YYYY'),
+                        label: (context: any) =>
+                            context.parsed.y === null ? 'No data' : `${context.parsed.y} rows synced`,
                     },
-                },
-            },
-            scales: {
-                x: {
-                    display: true,
-                    grid: {
-                        display: true,
-                        color: 'rgba(17, 24, 39, 0.08)',
-                        lineWidth: 0.5,
-                    },
-                    ticks: {
-                        maxTicksLimit: 8,
-                        color: '#6b7280',
-                        padding: 8,
-                    },
-                    border: { display: false },
-                },
-                y: {
-                    display: true,
-                    beginAtZero: true,
-                    grid: {
-                        color: 'rgba(17, 24, 39, 0.08)',
-                        lineWidth: 0.5,
-                    },
-                    ticks: {
-                        callback: (value) => (value === null ? '' : (value as number)),
-                        color: '#6b7280',
-                        padding: 8,
-                        maxTicksLimit: 6,
-                    },
-                    border: { display: false },
-                },
-            },
-            interaction: {
-                intersect: false,
-                mode: 'index',
-            },
-            elements: {
-                point: {
-                    hoverRadius: 8,
-                    hoverBorderWidth: 3,
-                },
-            },
-            animation: {
-                duration: 1000,
-                easing: 'easeOutQuart',
-            },
-            hover: {
-                mode: 'index',
-                intersect: false,
-            },
-            layout: {
-                padding: {
-                    top: 20,
-                    right: 20,
-                    bottom: 20,
-                    left: 20,
                 },
             },
         }
 
         chartRef.current = new Chart(canvasRef.current, {
             type: 'line',
-            data: chartData,
+            data: {
+                labels: data.map((d) => dayjs(d.date).format('MMM D')),
+                datasets: [
+                    {
+                        label: 'Rows synced',
+                        data: data.map((d) => d.rows_synced),
+                        borderColor: '#111827',
+                        borderWidth: 2,
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        pointBackgroundColor: '#111827',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        spanGaps: true,
+                        pointHitRadius: 10,
+                        pointHoverBackgroundColor: '#ffffff',
+                        pointHoverBorderColor: '#111827',
+                    },
+                ],
+            },
             options,
         })
 
-        return () => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-            }
-        }
-    }, [data, onPointClick])
+        return () => chartRef.current?.destroy()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data])
 
     return <canvas ref={canvasRef} />
 }
 
 export function DataWarehouseRowsSyncedGraph(): JSX.Element {
-    const { dailyRowsSyncedData, hasData, dailyBreakdownDataLoading, selectedDate, selectedRows, activitySummary } =
-        useValues(dataWarehouseRowsSyncedGraphLogic)
-    const { setSelectedDate, setSelectedRows } = useActions(dataWarehouseRowsSyncedGraphLogic)
+    const {
+        dailyRowsSyncedData,
+        hasData,
+        dailyBreakdownDataLoading,
+        selectedDate,
+        selectedRows,
+        activitySummary,
+        modalTitle,
+    } = useValues(dataWarehouseSceneLogic)
+    const { setSelectedDate, setSelectedRows } = useActions(dataWarehouseSceneLogic)
 
-    const handlePointClick = (date: string, rows: number | null): void => {
-        setSelectedDate(date)
-        setSelectedRows(rows)
-    }
+    const handlePointClick = useCallback(
+        (date: string, rows: number | null) => {
+            setSelectedDate(date)
+            setSelectedRows(rows)
+        },
+        [setSelectedDate, setSelectedRows]
+    )
 
     return (
         <>
@@ -205,12 +176,7 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                 </div>
             </div>
 
-            <LemonModal
-                isOpen={!!selectedDate}
-                onClose={() => setSelectedDate(null)}
-                title={selectedDate ? `Sync Activity - ${dayjs(selectedDate).format('MMM D, YYYY')}` : 'Sync Activity'}
-                width={600}
-            >
+            <LemonModal isOpen={!!selectedDate} onClose={() => setSelectedDate(null)} title={modalTitle} width={600}>
                 <div className="space-y-6">
                     {selectedRows === null ? (
                         <div className="text-center py-8">
@@ -234,30 +200,23 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                                         <div>
                                             <h4 className="font-semibold mb-3">Sources</h4>
                                             <div className="space-y-2">
-                                                {Object.entries(activitySummary.runsBySource).map(([source, data]) => {
-                                                    const sourceData = data as {
-                                                        count: number
-                                                        rows: number
-                                                        schemas: string[]
-                                                    }
-                                                    return (
-                                                        <div
-                                                            key={source}
-                                                            className="flex items-center justify-between p-3 bg-bg-light rounded border"
-                                                        >
-                                                            <div className="flex-1">
-                                                                <div className="font-medium text-default">{source}</div>
-                                                                <div className="text-sm text-muted">
-                                                                    {sourceData.schemas.join(', ')}
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-sm text-muted flex items-center gap-3">
-                                                                <span>{sourceData.count} jobs</span>
-                                                                <span>• {sourceData.rows} rows</span>
+                                                {Object.entries(activitySummary.runsBySource).map(([source, data]) => (
+                                                    <div
+                                                        key={source}
+                                                        className="flex items-center justify-between p-3 bg-bg-light rounded border"
+                                                    >
+                                                        <div className="flex-1">
+                                                            <div className="font-medium text-default">{source}</div>
+                                                            <div className="text-sm text-muted">
+                                                                {(data as any).schemas.join(', ')}
                                                             </div>
                                                         </div>
-                                                    )
-                                                })}
+                                                        <div className="text-sm text-muted flex items-center gap-3">
+                                                            <span>{(data as any).count} jobs</span>
+                                                            <span>• {(data as any).rows} rows</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                     )}
@@ -269,29 +228,27 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                                     )}
 
                                     {activitySummary.runs.length > 0 && (
-                                        <div>
-                                            <div className="space-y-3 max-h-64 overflow-y-auto">
-                                                {activitySummary.runs.slice(0, 10).map((run: any) => (
-                                                    <div
-                                                        key={run.id}
-                                                        className="flex items-center justify-between p-3 bg-bg-light rounded border"
-                                                    >
-                                                        <div className="flex-1">
-                                                            <div className="font-medium text-default flex items-center gap-2">
-                                                                <DataWarehouseSourceIcon
-                                                                    type={run.source_type}
-                                                                    size="xsmall"
-                                                                />{' '}
-                                                                {run.source_type} • {run.schema_name}
-                                                            </div>
-                                                            <div className="text-sm text-muted flex items-center gap-2">
-                                                                <TZLabel time={run.created_at} />
-                                                                <span>• {run.rows_synced} rows</span>
-                                                            </div>
+                                        <div className="space-y-3 max-h-64 overflow-y-auto">
+                                            {activitySummary.runs.slice(0, 10).map((run: any) => (
+                                                <div
+                                                    key={run.id}
+                                                    className="flex items-center justify-between p-3 bg-bg-light rounded border"
+                                                >
+                                                    <div className="flex-1">
+                                                        <div className="font-medium text-default flex items-center gap-2">
+                                                            <DataWarehouseSourceIcon
+                                                                type={run.source_type}
+                                                                size="xsmall"
+                                                            />
+                                                            {run.source_type} • {run.schema_name}
+                                                        </div>
+                                                        <div className="text-sm text-muted flex items-center gap-2">
+                                                            <TZLabel time={run.created_at} />
+                                                            <span>• {run.rows_synced} rows</span>
                                                         </div>
                                                     </div>
-                                                ))}
-                                            </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     )}
                                 </div>
