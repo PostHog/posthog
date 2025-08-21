@@ -52,7 +52,8 @@ async def deliver_subscription_report_async(
     subscription = await database_sync_to_async(
         Subscription.objects.prefetch_related("dashboard__insights")
         .select_related("created_by", "insight", "dashboard")
-        .get
+        .get,
+        thread_sensitive=False,
     )(pk=subscription_id)
 
     is_new_subscription_target = False
@@ -64,7 +65,9 @@ async def deliver_subscription_report_async(
             # Same value as before so nothing to do
             return
 
-    insights, assets = await database_sync_to_async(generate_assets)(subscription, use_celery=False)
+    insights, assets = await database_sync_to_async(generate_assets, thread_sensitive=False)(
+        subscription, use_celery=False
+    )
 
     if not assets:
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
@@ -81,7 +84,7 @@ async def deliver_subscription_report_async(
 
         for email in emails:
             try:
-                await database_sync_to_async(send_email_subscription_report)(
+                await database_sync_to_async(send_email_subscription_report, thread_sensitive=False)(
                     email,
                     subscription,
                     assets,
@@ -105,7 +108,9 @@ async def deliver_subscription_report_async(
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
 
         try:
-            integration = await database_sync_to_async(get_slack_integration_for_team)(subscription.team_id)
+            integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
+                subscription.team_id
+            )
 
             if not integration:
                 logger.error("No Slack integration found for team...")
@@ -135,7 +140,7 @@ async def deliver_subscription_report_async(
 
     if not is_new_subscription_target:
         subscription.set_next_delivery_date(subscription.next_delivery_date)
-        await database_sync_to_async(subscription.save)(update_fields=["next_delivery_date"])
+        await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
 
 
 def deliver_subscription_report_sync(

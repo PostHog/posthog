@@ -17,12 +17,12 @@ import orjson
 import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
-import structlog
 from psycopg import sql
 
+from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.temporal.heartbeat import DateRange
 
-logger = structlog.get_logger()
+logger = get_write_only_logger()
 
 
 def replace_broken_unicode(obj):
