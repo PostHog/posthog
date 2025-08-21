@@ -51,7 +51,7 @@ const loadAppMetricsTimeSeries = async (
     let query = hogql`
         WITH
             ${timezone} AS tz,
-            ${interval}  AS g,
+            ${interval} AS g,
 
             -- Interpret the input bounds in the user's TZ
             toDateTime(${request.dateFrom}, tz) AS from_local,
