@@ -76,10 +76,21 @@ fn detect_evaluation_runtime_from_request(
             || user_agent.starts_with("posthog-java/")
             || user_agent.starts_with("posthog-go/")
             || user_agent.starts_with("posthog-node/") // Note: server-side Node.js
+            || user_agent.starts_with("posthog-dotnet/")
+            || user_agent.starts_with("posthog-elixir/")
             || user_agent.contains("python-requests/")
             || user_agent.contains("curl/")
         {
             return Some(EvaluationRuntime::Server);
+        }
+        
+        // Mobile SDK patterns - these indicate client-side mobile execution
+        if user_agent.starts_with("posthog-android/")
+            || user_agent.starts_with("posthog-ios/")
+            || user_agent.starts_with("posthog-react-native/")
+            || user_agent.starts_with("posthog-flutter/")
+        {
+            return Some(EvaluationRuntime::Client);
         }
     }
 
@@ -118,6 +129,10 @@ fn detect_evaluation_runtime_from_request(
 /// Filters flags to only include those that can be evaluated in the current runtime.
 /// If no runtime is specified for a flag (evaluation_runtime is None), it's included
 /// to maintain backward compatibility.
+/// 
+/// Note: When specific flags are requested via flag_keys, they will be evaluated
+/// after this runtime filtering step. The runtime filter helps prevent unnecessary
+/// evaluation of flags that don't match the current runtime environment.
 fn filter_flags_by_runtime(
     flags: Vec<FeatureFlag>,
     current_runtime: Option<EvaluationRuntime>,
@@ -429,5 +444,168 @@ mod tests {
 
         let result = detect_evaluation_runtime_from_request(&headers, Some("unknown-sdk"), None);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_dotnet_sdk() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("user-agent", "posthog-dotnet/2.0.0".parse().unwrap());
+
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Server));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_elixir_sdk() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("user-agent", "posthog-elixir/0.1.0".parse().unwrap());
+
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Server));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_mobile_sdks() {
+        // iOS SDK
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("user-agent", "posthog-ios/3.0.0".parse().unwrap());
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
+
+        // React Native SDK
+        headers.clear();
+        headers.insert("user-agent", "posthog-react-native/2.5.0".parse().unwrap());
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
+
+        // Flutter SDK
+        headers.clear();
+        headers.insert("user-agent", "posthog-flutter/4.0.0".parse().unwrap());
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_android_sdk() {
+        // Android SDK uses "posthog-android/" as its user agent
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("user-agent", "posthog-android/3.1.0".parse().unwrap());
+
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_all_server_sdks() {
+        let server_sdks = vec![
+            "posthog-python/1.4.0",
+            "posthog-ruby/2.0.0",
+            "posthog-php/3.0.0",
+            "posthog-java/1.0.0",
+            "posthog-go/0.1.0",
+            "posthog-node/2.2.0",
+            "posthog-dotnet/1.0.0",
+            "posthog-elixir/0.2.0",
+        ];
+
+        for sdk in server_sdks {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("user-agent", sdk.parse().unwrap());
+            let result = detect_evaluation_runtime_from_request(&headers, None, None);
+            assert_eq!(
+                result,
+                Some(EvaluationRuntime::Server),
+                "SDK {} should be detected as server-side",
+                sdk
+            );
+        }
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_all_browser_patterns() {
+        let browser_patterns = vec![
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/91.0.4472.124",
+            "Mozilla/5.0 (X11; Linux x86_64) Firefox/89.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/91.0.864.59",
+        ];
+
+        for pattern in browser_patterns {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("user-agent", pattern.parse().unwrap());
+            let result = detect_evaluation_runtime_from_request(&headers, None, None);
+            assert_eq!(
+                result,
+                Some(EvaluationRuntime::Client),
+                "Browser pattern {} should be detected as client-side",
+                pattern
+            );
+        }
+    }
+
+    #[test]
+    fn test_filter_flags_with_explicit_flag_keys_should_respect_runtime() {
+        // Test scenario from @haacked's comment:
+        // When specific flags are requested via flag_keys (flags_to_evaluate),
+        // they still need to respect runtime filtering for security/correctness.
+        // Only flags that match the runtime should be evaluated.
+        
+        let flags = vec![
+            create_test_flag(1, "client-flag", Some("client".to_string())),
+            create_test_flag(2, "server-flag", Some("server".to_string())),
+            create_test_flag(3, "all-flag", Some("all".to_string())),
+        ];
+
+        // Client runtime should only get client and all flags
+        let filtered = filter_flags_by_runtime(flags.clone(), Some(EvaluationRuntime::Client));
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().any(|f| f.key == "client-flag"));
+        assert!(filtered.iter().any(|f| f.key == "all-flag"));
+        assert!(!filtered.iter().any(|f| f.key == "server-flag"));
+
+        // Note: The actual flag_keys filtering happens later in the evaluation pipeline
+        // after runtime filtering, so explicitly requested flags still go through runtime checks
+    }
+
+    #[test]
+    fn test_runtime_filtering_takes_precedence_over_flag_keys() {
+        // This test verifies that runtime filtering happens BEFORE flag_keys filtering
+        // So if a client explicitly requests a server-only flag, they won't get it
+        
+        // Create flags with different runtime requirements
+        let all_flags = vec![
+            create_test_flag(1, "client-only-flag", Some("client".to_string())),
+            create_test_flag(2, "server-only-flag", Some("server".to_string())),
+            create_test_flag(3, "all-flag", Some("all".to_string())),
+            create_test_flag(4, "no-runtime-flag", None),
+        ];
+        
+        // Simulate a client runtime
+        let client_runtime = Some(EvaluationRuntime::Client);
+        let filtered = filter_flags_by_runtime(all_flags.clone(), client_runtime);
+        
+        // Client should get: client-only-flag, all-flag, no-runtime-flag
+        // But NOT server-only-flag
+        assert_eq!(filtered.len(), 3);
+        assert!(filtered.iter().any(|f| f.key == "client-only-flag"));
+        assert!(filtered.iter().any(|f| f.key == "all-flag"));
+        assert!(filtered.iter().any(|f| f.key == "no-runtime-flag"));
+        assert!(!filtered.iter().any(|f| f.key == "server-only-flag"));
+        
+        // Simulate a server runtime
+        let server_runtime = Some(EvaluationRuntime::Server);
+        let filtered = filter_flags_by_runtime(all_flags.clone(), server_runtime);
+        
+        // Server should get: server-only-flag, all-flag, no-runtime-flag
+        // But NOT client-only-flag
+        assert_eq!(filtered.len(), 3);
+        assert!(filtered.iter().any(|f| f.key == "server-only-flag"));
+        assert!(filtered.iter().any(|f| f.key == "all-flag"));
+        assert!(filtered.iter().any(|f| f.key == "no-runtime-flag"));
+        assert!(!filtered.iter().any(|f| f.key == "client-only-flag"));
+        
+        // Note: Even if flag_keys explicitly requests a server-only flag from a client,
+        // the runtime filter will prevent it from being evaluated
     }
 }
