@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -183,6 +183,23 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         //     },
         // ],
     }),
+    selectors(() => ({
+        getSingleTrendSeries: [
+            (s) => [s.appMetricsTrends],
+            (appMetricsTrends) =>
+                (name: string): AppMetricsTimeSeriesResponse | null => {
+                    if (!appMetricsTrends) {
+                        return null
+                    }
+                    const series = appMetricsTrends.series.find((s) => s.name === name)
+                    return {
+                        labels: appMetricsTrends.labels,
+                        series: series ? [series] : [],
+                    }
+                },
+        ],
+    })),
+
     listeners(({ actions, values, props }) => ({
         setFilters: async (_, breakpoint) => {
             await breakpoint(100)
