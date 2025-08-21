@@ -17,9 +17,7 @@ import { urls } from 'scenes/urls'
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, PipelineTab } from '~/types'
 
 import { DataWarehouseRowsSyncedGraph } from './DataWarehouseRowsSyncedGraph'
-import { externalDataSourcesLogic } from './externalDataSourcesLogic'
-import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
-import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
