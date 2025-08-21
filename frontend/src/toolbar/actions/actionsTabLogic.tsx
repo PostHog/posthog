@@ -50,7 +50,6 @@ function toElementsChain(element: HTMLElement): ElementType[] {
             ({
                 attr_class: element.getAttribute('class')?.split(' '),
                 attr_id: element.getAttribute('id') || undefined,
-
                 attributes: Array.from(element.attributes).reduce(
                     (acc, attr) => {
                         if (!acc[attr.name]) {
@@ -62,7 +61,6 @@ function toElementsChain(element: HTMLElement): ElementType[] {
                     },
                     {} as Record<string, string>
                 ),
-
                 href: element.getAttribute('href') || undefined,
                 tag_name: element.tagName.toLowerCase(),
                 text: index === 0 ? element.innerText : undefined,
