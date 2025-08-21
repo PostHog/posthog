@@ -2,11 +2,10 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from types import UnionType
-from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args
+from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args, Protocol
 
 import posthoganalytics
 import structlog
-from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 
 from posthog import settings
@@ -40,13 +39,12 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
-from posthog.metrics import LABEL_TEAM_ID
+from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
-    AnalyticsQueryResponseBase,
     CacheMissResponse,
     CalendarHeatmapQuery,
     DashboardFilter,
@@ -95,17 +93,6 @@ from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
 
-QUERY_CACHE_WRITE_COUNTER = Counter(
-    "posthog_query_cache_write_total",
-    "When a query result was persisted in the cache.",
-    labelnames=[LABEL_TEAM_ID],
-)
-
-QUERY_CACHE_HIT_COUNTER = Counter(
-    "posthog_query_cache_hit_total",
-    "Whether we could fetch the query from the cache or not.",
-    labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
-)
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
@@ -825,12 +812,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except QueryNotFoundError:
             return None
 
-    def count_query_cache_hit(self, hit: str, trigger: str = "") -> None:
-        if (get_query_tag_value("trigger") or "").startswith("warming"):
-            # We don't want to count for cache hits caused by warming itself
-            return
-        QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=hit, trigger=trigger).inc()
-
     def handle_cache_and_async_logic(
         self, execution_mode: ExecutionMode, cache_manager: QueryCacheManagerBase, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
@@ -861,12 +842,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             assert isinstance(cached_response, CachedResponse)
 
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
-                self.count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
+                count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
-            self.count_query_cache_hit(hit="stale", trigger=cached_response.calculation_trigger or "")
+            count_query_cache_hit(self.team.pk, hit="stale", trigger=cached_response.calculation_trigger or "")
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -891,7 +872,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
         else:
-            self.count_query_cache_hit(hit="miss", trigger="")
+            count_query_cache_hit(self.team.pk, hit="miss", trigger="")
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -1014,7 +995,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Set target_age to None in that case
                     target_age=target_age,
                 )
-                QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
             return fresh_response
 
@@ -1171,12 +1151,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
 
 # Type constraint for analytics query responses
-AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
+class AnalyticsQueryResponseProtocol(Protocol):
+    timings: Optional[list[QueryTiming]]
 
 
-class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
+AR = TypeVar("AR", bound=AnalyticsQueryResponseProtocol)
+
+
+class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
     QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
+    When subclassing this, give it a single generic argument of the Response type
+    e.g. class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
 
     def calculate(self) -> AR:
@@ -1186,7 +1172,7 @@ class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
         return response
 
 
-class QueryRunnerWithHogQLContext(AnalyticsQueryRunner):
+class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
     database: Database
     hogql_context: HogQLContext
 

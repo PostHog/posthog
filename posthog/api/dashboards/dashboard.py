@@ -1,10 +1,8 @@
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, cast
 
 import pydantic_core
 import structlog
-from django.conf import settings
 from django.db.models import Prefetch
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets, status
@@ -41,7 +39,6 @@ from posthog.utils import filters_override_requested_by_client, variables_overri
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from contextlib import nullcontext
 import posthoganalytics
-from posthog.hogql_queries.legacy_compatibility.feature_flag import dashboard_threads_enabled
 from opentelemetry import trace
 
 
@@ -505,41 +502,15 @@ class DashboardSerializer(DashboardBasicSerializer):
             if not sorted_tiles:
                 return []
 
-            request = self.context.get("request")
-            user = request.user if request and hasattr(request, "user") else None
-            use_threads = dashboard_threads_enabled(team, user=user)
-
-            if settings.IN_UNIT_TESTING and not use_threads:
-                for order, tile in enumerate(sorted_tiles):
-                    order, tile_data = serialize_tile_with_context(tile, order, self.context)
-                    serialized_tiles.append(cast(ReturnDict, tile_data))
-            else:
-                max_workers = min(len(sorted_tiles), 10)
-
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = []
-                    for order, tile in enumerate(sorted_tiles):
-                        future = executor.submit(serialize_tile_with_context, tile, order, self.context)
-                        futures.append(future)
-
-                    tile_results: list[ReturnDict | None] = [None] * len(sorted_tiles)
-                    for future in as_completed(futures):
-                        order, tile_data = future.result()
-                        tile_results[order] = cast(ReturnDict, tile_data)
-
-                    serialized_tiles.extend([result for result in tile_results if result is not None])
+            for order, tile in enumerate(sorted_tiles):
+                order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                serialized_tiles.append(cast(ReturnDict, tile_data))
 
         return serialized_tiles
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
-        if request:
-            filters_override = filters_override_requested_by_client(request)
-
-            if filters_override is not None:
-                return filters_override
-
-        return dashboard.filters
+        return filters_override_requested_by_client(request, dashboard)
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")

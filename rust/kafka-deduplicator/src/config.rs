@@ -38,6 +38,9 @@ pub struct Config {
     #[envconfig(default = "snappy")]
     pub kafka_compression_codec: String,
 
+    #[envconfig(default = "false")]
+    pub kafka_tls: bool,
+
     // Output topic for deduplicated events (optional - if not set, events are only consumed for metrics)
     pub output_topic: Option<String>,
 
@@ -75,7 +78,7 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "8080")]
+    #[envconfig(from = "BIND_PORT", default = "8000")]
     pub port: u16,
 
     // Checkpoint configuration - integrated from checkpoint::config
@@ -244,6 +247,13 @@ impl Config {
                 self.kafka_producer_linger_ms.to_string(),
             )
             .set("compression.type", &self.kafka_compression_codec);
+
+        if self.kafka_tls {
+            config
+                .set("security.protocol", "ssl")
+                .set("enable.ssl.certificate.verification", "false");
+        }
+
         config
     }
 }

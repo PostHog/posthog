@@ -231,7 +231,25 @@ class TestSummarizeSingleSessionStreamWorkflow:
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
     ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        # Add retry logic for starting test server
+        max_retries = 3
+        retry_delay = 1
+        activity_environment = None
+        # Start with retry to avoid flaky `Failed starting test server`
+        for attempt in range(max_retries):
+            try:
+                activity_environment = await WorkflowEnvironment.start_time_skipping()
+                break
+            except RuntimeError as e:
+                if "Failed starting test server" in str(e) and attempt < max_retries - 1:
+                    # Wait before retrying to avoid network issues
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                raise
+        if activity_environment is None:
+            raise RuntimeError("Failed to start test server after multiple attempts")
+        try:
             async with Worker(
                 activity_environment.client,
                 task_queue=constants.MAX_AI_TASK_QUEUE,
@@ -258,6 +276,10 @@ class TestSummarizeSingleSessionStreamWorkflow:
                     ),
                 ):
                     yield activity_environment, worker
+        finally:
+            # Ensure proper cleanup
+            await activity_environment.shutdown()
+            await asyncio.sleep(0.1)  # Small delay to ensure cleanup completes
 
     async def setup_workflow_test(
         self,
