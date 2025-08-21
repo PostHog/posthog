@@ -973,12 +973,6 @@ const destinationDefinitions: DestinationConfig[] = [
 
     // Productivity
     {
-        name: 'ClickUp',
-        id: 'coming-soon-clickup',
-        icon_url: '/static/coming-soon-destinations/ClickUp.svg',
-        category: ['Productivity'],
-    },
-    {
         name: 'Monday',
         id: 'coming-soon-monday',
         icon_url: '/static/coming-soon-destinations/Monday.svg',
