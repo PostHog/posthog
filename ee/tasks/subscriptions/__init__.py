@@ -50,7 +50,7 @@ async def deliver_subscription_report_async(
     """Async function for delivering subscription reports."""
     # Fetch subscription asynchronously
     subscription = await database_sync_to_async(
-        Subscription.objects.prefetch_related("dashboard__insights")
+        Subscription.objects.prefetch_related("dashboard__tiles__insight", "dashboard__tiles__text")
         .select_related("created_by", "insight", "dashboard")
         .get,
         thread_sensitive=False,
@@ -65,9 +65,7 @@ async def deliver_subscription_report_async(
             # Same value as before so nothing to do
             return
 
-    insights, assets = await database_sync_to_async(generate_assets, thread_sensitive=False)(
-        subscription, use_celery=False
-    )
+    insights, assets = await generate_assets_async(subscription)
 
     if not assets:
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
@@ -150,7 +148,7 @@ def deliver_subscription_report_sync(
 ) -> None:
     """Sync function for delivering subscription reports."""
     subscription = (
-        Subscription.objects.prefetch_related("dashboard__insights")
+        Subscription.objects.prefetch_related("dashboard__tiles__insight", "dashboard__tiles__text")
         .select_related("created_by", "insight", "dashboard")
         .get(pk=subscription_id)
     )
