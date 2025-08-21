@@ -40,7 +40,7 @@ class TeamSnapshot(BaseSnapshot[Team]):
     test_account_filters: str
 
     @classmethod
-    def serialize_for_team(cls, team_id: int):
+    def serialize_for_team(cls, *, team_id: int):
         team = Team.objects.get(pk=team_id)
         yield TeamSnapshot(name=team.name, test_account_filters=json.dumps(team.test_account_filters))
 
@@ -66,7 +66,7 @@ class PropertyDefinitionSnapshot(BaseSnapshot[PropertyDefinition]):
     group_type_index: int | None
 
     @classmethod
-    def serialize_for_team(cls, team_id: int):
+    def serialize_for_team(cls, *, team_id: int):
         for prop in PropertyDefinition.objects.filter(team_id=team_id).iterator(500):
             yield PropertyDefinitionSnapshot(
                 name=prop.name,
@@ -98,7 +98,7 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
     name_plural: str | None
 
     @classmethod
-    def serialize_for_team(cls, team_id: int):
+    def serialize_for_team(cls, *, team_id: int):
         for mapping in GroupTypeMapping.objects.filter(team_id=team_id).iterator(500):
             yield GroupTypeMappingSnapshot(
                 group_type=mapping.group_type,
@@ -127,7 +127,7 @@ class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
     columns: dict
 
     @classmethod
-    def serialize_for_team(cls, team_id: int):
+    def serialize_for_team(cls, *, team_id: int):
         for table in DataWarehouseTable.objects.filter(team_id=team_id).iterator(500):
             yield DataWarehouseTableSnapshot(
                 name=table.name,

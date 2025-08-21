@@ -20,6 +20,12 @@ from .sql import SQLSemanticsCorrectness
 
 __all__ = [
     "SQLSemanticsCorrectness",
+    "ToolRelevance",
+    "QueryKindSelection",
+    "PlanCorrectness",
+    "QueryAndPlanAlignment",
+    "TimeRangeRelevancy",
+    "InsightEvaluationAccuracy",
 ]
 
 

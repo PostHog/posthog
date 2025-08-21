@@ -39,6 +39,8 @@ class TestQueryPatches(BaseTest):
     def tearDown(self):
         super().tearDown()
         TEAM_TAXONOMY_QUERY_DATA_SOURCE.clear()
+        EVENT_TAXONOMY_QUERY_DATA_SOURCE.clear()
+        ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.clear()
 
     def test_patched_team_taxonomy_query_runner_returns_result(self):
         query_runner = PatchedTeamTaxonomyQueryRunner(
@@ -71,6 +73,19 @@ class TestQueryPatches(BaseTest):
             query=EventTaxonomyQuery(event="$pageview"),
         ).calculate()
         self.assertEqual(query_runner.results, [])
+
+    def test_patched_event_taxonomy_query_runner_returns_result_for_action_id(self):
+        EVENT_TAXONOMY_QUERY_DATA_SOURCE[self.team.id][123] = [
+            EventTaxonomyItem(property="$browser", sample_values=["Safari"], sample_count=1),
+        ]
+        query_runner = PatchedEventTaxonomyQueryRunner(
+            team=self.team,
+            query=EventTaxonomyQuery(actionId=123),
+        ).calculate()
+        self.assertEqual(
+            query_runner.results,
+            [EventTaxonomyItem(property="$browser", sample_values=["Safari"], sample_count=1)],
+        )
 
     def test_patched_actors_property_taxonomy_query_runner_returns_result(self):
         query_runner = PatchedActorsPropertyTaxonomyQueryRunner(

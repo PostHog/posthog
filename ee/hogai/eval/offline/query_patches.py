@@ -60,5 +60,5 @@ class PatchedActorsPropertyTaxonomyQueryRunner(ActorsPropertyTaxonomyQueryRunner
             for prop in self.query.properties:
                 result.append(data.get(prop, ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)))
         else:
-            result = [ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)]
+            result = [ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0) for _ in self.query.properties]
         return ActorsPropertyTaxonomyQueryResponse(results=result, modifiers=self.modifiers)

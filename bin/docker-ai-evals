@@ -1,3 +1,4 @@
+#!/bin/bash
 set -e
 export DEBUG=1
 export IN_EVAL_TESTING=1
@@ -19,6 +20,10 @@ echo "🔄 Waiting for services to start..."
 bin/check_postgres_up & bin/check_kafka_clickhouse_up
 
 echo "🏃 Running evaluation..."
+if [ -z "$EVAL_SCRIPT" ]; then
+    echo "Error: EVAL_SCRIPT environment variable is not set"
+    exit 1
+fi
 $EVAL_SCRIPT
 
 echo "🎉 Done."

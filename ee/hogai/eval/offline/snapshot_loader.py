@@ -62,7 +62,6 @@ class SnapshotLoader:
         self.organization = await Organization.objects.acreate(name="PostHog")
         self.user = await sync_to_async(User.objects.create_and_join)(self.organization, "test@posthog.com", "12345678")
 
-        # clickhouse_query_snapshots: dict[int, dict[str,]] = {}
         for snapshot in self.config.team_snapshots:
             self.context.log.info(f"Loading Postgres snapshot for team {snapshot.team_id}...")
 
