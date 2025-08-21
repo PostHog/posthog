@@ -271,10 +271,15 @@ export class KafkaConsumer {
             details.rebalanceDuration = duration
         }
 
-        // Add assignments info
-        const assignments = this.assignments()
-        if (assignments.length > 0) {
-            details.assignments = assignments.map((a) => ({ topic: a.topic, partition: a.partition }))
+        // Add assignments info (but handle errors gracefully)
+        try {
+            const assignments = this.assignments()
+            if (assignments.length > 0) {
+                details.assignments = assignments.map((a) => ({ topic: a.topic, partition: a.partition }))
+            }
+        } catch (error) {
+            // Consumer might be in an erroneous state during rebalancing
+            details.assignmentError = error.message
         }
 
         return {
@@ -285,7 +290,16 @@ export class KafkaConsumer {
     }
 
     public assignments(): Assignment[] {
-        return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+        try {
+            return this.rdKafkaConsumer.assignments()
+        } catch (error) {
+            // Consumer might be connected but in an erroneous state (e.g., during rebalancing)
+            logger.debug('Failed to get assignments', { error: error.message })
+            return []
+        }
     }
 
     public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]): void {
