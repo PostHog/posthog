@@ -10,11 +10,7 @@ import posthoganalytics
 from anthropic.types import MessageParam
 from django.conf import settings
 
-<<<<<<<< HEAD:products/llm_analytics/backend/providers/inkeep.py
 from products.llm_analytics.backend.providers.formatters.openai_formatter import convert_to_openai_messages
-========
-from products.llm_observability.backend.providers.formatters.openai_formatter import convert_to_openai_messages
->>>>>>>> daa3f79afd (chore: re-organize products/llmo):products/llm_observability/backend/providers/inkeep.py
 
 logger = logging.getLogger(__name__)
 

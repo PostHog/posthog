@@ -27,19 +27,11 @@ from posthog.auth import SessionAuthentication
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-<<<<<<<< HEAD:products/llm_analytics/backend/api/proxy.py
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
 from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
 from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
-========
-from products.llm_observability.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
-from products.llm_observability.backend.providers.codestral import CodestralConfig, CodestralProvider
-from products.llm_observability.backend.providers.gemini import GeminiConfig, GeminiProvider
-from products.llm_observability.backend.providers.inkeep import InkeepConfig, InkeepProvider
-from products.llm_observability.backend.providers.openai import OpenAIConfig, OpenAIProvider
->>>>>>>> daa3f79afd (chore: re-organize products/llmo):products/llm_observability/backend/api/proxy.py
 
 logger = logging.getLogger(__name__)
 
