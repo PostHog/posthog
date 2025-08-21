@@ -188,8 +188,8 @@ export function DataWarehouseScene(): JSX.Element {
         )
     }
 
-    const materializedCount = materializedViews.length
-    const runningCount = materializedViews.filter((v: any) => v.status?.toLowerCase() === 'running').length
+    const materializedCount = materializedViews?.length || 0
+    const runningCount = materializedViews?.filter((v) => v.status?.toLowerCase() === 'running').length || 0
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
         return <NotFound object="Data Warehouse" />

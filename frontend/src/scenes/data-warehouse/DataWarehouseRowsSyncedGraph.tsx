@@ -7,7 +7,9 @@ import { Chart } from 'lib/Chart'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
-import { DailyRowsSyncedData, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehouseDailyRowsSyncedData } from '~/types'
+
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseSourceIcon } from './settings/DataWarehouseSourceIcon'
 
 const chartOptions = {
@@ -50,11 +52,11 @@ function SimpleLineChart({
     data,
     onPointClick,
 }: {
-    data: DailyRowsSyncedData[]
+    data: DataWarehouseDailyRowsSyncedData[]
     onPointClick: (date: string, rows: number | null) => void
 }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
-    const chartRef = useRef<any>(null)
+    const chartRef = useRef<Chart | null>(null)
 
     useEffect(() => {
         if (!canvasRef.current || !data.length) {
@@ -82,13 +84,13 @@ function SimpleLineChart({
                         label: (context: any) =>
                             context.parsed.y === null ? 'No data' : `${context.parsed.y} rows synced`,
                     },
-                    zoom: {
-                        enabled: false,
-                    },
-                    pan: {
-                        enabled: false,
-                    },
                 },
+            },
+            zoom: {
+                enabled: false,
+            },
+            pan: {
+                enabled: false,
             },
         }
 
@@ -119,7 +121,7 @@ function SimpleLineChart({
 
         return () => chartRef.current?.destroy()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data])
+    }, [data, onPointClick])
 
     return <canvas ref={canvasRef} />
 }
@@ -178,7 +180,7 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                 )}
             </div>
 
-            <LemonModal isOpen={!!selectedDate} onClose={() => setSelectedDate(null)} title="Sync Activity" width={600}>
+            <LemonModal isOpen={!!selectedDate} onClose={() => setSelectedDate('')} title="Sync Activity" width={600}>
                 <div className="space-y-2">
                     {selectedRows === null ? (
                         <div className="text-center py-6">
@@ -215,7 +217,7 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                                                 </div>
                                                 <div className="mt-3 space-y-2">
                                                     {runs.slice(0, runs.length).map((run: any) => (
-                                                        <div className="bg-white border rounded-lg">
+                                                        <div key={run.id} className="bg-white border rounded-lg">
                                                             <div className="px-3 py-2 flex items-center justify-between">
                                                                 <div className="font-medium text-default">
                                                                     {run.schema_name} • {run.rows_synced}{' '}

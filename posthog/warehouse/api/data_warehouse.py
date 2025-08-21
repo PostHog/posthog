@@ -1,5 +1,5 @@
 import structlog
-from typing import Any
+from typing import Any, Optional
 from dateutil import parser
 from django.db.models import Sum
 from django.db.models.functions import TruncDate
@@ -26,6 +26,26 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "INTERNAL"
 
+    def _get_billing_period(self) -> tuple[bool, Optional[Any], Optional[Any]]:
+        """
+        Helper method to retrieve billing period information.
+        Returns: (billing_available, billing_period_start, billing_period_end)
+        """
+        try:
+            billing_manager = BillingManager(get_cached_instance_license())
+            org_billing = billing_manager.get_billing(organization=self.team.organization)
+
+            if org_billing and org_billing.get("billing_period"):
+                billing_period = org_billing["billing_period"]
+                billing_period_start = parser.parse(billing_period["current_period_start"])
+                billing_period_end = parser.parse(billing_period["current_period_end"])
+                return True, billing_period_start, billing_period_end
+            else:
+                return False, None, None
+        except Exception as e:
+            logger.exception("Error retrieving billing period", exc_info=e)
+            raise
+
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
         """
@@ -44,18 +64,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         sources = ExternalDataSource.objects.filter(team_id=self.team_id, deleted=False)
 
         try:
-            billing_manager = BillingManager(get_cached_instance_license())
-            org_billing = billing_manager.get_billing(organization=self.team.organization)
+            billing_available, billing_period_start, billing_period_end = self._get_billing_period()
 
-            if org_billing and org_billing.get("billing_period"):
+            if billing_available:
+                billing_manager = BillingManager(get_cached_instance_license())
+                org_billing = billing_manager.get_billing(organization=self.team.organization)
                 billing_period = org_billing["billing_period"]
-                billing_period_start = parser.parse(billing_period["current_period_start"])
-                billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_interval = billing_period.get("interval", "month")
 
                 usage_summary = org_billing.get("usage_summary", {})
                 billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
-                billing_available = True
 
                 all_external_jobs = ExternalDataJob.objects.filter(
                     team_id=self.team_id,
@@ -182,21 +200,19 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def breakdown_of_rows_synced_by_day_in_billing_period(self, request: Request, **kwargs) -> Response:
+        """
+        Returns daily breakdown of rows synced within the current billing period.
+        Used by the frontend data warehouse scene to display sync activity trends.
+        """
         log = structlog.get_logger()
         billing_period_start = billing_period_end = None
         billing_available = False
         breakdown_of_rows_by_day = []
 
         try:
-            billing_manager = BillingManager(get_cached_instance_license())
-            org_billing = billing_manager.get_billing(organization=self.team.organization)
+            billing_available, billing_period_start, billing_period_end = self._get_billing_period()
 
-            if org_billing and org_billing.get("billing_period"):
-                bp = org_billing["billing_period"]
-                billing_period_start = parser.parse(bp["current_period_start"])
-                billing_period_end = parser.parse(bp["current_period_end"])
-                billing_available = True
-
+            if billing_available:
                 base_external_data_jobs = ExternalDataJob.objects.filter(
                     team_id=self.team_id,
                     created_at__gte=billing_period_start,
