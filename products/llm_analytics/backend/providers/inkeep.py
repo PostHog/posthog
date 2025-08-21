@@ -1,15 +1,16 @@
-import os
 import json
-from collections.abc import Generator
-from django.conf import settings
-import openai
-from anthropic.types import MessageParam
 import logging
-import posthoganalytics
+import os
 import uuid
+from collections.abc import Generator
 from typing import Any
 
-from products.llm_observability.providers.formatters.openai_formatter import convert_to_openai_messages
+import openai
+import posthoganalytics
+from anthropic.types import MessageParam
+from django.conf import settings
+
+from products.llm_analytics.backend.providers.formatters.openai_formatter import convert_to_openai_messages
 
 logger = logging.getLogger(__name__)
 
