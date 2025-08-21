@@ -189,9 +189,9 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
-            date_range: DateRange = DateRange(date_from="all")
+            date_range = DateRange(date_from="all")
         if group_by is None:
-            group_by: RevenueAnalyticsTopCustomersGroupBy = "month"
+            group_by = RevenueAnalyticsTopCustomersGroupBy.MONTH
         if properties is None:
             properties = []
 
@@ -253,7 +253,9 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(len(results), 6)
 
     def test_with_data_group_by_all(self):
-        results = self._run_revenue_analytics_top_customers_query(group_by="all").results
+        results = self._run_revenue_analytics_top_customers_query(
+            group_by=RevenueAnalyticsTopCustomersGroupBy.ALL
+        ).results
 
         # Only one entry for each customer, sorted by ID
         results = sorted(results, key=lambda x: x[1])

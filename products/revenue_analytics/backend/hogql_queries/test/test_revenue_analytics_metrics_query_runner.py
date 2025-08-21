@@ -273,7 +273,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
-            date_range: DateRange = DateRange(date_from="-6m")
+            date_range = DateRange(date_from="-6m")
         if interval is None:
             interval = IntervalType.MONTH
         if group_by is None:

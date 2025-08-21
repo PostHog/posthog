@@ -263,9 +263,15 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.subscriptions_cleanup_filesystem()
         super().tearDown()
 
-    def _build_query(self, date_range, interval, group_by, properties):
+    def _build_query(
+        self,
+        date_range: DateRange | None = None,
+        interval: IntervalType | None = None,
+        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        properties: list[RevenueAnalyticsPropertyFilter] | None = None,
+    ):
         if date_range is None:
-            date_range: DateRange = DateRange(date_from="-6m")
+            date_range = DateRange(date_from="-6m")
         if interval is None:
             interval = IntervalType.MONTH
         if group_by is None:
@@ -288,27 +294,13 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         group_by: list[RevenueAnalyticsGroupBy] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
-        if date_range is None:
-            date_range: DateRange = DateRange(date_from="-6m")
-        if interval is None:
-            interval = IntervalType.MONTH
-        if group_by is None:
-            group_by = []
-        if properties is None:
-            properties = []
-
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = self._build_query(
-                date_range,
-                interval,
-                group_by,
-                properties,
-            )
-
+            query = self._build_query(date_range, interval, group_by, properties)
             runner = RevenueAnalyticsRevenueQueryRunner(
                 team=self.team,
                 query=query,
             )
+
             response = runner.calculate()
 
             RevenueAnalyticsRevenueQueryResponse.model_validate(response)

@@ -137,7 +137,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
-            date_range: DateRange = DateRange(date_from="all")
+            date_range = DateRange(date_from="all")
         if properties is None:
             properties = []
 
