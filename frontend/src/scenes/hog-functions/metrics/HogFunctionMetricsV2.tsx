@@ -25,7 +25,7 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
         forceParams: {
             appSource: 'hog_function',
             appSourceId: id,
-            metricName: ['succeeded', 'failed', 'filtered', 'dropped', 'disabled_permanently'],
+            metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
             breakdownBy: 'metric_name',
         },
     })
@@ -68,15 +68,6 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('filtered')}
                     previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
-                />
-
-                <AppMetricSummary
-                    name="Dropped"
-                    color="data-color-1"
-                    description={METRICS_INFO.dropped}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('dropped')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('dropped', true)}
                 />
 
                 <AppMetricSummary

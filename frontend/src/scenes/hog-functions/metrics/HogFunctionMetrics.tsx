@@ -21,7 +21,6 @@ import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { HogFunctionMetricsV2 } from './HogFunctionMetricsV2'
 import { ALL_METRIC_TYPES, HogFunctionMetricsLogicProps, hogFunctionMetricsLogic } from './hogFunctionMetricsLogic'
 
 const METRICS_INFO = {
@@ -49,7 +48,6 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
 
     return (
         <>
-            <HogFunctionMetricsV2 id={id} />
             <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
                 <div className="deprecated-space-y-4">
                     <AppMetricsTotals />
