@@ -28,9 +28,9 @@ import {
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
+import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
 import { RetentionService } from './retention/retention-service'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
-import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
@@ -132,11 +132,12 @@ export class SessionRecordingIngester {
             { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
         this.fileStorage = s3Client
-            ? new S3SessionBatchFileStorage(
+            ? new RetentionAwareStorage(
                   s3Client,
                   this.config.SESSION_RECORDING_V2_S3_BUCKET,
                   this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
+                  retentionService
               )
             : new BlackholeSessionBatchFileStorage()
 
@@ -148,7 +149,6 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             metadataSwitchoverDate,
-            retentionService,
         })
     }
 

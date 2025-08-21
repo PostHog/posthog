@@ -28,9 +28,8 @@ import snappy from 'snappy'
 
 import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { RetentionService } from '../retention/retention-service'
 import { MessageWithTeam } from '../teams/types'
-import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
+import { SessionBatchFileStorage, SessionBatchFileWriter, SessionData } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -49,7 +48,6 @@ describe('session recording integration', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
-    let mockRetentionService: jest.Mocked<RetentionService>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -58,7 +56,8 @@ describe('session recording integration', () => {
         batchBuffer = new Uint8Array()
 
         mockWriter = {
-            writeSession: jest.fn().mockImplementation(async (buffer: Buffer) => {
+            writeSession: jest.fn().mockImplementation(async (sessionData: SessionData) => {
+                const buffer = sessionData.buffer
                 const startOffset = currentOffset
                 const newBuffer = new Uint8Array(batchBuffer.length + buffer.length)
                 newBuffer.set(batchBuffer)
@@ -74,9 +73,7 @@ describe('session recording integration', () => {
         }
 
         mockStorage = {
-            startBatch: jest.fn(),
-            getWriter: jest.fn().mockReturnValue(mockWriter),
-            endBatch: jest.fn(),
+            newBatch: jest.fn().mockReturnValue(mockWriter),
             checkHealth: jest.fn().mockResolvedValue(true),
         } as jest.Mocked<SessionBatchFileStorage>
 
@@ -95,17 +92,12 @@ describe('session recording integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        mockRetentionService = {
-            getSessionRetention: jest.fn().mockResolvedValue('30d'),
-        } as unknown as jest.Mocked<RetentionService>
-
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-01T10:00:00.000Z'),
-            mockRetentionService
+            new Date('2025-01-01T10:00:00.000Z')
         )
     })
 
@@ -211,7 +203,7 @@ describe('session recording integration', () => {
         }
 
         // Verify the batch was properly finalized
-        expect(mockStorage.endBatch).toHaveBeenCalled()
+        expect(mockWriter.finish).toHaveBeenCalled()
         expect(mockOffsetManager.commit).toHaveBeenCalled()
         expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(metadata)
     })

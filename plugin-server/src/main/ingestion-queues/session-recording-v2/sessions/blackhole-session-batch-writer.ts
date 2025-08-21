@@ -1,12 +1,16 @@
 import { logger } from '../../../../utils/logger'
-import { RetentionPeriod } from '../types'
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
+import {
+    SessionBatchFileStorage,
+    SessionBatchFileWriter,
+    SessionData,
+    WriteSessionResult,
+} from './session-batch-file-storage'
 
 class BlackholeBatchFileWriter implements SessionBatchFileWriter {
-    public writeSession(buffer: Buffer): Promise<WriteSessionResult> {
-        logger.debug('🔁', 'blackhole_writer_writing_session', { bytes: buffer.length })
+    public writeSession(sessionData: SessionData): Promise<WriteSessionResult> {
+        logger.debug('🔁', 'blackhole_writer_writing_session', { bytes: sessionData.buffer.length })
         return Promise.resolve({
-            bytesWritten: buffer.length,
+            bytesWritten: sessionData.buffer.length,
             url: null,
         })
     }
@@ -18,18 +22,9 @@ class BlackholeBatchFileWriter implements SessionBatchFileWriter {
 }
 
 export class BlackholeSessionBatchFileStorage implements SessionBatchFileStorage {
-    public startBatch(): void {
+    public newBatch(): SessionBatchFileWriter {
         logger.debug('🔁', 'blackhole_writer_creating_batch')
-    }
-
-    public getWriter(_: RetentionPeriod): SessionBatchFileWriter {
-        logger.debug('🔁', 'blackhole_writer_get')
         return new BlackholeBatchFileWriter()
-    }
-
-    public endBatch(): Promise<void> {
-        logger.debug('🔁', 'blackhole_writer_ending_batch')
-        return Promise.resolve()
     }
 
     public checkHealth(): Promise<boolean> {

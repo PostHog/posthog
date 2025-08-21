@@ -11,7 +11,7 @@ describe('SnappySessionRecorder', () => {
     const SWITCHOVER_DATE = new Date('2025-01-01T00:00:00Z')
 
     beforeEach(() => {
-        recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+        recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
@@ -1011,7 +1011,7 @@ describe('SnappySessionRecorder', () => {
     describe('Batch ID', () => {
         it('should include batch ID in end result', async () => {
             const batchId = 'test-batch-123'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', batchId, SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
@@ -1028,7 +1028,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should maintain batch ID across multiple messages', async () => {
             const batchId = 'test-batch-456'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', batchId, SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
 
             const message1 = createMessage('window1', [
                 { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(), data: {} },
@@ -1046,7 +1046,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should include batch ID even with no messages', async () => {
             const batchId = 'test-batch-789'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', batchId, SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
             const result = await recorder.end()
 
             expect(result.batchId).toBe(batchId)
@@ -1121,7 +1121,7 @@ describe('SnappySessionRecorder', () => {
 
     describe('switchover date', () => {
         it('should not compute metadata when switchover date is null', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', null)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', null)
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
@@ -1167,7 +1167,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should not compute metadata for events before switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const events = [
                 {
@@ -1196,7 +1196,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should only compute metadata for events after switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
             const events = [
@@ -1243,7 +1243,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should compute metadata for events exactly at the switchover timestamp (inclusive)', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const switchoverTs = SWITCHOVER_DATE.getTime()
             const events = [
                 {
@@ -1272,7 +1272,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should not accumulate URLs from events before switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const events = [
                 {
@@ -1294,7 +1294,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should only accumulate URLs from events after switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
             const events = [
@@ -1324,7 +1324,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should compute startDateTime and endDateTime from all events, including before switchover', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
             const events = [
@@ -1357,7 +1357,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should compute startDateTime and endDateTime correctly when all events are before switchover', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const events = [
                 {
@@ -1379,7 +1379,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should set distinctId even if all events are before switchover', () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const events = [
                 {
@@ -1399,7 +1399,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should write all events to the buffer regardless of switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
             const events = {
@@ -1444,7 +1444,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should record snapshotSource and snapshotLibrary from message before switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
             const events = [
                 {
@@ -1463,7 +1463,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should record snapshotSource and snapshotLibrary from message after switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
             const events = [
                 {
@@ -1501,7 +1501,7 @@ describe('SnappySessionRecorder', () => {
                 },
             ]
             const switchoverEarly = new Date('2024-01-01T00:00:00Z')
-            const recorder1 = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', switchoverEarly)
+            const recorder1 = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', switchoverEarly)
             let totalRaw = 0
             totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[0]]))
             totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[1]]))
@@ -1512,7 +1512,7 @@ describe('SnappySessionRecorder', () => {
 
             // Scenario 2: switchover in the middle (only events after switchover counted)
             const switchoverMid = new Date('2025-01-01T01:01:30Z')
-            const recorder2 = new SnappySessionRecorder('test_session_id', 1, '30d', 'test_batch_id', switchoverMid)
+            const recorder2 = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', switchoverMid)
             recorder2.recordMessage(createMessage('window1', [allEvents[0]])) // before switchover
             recorder2.recordMessage(createMessage('window1', [allEvents[1]])) // before switchover
             const expectedRaw = recorder2.recordMessage(createMessage('window1', [allEvents[2]])) // after switchover

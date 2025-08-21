@@ -1,4 +1,13 @@
-import { RetentionPeriod } from '../types'
+import { TeamId } from '../../../../types'
+
+export interface SessionData {
+    /** The serialized session block data */
+    buffer: Buffer
+
+    sessionId: string
+
+    teamId: TeamId
+}
 
 export interface WriteSessionResult {
     /** Number of bytes written */
@@ -15,11 +24,11 @@ export interface SessionBatchFileWriter {
      * Writes a session block to the batch
      * Handles backpressure from the underlying stream
      *
-     * @param buffer - The serialized session block data
+     * @param data - The session data to write
      * @returns Promise that resolves with the number of bytes written and URL for the block
      * @throws If there is an error writing the data
      */
-    writeSession(buffer: Buffer): Promise<WriteSessionResult>
+    writeSession(data: SessionData): Promise<WriteSessionResult>
 
     /**
      * Completes the writing process for the entire batch
@@ -38,31 +47,17 @@ export interface SessionBatchFileWriter {
  */
 export interface SessionBatchFileStorage {
     /**
+     * Creates a new batch write operation
+     * Returns a writer for the batch that handles writing individual sessions
+     *
      * Example usage:
      * ```
-     * storage.startBatch()
-     * const writer = storage.getWriter("1y")
+     * const writer = storage.newBatch()
      * const result = await writer.writeSession(sessionBytes)
-     * await storage.endBatch() // Completes the batch
+     * await writer.finish() // Completes the write operation
      * ```
      */
-
-    /**
-     * Creates a new batch for write operations
-     */
-    startBatch(): void
-
-    /**
-     * Get the writer object for a given retention period
-     *
-     * @param retentionPeriod
-     */
-    getWriter(retentionPeriod: RetentionPeriod): SessionBatchFileWriter
-
-    /**
-     * End the current batch of write operations
-     */
-    endBatch(): Promise<void>
+    newBatch(): SessionBatchFileWriter
 
     /**
      * Checks the health of the storage backend

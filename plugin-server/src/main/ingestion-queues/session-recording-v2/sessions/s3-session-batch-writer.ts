@@ -4,10 +4,13 @@ import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
 import { logger } from '../../../../utils/logger'
-import { ValidRetentionPeriods } from '../constants'
-import { RetentionPeriod } from '../types'
 import { SessionBatchMetrics } from './metrics'
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
+import {
+    SessionBatchFileStorage,
+    SessionBatchFileWriter,
+    SessionData,
+    WriteSessionResult,
+} from './session-batch-file-storage'
 
 class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private stream: PassThrough
@@ -23,14 +26,15 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
-        private readonly timeout: number,
-        private readonly retentionPeriod: RetentionPeriod
+        private readonly timeout: number
     ) {
         this.stream = new PassThrough()
         this.key = this.generateKey()
         this.uploadStartTime = Date.now()
 
         logger.debug('🔄', 's3_session_batch_writer_opening_stream', { key: this.key })
+
+        SessionBatchMetrics.incrementS3BatchesStarted()
 
         const upload = new Upload({
             client: this.s3,
@@ -49,9 +53,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
 
         this.timeoutId = setTimeout(() => {
-            this.handleError(
-                new Error(`S3 upload for retention period '${this.retentionPeriod}' timed out after ${this.timeout}ms`)
-            )
+            this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
             SessionBatchMetrics.incrementS3UploadTimeouts()
             this.stream.destroy()
         }, this.timeout)
@@ -105,8 +107,9 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
     }
 
-    public async writeSession(buffer: Buffer): Promise<WriteSessionResult> {
+    public async writeSession(sessionData: SessionData): Promise<WriteSessionResult> {
         return await this.withErrorBarrier(async () => {
+            const buffer = sessionData.buffer
             const startOffset = this.currentOffset
 
             // Write and handle backpressure
@@ -138,6 +141,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
 
                 // Record successful upload metrics
                 const uploadDuration = (Date.now() - this.uploadStartTime) / 1000
+                SessionBatchMetrics.incrementS3BatchesUploaded()
                 SessionBatchMetrics.observeS3UploadLatency(uploadDuration)
                 SessionBatchMetrics.incrementS3BytesWritten(this.currentOffset)
             } catch (error) {
@@ -152,100 +156,22 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         const timestamp = Date.now()
         const suffix = randomBytes(8).toString('hex')
 
-        // TODO: Remove this code path when all teams have adopted the new retention mechanism
-        if (this.retentionPeriod === 'legacy') {
-            return `session_recording_batches/${timestamp}-${suffix}`
-        }
-
-        return `${this.prefix}/${this.retentionPeriod}/${timestamp}-${suffix}`
+        return `${this.prefix}/${timestamp}-${suffix}`
     }
 }
 
 export class S3SessionBatchFileStorage implements SessionBatchFileStorage {
-    private batchWriters: { [key in RetentionPeriod]: SessionBatchFileWriter | null }
-    private activeBatch: boolean
-
     constructor(
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
         private readonly timeout: number = 5000
     ) {
-        this.batchWriters = ValidRetentionPeriods.reduce(
-            (writers, retentionPeriod) => {
-                writers[retentionPeriod] = null
-                return writers
-            },
-            {} as { [key in RetentionPeriod]: SessionBatchFileWriter | null }
-        )
-        this.activeBatch = false
-
         logger.debug('🔁', 's3_session_batch_writer_created', { bucket, prefix })
     }
 
-    private resetWriters(): void {
-        this.batchWriters = ValidRetentionPeriods.reduce(
-            (writers, retentionPeriod) => {
-                writers[retentionPeriod] = null
-                return writers
-            },
-            {} as { [key in RetentionPeriod]: SessionBatchFileWriter | null }
-        )
-    }
-
-    public startBatch(): void {
-        if (!this.activeBatch) {
-            if (Object.values(this.batchWriters).some((writer) => writer !== null)) {
-                this.resetWriters()
-            }
-
-            this.activeBatch = true
-            SessionBatchMetrics.incrementS3BatchesStarted()
-        }
-    }
-
-    public getWriter(retentionPeriod: RetentionPeriod): SessionBatchFileWriter {
-        if (this.activeBatch) {
-            let writer = this.batchWriters[retentionPeriod]
-
-            if (writer === null) {
-                writer = new S3SessionBatchFileWriter(this.s3, this.bucket, this.prefix, this.timeout, retentionPeriod)
-                this.batchWriters[retentionPeriod] = writer
-            }
-
-            return writer
-        }
-
-        throw new Error('Cannot create S3 session batch writer outside the context of an active batch')
-    }
-
-    public async endBatch(): Promise<void> {
-        if (this.activeBatch) {
-            await Promise.all(
-                ValidRetentionPeriods.map(async (retentionPeriod) => {
-                    const writer = this.batchWriters[retentionPeriod]
-
-                    if (writer !== null) {
-                        await writer.finish()
-                    }
-                })
-            )
-                .then(
-                    () => {
-                        // Success
-                        SessionBatchMetrics.incrementS3BatchesUploaded()
-                    },
-                    (error) => {
-                        // Error
-                        SessionBatchMetrics.incrementS3UploadErrors()
-                        throw error
-                    }
-                )
-                .finally(() => {
-                    this.activeBatch = false
-                    this.resetWriters()
-                })
-        }
+    public newBatch(): SessionBatchFileWriter {
+        return new S3SessionBatchFileWriter(this.s3, this.bucket, this.prefix, this.timeout)
     }
 
     public async checkHealth(): Promise<boolean> {

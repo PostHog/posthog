@@ -8,7 +8,6 @@ import { logger } from '../../../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
 import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 import { SegmentationEvent, activeMillisecondsFromSegmentationEvents, toSegmentationEvent } from '../segmentation'
-import { RetentionPeriod } from '../types'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
@@ -45,8 +44,6 @@ export interface EndResult {
     snapshotLibrary: string | null
     /** ID of the batch this session belongs to */
     batchId: string
-    /** The retention period that should apply to this batch */
-    retentionPeriod: RetentionPeriod
 }
 
 /**
@@ -94,7 +91,6 @@ export class SnappySessionRecorder {
     constructor(
         public readonly sessionId: string,
         public readonly teamId: number,
-        public readonly retentionPeriod: RetentionPeriod,
         public readonly batchId: string,
         private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {}
@@ -255,7 +251,6 @@ export class SnappySessionRecorder {
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,
             batchId: this.batchId,
-            retentionPeriod: this.retentionPeriod,
         }
     }
 }

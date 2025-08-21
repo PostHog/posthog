@@ -1,5 +1,4 @@
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { RetentionService } from '../retention/retention-service'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -17,7 +16,6 @@ describe('SessionBatchManager', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
-    let mockRetentionService: jest.Mocked<RetentionService>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -59,10 +57,6 @@ describe('SessionBatchManager', () => {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        mockRetentionService = {
-            getSessionRetention: jest.fn(),
-        } as unknown as jest.Mocked<RetentionService>
-
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
@@ -71,7 +65,6 @@ describe('SessionBatchManager', () => {
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
             metadataSwitchoverDate: new Date('2025-01-02'),
-            retentionService: mockRetentionService,
         })
     })
 
@@ -89,8 +82,7 @@ describe('SessionBatchManager', () => {
             mockFileStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-02'),
-            mockRetentionService
+            new Date('2025-01-02')
         )
 
         const secondBatch = manager.getCurrentBatch()

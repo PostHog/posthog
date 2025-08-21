@@ -4,7 +4,6 @@ import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { RetentionService } from '../retention/retention-service'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -72,8 +71,7 @@ export class SessionBatchRecorder {
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate,
-        private readonly retentionService: RetentionService
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {
         this.batchId = uuidv7()
         this.createdAt = Date.now()
@@ -112,16 +110,8 @@ export class SessionBatchRecorder {
                 return 0
             }
         } else {
-            const retentionPeriod = await this.retentionService.getSessionRetention(teamId, sessionId)
-
             sessions.set(teamSessionKey, [
-                new SnappySessionRecorder(
-                    sessionId,
-                    teamId,
-                    retentionPeriod,
-                    this.batchId,
-                    this.metadataSwitchoverDate
-                ),
+                new SnappySessionRecorder(sessionId, teamId, this.batchId, this.metadataSwitchoverDate),
                 new SessionConsoleLogRecorder(
                     sessionId,
                     teamId,
@@ -192,7 +182,7 @@ export class SessionBatchRecorder {
             return []
         }
 
-        this.storage.startBatch()
+        const writer = this.storage.newBatch()
 
         const blockMetadata: SessionBlockMetadata[] = []
 
@@ -219,13 +209,15 @@ export class SessionBatchRecorder {
                         snapshotSource,
                         snapshotLibrary,
                         batchId,
-                        retentionPeriod,
                     } = await sessionBlockRecorder.end()
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
-                    const writer = this.storage.getWriter(retentionPeriod)
-                    const { bytesWritten, url } = await writer.writeSession(buffer)
+                    const { bytesWritten, url } = await writer.writeSession({
+                        buffer,
+                        teamId: sessionBlockRecorder.teamId,
+                        sessionId: sessionBlockRecorder.sessionId,
+                    })
 
                     blockMetadata.push({
                         sessionId: sessionBlockRecorder.sessionId,
@@ -258,7 +250,7 @@ export class SessionBatchRecorder {
                 totalSessions += sessions.size
             }
 
-            await this.storage.endBatch()
+            await writer.finish()
             await this.consoleLogStore.flush()
             await this.metadataStore.storeSessionBlocks(blockMetadata)
             await this.offsetManager.commit()
