@@ -125,9 +125,9 @@ export function Notebook({
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
-                            className="my-4"
+                            className="mb-4"
                             action={{
-                                children: 'Convert to Notebook',
+                                children: 'Convert to notebook',
                                 onClick: duplicateNotebook,
                             }}
                         >
