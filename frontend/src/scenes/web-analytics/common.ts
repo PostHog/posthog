@@ -63,6 +63,8 @@ export enum TileId {
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
+    PAGE_REPORTS_PREVIOUS_PAGE = 'PR_PREVIOUS_PAGE',
+    PAGE_REPORTS_NEXT_PAGE = 'PR_NEXT_PAGE',
 
     // Marketing Tiles
     MARKETING = 'MARKETING',
@@ -238,6 +240,8 @@ export enum PathTab {
     END_PATH = 'END_PATH',
     EXIT_CLICK = 'EXIT_CLICK',
     SCREEN_NAME = 'SCREEN_NAME',
+    PREVIOUS_PATH = 'PREVIOUS_PATH',
+    NEXT_PATH = 'NEXT_PATH',
 }
 
 export enum GeographyTab {
@@ -281,6 +285,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$entry_pathname', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ExitPage:
             return { key: '$end_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.PreviousPage:
+            return undefined // could be $prev_pageview_pathname or $referrer
         case WebStatsBreakdown.ExitClick:
             return { key: '$last_external_click_url', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ScreenName:
