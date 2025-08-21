@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconComment, IconPerson } from '@posthog/icons'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { colonDelimitedDuration } from 'lib/utils'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { asDisplay } from 'scenes/persons/person-utils'
 import {
@@ -55,11 +56,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
         scrollIntoView,
     } = useActions(notebookNodeLogic)
 
-    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading } = useValues(
+    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
         sessionRecordingDataLogic(recordingLogicProps)
     )
-    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
-    const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
+    const { loadRecordingMeta, loadSnapshots, loadTargetedSnapshot } = useActions(
+        sessionRecordingDataLogic(recordingLogicProps)
+    )
+    const { seekToTimestamp, setPlay, setPause } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
+    const { isPlaying } = useValues(sessionRecordingPlayerLogic(recordingLogicProps))
 
     // TODO Only load data when in view...
     useOnMountEffect(loadRecordingMeta)
@@ -100,19 +104,46 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                     setExpanded(true)
                 }
                 setPlay()
-
-                seekToTime(time)
+                seekToTimestamp(time)
                 scrollIntoView()
             },
         })
     })
 
+    // Preload snapshots as soon as the widget expands so the player can render a still frame
+    useEffect(() => {
+        if (expanded) {
+            // Ensure we start paused and just show a still frame
+            setPause()
+            // Use targeted loading if we have a timestamp - this loads only the specific frame needed
+            // If no timestamp, fall back to loading all snapshots
+            if (timestampMs && sessionPlayerData?.start) {
+                const targetTimestamp = sessionPlayerData.start.valueOf() + timestampMs
+                loadTargetedSnapshot(targetTimestamp)
+            } else {
+                loadSnapshots()
+            }
+        }
+    }, [expanded, timestampMs, sessionPlayerData?.start]) // oxlint-disable-line exhaustive-deps
+
     // Seek to timestamp when widget is expanded and has a timestamp
     useEffect(() => {
-        if (expanded && timestampMs && sessionPlayerMetaData) {
-            seekToTime(timestampMs / 1000) // Convert ms to seconds
+        if (expanded && timestampMs && sessionPlayerData?.start) {
+            // Convert relative ms to absolute recording timestamp and seek (paused)
+            setPause()
+            const desired = sessionPlayerData.start.valueOf() + timestampMs
+            seekToTimestamp(desired)
         }
-    }, [expanded, timestampMs, sessionPlayerMetaData]) // oxlint-disable-line exhaustive-deps
+    }, [expanded, timestampMs, sessionPlayerData?.start]) // oxlint-disable-line exhaustive-deps
+
+    // When user starts playing, ensure we have all snapshots loaded (not just the target frame)
+    useEffect(() => {
+        if (isPlaying && expanded && timestampMs) {
+            // User is actually playing and we initially loaded with a target timestamp
+            // Load all snapshots for smooth playback (without target timestamp)
+            loadSnapshots()
+        }
+    }, [isPlaying, expanded, timestampMs]) // oxlint-disable-line exhaustive-deps
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />
@@ -143,6 +174,16 @@ export const Settings = ({
                 checked={attributes.noInspector}
                 fullWidth={true}
             />
+            <div className="mt-3">
+                <label className="block text-muted mb-1">Start at timestamp</label>
+                <LemonInput
+                    type="text"
+                    fullWidth
+                    value={attributes.timestampMs ? colonDelimitedDuration(attributes.timestampMs / 1000) : ''}
+                    onBlur={(e) => updateAttributes({ timestampMs: parseTimestampToMs(e.currentTarget.value) })}
+                    placeholder="e.g. 00:13:37"
+                />
+            </div>
         </div>
     )
 }
@@ -159,7 +200,10 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
-    href: (attrs) => urls.replaySingle(attrs.id),
+    href: (attrs) =>
+        attrs.timestampMs
+            ? `${urls.replaySingle(attrs.id)}?t=${Math.floor(attrs.timestampMs / 1000)}`
+            : urls.replaySingle(attrs.id),
     resizeable: true,
     attributes: {
         id: {
@@ -175,7 +219,11 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
     pasteOptions: {
         find: urls.replaySingle(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
-            return { id: match[1], noInspector: false }
+            const id = match[1]
+            const remainder = match[2] || ''
+            const tMatch = /[?&#]t=([^&]+)/.exec(remainder)
+            const timestampMs = tMatch ? parseTimestampToMs(decodeURIComponent(tMatch[1])) : undefined
+            return { id, noInspector: false, timestampMs }
         },
     },
     Settings,
@@ -198,4 +246,31 @@ export function buildRecordingContent(sessionRecordingId: string): JSONContent {
             id: sessionRecordingId,
         },
     }
+}
+
+// Utilities: parse and format timestamps like "54s", "1:23", "00:01:23"
+function parseTimestampToMs(input?: string | null): number | undefined {
+    if (!input) {
+        return undefined
+    }
+    const value = String(input).trim()
+    if (!value) {
+        return undefined
+    }
+    // mm:ss or hh:mm:ss
+    const parts = value.split(':').map((p) => parseInt(p, 10))
+    if (parts.every((n) => !Number.isNaN(n))) {
+        let seconds = 0
+        if (parts.length === 2) {
+            const [mm, ss] = parts
+            seconds = mm * 60 + ss
+        } else if (parts.length === 3) {
+            const [hh, mm, ss] = parts
+            seconds = hh * 3600 + mm * 60 + ss
+        }
+        if (seconds > 0) {
+            return seconds * 1000
+        }
+    }
+    return undefined
 }
