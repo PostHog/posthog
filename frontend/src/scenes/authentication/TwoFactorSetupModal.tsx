@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { OrganizationDropdownMenu } from '~/layout/panel-layout/OrganizationDropdownMenu'
 
 import { TwoFactorSetup } from './TwoFactorSetup'
 import { twoFactorLogic } from './twoFactorLogic'
@@ -12,6 +15,7 @@ import { twoFactorLogic } from './twoFactorLogic'
 export function TwoFactorSetupModal(): JSX.Element {
     const { isTwoFactorSetupModalOpen, forceOpenTwoFactorSetupModal, startSetup } = useValues(twoFactorLogic)
     const { closeTwoFactorSetupModal } = useActions(twoFactorLogic)
+    const [showOrgDropdown, setShowOrgDropdown] = useState(false)
 
     // Determine if this is setup mode (has secret) or verification mode (no secret)
     const isSetupMode = !!startSetup?.secret
@@ -44,6 +48,22 @@ export function TwoFactorSetupModal(): JSX.Element {
                         membersLogic.actions.loadAllMembers()
                     }}
                 />
+
+                <LemonDivider />
+
+                <div className="flex flex-col items-center gap-1 mt-4">
+                    <div className="text-muted-alt text-xs">
+                        or{' '}
+                        <button
+                            type="button"
+                            className="text-muted-alt cursor-pointer underline hover:text-muted"
+                            onClick={() => setShowOrgDropdown(true)}
+                        >
+                            change your organization
+                        </button>
+                    </div>
+                    {showOrgDropdown && <OrganizationDropdownMenu />}
+                </div>
             </div>
         </LemonModal>
     )
