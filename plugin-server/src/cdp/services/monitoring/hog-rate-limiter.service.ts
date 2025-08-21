@@ -42,12 +42,12 @@ export class HogRateLimiterService {
 
         return idCosts.map(([id], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const token = tokenRes[1]
+            const token = tokenRes[1] ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE
             return [
                 id,
                 {
-                    tokens: Number(token ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE),
-                    isRateLimited: Number(token ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE) <= 0,
+                    tokens: Number(token),
+                    isRateLimited: Number(token) <= 0,
                 },
             ]
         })
