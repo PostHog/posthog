@@ -95,7 +95,15 @@ class QueryDateRange:
         elif self._exact_timerange:
             return date_to
 
-        if not self._date_range or not self._date_range.explicitDate:
+        # Check if date_to is an ISO date string (YYYY-MM-DD format without time)
+        # and extend it to end of day even when explicitDate=True
+        is_iso_date_only = False
+        if self._date_range and self._date_range.date_to and delta_mapping is None:
+            # Check if the original date_to string is in YYYY-MM-DD format (10 characters, no time component)
+            date_to_str = self._date_range.date_to.strip()
+            is_iso_date_only = len(date_to_str) == 10 and date_to_str.count('-') == 2 and 'T' not in date_to_str and ':' not in date_to_str
+
+        if not self._date_range or not self._date_range.explicitDate or is_iso_date_only:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
 
             if self.interval_name not in ("hour", "minute"):

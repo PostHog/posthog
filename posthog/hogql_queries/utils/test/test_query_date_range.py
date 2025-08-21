@@ -237,3 +237,40 @@ class TestQueryDateRangeWithIntervals(APIBaseTest):
         query = QueryDateRangeWithIntervals(None, 1, self.team, IntervalType.DAY, self.now)
         expected_expr = ast.Call(name="toStartOfDay", args=[source_expr])
         self.assertEqual(query.get_start_of_interval_hogql(source=source_expr), expected_expr)
+
+    def test_iso_date_only_handling(self):
+        """Test that ISO date strings (YYYY-MM-DD) are handled correctly for session recording filters."""
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        
+        # Test case 1: Same ISO date for date_from and date_to (explicitDate=True)
+        date_range = DateRange(date_from="2021-08-20", date_to="2021-08-20", explicitDate=True)
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+        
+        # date_from should be start of day
+        expected_date_from = parser.isoparse("2021-08-20T00:00:00Z")
+        self.assertEqual(query_date_range.date_from(), expected_date_from)
+        
+        # date_to should be end of day (this is the fix)
+        expected_date_to = parser.isoparse("2021-08-20T23:59:59.999999Z")
+        self.assertEqual(query_date_range.date_to(), expected_date_to)
+        
+        # Test case 2: ISO date with time should not be modified
+        date_range_with_time = DateRange(date_from="2021-08-20T15:30:00", date_to="2021-08-20T15:30:00", explicitDate=True)
+        query_date_range_with_time = QueryDateRange(team=self.team, date_range=date_range_with_time, interval=IntervalType.DAY, now=now)
+        
+        # Both should be exactly 15:30:00 (not modified)
+        expected_datetime = parser.isoparse("2021-08-20T15:30:00Z")
+        self.assertEqual(query_date_range_with_time.date_from(), expected_datetime)
+        self.assertEqual(query_date_range_with_time.date_to(), expected_datetime)
+        
+        # Test case 3: Different ISO dates
+        date_range_diff = DateRange(date_from="2021-08-20", date_to="2021-08-21", explicitDate=True)
+        query_date_range_diff = QueryDateRange(team=self.team, date_range=date_range_diff, interval=IntervalType.DAY, now=now)
+        
+        # date_from should be start of 2021-08-20
+        expected_date_from_diff = parser.isoparse("2021-08-20T00:00:00Z")
+        self.assertEqual(query_date_range_diff.date_from(), expected_date_from_diff)
+        
+        # date_to should be end of 2021-08-21
+        expected_date_to_diff = parser.isoparse("2021-08-21T23:59:59.999999Z")
+        self.assertEqual(query_date_range_diff.date_to(), expected_date_to_diff)
