@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -134,7 +135,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     const filters = data.filters ?? {}
     filters.source = filters.source ?? 'events'
 
-    if (filters.source === 'person-updates') {
+    if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events
@@ -677,9 +678,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
         ],
         hasAddon: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => {
-                return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            (s) => [s.hasAvailableFeature, s.featureFlags],
+            (hasAvailableFeature, featureFlags) => {
+                // Simple hack - we always turn the addon on if the new pricing is enabled
+                // Once we have fully rolled it out we can just completely remove all addon related code
+                return (
+                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) ||
+                    !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]
+                )
             },
         ],
         hasGroupsAddon: [
