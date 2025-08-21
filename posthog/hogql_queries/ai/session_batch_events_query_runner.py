@@ -25,7 +25,6 @@ class SessionBatchEventsQueryRunner(QueryRunner):
     """Query runner for batch session event queries using composition with EventsQueryRunner."""
 
     query: SessionBatchEventsQuery
-    response: SessionBatchEventsQueryResponse
     cached_response: CachedSessionBatchEventsQueryResponse
 
     def __init__(self, *args, **kwargs):

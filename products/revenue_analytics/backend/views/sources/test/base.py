@@ -6,13 +6,12 @@ view source builders, including mixins for ClickHouse queries, snapshots,
 and API testing.
 """
 
+from posthog.hogql import ast
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     QueryMatchingTest,
 )
-
-from posthog.hogql import ast
 from products.revenue_analytics.backend.views.core import BuiltQuery
 from products.revenue_analytics.backend.views.schemas import Schema
 
@@ -47,7 +46,7 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
 
     def assertQueryContainsFields(self, query: ast.Expr, schema: Schema):
         """
-        Assert that a SelectQuery contains all expected fields in its select clause.
+        Assert that a SelectQuery contains all expected fields in its select clause and that they appear in the same order.
 
         Args:
             query: ast.Expr object, should either be a SelectQuery or a SelectSetQuery, or else we'll raise ValueError
@@ -67,5 +66,5 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
         for query in queries:
             aliases = [field.alias for field in query.select if hasattr(field, "alias")]
 
-            for field in fields:
-                self.assertIn(field, aliases, f"Missing required field: {field}")
+            for expected, actual in zip(fields, aliases):
+                self.assertEqual(expected, actual, f"Field mismatch: expected {expected}, got {actual}")
