@@ -186,7 +186,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     const usesPercentageWidth = computedStyle.width.includes('%')
                     const usesPercentageHeight = computedStyle.height.includes('%')
 
-                    let finalWidthStyle, finalHeightStyle
+                    let finalWidthStyle: string
+                    let finalHeightStyle: string
 
                     if (usesPercentageWidth) {
                         // Keep percentage width
