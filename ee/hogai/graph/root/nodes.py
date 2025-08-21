@@ -662,7 +662,7 @@ class RootNodeTools(AssistantNode):
                     e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
                 )
                 result = AssistantToolCallMessage(
-                    content=f"The {tool_call.name} tool raised an internal error and it could not return an answer. Retry the tool call if the user asks you to.",
+                    content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
                     id=str(uuid4()),
                     tool_call_id=tool_call.id,
                     visible=False,

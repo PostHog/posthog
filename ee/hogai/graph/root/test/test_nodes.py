@@ -831,7 +831,7 @@ class TestRootNodeTools(BaseTest):
             assert isinstance(failure_message, AssistantToolCallMessage)
             self.assertEqual(
                 failure_message.content,
-                "The navigate tool raised an internal error and it could not return an answer. Retry the tool call if the user asks you to.",
+                "The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
             )
             self.assertEqual(result.root_tool_calls_count, 1)
 
@@ -1413,6 +1413,6 @@ Query results: 42 events
             assert isinstance(failure_message, AssistantToolCallMessage)
             self.assertEqual(
                 failure_message.content,
-                "The search_session_recordings tool raised an internal error and it could not return an answer. Retry the tool call if the user asks you to.",
+                "The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
             )
             self.assertEqual(result.root_tool_calls_count, 1)
