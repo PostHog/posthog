@@ -6,8 +6,6 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
-import batchExports from '~/mocks/fixtures/api/organizations/@current/batchExports.json'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -139,48 +137,4 @@ export const BillingUnsubscribeModal = (): JSX.Element => {
     })
 
     return <UnsubscribeSurveyModal product={billingJson.products[0]} />
-}
-
-export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/api/billing/': {
-                ...billingJson,
-            },
-            '/api/organizations/@current/batch_exports': batchExports,
-            '/api/organizations/@current/': {
-                ...organizationCurrent,
-            },
-        },
-    })
-    const product = billingJson.products[0]
-    product.addons = [
-        {
-            type: 'data_pipelines',
-            subscribed: true,
-            name: 'Data Pipelines',
-            description: 'Add-on description',
-            price_description: 'Add-on price description',
-            image_url: 'Add-on image URL',
-            docs_url: 'Add-on documentation URL',
-            tiers: [],
-            tiered: false,
-            unit: '',
-            unit_amount_usd: '0',
-            current_amount_usd: '0',
-            current_usage: 0,
-            projected_usage: 0,
-            projected_amount_usd: '0',
-            plans: [],
-            usage_key: '',
-            contact_support: false,
-            inclusion_only: false,
-            features: [],
-        },
-    ]
-
-    return <UnsubscribeSurveyModal product={product} />
-}
-BillingUnsubscribeModal_DataPipelines.parameters = {
-    testOptions: { waitForSelector: '.LemonTable__content' },
 }
