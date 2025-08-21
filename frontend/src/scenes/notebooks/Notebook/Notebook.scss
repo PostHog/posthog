@@ -8,7 +8,18 @@
         position: relative;
         flex: 1;
         width: 100%;
+        padding: 1.25rem 1.5rem;
+        margin-top: 1rem;
         overflow: hidden;
+        background-color: var(--color-bg-surface-primary);
+        border-width: 1px;
+        border-radius: var(--radius-lg);
+
+        .SidePanel3000 & {
+            padding: 0;
+            margin: 0;
+            border-width: 0;
+        }
 
         .ProseMirror {
             &-focused {
@@ -20,16 +31,61 @@
             > h3,
             > h4,
             > h5 {
-                margin-top: 0.5rem;
+                margin: 0 0 0.5em;
+                font-weight: 600;
+                line-height: 1.2;
+                letter-spacing: -0.01em;
+            }
+
+            > h1:not(:first-child),
+            > h2:not(:first-child) {
+                margin-top: 0.9em;
+            }
+
+            > h3:not(:first-child),
+            > h4:not(:first-child),
+            > h5:not(:first-child) {
+                margin-top: 0.6em;
+            }
+
+            > h1 {
+                padding-bottom: 0.375em;
+                font-size: 1.375rem; // Align with LemonMarkdown
+                color: var(--text-3000);
+                border-bottom-width: 1px;
+            }
+
+            > h2 {
+                padding-bottom: 0.375em;
+                font-size: 1.125rem; // Align with LemonMarkdown
+                border-bottom-width: 1px;
+            }
+
+            > h3 {
+                font-size: 1rem;
+            }
+
+            > h4 {
+                font-size: 0.875rem;
+            }
+
+            > h5 {
+                font-size: 0.875rem;
+                font-weight: 600;
             }
 
             > p {
-                margin-bottom: 0.2rem;
+                margin: 0.65rem 0;
+            }
+
+            > .is-empty {
+                position: relative;
             }
 
             > .is-empty::before {
-                float: left;
-                height: 0;
+                position: absolute;
+                inset-block-start: 0;
+                inset-inline-start: 0;
                 color: rgb(0 0 0 / 20%);
                 pointer-events: none;
                 content: attr(data-placeholder);
@@ -40,23 +96,32 @@
             }
 
             > ol {
+                padding-left: 1.5rem;
+                margin: 0.75rem 0;
                 list-style-type: decimal;
 
                 ol {
+                    padding-left: 1.25rem;
+                    margin: 0.35rem 0;
                     list-style-type: lower-alpha;
                 }
             }
 
             > ul {
+                padding-left: 1.5rem;
+                margin: 0.75rem 0;
                 list-style-type: disc;
 
                 ul {
+                    padding-left: 1.25rem;
+                    margin: 0.35rem 0;
                     list-style-type: circle;
                 }
             }
 
             > ul[data-type='taskList'] {
                 padding-left: 0;
+                margin: 0.5rem 0;
                 list-style-type: none;
 
                 li {
@@ -64,12 +129,25 @@
 
                     > label {
                         flex: 0 0 auto;
+                        padding: 0.15rem;
+                        margin-top: 0.15rem;
                         margin-right: 0.5rem;
                         user-select: none;
+                        border-radius: 4px;
+                        transition: background 120ms ease-in-out;
                     }
 
                     > div {
                         flex: 1 1 auto;
+                    }
+
+                    input[type='checkbox'] {
+                        accent-color: var(--color-accent);
+                        transform: translateY(1px);
+                    }
+
+                    > label:hover {
+                        background: var(--color-bg-surface-primary);
                     }
 
                     ul li,
@@ -85,33 +163,198 @@
 
             > ul,
             > ol {
-                padding-left: 2rem;
+                padding-left: 1.5rem;
 
                 ul,
                 ol {
-                    padding-left: 2rem;
+                    padding-left: 1.25rem;
                 }
 
                 li {
+                    margin: 0.35rem 0;
+
                     p {
-                        margin-bottom: 0.2rem;
+                        margin: 0.25rem 0;
                     }
                 }
             }
 
             > pre {
-                padding: 0.5rem;
-                margin-bottom: 0.5rem;
+                position: relative;
+                padding: 0.75rem 1rem;
+                margin: 1rem 0;
                 overflow-x: auto;
-                background-color: rgb(0 0 0 / 5%);
-                border-radius: var(--radius);
+                font-family: var(
+                    --font-code,
+                    ui-monospace,
+                    SFMono-Regular,
+                    Menlo,
+                    Monaco,
+                    Consolas,
+                    'Liberation Mono',
+                    'Courier New',
+                    monospace
+                );
+                font-size: 0.95em;
+                line-height: 1.6;
+                tab-size: 2;
+                background-color: rgb(0 0 0 / 6%);
+                border: 1px solid var(--color-border-primary);
+                border-radius: calc(var(--radius) + 4px);
+
+                [theme='dark'] & {
+                    background-color: rgb(255 255 255 / 8%);
+                }
+            }
+
+            > pre[data-language]::before {
+                position: absolute;
+                top: 0.35rem;
+                right: 0.6rem;
+                font-size: 0.75rem;
+                color: var(--text-3000);
+                text-transform: uppercase;
+                letter-spacing: 0.02em;
+                content: attr(data-language);
             }
 
             > code,
             > p code {
-                padding: 0.2rem;
-                background-color: rgb(0 0 0 / 5%);
+                padding: 0.2rem 0.3rem;
+                font-family: var(
+                    --font-code,
+                    ui-monospace,
+                    SFMono-Regular,
+                    Menlo,
+                    Monaco,
+                    Consolas,
+                    'Liberation Mono',
+                    'Courier New',
+                    monospace
+                );
+                font-size: 0.95em;
+                background-color: rgb(0 0 0 / 6%);
+                border: 1px solid var(--color-border-primary);
+                border-radius: calc(var(--radius) - 2px);
+
+                [theme='dark'] & {
+                    background-color: rgb(255 255 255 / 8%);
+                }
+            }
+
+            // Blockquotes
+            > blockquote {
+                padding: 0.5rem 0.75rem;
+                margin: 1rem 0;
+                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 30%);
+                border-left: 3px solid var(--color-border-primary);
                 border-radius: var(--radius);
+            }
+
+            > blockquote p {
+                font-style: italic;
+            }
+
+            // Horizontal rule
+            > hr {
+                margin: 1.25em 0;
+                border: 0;
+                border-top: 1px solid var(--color-border-primary);
+            }
+
+            // Images
+            > img,
+            > figure img {
+                max-width: 100%;
+                height: auto;
+                border-radius: var(--radius);
+            }
+
+            > figure {
+                margin: 1.1rem 0;
+                text-align: center;
+            }
+
+            > figcaption {
+                margin-top: 0.4rem;
+                font-size: 0.9em;
+                color: var(--text-3000);
+            }
+
+            // Tables
+            > table {
+                width: 100%;
+                margin: 1rem 0;
+                border-collapse: collapse;
+            }
+
+            > table th,
+            > table td {
+                padding: 0.5rem 0.75rem;
+                vertical-align: top;
+                border: 1px solid var(--color-border-primary);
+            }
+
+            > table th {
+                font-weight: 600;
+                text-align: left;
+                background: var(--color-bg-surface-primary);
+            }
+
+            > table tbody tr:nth-child(odd) {
+                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 60%);
+            }
+
+            > table tbody tr:hover {
+                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 30%);
+            }
+
+            // Links
+            a {
+                color: var(--color-accent);
+                text-decoration: none;
+                border-bottom: 1px solid rgb(0 0 0 / 12%);
+
+                &:hover {
+                    text-decoration: underline;
+                    border-bottom-color: transparent;
+                }
+
+                &:visited {
+                    color: var(--text-3000);
+                }
+
+                &:focus-visible {
+                    border-bottom-color: transparent;
+                    outline: 2px solid color-mix(in oklab, var(--color-accent), transparent 70%);
+                    outline-offset: 2px;
+                }
+            }
+
+            // Dividers and heading adjacency spacing
+            > hr + h2,
+            > hr + h3 {
+                margin-top: 0.75rem;
+            }
+
+            > h2 + hr,
+            > h3 + hr {
+                margin-top: 0.75rem;
+            }
+
+            // Trim outer whitespace
+            > :first-child {
+                margin-top: 0;
+            }
+
+            > :last-child {
+                margin-bottom: 0;
+            }
+
+            // Page title treatment
+            > h1:first-child {
+                margin-top: 0;
+                font-size: 1.625rem; // Slightly larger than h1, but close to LemonMarkdown scale
             }
         }
 
@@ -192,7 +435,7 @@
 
     &--compact:not(.Notebook--canvas) {
         .NotebookEditor {
-            max-width: 800px;
+            max-width: 50rem;
         }
     }
 
