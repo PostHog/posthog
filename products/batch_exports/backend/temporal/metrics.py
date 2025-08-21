@@ -372,21 +372,21 @@ class SLAWaiter:
     Examples:
         Nothing happens when no SLA is exceeded.
 
-        >>> async with SLAWaiter(name="my-task", sla=dt.datetime(seconds=10)) as waiter:
+        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.datetime(seconds=10)) as waiter:
         ...     await asyncio.sleep(1)
         ...     waiter.is_over_sla()
         False
 
         A log will be printed if SLA is exceeded.
 
-        >>> async with SLAWaiter(name="my-task", sla=dt.datetime(seconds=1)) as waiter:
+        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.datetime(seconds=1)) as waiter:
         ...     await asyncio.sleep(10)
         ...     waiter.is_over_sla()
         True
     """
 
-    def __init__(self, name: str, sla: dt.timedelta):
-        self.name = name
+    def __init__(self, batch_export_id: str, sla: dt.timedelta):
+        self.batch_export_id = batch_export_id
         self.sla = sla
         self._over_sla = asyncio.Event()
         self._waiter: asyncio.Task[None] | None = None
@@ -417,7 +417,7 @@ class SLAWaiter:
 
         self._over_sla.set()
         LOGGER.warning(
-            "%(name)s has been running longer than SLA of %(sla_seconds)ds",
-            name=self.name,
+            "SLA breached",
+            batch_export_id=self.batch_export_id,
             sla_seconds=self.sla.total_seconds(),
         )
