@@ -135,7 +135,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     value: z.object({
                         to: z.object({
                             email: z.string(),
-                            name: z.string().min(1).max(100).optional(),
                         }),
                         from: z.object({
                             email: z.string().email(),

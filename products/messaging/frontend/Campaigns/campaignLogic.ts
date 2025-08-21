@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
+import { HogFlowActionSchema } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, type HogFlowEdge } from './hogflows/types'
 
 export interface CampaignLogicProps {
@@ -103,16 +104,21 @@ export const campaignLogic = kea<campaignLogicType>([
     forms(({ actions }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
-            errors: ({ name, trigger }) => {
+            errors: ({ name, trigger, actions }) => {
                 return {
-                    name: name.length === 0 ? 'Name is required' : undefined,
-                    trigger: {
-                        type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
-                        filters:
-                            trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
+                    name: !name ? 'Name is required' : undefined,
+                    trigger:
+                        trigger.type === 'event'
+                            ? trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
                                 ? 'At least one event or action is required'
-                                : undefined,
-                    },
+                                : undefined
+                            : 'Invalid trigger type',
+                    actions: actions.some((action) => {
+                        const validationResult = HogFlowActionSchema.safeParse(action)
+                        return !['trigger', 'exit'].includes(action.type) && !validationResult.success
+                    })
+                        ? 'Some fields need work'
+                        : undefined,
                 }
             },
             submit: async (values) => {
@@ -121,9 +127,6 @@ export const campaignLogic = kea<campaignLogicType>([
                 }
 
                 actions.saveCampaign(values)
-            },
-            options: {
-                showErrorsOnTouch: true,
             },
         },
     })),
