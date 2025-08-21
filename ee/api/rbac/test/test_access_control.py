@@ -719,7 +719,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 18
+        baseline = 14
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 8):
@@ -758,7 +758,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 17
+        baseline = 14
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 8):
@@ -772,7 +772,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 7
+        baseline = 5
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 8):
@@ -792,13 +792,13 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 7
         with self.assertNumQueries(baseline + 8):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 7
 
         with self.assertNumQueries(baseline + 8):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
@@ -807,7 +807,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 45  # This is a lot! There is currently an n+1 issue with the legacy access control system
+        baseline = 44  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
         with self.assertNumQueries(baseline + 8):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
