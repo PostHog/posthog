@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 from typing import Union
 from django.conf import settings
@@ -12,6 +13,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -83,5 +85,71 @@ def generate_assets(
                     # Continue with other assets even if one fails
                     asset.exception = str(e)
                     asset.save()
+
+        return insights, assets
+
+
+async def generate_assets_async(
+    resource: Union[Subscription, SharingConfiguration],
+    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT,
+) -> tuple[list[Insight], list[ExportedAsset]]:
+    """
+    Async version of generate_assets that creates and exports assets concurrently.
+    Each async task creates its own ExportedAsset and then exports it.
+    """
+    with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
+        if resource.dashboard:
+            tiles = await database_sync_to_async(get_tiles_ordered_by_position, thread_sensitive=False)(
+                resource.dashboard, "sm"
+            )
+            insights = [tile.insight for tile in tiles if tile.insight]
+        elif resource.insight:
+            insights = [resource.insight]
+        else:
+            raise Exception("There are no insights to be sent for this Subscription")
+
+        # Limit insights to max_asset_count
+        insights_to_process = insights[:max_asset_count]
+
+        if not insights_to_process:
+            return insights, []
+
+        # Create async task for each insight to create and export its asset
+        async def create_and_export_asset(insight: Insight) -> ExportedAsset:
+            try:
+                # Create the asset
+                asset = ExportedAsset(
+                    team=resource.team,
+                    export_format="image/png",
+                    insight=insight,
+                    dashboard=resource.dashboard,
+                )
+                await database_sync_to_async(asset.save, thread_sensitive=False)()
+
+                # Export the asset
+                await database_sync_to_async(exporter.export_asset, thread_sensitive=False)(asset.id)
+
+                return asset
+            except Exception as e:
+                logger.error(
+                    "Failed to create or export asset for subscription",
+                    insight_id=insight.id,
+                    subscription_id=getattr(resource, "id", None),
+                    error=str(e),
+                    exc_info=True,
+                )
+                # Create asset with exception and return it
+                asset = ExportedAsset(
+                    team=resource.team,
+                    export_format="image/png",
+                    insight=insight,
+                    dashboard=resource.dashboard,
+                    exception=str(e),
+                )
+                await database_sync_to_async(asset.save, thread_sensitive=False)()
+                return asset
+
+        # Run all create and export tasks concurrently
+        assets = await asyncio.gather(*[create_and_export_asset(insight) for insight in insights_to_process])
 
         return insights, assets

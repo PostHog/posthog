@@ -15,7 +15,7 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     send_slack_message_with_integration_async,
     get_slack_integration_for_team,
 )
-from ee.tasks.subscriptions.subscription_utils import generate_assets
+from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_assets_async
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
