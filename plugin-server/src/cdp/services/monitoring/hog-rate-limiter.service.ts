@@ -29,28 +29,27 @@ export class HogRateLimiterService {
         ] as const
     }
 
-    public async rateLimitMany(idCosts: Record<string, number>): Promise<Record<string, HogRateLimit>> {
+    public async rateLimitMany(idCosts: [string, number][]): Promise<[string, HogRateLimit][]> {
         const res = await this.redis.usePipeline({ name: 'hog-rate-limiter', failOpen: true }, (pipeline) => {
-            Object.entries(idCosts).forEach(([id, cost]) => {
+            idCosts.forEach(([id, cost]) => {
                 pipeline.checkRateLimit(...this.rateLimitArgs(id, cost))
             })
         })
 
         if (!res) {
-            return {}
+            throw new Error('Failed to rate limit')
         }
 
-        return Object.keys(idCosts).reduce(
-            (acc, id, index) => {
-                const [tokenRes] = getRedisPipelineResults(res, index, 1)
-                const token = tokenRes[1]
-                acc[id] = {
+        return idCosts.map(([id], index) => {
+            const [tokenRes] = getRedisPipelineResults(res, index, 1)
+            const token = tokenRes[1]
+            return [
+                id,
+                {
                     tokens: Number(token ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE),
                     isRateLimited: Number(token ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE) <= 0,
-                }
-                return acc
-            },
-            {} as Record<string, HogRateLimit>
-        )
+                },
+            ]
+        })
     }
 }

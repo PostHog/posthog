@@ -10,6 +10,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -33,13 +34,18 @@ export const counterMissingAddon = new Counter({
     labelNames: ['team_id'],
 })
 
-export const counterQuotaLimited = new Counter({
+const counterQuotaLimited = new Counter({
     name: 'cdp_function_quota_limited',
     help: 'A function invocation was quota limited',
     labelNames: ['team_id'],
 })
 
-export const counterHogFunctionStateOnEvent = new Counter({
+const counterRateLimited = new Counter({
+    name: 'cdp_function_rate_limited',
+    help: 'A function invocation was rate limited',
+})
+
+const counterHogFunctionStateOnEvent = new Counter({
     name: 'cdp_hog_function_state_on_event',
     help: 'Metric the state of a hog function that matched an event',
     labelNames: ['state', 'kind'],
@@ -51,10 +57,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
 
+    private hogRateLimiter: HogRateLimiterService
+
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+        this.hogRateLimiter = new HogRateLimiterService(hub, this.redis)
     }
 
     public async processBatch(
@@ -123,13 +132,26 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
+            // TODO: Add rate limiting here
+
             const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
+
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
+            const rateLimits = await this.hogRateLimiter.rateLimitMany(
+                possibleInvocations.map((x) => [x.hogFunction.id, 1])
+            )
 
             // Iterate over adding them to the list and updating their priority
             await Promise.all(
-                possibleInvocations.map(async (item) => {
+                possibleInvocations.map(async (item, index) => {
                     // Disable invocations for teams that don't have the addon (for now just metric them out..)
+
+                    const rateLimit = rateLimits[index][1]
+                    if (rateLimit.isRateLimited) {
+                        counterRateLimited.labels({ hog_function_id: item.hogFunction.id }).inc()
+                        // NOTE: We don't return here as we are just monitoring this feature currently
+                        // return
+                    }
 
                     const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
                         item.teamId,

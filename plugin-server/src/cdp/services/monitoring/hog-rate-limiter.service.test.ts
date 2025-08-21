@@ -1,6 +1,5 @@
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
-import { delay } from '~/utils/utils'
 
 import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
@@ -39,90 +38,90 @@ describe('HogRateLimiter', () => {
             mockNow.mockReturnValue(now)
         }
 
-        const reallyAdvanceTime = async (ms: number) => {
-            advanceTime(ms)
-            await delay(ms)
-        }
-
         afterEach(async () => {
             await closeHub(hub)
             jest.clearAllMocks()
         })
 
         it('should use tokens for an ID', async () => {
-            const res = await rateLimiter.rateLimitMany({ [id1]: 1 })
+            const res = await rateLimiter.rateLimitMany([[id1, 1]])
 
-            expect(res).toEqual({
-                [id1]: {
-                    tokens: 99,
-                    isRateLimited: false,
-                },
-            })
+            expect(res).toEqual([[id1, { tokens: 99, isRateLimited: false }]])
         })
 
         it('should rate limit an ID', async () => {
-            let res = await rateLimiter.rateLimitMany({ [id1]: 99 })
+            let res = await rateLimiter.rateLimitMany([[id1, 99]])
 
-            expect(res[id1].tokens).toBe(1)
-            expect(res[id1].isRateLimited).toBe(false)
+            expect(res[0][1].tokens).toBe(1)
+            expect(res[0][1].isRateLimited).toBe(false)
 
-            res = await rateLimiter.rateLimitMany({ [id1]: 1 })
+            res = await rateLimiter.rateLimitMany([[id1, 1]])
 
-            expect(res[id1].tokens).toBe(0)
-            expect(res[id1].isRateLimited).toBe(true)
+            expect(res[0][1].tokens).toBe(0)
+            expect(res[0][1].isRateLimited).toBe(true)
 
-            res = await rateLimiter.rateLimitMany({ [id1]: 20 })
+            res = await rateLimiter.rateLimitMany([[id1, 20]])
 
-            expect(res[id1].tokens).toBe(-1) // It never goes below -1
-            expect(res[id1].isRateLimited).toBe(true)
+            expect(res[0][1].tokens).toBe(-1) // It never goes below -1
+            expect(res[0][1].isRateLimited).toBe(true)
         })
 
         it('should use tokens for many IDs', async () => {
-            const res = await rateLimiter.rateLimitMany({ [id1]: 1, [id2]: 5 })
+            const res = await rateLimiter.rateLimitMany([
+                [id1, 1],
+                [id2, 5],
+            ])
 
-            expect(res).toEqual({
-                [id1]: {
-                    tokens: 99,
-                    isRateLimited: false,
-                },
-                [id2]: {
-                    tokens: 95,
-                    isRateLimited: false,
-                },
-            })
+            expect(res).toEqual([
+                [id1, { tokens: 99, isRateLimited: false }],
+                [id2, { tokens: 95, isRateLimited: false }],
+            ])
 
-            const res2 = await rateLimiter.rateLimitMany({ [id1]: 1, [id2]: 0 })
+            const res2 = await rateLimiter.rateLimitMany([
+                [id1, 1],
+                [id2, 0],
+            ])
 
-            expect(res2).toEqual({
-                [id1]: {
-                    tokens: 98,
-                    isRateLimited: false,
-                },
-                [id2]: {
-                    tokens: 95,
-                    isRateLimited: false,
-                },
-            })
+            expect(res2).toEqual([
+                [id1, { tokens: 98, isRateLimited: false }],
+                [id2, { tokens: 95, isRateLimited: false }],
+            ])
         })
 
         it('should refill over time', async () => {
-            const res = await rateLimiter.rateLimitMany({ [id1]: 50 })
+            const res = await rateLimiter.rateLimitMany([[id1, 50]])
 
-            expect(res[id1].tokens).toBe(50)
+            expect(res[0][1].tokens).toBe(50)
 
             advanceTime(1000) // 1 second = 10 tokens
 
-            const res2 = await rateLimiter.rateLimitMany({ [id1]: 5 })
+            const res2 = await rateLimiter.rateLimitMany([[id1, 5]])
 
-            expect(res2[id1].tokens).toBe(55) // cost 5 but added 10 tokens
-            expect(res2[id1].isRateLimited).toBe(false)
+            expect(res2[0][1].tokens).toBe(55) // cost 5 but added 10 tokens
+            expect(res2[0][1].isRateLimited).toBe(false)
 
             advanceTime(4000) // 4 seconds = 40 tokens
 
-            const res3 = await rateLimiter.rateLimitMany({ [id1]: 0 })
+            const res3 = await rateLimiter.rateLimitMany([[id1, 0]])
 
-            expect(res3[id1].tokens).toBe(95)
-            expect(res3[id1].isRateLimited).toBe(false)
+            expect(res3[0][1].tokens).toBe(95)
+            expect(res3[0][1].isRateLimited).toBe(false)
+        })
+
+        it('should allow rate usage for multiple of the same ID', async () => {
+            const res = await rateLimiter.rateLimitMany([
+                [id1, 90],
+                [id1, 9],
+                [id1, 1],
+                [id1, 2],
+            ])
+
+            expect(res).toEqual([
+                [id1, { tokens: 10, isRateLimited: false }],
+                [id1, { tokens: 1, isRateLimited: false }],
+                [id1, { tokens: 0, isRateLimited: true }],
+                [id1, { tokens: -1, isRateLimited: true }],
+            ])
         })
     })
 })
