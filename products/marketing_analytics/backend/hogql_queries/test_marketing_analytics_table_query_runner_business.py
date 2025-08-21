@@ -1033,6 +1033,7 @@ def test_campaign_performance_ranking(test_name, order_by, expected_sort_reverse
         assert len(response.results) == 5, f"Should have 5 Facebook campaigns for {test_name} ordering"
 
         # Extract values based on test_name
+        values: list[float | int | str]
         if test_name == "cost":
             values = [float(row[2].value or 0) for row in response.results]
         elif test_name == "clicks":
@@ -1040,7 +1041,7 @@ def test_campaign_performance_ranking(test_name, order_by, expected_sort_reverse
         elif test_name == "impressions":
             values = [int(row[4].value or 0) for row in response.results]
         elif test_name == "campaign":
-            values = [row[0].value for row in response.results]
+            values = [str(row[0].value) for row in response.results]
         else:
             raise ValueError(f"Unknown test_name: {test_name}")
 

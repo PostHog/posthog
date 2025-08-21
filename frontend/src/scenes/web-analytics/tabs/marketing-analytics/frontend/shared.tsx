@@ -47,6 +47,21 @@ const formatMarketingItem = (
     return options?.precise ? humanFriendlyNumber(value) : humanFriendlyLargeNumber(value)
 }
 
+// Type guard to check if item has valid numeric comparison data
+const hasValidComparisonData = (
+    item: MarketingAnalyticsItem
+): item is MarketingAnalyticsItem & {
+    value: number
+    previous: number
+    changeFromPreviousPct: number
+} => {
+    return (
+        typeof item.value === 'number' &&
+        typeof item.previous === 'number' &&
+        typeof item.changeFromPreviousPct === 'number'
+    )
+}
+
 // Helper to format percentage change including infinity cases
 const formatChangePercentage = (changeFromPreviousPct: number | null | undefined): string | null => {
     if (!isNotNil(changeFromPreviousPct)) {
@@ -65,6 +80,11 @@ const formatChangePercentage = (changeFromPreviousPct: number | null | undefined
 
 // Helper for special change cases (infinity, no change)
 const getSpecialChangeTooltip = (item: MarketingAnalyticsItem, baseCurrency: string): string | null => {
+    // Ensure we have valid changeFromPreviousPct
+    if (typeof item.changeFromPreviousPct !== 'number') {
+        return null
+    }
+
     if (item.changeFromPreviousPct === 0) {
         return `${item.key}: ${formatMarketingItem(item.value, item.kind, { precise: true, currency: baseCurrency })} (no change from previous period)`
     }
@@ -77,10 +97,13 @@ const getSpecialChangeTooltip = (item: MarketingAnalyticsItem, baseCurrency: str
     return null
 }
 
-// Helper for normal percentage change tooltip
-const getNormalChangeTooltip = (item: MarketingAnalyticsItem, baseCurrency: string): string => {
-    const direction = item.value! > item.previous! ? 'increased' : 'decreased'
-    const percentageChange = percentage(Math.abs(item.changeFromPreviousPct!) / 100, 3)
+// Helper for normal percentage change tooltip (assumes valid numeric data)
+const getNormalChangeTooltip = (
+    item: MarketingAnalyticsItem & { value: number; previous: number; changeFromPreviousPct: number },
+    baseCurrency: string
+): string => {
+    const direction = item.value > item.previous ? 'increased' : 'decreased'
+    const percentageChange = percentage(Math.abs(item.changeFromPreviousPct) / 100, 3)
     const currentValue = formatMarketingItem(item.value, item.kind, { precise: true, currency: baseCurrency })
     const previousValue = formatMarketingItem(item.previous, item.kind, { precise: true, currency: baseCurrency })
 
@@ -94,13 +117,7 @@ const createComparisonTooltip = (item: MarketingAnalyticsItem, baseCurrency: str
     const hasChange = isNotNil(item.changeFromPreviousPct)
 
     // Full comparison with numeric values and change calculation
-    if (
-        hasCurrentValue &&
-        hasPreviousValue &&
-        hasChange &&
-        typeof item.value === 'number' &&
-        typeof item.previous === 'number'
-    ) {
+    if (hasCurrentValue && hasPreviousValue && hasChange && hasValidComparisonData(item)) {
         const specialTooltip = getSpecialChangeTooltip(item, baseCurrency)
         return specialTooltip || getNormalChangeTooltip(item, baseCurrency)
     }
@@ -148,10 +165,16 @@ const getNoDataTooltip = (item: MarketingAnalyticsItem): string => {
 // Helper to determine background color based on change and isIncreaseBad
 const getChangeBackgroundColor = (
     changeFromPreviousPct: number | null | undefined,
-    isIncreaseBad: boolean
+    isIncreaseBad: boolean | undefined
 ): string | undefined => {
     if (!isNotNil(changeFromPreviousPct) || changeFromPreviousPct === 0) {
         return undefined // No background for no change
+    }
+
+    // If isIncreaseBad is undefined, we don't have semantic information about whether
+    // the change is good or bad, so we don't apply any background color
+    if (isIncreaseBad === undefined) {
+        return undefined
     }
 
     const isIncrease = changeFromPreviousPct > 0
@@ -160,7 +183,8 @@ const getChangeBackgroundColor = (
     return isGood ? 'var(--color-bg-fill-success-highlight)' : 'var(--color-bg-fill-error-highlight)'
 }
 
-export const MarketingAnalyticsCell = ({ value: item }: { value: MarketingAnalyticsItem }): JSX.Element | null => {
+// Internal component that handles the actual rendering
+const MarketingAnalyticsCellInternal = ({ value: item }: { value: MarketingAnalyticsItem }): JSX.Element | null => {
     const { baseCurrency } = useValues(teamLogic)
 
     // Handle different no-data scenarios
@@ -224,7 +248,7 @@ export const MarketingAnalyticsCell = ({ value: item }: { value: MarketingAnalyt
     const formattedValue = formatMarketingItem(item.value, item.kind, { currency: baseCurrency, hideCurrency: true })
     const changePercFormatted = formatChangePercentage(item.changeFromPreviousPct)
 
-    const bgColor = getChangeBackgroundColor(item.changeFromPreviousPct, item.isIncreaseBad ?? false)
+    const bgColor = getChangeBackgroundColor(item.changeFromPreviousPct, item.isIncreaseBad)
 
     return (
         <Tooltip title={tooltip} delayMs={300} className="cursor-default">
@@ -250,4 +274,14 @@ export const MarketingAnalyticsCell = ({ value: item }: { value: MarketingAnalyt
             </div>
         </Tooltip>
     )
+}
+
+// Adapter component that matches QueryContextColumnComponent interface
+export const MarketingAnalyticsCell = ({ value }: { value: unknown }): JSX.Element | null => {
+    // Type guard to ensure we have a MarketingAnalyticsItem
+    if (typeof value !== 'object' || value === null || !('key' in value)) {
+        return <span>-</span>
+    }
+
+    return <MarketingAnalyticsCellInternal value={value as MarketingAnalyticsItem} />
 }

@@ -262,10 +262,10 @@ def to_marketing_analytics_data(
                     change_from_previous_pct = 0
                 elif value > 0:
                     # From 0 to positive: use special large number to represent infinite growth
-                    change_from_previous_pct = InfinityValue.NUMBER_999999
+                    change_from_previous_pct = int(InfinityValue.NUMBER_999999)
                 else:
                     # From 0 to negative: use special large negative number to represent infinite decrease
-                    change_from_previous_pct = InfinityValue.NUMBER__999999
+                    change_from_previous_pct = int(InfinityValue.NUMBER__999999)
             else:
                 # Normal case: previous != 0
                 change_from_previous_pct = round(100 * (value - previous) / previous)
