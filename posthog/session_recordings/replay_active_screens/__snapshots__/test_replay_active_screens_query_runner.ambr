@@ -7,7 +7,7 @@
     (SELECT session_replay_events.session_id AS session_id,
             arrayJoin(any(session_replay_events.all_urls)) AS url
      FROM session_replay_events
-     WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), parseDateTime64BestEffort('2024-01-08T12:00:00', 6, 'UTC')), lessOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), parseDateTime64BestEffort('2024-01-15T12:00:00', 6, 'UTC')))
+     WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(7))), lessOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
      GROUP BY session_replay_events.session_id
      HAVING greater(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 5))
   GROUP BY screen
