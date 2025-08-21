@@ -25,7 +25,7 @@ from posthog.constants import (
     TEST_TASK_QUEUE,
 )
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.common.logger import configure_logger_async, get_logger
+from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
@@ -213,9 +213,9 @@ class Command(BaseCommand):
             shutdown_task = loop.create_task(worker.shutdown())
 
         with asyncio.Runner() as runner:
-            if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
-                configure_logger_async(loop=runner.get_loop())
+            loop = runner.get_loop()
 
+            configure_logger(loop=loop)
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,
@@ -225,7 +225,6 @@ class Command(BaseCommand):
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
             )
-
             logger.info("Starting Temporal Worker")
 
             worker = runner.run(
@@ -249,7 +248,6 @@ class Command(BaseCommand):
                 )
             )
 
-            loop = runner.get_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,

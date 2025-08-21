@@ -4,16 +4,18 @@ GitHub integration activities for issue tracker workflows.
 
 import asyncio
 import os
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
+from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.temporal.common.logger import bind_contextvars, get_logger
 from posthog.sync import database_sync_to_async
-from .inputs import TaskProcessingInputs, CreatePRInputs, CommitChangesInputs
+from posthog.temporal.common.logger import get_logger
+
+from .inputs import CommitChangesInputs, CreatePRInputs, TaskProcessingInputs
 
 logger = get_logger(__name__)
 
@@ -29,7 +31,8 @@ async def get_github_integration_for_task(task_id: str, team_id: int) -> tuple[A
         Exception if no integration or repository is found
     """
     from django.apps import apps
-    from posthog.models.integration import Integration, GitHubIntegration
+
+    from posthog.models.integration import GitHubIntegration, Integration
 
     Task = apps.get_model("tasks", "Task")
 
@@ -572,9 +575,7 @@ async def _create_initial_commit(repo_path: Path, task_title: str, task_id: str)
         return {"success": False, "error": error_msg}
 
 
-async def _run_git_command(
-    command: list[str], cwd: Optional[Path] = None, env: Optional[dict] = None
-) -> dict[str, Any]:
+async def _run_git_command(command: list[str], cwd: Path | None = None, env: dict | None = None) -> dict[str, Any]:
     """
     Run a git command asynchronously and return the result.
 
