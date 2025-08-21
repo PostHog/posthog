@@ -18,8 +18,8 @@ import {
     ProfilePicture,
 } from '@posthog/lemon-ui'
 
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -36,6 +36,7 @@ import { roleAccessControlLogic } from './roleAccessControlLogic'
 export function RolesAccessControls(): JSX.Element {
     const { sortedRoles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
     const { updateOrganization } = useActions(organizationLogic)
@@ -133,42 +134,45 @@ export function RolesAccessControls(): JSX.Element {
                     <LemonDivider />
                 </div>
 
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
-                    <h4 className="mb-2">Default role for new members</h4>
-                    <p className="text-muted mb-2">
-                        Automatically assign a role to new members when they join the organization.
-                        <Tooltip title="When a new user joins your organization (via invite or signup), they will automatically be added to this role, inheriting all its permissions. This helps ensure consistent access control for new team members.">
-                            <IconInfo className="ml-1" />
-                        </Tooltip>
-                    </p>
-                    <div className="max-w-80">
-                        <LemonSelect
-                            fullWidth
-                            value={currentOrganization?.default_role_id || null}
-                            onChange={(value) => updateOrganization({ default_role_id: value })}
-                            options={[
-                                { value: null, label: 'No default role' },
-                                ...(sortedRoles?.map((role) => ({
-                                    value: role.id,
-                                    label: role.name,
-                                    element: (
-                                        <div>
-                                            {role.name}
-                                            {role.id === currentOrganization?.default_role_id && (
-                                                <LemonTag type="primary" className="ml-2" size="small">
-                                                    Current default
-                                                </LemonTag>
-                                            )}
-                                        </div>
-                                    ),
-                                })) || []),
-                            ]}
-                            placeholder="Select a default role..."
-                            loading={rolesLoading}
-                            disabledReason={defaultRoleRestrictionReason}
-                        />
-                    </div>
-                </PayGateMini>
+                <h4 className="mb-2">Default role for new members</h4>
+                <p className="text-muted mb-2">
+                    Automatically assign a role to new members when they join the organization.
+                    <Tooltip title="When a new user joins your organization (via invite or signup), they will automatically be added to this role, inheriting all its permissions. This helps ensure consistent access control for new team members.">
+                        <IconInfo className="ml-1" />
+                    </Tooltip>
+                </p>
+                <div className="max-w-80">
+                    <LemonSelect
+                        fullWidth
+                        value={currentOrganization?.default_role_id || null}
+                        onChange={(value) => {
+                            guardAvailableFeature(
+                                AvailableFeature.ADVANCED_PERMISSIONS,
+                                updateOrganization.bind(null, { default_role_id: value })
+                            )
+                        }}
+                        options={[
+                            { value: null, label: 'No default role' },
+                            ...(sortedRoles?.map((role) => ({
+                                value: role.id,
+                                label: role.name,
+                                element: (
+                                    <div>
+                                        {role.name}
+                                        {role.id === currentOrganization?.default_role_id && (
+                                            <LemonTag type="primary" className="ml-2" size="small">
+                                                Current default
+                                            </LemonTag>
+                                        )}
+                                    </div>
+                                ),
+                            })) || []),
+                        ]}
+                        placeholder="Select a default role..."
+                        loading={rolesLoading}
+                        disabledReason={defaultRoleRestrictionReason}
+                    />
+                </div>
             </div>
         </div>
     )
