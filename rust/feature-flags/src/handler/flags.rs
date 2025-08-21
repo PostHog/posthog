@@ -45,11 +45,10 @@ impl From<&str> for EvaluationRuntime {
 }
 
 /// Determines the evaluation runtime based on request characteristics.
-/// Uses explicit runtime if provided, otherwise analyzes user-agent, headers, and lib_version
+/// Uses explicit runtime if provided; otherwise analyzes user-agent and headers
 /// to detect if the request is from a client-side (browser/mobile) or server-side SDK.
 fn detect_evaluation_runtime_from_request(
     headers: &axum::http::HeaderMap,
-    lib_version: Option<&str>,
     explicit_runtime: Option<EvaluationRuntime>,
 ) -> Option<EvaluationRuntime> {
     // Use explicitly passed runtime if available
@@ -91,25 +90,6 @@ fn detect_evaluation_runtime_from_request(
             || user_agent.starts_with("posthog-flutter/")
         {
             return Some(EvaluationRuntime::Client);
-        }
-    }
-
-    // Analyze lib_version for additional clues
-    if let Some(lib_version) = lib_version {
-        // JavaScript SDK versions often indicate client-side
-        if lib_version.contains("posthog-js") || lib_version.contains("javascript") {
-            return Some(EvaluationRuntime::Client);
-        }
-
-        // Server SDK patterns in lib_version
-        if lib_version.contains("python")
-            || lib_version.contains("ruby")
-            || lib_version.contains("php")
-            || lib_version.contains("java")
-            || lib_version.contains("golang")
-            || lib_version.contains("server")
-        {
-            return Some(EvaluationRuntime::Server);
         }
     }
 
@@ -184,11 +164,7 @@ pub async fn fetch_and_filter(
     );
 
     // Then filter by evaluation runtime using request analysis
-    let current_runtime = detect_evaluation_runtime_from_request(
-        headers,
-        query_params.lib_version.as_deref(),
-        explicit_runtime,
-    );
+    let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
     let flags_after_runtime_filter =
         filter_flags_by_runtime(flags_after_survey_filter, current_runtime);
 
@@ -392,7 +368,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
     }
 
@@ -401,7 +377,7 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("user-agent", "posthog-python/1.2.3".parse().unwrap());
 
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Server));
     }
 
@@ -411,21 +387,11 @@ mod tests {
         headers.insert("origin", "https://example.com".parse().unwrap());
         headers.insert("sec-fetch-mode", "cors".parse().unwrap());
 
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
     }
 
-    #[test]
-    fn test_detect_evaluation_runtime_lib_version() {
-        let headers = axum::http::HeaderMap::new();
-
-        let result =
-            detect_evaluation_runtime_from_request(&headers, Some("posthog-js/1.2.3"), None);
-        assert_eq!(result, Some(EvaluationRuntime::Client));
-
-        let result = detect_evaluation_runtime_from_request(&headers, Some("python/3.9"), None);
-        assert_eq!(result, Some(EvaluationRuntime::Server));
-    }
+    // Removed lib_version-based detection tests as lib_version is no longer used
 
     #[test]
     fn test_detect_evaluation_runtime_explicit_override() {
@@ -434,7 +400,7 @@ mod tests {
 
         // Explicit runtime should override detection
         let result =
-            detect_evaluation_runtime_from_request(&headers, None, Some(EvaluationRuntime::Server));
+            detect_evaluation_runtime_from_request(&headers, Some(EvaluationRuntime::Server));
         assert_eq!(result, Some(EvaluationRuntime::Server));
     }
 
@@ -442,7 +408,7 @@ mod tests {
     fn test_detect_evaluation_runtime_unknown() {
         let headers = axum::http::HeaderMap::new();
 
-        let result = detect_evaluation_runtime_from_request(&headers, Some("unknown-sdk"), None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, None);
     }
 
@@ -451,7 +417,7 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("user-agent", "posthog-dotnet/2.0.0".parse().unwrap());
 
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Server));
     }
 
@@ -460,7 +426,7 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("user-agent", "posthog-elixir/0.1.0".parse().unwrap());
 
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Server));
     }
 
@@ -469,19 +435,19 @@ mod tests {
         // iOS SDK
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("user-agent", "posthog-ios/3.0.0".parse().unwrap());
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
 
         // React Native SDK
         headers.clear();
         headers.insert("user-agent", "posthog-react-native/2.5.0".parse().unwrap());
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
 
         // Flutter SDK
         headers.clear();
         headers.insert("user-agent", "posthog-flutter/4.0.0".parse().unwrap());
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
     }
 
@@ -491,7 +457,7 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("user-agent", "posthog-android/3.1.0".parse().unwrap());
 
-        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
     }
 
@@ -511,7 +477,7 @@ mod tests {
         for sdk in server_sdks {
             let mut headers = axum::http::HeaderMap::new();
             headers.insert("user-agent", sdk.parse().unwrap());
-            let result = detect_evaluation_runtime_from_request(&headers, None, None);
+            let result = detect_evaluation_runtime_from_request(&headers, None);
             assert_eq!(
                 result,
                 Some(EvaluationRuntime::Server),
@@ -533,7 +499,7 @@ mod tests {
         for pattern in browser_patterns {
             let mut headers = axum::http::HeaderMap::new();
             headers.insert("user-agent", pattern.parse().unwrap());
-            let result = detect_evaluation_runtime_from_request(&headers, None, None);
+            let result = detect_evaluation_runtime_from_request(&headers, None);
             assert_eq!(
                 result,
                 Some(EvaluationRuntime::Client),
