@@ -127,10 +127,14 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
         return p
     }
 
-    async moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult> {
+    async moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        limit?: number
+    ): Promise<MoveDistinctIdsResult> {
         const [p, s] = await Promise.all([
-            this.primaryRepo.moveDistinctIds(source, target, this.lTx),
-            this.secondaryRepo.moveDistinctIds(source, target, this.rTx),
+            this.primaryRepo.moveDistinctIds(source, target, limit, this.lTx),
+            this.secondaryRepo.moveDistinctIds(source, target, limit, this.rTx),
         ])
         // Match the behavior of the direct repository call:
         // If both repositories return the same failure result, that's expected behavior
@@ -159,6 +163,11 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
         }
 
         return p
+    }
+
+    async fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]> {
+        // This is a read operation, only use primary
+        return await this.primaryRepo.fetchPersonDistinctIds(person, limit, this.lTx)
     }
 
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {

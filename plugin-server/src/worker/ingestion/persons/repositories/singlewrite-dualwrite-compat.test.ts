@@ -916,6 +916,123 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             expect((dualResult as any).error).toBe('TargetNotFound')
         })
 
+        it('moveDistinctIds() with limit parameter', async () => {
+            const team = await getFirstTeam(postgres)
+
+            const sourceSingleResult = await singleWriteRepository.createPerson(
+                TEST_TIMESTAMP,
+                { name: 'Source with many IDs' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                '77777777-7777-7777-7777-777777777777',
+                [{ distinctId: 'single-source-limit', version: 0 }]
+            )
+            const sourceDualResult = await dualWriteRepository.createPerson(
+                TEST_TIMESTAMP,
+                { name: 'Source with many IDs' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                '88888888-8888-8888-8888-888888888888',
+                [{ distinctId: 'dual-source-limit', version: 0 }]
+            )
+
+            const targetSingleResult = await singleWriteRepository.createPerson(
+                TEST_TIMESTAMP,
+                { name: 'Target for limit test' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                '99999999-9999-9999-9999-999999999999',
+                [{ distinctId: 'single-target-limit', version: 0 }]
+            )
+            const targetDualResult = await dualWriteRepository.createPerson(
+                TEST_TIMESTAMP,
+                { name: 'Target for limit test' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                [{ distinctId: 'dual-target-limit', version: 0 }]
+            )
+
+            // Ensure all persons were created successfully
+            if (
+                !sourceSingleResult.success ||
+                !targetSingleResult.success ||
+                !sourceDualResult.success ||
+                !targetDualResult.success
+            ) {
+                throw new Error('Failed to create test persons')
+            }
+
+            await singleWriteRepository.addDistinctId(sourceSingleResult.person, 'single-extra-1', 1)
+            await singleWriteRepository.addDistinctId(sourceSingleResult.person, 'single-extra-2', 1)
+            await singleWriteRepository.addDistinctId(sourceSingleResult.person, 'single-extra-3', 1)
+
+            await dualWriteRepository.addDistinctId(sourceDualResult.person, 'dual-extra-1', 1)
+            await dualWriteRepository.addDistinctId(sourceDualResult.person, 'dual-extra-2', 1)
+            await dualWriteRepository.addDistinctId(sourceDualResult.person, 'dual-extra-3', 1)
+
+            const singleMoveResult = await singleWriteRepository.moveDistinctIds(
+                sourceSingleResult.person,
+                targetSingleResult.person,
+                2
+            )
+            const dualMoveResult = await dualWriteRepository.moveDistinctIds(
+                sourceDualResult.person,
+                targetDualResult.person,
+                2
+            )
+
+            assertMoveDistinctIdsContractParity(singleMoveResult, dualMoveResult)
+
+            expect(singleMoveResult.success).toBe(true)
+            expect(dualMoveResult.success).toBe(true)
+
+            if (singleMoveResult.success && dualMoveResult.success) {
+                expect(singleMoveResult.distinctIdsMoved).toHaveLength(2)
+                expect(dualMoveResult.distinctIdsMoved).toHaveLength(2)
+                expect(singleMoveResult.messages).toHaveLength(2)
+                expect(dualMoveResult.messages).toHaveLength(2)
+            }
+
+            const singleRemainingResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT COUNT(*) as count FROM posthog_persondistinctid WHERE person_id = (SELECT id FROM posthog_person WHERE uuid = $1)',
+                ['77777777-7777-7777-7777-777777777777'],
+                'countSingleRemaining'
+            )
+            expect(parseInt(singleRemainingResult.rows[0].count)).toBe(2)
+
+            await assertConsistencyAcrossDatabases(
+                postgres,
+                migrationPostgres,
+                'SELECT COUNT(*) as count FROM posthog_persondistinctid WHERE person_id = (SELECT id FROM posthog_person WHERE uuid = $1)',
+                ['88888888-8888-8888-8888-888888888888'],
+                'verify-primary-source-remaining',
+                'verify-secondary-source-remaining'
+            )
+
+            await assertConsistencyAcrossDatabases(
+                postgres,
+                migrationPostgres,
+                'SELECT COUNT(*) as count FROM posthog_persondistinctid WHERE person_id = (SELECT id FROM posthog_person WHERE uuid = $1)',
+                ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'],
+                'verify-primary-target-received',
+                'verify-secondary-target-received'
+            )
+        })
+
         it('moveDistinctIds() unhandled database error', async () => {
             const team = await getFirstTeam(postgres)
             const { singleResult: singleCreatePersonResult, dualResult: dualCreatePersonResult } =

@@ -232,12 +232,16 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return messages
     }
 
-    async moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult> {
+    async moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        limit?: number
+    ): Promise<MoveDistinctIdsResult> {
         let pResult!: MoveDistinctIdsResult
         await this.coordinator.run('moveDistinctIds', async (lTx, rTx) => {
             const [p, s] = await Promise.all([
-                this.primaryRepo.moveDistinctIds(source, target, lTx),
-                this.secondaryRepo.moveDistinctIds(source, target, rTx),
+                this.primaryRepo.moveDistinctIds(source, target, limit, lTx),
+                this.secondaryRepo.moveDistinctIds(source, target, limit, rTx),
             ])
             // If both repositories return the same failure result, that's expected behavior
             // (e.g., both detected that the target person was deleted)
@@ -293,6 +297,11 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             isMerged = p
         })
         return isMerged
+    }
+
+    async fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]> {
+        // This is a read operation, only use primary
+        return await this.primaryRepo.fetchPersonDistinctIds(person, limit)
     }
 
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
