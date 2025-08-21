@@ -63,7 +63,11 @@ impl KafkaDeduplicatorService {
     }
 
     /// Create a service with a custom processor (useful for testing)
-    pub fn with_processor(config: Config, processor: Arc<DeduplicationProcessor>, liveness: HealthRegistry) -> Result<Self> {
+    pub fn with_processor(
+        config: Config,
+        processor: Arc<DeduplicationProcessor>,
+        liveness: HealthRegistry,
+    ) -> Result<Self> {
         config.validate().with_context(|| {
             "Configuration validation failed for service with custom processor".to_string()
         })?;
@@ -134,7 +138,7 @@ impl KafkaDeduplicatorService {
         self.service_health = Some(
             self.liveness
                 .register("kafka_deduplicator".to_string(), Duration::from_secs(30))
-                .await
+                .await,
         );
 
         self.consumer = Some(kafka_consumer);
@@ -309,7 +313,9 @@ impl ServiceBuilder {
 
     pub fn build(self) -> Result<KafkaDeduplicatorService> {
         match self.processor {
-            Some(processor) => KafkaDeduplicatorService::with_processor(self.config, processor, self.liveness),
+            Some(processor) => {
+                KafkaDeduplicatorService::with_processor(self.config, processor, self.liveness)
+            }
             None => KafkaDeduplicatorService::new(self.config, self.liveness),
         }
     }
