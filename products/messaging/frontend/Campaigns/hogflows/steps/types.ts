@@ -192,8 +192,12 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-slack'),
             inputs: z.object({
-                slack_workspace: z.object({}),
-                slack_channel: z.object({}),
+                slack_workspace: z.object({
+                    value: z.number().positive(),
+                }),
+                slack_channel: z.object({
+                    value: z.number().positive(),
+                }),
             }),
         }),
     }),
@@ -204,7 +208,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-webhook'),
             inputs: z.object({
-                url: z.string(),
+                url: z.object({
+                    value: z.string().url(),
+                }),
             }),
         }),
     }),

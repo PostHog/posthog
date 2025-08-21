@@ -25,7 +25,9 @@ export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
                 config: {
                     template_id: 'template-webhook',
                     inputs: {
-                        url: '', // Provide a default value for the required 'url' property
+                        url: {
+                            value: '',
+                        },
                     },
                 },
             },
