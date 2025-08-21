@@ -26,6 +26,7 @@ import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, 
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
+import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
@@ -126,6 +127,8 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
+                    <DashboardOverridesBanner />
+
                     <div className={cn('Dashboard_filters', newSceneLayout && '-mt-2')}>
                         <div className="flex gap-2 justify-between">
                             {![
