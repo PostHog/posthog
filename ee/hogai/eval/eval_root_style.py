@@ -70,6 +70,7 @@ def call_root(demo_org_team_user):
             }
         )
         .add_inkeep_docs()
+        .add_billing()
         .compile()
     )
 
