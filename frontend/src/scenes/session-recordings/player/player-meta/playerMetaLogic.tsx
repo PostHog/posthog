@@ -97,7 +97,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingDataLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
-            ['maybeLoadPropertiesForSessions'],
+            ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
         ],
     })),
     actions({
