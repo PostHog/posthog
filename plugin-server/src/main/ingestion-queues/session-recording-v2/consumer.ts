@@ -6,6 +6,7 @@ import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
+    HealthCheckResult,
     PluginServerService,
     PluginsServerConfig,
     SessionRecordingV2MetadataSwitchoverDate,
@@ -299,10 +300,9 @@ export class SessionRecordingIngester {
         return promiseResults
     }
 
-    public isHealthy(): boolean {
+    public isHealthy(): HealthCheckResult {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
-        const result = this.kafkaConsumer.isHealthy()
-        return result.healthy
+        return this.kafkaConsumer.isHealthy()
     }
 
     private get assignedTopicPartitions(): TopicPartition[] {

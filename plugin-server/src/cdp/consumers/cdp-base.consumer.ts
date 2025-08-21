@@ -117,5 +117,5 @@ export abstract class CdpConsumerBase {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public abstract isHealthy(): boolean | HealthCheckResult
+    public abstract isHealthy(): HealthCheckResult
 }

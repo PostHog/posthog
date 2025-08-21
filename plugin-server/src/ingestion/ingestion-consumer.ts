@@ -12,6 +12,8 @@ import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batc
 import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import {
+    HealthCheckResult,
+    HealthCheckResultError,
     Hub,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
@@ -227,9 +229,11 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy(): boolean {
-        const result = this.kafkaConsumer?.isHealthy()
-        return result?.healthy ?? false
+    public isHealthy(): HealthCheckResult {
+        if (!this.kafkaConsumer) {
+            return new HealthCheckResultError('Kafka consumer not initialized', {})
+        }
+        return this.kafkaConsumer.isHealthy()
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {

@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
-import { Hub } from '../../types'
+import { HealthCheckResult, Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { sanitizeString } from '../../utils/db/utils'
 import { parseJSON } from '../../utils/json-parse'
@@ -231,7 +231,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         logger.info('💤', 'Aggregation writer consumer stopped!')
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
 }
