@@ -372,14 +372,14 @@ class SLAWaiter:
     Examples:
         Nothing happens when no SLA is exceeded.
 
-        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.datetime(seconds=10)) as waiter:
+        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.timedelta(seconds=10)) as waiter:
         ...     await asyncio.sleep(1)
         ...     waiter.is_over_sla()
         False
 
         A log will be printed if SLA is exceeded.
 
-        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.datetime(seconds=1)) as waiter:
+        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.timedelta(seconds=1)) as waiter:
         ...     await asyncio.sleep(10)
         ...     waiter.is_over_sla()
         True
