@@ -565,7 +565,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
 async def _wait_for_update() -> None:
     """Pause between polling to avoid hitting Temporal too often"""
-    await asyncio.sleep(int(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000))
+    await asyncio.sleep(max(1, ceil(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000)))
 
 
 async def _start_session_group_summary_workflow(
