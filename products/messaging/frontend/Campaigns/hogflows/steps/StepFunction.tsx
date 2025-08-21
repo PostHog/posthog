@@ -20,7 +20,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
 
     useEffect(() => {
         setCampaignActionConfig(node.id, {
-            inputs: configuration.inputs,
+            inputs: configuration.inputs as Record<string, CyclotronJobInputType>,
         })
     }, [configuration.inputs, template, setCampaignActionConfig, node.id])
 

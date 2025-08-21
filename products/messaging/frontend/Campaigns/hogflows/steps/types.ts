@@ -22,7 +22,9 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     renderNode: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
     create: () => {
-        action: Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>
+        action: Omit<Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>, 'config'> & {
+            config: Omit<Extract<HogFlowAction, { type: T }>['config'], 'inputs'>
+        }
         branchEdges?: number
     }
 }
