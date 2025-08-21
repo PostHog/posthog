@@ -1095,7 +1095,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
                     blob_prefix = recording.object_storage_path
                     blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                    for full_key in blob_keys:
+                    for full_key in blob_keys or []:
                         # Keys are like 1619712000-1619712060
                         blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                         blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
