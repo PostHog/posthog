@@ -213,7 +213,8 @@ async def test_logger_context(log_capture, event_loop):
 
     We do **NOT** check for Temporal context in this test.
     """
-    structlog.contextvars.bind_contextvars(team_id=1, destination="Somewhere")
+    context_uuid = uuid.uuid4()
+    structlog.contextvars.bind_contextvars(team_id=1, destination="Somewhere", uuid=context_uuid)
     logger = structlog.get_logger("test_logger_context")
     bound = logger.bind(test=True)
 
@@ -239,6 +240,7 @@ async def test_logger_context(log_capture, event_loop):
         assert info_dict.pop("filename") == "test_logger.py"
         # Could change if test file changes, so we just check it's there.
         assert info_dict.pop("lineno") is not None
+        assert info_dict.pop("uuid") == str(context_uuid)
         assert not info_dict
 
 
