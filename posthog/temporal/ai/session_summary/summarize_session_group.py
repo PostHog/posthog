@@ -57,7 +57,7 @@ from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     store_data_in_redis,
 )
-from posthog.redis import get_async_client, get_client
+from posthog.redis import get_async_client
 from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -256,6 +256,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     @temporalio.workflow.signal
     async def update_pattern_assignments_progress(self, sessions_completed: int) -> None:
         """Signal to update pattern assignment progress."""
+        if sessions_completed <= 0:
+            return
         self._pattern_assignments_completed += sessions_completed
         self._current_status = (
             SessionSummaryStep.GENERATING_REPORT,
@@ -640,9 +642,9 @@ async def _start_session_group_summary_workflow(
                     # Don't define initial step state until it's its turn
                     await _wait_for_update()
                     continue
-                patterns = get_patterns_from_redis_outside_workflow(
+                patterns = await get_patterns_from_redis_outside_workflow(
                     redis_output_keys=patterns_keys,
-                    redis_client=get_client(),
+                    redis_client=get_async_client(),
                 )
                 if not patterns:
                     raise ValueError(f"Extracted patterns not found in Redis for keys {patterns_keys}")

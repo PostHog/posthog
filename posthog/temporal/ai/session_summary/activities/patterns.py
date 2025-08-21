@@ -2,7 +2,7 @@ import asyncio
 import json
 from math import ceil
 from typing import cast
-from redis import Redis, asyncio as aioredis
+from redis import asyncio as aioredis
 import structlog
 import temporalio
 from ee.hogai.session_summaries.constants import (
@@ -42,7 +42,6 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
-    decompress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
     get_data_str_from_redis,
@@ -128,26 +127,24 @@ async def _get_session_summaries_str_from_inputs(
     return results
 
 
-def get_patterns_from_redis_outside_workflow(
+async def get_patterns_from_redis_outside_workflow(
     redis_output_keys: list[str],
-    redis_client: Redis,
+    redis_client: aioredis.Redis,
 ) -> list[RawSessionGroupSummaryPattern]:
     """Sync function to get patterns from Redis outside of the workflow."""
     extracted_patterns = []
     for redis_output_key in redis_output_keys:
-        # TODO: Batch get?
-        redis_data_raw = redis_client.get(redis_output_key)
-        if not redis_data_raw:
-            continue
-        try:
-            redis_data_str = decompress_redis_data(redis_data_raw)
-            redis_data = json.loads(redis_data_str)
-            patterns_list = RawSessionGroupSummaryPatternsList.model_validate(redis_data)
-            extracted_patterns.extend(patterns_list.patterns)
-        except Exception as e:
+        patterns_list = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            target_class=RawSessionGroupSummaryPatternsList,
+        )
+        if patterns_list is None:
             raise ValueError(
-                f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when getting extracted patterns from Redis: {e}"
-            ) from e
+                f"Failed to get Redis output data for key {redis_output_key} when getting extracted patterns from Redis"
+            )
+        extracted_patterns.extend(patterns_list.patterns)
     return extracted_patterns
 
 
