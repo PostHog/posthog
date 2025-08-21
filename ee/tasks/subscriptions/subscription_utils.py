@@ -32,11 +32,7 @@ def generate_assets(
 ) -> tuple[list[Insight], list[ExportedAsset]]:
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
         if resource.dashboard:
-            tiles = [
-                tile
-                for tile in resource.dashboard.tiles.all()
-                if tile.insight and not getattr(tile.insight, "deleted", False)
-            ]
+            tiles = [tile for tile in resource.dashboard.tiles.all() if tile.insight and not tile.insight.deleted]
             tiles.sort(key=lambda x: (x.layouts.get("sm", {}).get("y", 100), x.layouts.get("sm", {}).get("x", 100)))
             insights = [tile.insight for tile in tiles]
         elif resource.insight:
@@ -83,11 +79,7 @@ async def generate_assets_async(
     """
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
         if resource.dashboard:
-            tiles = [
-                tile
-                for tile in resource.dashboard.tiles.all()
-                if tile.insight and not getattr(tile.insight, "deleted", False)
-            ]
+            tiles = [tile for tile in resource.dashboard.tiles.all() if tile.insight and not tile.insight.deleted]
             tiles.sort(key=lambda x: (x.layouts.get("sm", {}).get("y", 100), x.layouts.get("sm", {}).get("x", 100)))
             insights = [tile.insight for tile in tiles]
         elif resource.insight:
