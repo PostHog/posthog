@@ -64,7 +64,7 @@ class TestTaxonomyAgentNode(BaseTest):
         self.assertTrue(len(result.messages) > 0)
 
     @patch("ee.hogai.graph.taxonomy.nodes.merge_message_runs")
-    @patch("ee.hogai.graph.taxonomy.nodes.format_events_prompt")
+    @patch("ee.hogai.graph.taxonomy.nodes.format_events_yaml")
     def test_run_basic_flow(self, mock_format_events, mock_merge):
         mock_format_events.return_value = "formatted events"
         mock_merge.return_value = Mock()
@@ -104,7 +104,7 @@ class TestTaxonomyAgentNode(BaseTest):
             self.assertEqual(result.intermediate_steps[0][0].tool_input, {"param": "value"})
 
     @patch("ee.hogai.graph.taxonomy.nodes.merge_message_runs")
-    @patch("ee.hogai.graph.taxonomy.nodes.format_events_prompt")
+    @patch("ee.hogai.graph.taxonomy.nodes.format_events_yaml")
     def test_run_no_tool_calls_error(self, mock_format_events, mock_merge):
         with (
             patch.object(self.node, "_construct_messages") as mock_construct,

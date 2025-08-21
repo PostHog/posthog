@@ -18,7 +18,7 @@ from posthog.schema import (
 from posthog.utils import relative_date_parse
 
 
-class SessionsTimelineQueryRunner(AnalyticsQueryRunner):
+class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResponse]):
     """
     ## How does the sessions timeline work?
 
@@ -37,7 +37,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner):
     EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
-    response: SessionsTimelineQueryResponse
     cached_response: CachedSessionsTimelineQueryResponse
 
     def _get_events_subquery(self) -> ast.SelectQuery:

@@ -19,6 +19,7 @@ export function MarketingAnalyticsSettings(): JSX.Element {
             {newSceneLayout && (
                 <SceneTitleSection
                     name="Marketing analytics"
+                    description={null}
                     resourceType={{
                         type: 'marketing',
                         typePlural: 'marketing',

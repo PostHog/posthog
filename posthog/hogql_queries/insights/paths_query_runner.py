@@ -42,9 +42,8 @@ SESSION_TIME_THRESHOLD_DEFAULT_SECONDS = 30 * 60  # 30 minutes
 EDGE_LIMIT_DEFAULT = 50
 
 
-class PathsQueryRunner(AnalyticsQueryRunner):
+class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
     query: PathsQuery
-    response: PathsQueryResponse
     cached_response: CachedPathsQueryResponse
 
     def __init__(
