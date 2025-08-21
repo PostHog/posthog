@@ -31,6 +31,7 @@ from posthog.schema import (
     EventsQuery,
     FunnelExclusionEventsNode,
     FunnelExclusionActionsNode,
+    CalendarHeatmapQuery,
 )
 from posthog.utils import get_from_dict_or_attr
 from posthog.hogql_queries.query_runner import RunnableQueryNode
@@ -101,6 +102,8 @@ class QueryEventsExtractor:
             events = self._extract_events_from_series(self._ensure_model_instance(query, StickinessQuery).series)
         elif kind == "LifecycleQuery":
             events = self._extract_events_from_series(self._ensure_model_instance(query, LifecycleQuery).series)
+        elif kind == "CalendarHeatmapQuery":
+            events = self._extract_events_from_series(self._ensure_model_instance(query, CalendarHeatmapQuery).series)
 
         elif kind == "FunnelCorrelationQuery":
             events = self._extract_events_from_funnels_correlation_query(
