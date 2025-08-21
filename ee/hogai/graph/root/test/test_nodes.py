@@ -44,7 +44,6 @@ from posthog.schema import (
     MaxBillingContextSettings,
     MaxBillingContextSubscriptionLevel,
     TrendsQuery,
-    FailureMessage,
 )
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.models.organization import OrganizationMembership
@@ -825,12 +824,15 @@ class TestRootNodeTools(BaseTest):
             self.assertIsInstance(call_args[0][0], Exception)
             self.assertEqual(call_args[0][0].args[0], "Navigation failed")
 
-            # Verify result is a PartialAssistantState with FailureMessage
+            # Verify result is a PartialAssistantState with AssistantToolCallMessage
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
             failure_message = result.messages[0]
-            assert isinstance(failure_message, FailureMessage)
-            self.assertEqual(failure_message.content, "The navigate tool raised an internal error.")
+            assert isinstance(failure_message, AssistantToolCallMessage)
+            self.assertEqual(
+                failure_message.content,
+                "The navigate tool raised an internal error and it could not return an answer. Retry the tool call if the user asks you to.",
+            )
             self.assertEqual(result.root_tool_calls_count, 1)
 
     async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
@@ -1408,6 +1410,9 @@ Query results: 42 events
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
             failure_message = result.messages[0]
-            assert isinstance(failure_message, FailureMessage)
-            self.assertEqual(failure_message.content, "The search session recordings tool raised an internal error.")
+            assert isinstance(failure_message, AssistantToolCallMessage)
+            self.assertEqual(
+                failure_message.content,
+                "The search_session_recordings tool raised an internal error and it could not return an answer. Retry the tool call if the user asks you to.",
+            )
             self.assertEqual(result.root_tool_calls_count, 1)
