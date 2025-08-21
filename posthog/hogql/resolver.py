@@ -374,9 +374,14 @@ class Resolver(CloningVisitor):
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
             is_global = False
-            if isinstance(node.type, ast.TableAliasType):
-                is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
-            elif isinstance(node.type, ast.TableType) and isinstance(node.type.table, EventsTable):
+            global_table: ast.TableType | None = None
+
+            if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
+                global_table = node.type.table_type
+            elif isinstance(node.type, ast.TableType):
+                global_table = node.type
+
+            if global_table and isinstance(global_table.table, EventsTable):
                 if self._is_next_s3(node.next_join):
                     is_global = True
                 # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
