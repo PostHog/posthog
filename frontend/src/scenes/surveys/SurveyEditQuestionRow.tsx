@@ -146,7 +146,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
 
-    const confirmQuestionTypeChange = (index: number, question: SurveyQuestion, newType: SurveyQuestionType): void => {
+    const confirmQuestionTypeChange = (
+        index: number,
+        question: MultipleSurveyQuestion,
+        newType: SurveyQuestionType
+    ): void => {
         // Reset to current type first (because onSelect has already changed it)
         setMultipleSurveyQuestion(index, question, question.type)
 
