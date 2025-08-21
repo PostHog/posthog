@@ -3,11 +3,18 @@ import type {
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentStatsBaseValidated,
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
-import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentDataWarehouseNode,
+    ExperimentMetricType,
+    NodeKind,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -134,7 +141,7 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
 
 export function formatPValue(pValue: number | null | undefined): string {
     if (!pValue) {
-        return 'N/A'
+        return '—'
     }
 
     if (pValue < 0.001) {
@@ -149,7 +156,7 @@ export function formatPValue(pValue: number | null | undefined): string {
 
 export function formatChanceToWin(chanceToWin: number | null | undefined): string {
     if (chanceToWin == null) {
-        return 'N/A'
+        return '—'
     }
 
     // Convert to percentage and format
@@ -194,7 +201,7 @@ export function getIntervalBounds(result: ExperimentVariantResult): [number, num
 export function formatIntervalPercent(result: ExperimentVariantResult): string {
     const interval = getVariantInterval(result)
     if (!interval) {
-        return 'N/A'
+        return '—'
     }
     const [lower, upper] = interval
     return `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]`
@@ -233,4 +240,37 @@ export function formatDeltaPercent(result: ExperimentVariantResult, decimals: nu
     const deltaPercent = getDeltaPercent(result)
     const formatted = deltaPercent.toFixed(decimals)
     return `${deltaPercent > 0 ? '+' : ''}${formatted}%`
+}
+
+export function formatMetricValue(data: any, metric: ExperimentMetric): string {
+    if (isExperimentRatioMetric(metric)) {
+        // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
+        if (data.denominator_sum && data.denominator_sum > 0) {
+            const ratio = data.sum / data.denominator_sum
+            return ratio.toFixed(2)
+        }
+        return '0.000'
+    }
+
+    const primaryValue = data.sum / data.number_of_samples
+    if (isNaN(primaryValue)) {
+        return '—'
+    }
+    return isExperimentMeanMetric(metric) ? primaryValue.toFixed(2) : `${(primaryValue * 100).toFixed(2)}%`
+}
+
+export function getMetricSubtitleValues(
+    variant: ExperimentStatsBaseValidated,
+    metric: ExperimentMetric
+): { numerator: number; denominator: number } {
+    if (isExperimentRatioMetric(metric)) {
+        return {
+            numerator: variant.sum,
+            denominator: variant.denominator_sum || 0,
+        }
+    }
+    return {
+        numerator: variant.sum,
+        denominator: variant.number_of_samples || 0,
+    }
 }
