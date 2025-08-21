@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { IconDocument } from '@posthog/icons'
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -14,101 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconColor } from '~/types'
 
-import { ProductIconWrapper, iconForType } from '../panel-layout/ProjectTree/defaultTree'
-
-export function SceneContent({
-    children,
-    className,
-    forceNewSpacing,
-}: {
-    children: React.ReactNode
-    className?: string
-    forceNewSpacing?: boolean
-}): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
-    return (
-        <div className={cn('scene-content flex flex-col', (newSceneLayout || forceNewSpacing) && 'gap-y-4', className)}>
-            {children}
-        </div>
-    )
-}
-
-interface SceneSectionProps {
-    title?: React.ReactNode
-    description?: React.ReactNode
-    isLoading?: boolean
-    children: React.ReactNode
-    className?: string
-    hideTitleAndDescription?: boolean
-    actions?: React.ReactNode
-}
-
-export function SceneSection({
-    title,
-    description,
-    isLoading,
-    children,
-    className,
-    hideTitleAndDescription,
-    actions,
-}: SceneSectionProps): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
-    // If not in new scene layout, we don't want to show anything new
-    if (!newSceneLayout) {
-        return (
-            <div className={cn('scene-section--fallback flex flex-col gap-y-4', className)}>
-                {!hideTitleAndDescription && (
-                    <div className="flex">
-                        <div className="flex flex-col gap-y-0 flex-1 justify-center">
-                            <h2 className={cn('text-base font-semibold my-0 mb-1 max-w-prose', !description && 'mb-0')}>
-                                {title}
-                            </h2>
-                            <p className="m-0">{description}</p>
-                        </div>
-                        {actions && <div className="flex gap-x-2 flex-none self-center">{actions}</div>}
-                    </div>
-                )}
-                {children}
-            </div>
-        )
-    }
-
-    if (isLoading) {
-        return (
-            <div className={cn('flex flex-col gap-y-4', className)}>
-                <div className="flex">
-                    <div className="flex flex-col gap-y-0 flex-1 justify-center">
-                        <h2 className={cn('text-base font-semibold my-0 mb-1 max-w-prose', !description && 'mb-0')}>
-                            {title}
-                        </h2>
-                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
-                    </div>
-                    {actions && <div className="flex gap-x-2 flex-none self-center">{actions}</div>}
-                </div>
-                <WrappingLoadingSkeleton>{children}</WrappingLoadingSkeleton>
-            </div>
-        )
-    }
-
-    return (
-        <div className={cn('scene-section--new-layout flex flex-col gap-y-4', className)}>
-            {(title || description) && (
-                <div className="flex gap-x-3">
-                    <div className="flex flex-col gap-y-0 flex-1 justify-center">
-                        <h2 className={cn('text-base font-semibold my-0 mb-1 max-w-prose', !description && 'mb-0')}>
-                            {title}
-                        </h2>
-                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
-                    </div>
-                    {actions && <div className="flex gap-x-2 flex-none self-center">{actions}</div>}
-                </div>
-            )}
-            {children}
-        </div>
-    )
-}
+import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 
 type ResourceType = {
     to?: string
@@ -234,12 +140,7 @@ type SceneNameProps = {
     canEdit?: boolean
 }
 
-export function SceneName({
-    name: initialName,
-    isLoading = false,
-    onBlur,
-    canEdit = false,
-}: SceneNameProps): JSX.Element {
+function SceneName({ name: initialName, isLoading = false, onBlur, canEdit = false }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
 
     const textClasses =
@@ -292,7 +193,7 @@ type SceneDescriptionProps = {
     canEdit?: boolean
 }
 
-export function SceneDescription({
+function SceneDescription({
     description: initialDescription,
     markdown = false,
     isLoading = false,
@@ -366,15 +267,4 @@ export function SceneDescription({
     }
 
     return <div className="scene-description max-w-prose flex flex-col gap-0 flex-1">{Element}</div>
-}
-
-export function SceneDivider(): JSX.Element | null {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
-    // If not in new scene layout, we don't want to show anything new
-    if (!newSceneLayout) {
-        return null
-    }
-
-    return <LemonDivider className="scene-divider -mx-4 w-[calc(100%+var(--spacing)*8)]" />
 }

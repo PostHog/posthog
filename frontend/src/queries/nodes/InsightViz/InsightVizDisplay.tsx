@@ -34,7 +34,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { InsightCalendarHeatMapContainer } from 'scenes/web-analytics/CalendarHeatMap/InsightCalendarHeatMapContainer'
 
-import { SceneSection } from '~/layout/scenes/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
