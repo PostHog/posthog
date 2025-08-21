@@ -376,8 +376,8 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             if blob_key and (start_blob_key or end_blob_key):
                 raise serializers.ValidationError("Must provide a single blob key or start and end blob keys, not both")
 
-            if blob_key and blob_key.startswith("/"):
-                # blob key that starts with / is (probably) an LTS path
+            if blob_key and "/" in blob_key:
+                # blob key that has any / is (probably) an LTS path
                 pass
             else:
                 if start_blob_key and not end_blob_key:
@@ -1166,7 +1166,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             sources.append(
                                 {
                                     "source": "blob_v2",
-                                    "blob_key": urlparse(recording.full_recording_v2_path).path,
+                                    "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
                                 }
                             )
                         except Exception as e:

@@ -14,6 +14,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.api.test.utils import create_external_data_source_ok
 from posthog.warehouse.models import DataWarehouseTable
@@ -76,10 +77,10 @@ class TestExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
-        )
+        with mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
         payload = response.json()
 
         assert payload == {
