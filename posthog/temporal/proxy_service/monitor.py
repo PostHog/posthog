@@ -9,6 +9,7 @@ import dns.resolver
 import grpc.aio
 import requests
 import temporalio.common
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -16,21 +17,23 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.logger import bind_temporal_org_worker_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.common import (
+    CaptureEventInputs,
     NonRetriableException,
     RecordDeletedException,
     UpdateProxyRecordInputs,
-    get_grpc_client,
-    activity_update_proxy_record,
-    get_record,
     activity_capture_event,
-    CaptureEventInputs,
+    activity_update_proxy_record,
+    get_grpc_client,
+    get_record,
 )
 from posthog.temporal.proxy_service.proto import (
     CertificateState_READY,
     StatusRequest,
 )
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass
@@ -69,7 +72,9 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
     if not proxy_record:
         raise RecordDeletedException("proxy record no longer exists")
 
-    logger = await bind_temporal_org_worker_logger(organization_id=proxy_record.organization_id)
+    bind_contextvars(organization_id=proxy_record.organization_id)
+    logger = LOGGER.bind()
+
     logger.info(
         "Looking up DNS record for %s",
         proxy_record.domain,
@@ -133,7 +138,8 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
     if not proxy_record:
         raise RecordDeletedException("proxy record no longer exists")
 
-    logger = await bind_temporal_org_worker_logger(organization_id=proxy_record.organization_id)
+    bind_contextvars(organization_id=proxy_record.organization_id)
+    logger = LOGGER.bind()
     logger.info(
         "Checking certificate status for proxy %s (domain %s)",
         proxy_record.id,
@@ -190,7 +196,8 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
     if not proxy_record:
         raise RecordDeletedException("proxy record no longer exists")
 
-    logger = await bind_temporal_org_worker_logger(organization_id=proxy_record.organization_id)
+    bind_contextvars(organization_id=proxy_record.organization_id)
+    logger = LOGGER.bind()
     logger.info(
         "Checking proxy is live for proxy %s (domain %s)",
         proxy_record.id,
@@ -245,7 +252,8 @@ class CleanupMonitorJobInputs:
 async def cleanup_monitor_job(inputs: CleanupMonitorJobInputs):
     from posthog.temporal.common.schedule import a_delete_schedule, a_schedule_exists
 
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    bind_contextvars(organization_id=inputs.organization_id)
+    logger = LOGGER.bind()
     logger.info(
         "Cleaning up monitoring job for proxy %s",
         inputs.proxy_record_id,
@@ -275,7 +283,8 @@ class MonitorManagedProxyWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: MonitorManagedProxyInputs) -> None:
         """Workflow implementation to create a Managed reverse Proxy."""
-        logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+        bind_contextvars(organization_id=inputs.organization_id)
+        logger = LOGGER.bind()
         logger.info(
             "Running monitor-proxy workflow for proxy %s",
             inputs.proxy_record_id,
