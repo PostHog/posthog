@@ -27,7 +27,6 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
             counted_sessions AS (
                 SELECT
                     session_id,
-                    any(distinct_id) AS sess_di,
                     count() AS c
                 FROM raw_session_replay_events
                 WHERE min_first_timestamp >= now() - interval 7 day
