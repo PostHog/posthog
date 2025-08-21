@@ -111,7 +111,6 @@ export function Notebook({
                     {isTemplate && (
                         <LemonBanner
                             type="info"
-                            className="my-4"
                             action={{
                                 onClick: duplicateNotebook,
                                 children: 'Create copy',
@@ -125,7 +124,6 @@ export function Notebook({
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
-                            className="mb-4"
                             action={{
                                 children: 'Convert to notebook',
                                 onClick: duplicateNotebook,
