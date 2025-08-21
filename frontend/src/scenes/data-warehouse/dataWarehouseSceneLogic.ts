@@ -243,6 +243,31 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dailyRowsSyncedData],
             (dailyData) => dailyData.reduce((sum, item) => sum + (item.rows_synced || 0), 0),
         ],
+        sourceBreakdown: [
+            (s) => [s.dailyBreakdownData],
+            (dailyBreakdownData) => {
+                if (!dailyBreakdownData?.breakdown_of_rows_by_day) {
+                    return []
+                }
+
+                const sourceStats: Record<string, { rows: number; jobs: number }> = {}
+
+                dailyBreakdownData.breakdown_of_rows_by_day.forEach((day) => {
+                    day.runs?.forEach((run) => {
+                        const source = run.source_type || 'Unknown'
+                        if (!sourceStats[source]) {
+                            sourceStats[source] = { rows: 0, jobs: 0 }
+                        }
+                        sourceStats[source].rows += run.rows_synced || 0
+                        sourceStats[source].jobs += 1
+                    })
+                })
+
+                return Object.entries(sourceStats)
+                    .map(([source, stats]) => ({ source, ...stats }))
+                    .sort((a, b) => b.rows - a.rows)
+            },
+        ],
         selectedDateBreakdown: [
             (s) => [s.dailyBreakdownData, s.selectedDate],
             (dailyBreakdownData, selectedDate) => {
@@ -255,47 +280,33 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 )
             },
         ],
-        activitySummary: [
+        selectedDateRunsBySource: [
             (s) => [s.selectedDateBreakdown],
             (dateBreakdown) => {
                 if (!dateBreakdown?.runs) {
                     return null
                 }
 
-                const runs = dateBreakdown.runs.sort(
-                    (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
-                )
-                const runsBySource = runs.reduce((acc: Record<string, any>, run) => {
+                const runsBySource: Record<string, { count: number; rows: number; runs: any[] }> = {}
+
+                dateBreakdown.runs.forEach((run) => {
                     const source = run.source_type || 'Unknown'
-                    if (!acc[source]) {
-                        acc[source] = { count: 0, rows: 0, schemas: new Set() }
+                    if (!runsBySource[source]) {
+                        runsBySource[source] = { count: 0, rows: 0, runs: [] }
                     }
-                    acc[source].count += 1
-                    acc[source].rows += run.rows_synced || 0
-                    acc[source].schemas.add(run.schema_name)
-                    return acc
-                }, {})
+                    runsBySource[source].count += 1
+                    runsBySource[source].rows += run.rows_synced || 0
+                    runsBySource[source].runs.push(run)
+                })
 
-                const timeSpanMinutes =
-                    runs.length > 1
-                        ? Math.round(dayjs(runs[0].created_at).diff(dayjs(runs[runs.length - 1].created_at), 'minute'))
-                        : 0
-
-                return {
-                    totalRuns: runs.length,
-                    avgRowsPerRun: runs.length
-                        ? Math.round(runs.reduce((sum, run) => sum + (run.rows_synced || 0), 0) / runs.length)
-                        : 0,
-                    runsBySource: Object.fromEntries(
-                        Object.entries(runsBySource).map(([source, data]: [string, any]) => [
-                            source,
-                            { ...data, schemas: Array.from(data.schemas) },
-                        ])
-                    ),
-                    runs: runs.slice(0, 10),
-                    hasMultipleSources: Object.keys(runsBySource).length > 1,
-                    timeSpanMinutes,
-                }
+                return Object.entries(runsBySource)
+                    .map(([source, data]) => ({
+                        source,
+                        count: data.count,
+                        rows: data.rows,
+                        runs: data.runs.sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()),
+                    }))
+                    .sort((a, b) => b.rows - a.rows)
             },
         ],
         modalTitle: [

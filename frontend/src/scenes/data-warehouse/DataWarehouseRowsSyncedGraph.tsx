@@ -82,6 +82,12 @@ function SimpleLineChart({
                         label: (context: any) =>
                             context.parsed.y === null ? 'No data' : `${context.parsed.y} rows synced`,
                     },
+                    zoom: {
+                        enabled: false,
+                    },
+                    pan: {
+                        enabled: false,
+                    },
                 },
             },
         }
@@ -96,17 +102,15 @@ function SimpleLineChart({
                         data: data.map((d) => d.rows_synced),
                         borderColor: '#111827',
                         borderWidth: 2,
-                        pointRadius: 6,
+                        pointRadius: 5,
                         pointHoverRadius: 8,
                         pointBackgroundColor: '#111827',
                         pointBorderColor: '#ffffff',
                         pointBorderWidth: 2,
-                        tension: 0.3,
+                        tension: 0.1,
                         fill: false,
                         spanGaps: true,
-                        pointHitRadius: 10,
-                        pointHoverBackgroundColor: '#ffffff',
-                        pointHoverBorderColor: '#111827',
+                        pointHitRadius: 6,
                     },
                 ],
             },
@@ -125,9 +129,10 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
         dailyRowsSyncedData,
         hasData,
         dailyBreakdownDataLoading,
+        totalRowsInPeriod,
         selectedDate,
         selectedRows,
-        activitySummary,
+        selectedDateRunsBySource,
         modalTitle,
     } = useValues(dataWarehouseSceneLogic)
     const { setSelectedDate, setSelectedRows } = useActions(dataWarehouseSceneLogic)
@@ -141,43 +146,41 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
     )
 
     return (
-        <>
-            <div className="bg-white rounded-lg border border-border shadow-sm">
-                <div className="p-2">
+        <div className="bg-white rounded-lg border border-border shadow-sm">
+            <div className="p-4">
+                <div className="flex items-center justify-between mb-6">
                     <div>
                         <h3 className="text-xl font-semibold text-default">Daily Rows Synced</h3>
                         {hasData && (
                             <div className="text-sm text-muted">
-                                Rows synced to your data warehouse over your current billing period.
+                                {totalRowsInPeriod.toLocaleString()} total rows synced over your current billing period
                             </div>
                         )}
                     </div>
                 </div>
 
-                <div className="p-4">
-                    {dailyBreakdownDataLoading ? (
-                        <div className="h-64 flex items-center justify-center">
-                            <div className="text-muted">Loading data...</div>
-                        </div>
-                    ) : !hasData ? (
-                        <div className="h-64 flex items-center justify-center">
-                            <div className="text-center">
-                                <div className="text-muted-alt mb-2">No data synced yet.</div>
-                                <div className="text-muted text-sm">
-                                    Sync jobs will appear here once your data sources start syncing.
-                                </div>
+                {dailyBreakdownDataLoading ? (
+                    <div className="h-64 flex items-center justify-center">
+                        <div className="text-muted">Loading data...</div>
+                    </div>
+                ) : !hasData ? (
+                    <div className="h-64 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="text-muted-alt mb-2">No data synced yet.</div>
+                            <div className="text-muted text-sm">
+                                Sync jobs will appear here once your data sources start syncing.
                             </div>
                         </div>
-                    ) : (
-                        <div className="h-64">
-                            <SimpleLineChart data={dailyRowsSyncedData} onPointClick={handlePointClick} />
-                        </div>
-                    )}
-                </div>
+                    </div>
+                ) : (
+                    <div className="h-64">
+                        <SimpleLineChart data={dailyRowsSyncedData} onPointClick={handlePointClick} />
+                    </div>
+                )}
             </div>
 
             <LemonModal isOpen={!!selectedDate} onClose={() => setSelectedDate(null)} title={modalTitle} width={600}>
-                <div className="space-y-6">
+                <div className="space-y-2">
                     {selectedRows === null ? (
                         <div className="text-center py-8">
                             <div className="text-lg text-muted-alt mb-2">
@@ -187,77 +190,53 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                         </div>
                     ) : (
                         <>
-                            <div className="text-center border-b pb-6">
-                                <div className="text-4xl font-bold text-default mb-2">{selectedRows}</div>
-                                <div className="text-lg text-muted-alt">
-                                    rows synced on {dayjs(selectedDate!).format('MMM D, YYYY')}
-                                </div>
-                            </div>
+                            {selectedDateRunsBySource && selectedDateRunsBySource.length > 0 ? (
+                                <div>
+                                    <div className="text-center">
+                                        <div className="text-xl text-default mb-2">{selectedRows} rows synced: </div>
+                                    </div>
 
-                            {activitySummary ? (
-                                <div className="space-y-4">
-                                    {activitySummary.hasMultipleSources && (
-                                        <div>
-                                            <h4 className="font-semibold mb-3">Sources</h4>
-                                            <div className="space-y-2">
-                                                {Object.entries(activitySummary.runsBySource).map(([source, data]) => (
-                                                    <div
-                                                        key={source}
-                                                        className="flex items-center justify-between p-3 bg-bg-light rounded border"
-                                                    >
-                                                        <div className="flex-1">
-                                                            <div className="font-medium text-default">{source}</div>
-                                                            <div className="text-sm text-muted">
-                                                                {(data as any).schemas.join(', ')}
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-sm text-muted flex items-center gap-3">
-                                                            <span>{(data as any).count} jobs</span>
-                                                            <span>• {(data as any).rows} rows</span>
-                                                        </div>
+                                    <div className="space-y-6">
+                                        {selectedDateRunsBySource.map(({ source, count, rows, runs }) => (
+                                            <div key={source}>
+                                                <div className="flex items-center justify-between mb-2 px-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <DataWarehouseSourceIcon type={source} size="xsmall" />
+                                                        <span className="font-semibold text-default">{source}</span>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {activitySummary.timeSpanMinutes > 0 && (
-                                        <div className="text-center text-sm text-muted-alt">
-                                            Sync activity spanned {activitySummary.timeSpanMinutes} minutes
-                                        </div>
-                                    )}
-
-                                    {activitySummary.runs.length > 0 && (
-                                        <div className="space-y-3 max-h-64 overflow-y-auto">
-                                            {activitySummary.runs.slice(0, 10).map((run: any) => (
-                                                <div
-                                                    key={run.id}
-                                                    className="flex items-center justify-between p-3 bg-bg-light rounded border"
-                                                >
-                                                    <div className="flex-1">
-                                                        <div className="font-medium text-default flex items-center gap-2">
-                                                            <DataWarehouseSourceIcon
-                                                                type={run.source_type}
-                                                                size="xsmall"
-                                                            />
-                                                            {run.source_type} • {run.schema_name}
-                                                        </div>
-                                                        <div className="text-sm text-muted flex items-center gap-2">
-                                                            <TZLabel time={run.created_at} />
-                                                            <span>• {run.rows_synced} rows</span>
-                                                        </div>
+                                                    <div className="text-sm text-muted">
+                                                        {count} jobs • {rows.toLocaleString()} rows
                                                     </div>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    )}
+
+                                                <div className="space-y-2 max-h-48 overflow-y-auto">
+                                                    {runs.slice(0, 10).map((run: any) => (
+                                                        <div
+                                                            key={run.id}
+                                                            className="flex items-center justify-between p-3 bg-bg-light rounded border"
+                                                        >
+                                                            <div className="flex-1">
+                                                                <div className="font-medium text-default">
+                                                                    {run.schema_name}
+                                                                </div>
+                                                                <div className="text-sm text-muted flex items-center gap-2">
+                                                                    <TZLabel time={run.created_at} />
+                                                                    <span>• {run.rows_synced} rows</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             ) : (
-                                <div className="text-center py-4">
-                                    <div className="text-lg text-muted-alt mb-2">No sync data available</div>
+                                <div className="text-center py-1">
+                                    <div className="text-lg font-semibold mb-2">No sync data available</div>
                                     <div className="text-sm text-muted">
-                                        This date may not have any data warehouse sync activity or the data may not be
-                                        available yet.
+                                        {dayjs(selectedDate!).format('MMM D, YYYY')} does not appear to have any data
+                                        warehouse sync activity!
                                     </div>
                                 </div>
                             )}
@@ -265,6 +244,6 @@ export function DataWarehouseRowsSyncedGraph(): JSX.Element {
                     )}
                 </div>
             </LemonModal>
-        </>
+        </div>
     )
 }
