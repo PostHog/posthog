@@ -1062,6 +1062,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2").time():
             # TODO: how long do we need to support v1 LTS for?
+            # TODO: will have to be from 12 months from definite cut-off
+            # TODO: where object_storage_path and not full_recording_v2_path
+            # TODO: then we still load the LTS v1 and increment the counter
             # if recording.object_storage_path:
             #     LOADING_V1_LTS_COUNTER.inc()
             #     # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
