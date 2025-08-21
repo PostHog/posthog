@@ -64,9 +64,6 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     SessionRecordingListFromQuery,
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import (
-    get_realtime_snapshots,
-)
 from tenacity import retry, wait_random_exponential, retry_if_exception_type, stop_after_attempt
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
@@ -1282,25 +1279,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_key: str,
     ) -> HttpResponse:
         return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key))
-
-    def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
-        with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
-            snapshot_lines = (
-                get_realtime_snapshots(
-                    team_id=str(self.team.pk),
-                    session_id=str(recording.session_id),
-                )
-                or []
-            )
-
-        response = HttpResponse(
-            # convert list to a jsonl response
-            content=("\n".join(snapshot_lines)),
-            content_type="application/json",
-        )
-        # the browser is not allowed to cache this at all
-        response["Cache-Control"] = "no-store"
-        return response
 
     @extend_schema(
         exclude=True,
