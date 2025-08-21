@@ -560,6 +560,11 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return patterns_assignments
 
 
+async def _wait_for_update() -> None:
+    """Pause between polling to avoid hitting Temporal too often"""
+    await asyncio.sleep(int(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000))
+
+
 async def _start_session_group_summary_workflow(
     inputs: SessionGroupSummaryInputs, workflow_id: str
 ) -> AsyncGenerator[
@@ -619,6 +624,7 @@ async def _start_session_group_summary_workflow(
             if sessions_status != previous_sessions_status:
                 if previous_sessions_status is None and step != SessionSummaryStep.WATCHING_SESSIONS:
                     # Don't define initial step state until it's its turn
+                    await _wait_for_update()
                     continue
                 formatted_sessions_status = format_single_sessions_status(sessions_status)
                 yield (
@@ -632,6 +638,7 @@ async def _start_session_group_summary_workflow(
             if patterns_keys != previous_pattern_keys:
                 if previous_pattern_keys is None and step != SessionSummaryStep.FINDING_PATTERNS:
                     # Don't define initial step state until it's its turn
+                    await _wait_for_update()
                     continue
                 patterns = get_patterns_from_redis_outside_workflow(
                     redis_output_keys=patterns_keys,
@@ -652,6 +659,7 @@ async def _start_session_group_summary_workflow(
             if pattern_assignments_progress != previous_pattern_assignments_progress:
                 if previous_pattern_assignments_progress is None and step != SessionSummaryStep.GENERATING_REPORT:
                     # Don't define initial step state until it's its turn
+                    await _wait_for_update()
                     continue
                 formatted_patterns_assignment_progress = format_patterns_assignment_progress()
                 yield (
@@ -660,9 +668,8 @@ async def _start_session_group_summary_workflow(
                     formatted_patterns_assignment_progress,
                 )
                 previous_pattern_assignments_progress = pattern_assignments_progress
-
             # Wait till the next polling
-            await asyncio.sleep(int(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000))
+            await _wait_for_update()
 
 
 def _generate_shared_id(session_ids: list[str]) -> str:
