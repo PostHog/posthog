@@ -348,7 +348,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             "sources": [
                 {
                     "source": "blob_v2",
-                    "blob_key": "/the_lts_path/the_session_uuid",
+                    "blob_key": "the_lts_path/the_session_uuid",
                     # it's ok for these to be None, since we don't use the data anyway
                     # and this key is the whole session
                     "start_timestamp": None,

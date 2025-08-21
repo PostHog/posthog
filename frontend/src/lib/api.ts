@@ -72,8 +72,10 @@ import {
     DashboardType,
     DataColorThemeModel,
     DataModelingJob,
+    DataWarehouseActivityRecord,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
@@ -1840,7 +1842,7 @@ const api = {
             return new ApiRequest().comments().withQueryString(params).get()
         },
 
-        async getCount(params: Partial<CommentType>): Promise<number> {
+        async getCount(params: Partial<CommentType> & { exclude_emoji_reactions?: boolean }): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
 
@@ -3378,17 +3380,18 @@ const api = {
     },
 
     dataWarehouse: {
-        async total_rows_stats(options?: ApiMethodOptions): Promise<{
-            billingAvailable: boolean
-            billingInterval: string
-            billingPeriodEnd: string
-            billingPeriodStart: string
-            materializedRowsInBillingPeriod: number
-            totalRows: number
-            trackedBillingRows: number
-            pendingBillingRows: number
-        }> {
+        async totalRowsStats(options?: ApiMethodOptions): Promise<DataWarehouseSourceRowCount> {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
+        },
+
+        async recentActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number }
+        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('recent_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .get(options)
         },
     },
 
