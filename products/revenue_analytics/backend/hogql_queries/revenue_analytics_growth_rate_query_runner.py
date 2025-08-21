@@ -11,14 +11,13 @@ from posthog.schema import (
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
 
 ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
 
 
-class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsGrowthRateQueryResponse]):
     query: RevenueAnalyticsGrowthRateQuery
-    response: RevenueAnalyticsGrowthRateQueryResponse
     cached_response: CachedRevenueAnalyticsGrowthRateQueryResponse
 
     def to_query(self) -> ast.SelectQuery:

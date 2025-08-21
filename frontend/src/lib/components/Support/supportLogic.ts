@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
-import posthog from 'posthog-js'
-import api from 'lib/api'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -24,8 +25,8 @@ import {
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
+import type { supportLogicType } from './supportLogicType'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -119,6 +120,16 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
+                value: 'login',
+                'data-attr': `support-form-target-area-login`,
+                label: 'Authentication (incl. login, sign-up, invites)',
+            },
+            {
+                value: 'analytics_platform',
+                'data-attr': `support-form-target-area-analytics_platform`,
+                label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
+            },
+            {
                 value: 'billing',
                 'data-attr': `support-form-target-area-billing`,
                 label: 'Billing',
@@ -137,11 +148,6 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'data_management',
                 'data-attr': `support-form-target-area-data_management`,
                 label: 'Data management (incl. events, actions, properties)',
-            },
-            {
-                value: 'login',
-                'data-attr': `support-form-target-area-login`,
-                label: 'Authentication (incl. login, sign-up, invites)',
             },
             {
                 value: 'mobile',
@@ -174,9 +180,9 @@ export const TARGET_AREA_TO_NAME = [
         title: 'Individual product',
         options: [
             {
-                value: 'analytics',
-                'data-attr': `support-form-target-area-analytics`,
-                label: 'Product analytics (incl. insights, dashboards, annotations)',
+                value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'Data warehouse (sources)',
             },
             {
                 value: 'batch_exports',
@@ -187,11 +193,6 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'cdp_destinations',
                 'data-attr': `support-form-target-area-cdp_destinations`,
                 label: 'Destinations (real-time)',
-            },
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
             },
             {
                 value: 'error_tracking',
@@ -227,6 +228,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'messaging',
                 'data-attr': `support-form-target-area-messaging`,
                 label: 'Messaging',
+            },
+            {
+                value: 'analytics',
+                'data-attr': `support-form-target-area-analytics`,
+                label: 'Product analytics (incl. insights, dashboards, etc.)',
             },
             {
                 value: 'revenue_analytics',

@@ -22,9 +22,8 @@ from posthog.hogql.property import (
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
 
 
-class WebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner):
+class WebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner[WebVitalsPathBreakdownQueryResponse]):
     query: WebVitalsPathBreakdownQuery
-    response: WebVitalsPathBreakdownQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
 
     def to_query(self):

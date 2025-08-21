@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from unittest.mock import patch, MagicMock
 from django.test import TransactionTestCase
 
@@ -12,7 +13,6 @@ from posthog.models import (
     Project,
     EventDefinition,
     PropertyDefinition,
-    GroupTypeMapping,
 )
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
@@ -519,7 +519,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
 
         # Create group type mappings in both environments
-        staging_org_group = GroupTypeMapping.objects.create(
+        staging_org_group = create_group_type_mapping_without_created_at(
             team=staging_env,
             group_type="organization",
             group_type_index=0,
@@ -527,7 +527,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
             name_plural="Organizations",
             project_id=main_project.id,
         )
-        staging_company_group = GroupTypeMapping.objects.create(
+        staging_company_group = create_group_type_mapping_without_created_at(
             team=staging_env,
             group_type="company",
             group_type_index=1,
@@ -535,7 +535,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
             name_plural="Companies",
             project_id=main_project.id,
         )
-        production_workspace_group = GroupTypeMapping.objects.create(
+        production_workspace_group = create_group_type_mapping_without_created_at(
             team=production_env,
             group_type="workspace",
             group_type_index=2,  # Different index to avoid constraint violation

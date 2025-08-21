@@ -1,12 +1,13 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     AnyDataNode,

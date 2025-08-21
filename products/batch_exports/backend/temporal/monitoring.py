@@ -3,6 +3,7 @@ import json
 from dataclasses import dataclass
 from uuid import UUID
 
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -15,7 +16,7 @@ from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

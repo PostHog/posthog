@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { RefObject } from 'react'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { RefObject } from 'react'
 
 import { Tab, tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'

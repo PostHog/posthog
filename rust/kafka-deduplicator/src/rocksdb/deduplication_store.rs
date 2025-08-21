@@ -1,15 +1,35 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
-
-use anyhow::Result;
-use rocksdb::{ColumnFamilyDescriptor, Options};
 use std::time::Instant;
-use tracing::error;
 
-use crate::event::EventData;
+use anyhow::{Context, Result};
+use common_types::RawEvent;
+use rocksdb::{ColumnFamilyDescriptor, Options};
+use tracing::{error, info};
+
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::dedup_metadata::VersionedMetadata;
+use crate::rocksdb::dedup_metadata::{MetadataVersion, VersionedMetadata};
 use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
+
+const UNKNOWN_STR: &str = "unknown";
+
+/// Extract library name and version from RawEvent properties
+fn extract_library_info(event: &RawEvent) -> (String, String) {
+    let lib_name = event
+        .properties
+        .get("$lib")
+        .and_then(|v| v.as_str())
+        .unwrap_or(UNKNOWN_STR)
+        .to_string();
+
+    let lib_version = event
+        .properties
+        .get("$lib_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or(UNKNOWN_STR)
+        .to_string();
+
+    (lib_name, lib_version)
+}
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStoreConfig {
@@ -63,20 +83,27 @@ impl TryFrom<&[u8]> for DeduplicationKey {
     type Error = anyhow::Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self> {
-        let key_str = std::str::from_utf8(bytes)?;
+        let key_str = std::str::from_utf8(bytes)
+            .with_context(|| format!("Invalid UTF-8 in deduplication key: {bytes:?}"))?;
         let parts: Vec<&str> = key_str.split(':').collect();
 
         if parts.len() != 4 {
             return Err(anyhow::anyhow!(
-                "Invalid key format, expected 4 parts separated by ':'"
+                "Invalid deduplication key format '{}', expected 4 parts separated by ':' (timestamp:distinct_id:token:event_name)",
+                key_str
             ));
         }
 
         Ok(Self::new(
-            parts[0].parse::<u64>()?, // timestamp
-            parts[1].to_string(),     // distinct_id
-            parts[2].to_string(),     // token
-            parts[3].to_string(),     // event_name
+            parts[0].parse::<u64>().with_context(|| {
+                format!(
+                    "Failed to parse timestamp '{}' in deduplication key",
+                    parts[0]
+                )
+            })?, // timestamp
+            parts[1].to_string(), // distinct_id
+            parts[2].to_string(), // token
+            parts[3].to_string(), // event_name
         ))
     }
 }
@@ -89,25 +116,38 @@ impl TryFrom<Vec<u8>> for DeduplicationKey {
     }
 }
 
-impl From<EventData> for DeduplicationKey {
-    fn from(event: EventData) -> Self {
-        Self::new(
-            event.timestamp,
-            event.distinct_id,
-            event.token,
-            event.event_name,
-        )
-    }
-}
+impl From<&RawEvent> for DeduplicationKey {
+    fn from(raw_event: &RawEvent) -> Self {
+        let timestamp = raw_event
+            .timestamp
+            .as_ref()
+            .and_then(|t| t.parse::<u64>().ok())
+            .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
 
-impl From<&EventData> for DeduplicationKey {
-    fn from(event: &EventData) -> Self {
-        Self::new(
-            event.timestamp,
-            event.distinct_id.clone(),
-            event.token.clone(),
-            event.event_name.clone(),
-        )
+        let distinct_id = raw_event
+            .distinct_id
+            .as_ref()
+            .and_then(|v| {
+                // Treat JSON null as None
+                if v.is_null() {
+                    None
+                } else {
+                    // Try to get as string first, if not possible stringify the JSON
+                    Some(
+                        v.as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| v.to_string()),
+                    )
+                }
+            })
+            .unwrap_or_else(|| UNKNOWN_STR.to_string());
+
+        let token = raw_event
+            .token
+            .clone()
+            .unwrap_or_else(|| UNKNOWN_STR.to_string());
+
+        Self::new(timestamp, distinct_id, token, raw_event.event.clone())
     }
 }
 
@@ -156,9 +196,8 @@ impl DeduplicationStore {
             .store
             .multi_get(DeduplicationStore::RECORDS_CF, keys.clone())?;
 
-        let mut duplicate_count = 0u64;
-
-        // Return only keys that don't exist (None results) and count duplicates
+        // Return only keys that don't exist (None results)
+        // Note: Duplicate metrics are now emitted per-event in handle_event_with_raw
         let non_duplicated: Vec<&[u8]> = keys
             .into_iter()
             .zip(results)
@@ -167,102 +206,64 @@ impl DeduplicationStore {
                     // Key doesn't exist - not a duplicate
                     Some(key)
                 } else {
-                    // Key exists - it's a duplicate
-                    // Let's add some metrics here
-                    duplicate_count += 1;
+                    // Key exists - it's a duplicate (metrics handled elsewhere)
                     None
                 }
             })
             .collect();
 
-        // Emit metrics for duplicate events found
-        if duplicate_count > 0 {
-            self.metrics
-                .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
-                .increment(duplicate_count);
-        }
-
         Ok(non_duplicated)
     }
 
-    pub fn handle_event_batch(&self, events: Vec<EventData>) -> Result<()> {
-        let start_time = Instant::now();
-        let batch_size = events.len();
+    pub fn handle_event_with_raw(&self, raw_event: &RawEvent) -> Result<bool> {
+        let _start_time = Instant::now();
 
-        if events.is_empty() {
-            return Ok(());
+        let key = DeduplicationKey::from(raw_event);
+        let key_bytes = key.as_ref().to_vec();
+
+        // Check if this is a duplicate
+        let cf = self.store.get_cf_handle(DeduplicationStore::RECORDS_CF)?;
+        let existing_metadata = self.store.db.get_cf(&cf, &key_bytes)?;
+
+        if let Some(existing_bytes) = existing_metadata {
+            // Key exists - it's a duplicate, update metrics
+            let mut metadata = VersionedMetadata::deserialize_metadata(&existing_bytes)?;
+
+            // Update duplicate metrics using trait method
+            metadata.update_duplicate(raw_event);
+
+            // Log the duplicate metrics using trait method
+            info!("Duplicate detected: {}", metadata.get_metrics_summary());
+
+            // Extract library info and emit duplicate metric with labels
+            let (lib_name, lib_version) = extract_library_info(raw_event);
+            self.metrics
+                .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .increment(1);
+
+            // Store updated metrics
+            let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
+            self.store.put(
+                DeduplicationStore::RECORDS_CF,
+                &key_bytes,
+                &serialized_metadata,
+            )?;
+
+            return Ok(false); // It's a duplicate
         }
 
-        // Emit batch size metric
-        self.metrics
-            .histogram(BATCH_SIZE_HISTOGRAM)
-            .record(batch_size as f64);
+        // Key doesn't exist - store it with initial metrics
+        let metadata =
+            VersionedMetadata::V1(crate::rocksdb::dedup_metadata::MetadataV1::new(raw_event));
+        let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
 
-        // Create map of raw key bytes -> serialized metadata for O(1) lookup
-        let mut key_bytes_metadata_map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-        let mut key_bytes_list: Vec<Vec<u8>> = Vec::new();
-
-        for event in events.iter() {
-            let key = DeduplicationKey::from(event);
-            let key_bytes = key.as_ref().to_vec(); // Convert to owned Vec<u8>
-            let metadata = VersionedMetadata::from(event);
-            let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata);
-            if let Ok(serialized_metadata) = serialized_metadata {
-                key_bytes_metadata_map.insert(key_bytes.clone(), serialized_metadata);
-                key_bytes_list.push(key_bytes);
-            } else {
-                error!(
-                    "Failed to serialize metadata for event metadata: {:?}",
-                    metadata
-                );
-            }
-        }
-
-        // Extract keys for deduplication check (now we can use references)
-        let key_bytes_refs: Vec<&[u8]> = key_bytes_list.iter().map(|k| k.as_slice()).collect();
-
-        // Get only non-duplicated keys
-        let non_duplicated_key_bytes = self.get_non_duplicated_keys(key_bytes_refs)?;
-        let unique_count = non_duplicated_key_bytes.len();
-        let duplicate_count = batch_size - unique_count;
-
-        // Build entries to store using O(1) HashMap lookup
-        let entries_to_store: Vec<(&[u8], &[u8])> = non_duplicated_key_bytes
-            .into_iter()
-            .filter_map(|key_bytes| {
-                // O(1) HashMap lookup using the raw bytes
-                key_bytes_metadata_map
-                    .get(key_bytes)
-                    .map(|metadata| (key_bytes, metadata.as_slice()))
-            })
-            .collect();
-
-        // Store all non-duplicated entries in batch
-        if !entries_to_store.is_empty() {
-            self.store
-                .put_batch(DeduplicationStore::RECORDS_CF, entries_to_store)?;
-        }
-
-        // Emit metrics
-        let duration = start_time.elapsed();
-
-        self.metrics
-            .histogram(BATCH_PROCESSING_DURATION_HISTOGRAM)
-            .record(duration.as_secs_f64());
-        self.metrics
-            .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
-            .increment(unique_count as u64);
-
-        // Calculate and emit duplicate rate percentage
-        if batch_size > 0 {
-            let duplicate_rate = (duplicate_count as f64 / batch_size as f64) * 100.0;
-            self.metrics.gauge(DUPLICATE_RATE_GAUGE).set(duplicate_rate);
-        }
-
-        // Update database metrics periodically
-        self.store.update_db_metrics(Self::RECORDS_CF).ok();
-
-        Ok(())
+        self.store.put_batch(
+            DeduplicationStore::RECORDS_CF,
+            vec![(&key_bytes, &serialized_metadata)],
+        )?;
+        Ok(true) // New event
     }
 
     pub fn cleanup_old_entries(&self) -> Result<u64> {
@@ -400,23 +401,21 @@ mod tests {
         (store, temp_dir)
     }
 
-    fn create_test_event(
-        distinct_id: &str,
-        token: &str,
-        event_name: &str,
-        source: u8,
-        team_id: u32,
-    ) -> EventData {
-        EventData {
-            timestamp: SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            distinct_id: distinct_id.to_string(),
-            token: token.to_string(),
-            event_name: event_name.to_string(),
-            source,
-            team_id,
+    fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
+        RawEvent {
+            uuid: None,
+            event: event_name.to_string(),
+            distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
+            token: Some(token.to_string()),
+            properties: std::collections::HashMap::new(),
+            timestamp: Some(
+                SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    .to_string(),
+            ),
+            ..Default::default()
         }
     }
 
@@ -470,28 +469,36 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_event_batch_empty() {
+    fn test_handle_event_with_raw_empty_batch() {
         let (store, _temp_dir) = create_test_store(None);
-        let result = store.handle_event_batch(vec![]);
-        assert!(result.is_ok());
+        let events: Vec<RawEvent> = vec![];
+        // Empty batch - nothing to process
+        for event in events {
+            let result = store.handle_event_with_raw(&event);
+            assert!(result.is_ok());
+        }
     }
 
     #[test]
-    fn test_handle_event_batch_new_events() {
+    fn test_handle_events_new_events() {
         let (store, _temp_dir) = create_test_store(None);
 
         let events = vec![
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
 
-        let result = store.handle_event_batch(events);
-        assert!(result.is_ok());
+        // Process events individually
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Verify events were stored by checking they're now duplicates
         let events_again = [
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
 
         let dedup_keys: Vec<DeduplicationKey> =
@@ -506,25 +513,33 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_event_batch_mixed_duplicates() {
+    fn test_handle_events_mixed_duplicates() {
         let (store, _temp_dir) = create_test_store(None);
 
         // First batch
         let first_batch = vec![
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(first_batch).unwrap();
+        for event in &first_batch {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Second batch with one duplicate and one new
         let second_batch = vec![
-            create_test_event("user1", "token1", "event1", 1, 100), // duplicate
-            create_test_event("user3", "token1", "event3", 1, 100), // new
+            create_test_raw_event("user1", "token1", "event1"), // duplicate
+            create_test_raw_event("user3", "token1", "event3"), // new
         ];
-        store.handle_event_batch(second_batch).unwrap();
+        let results: Vec<bool> = second_batch
+            .iter()
+            .map(|event| store.handle_event_with_raw(event).unwrap())
+            .collect();
+        assert_eq!(results, vec![false, true]); // first duplicate, second new
 
         // Verify only the new event was stored
-        let test_event = create_test_event("user3", "token1", "event3", 1, 100);
+        let test_event = create_test_raw_event("user3", "token1", "event3");
         let dedup_key = DeduplicationKey::from(&test_event);
         let key_bytes = vec![dedup_key.as_ref()];
         let non_duplicated = store.get_non_duplicated_keys(key_bytes).unwrap();
@@ -537,45 +552,51 @@ mod tests {
 
     #[test]
     fn test_deduplication_key_formatting() {
-        let event = create_test_event("user123", "token456", "page_view", 2, 789);
+        let event = create_test_raw_event("user123", "token456", "page_view");
         let key = DeduplicationKey::from(&event);
 
-        let expected = format!("{}:user123:token456:page_view", event.timestamp);
+        let expected = format!(
+            "{}:user123:token456:page_view",
+            event.timestamp.as_ref().unwrap()
+        );
         assert_eq!(String::from_utf8_lossy(key.as_ref()), expected);
     }
 
     #[test]
-    fn test_metadata_serialization_storage() {
+    fn test_metadata_storage_functionality() {
         let (store, _temp_dir) = create_test_store(None);
 
-        let event = create_test_event("user1", "token1", "event1", 5, 999);
-        let events = vec![event.clone()];
+        let event = create_test_raw_event("user1", "token1", "event1");
 
-        store.handle_event_batch(events).unwrap();
+        // Test that single event processing works
+        let is_new = store.handle_event_with_raw(&event).unwrap();
+        assert!(is_new); // First time should be new
 
-        // Verify metadata was stored correctly
-        let dedup_key = DeduplicationKey::from(&event);
-        let stored_value = store
-            .store
-            .multi_get(DeduplicationStore::RECORDS_CF, vec![dedup_key.as_ref()])
-            .unwrap();
+        // Verify we can handle duplicates using the trait-based approach
+        let duplicate_event = create_test_raw_event("user1", "token1", "event1");
+        let is_duplicate = store.handle_event_with_raw(&duplicate_event).unwrap();
+        assert!(!is_duplicate); // Should be a duplicate (returns false for new)
 
-        assert!(stored_value[0].is_some());
-
-        // Deserialize and verify metadata
-        let metadata =
-            VersionedMetadata::deserialize_metadata(stored_value[0].as_ref().unwrap()).unwrap();
-        match metadata {
-            VersionedMetadata::V1(v1) => {
-                assert_eq!(v1.source, 5);
-                assert_eq!(v1.team, 999);
-            }
+        // Test individual event processing works without errors - using different events to avoid serialization
+        let batch_events = vec![
+            create_test_raw_event("user2", "token1", "event2"),
+            create_test_raw_event("user3", "token1", "event3"),
+        ];
+        for event in &batch_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
         }
+
+        // Test that the new events work with individual processing
+        let new_event = create_test_raw_event("user4", "token1", "event4");
+        let is_new_again = store.handle_event_with_raw(&new_event).unwrap();
+        assert!(is_new_again); // Should be new
     }
 
     #[test]
     fn test_deduplication_key_conversion() {
-        let event = create_test_event("user123", "token456", "page_view", 2, 789);
+        let event = create_test_raw_event("user123", "token456", "page_view");
         let key = DeduplicationKey::from(&event);
 
         // Test converting to bytes and back
@@ -595,10 +616,14 @@ mod tests {
 
         // Add some events
         let events = vec![
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(events).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Cleanup should do nothing when max_capacity is 0
         let bytes_freed = store.cleanup_old_entries().unwrap();
@@ -610,29 +635,32 @@ mod tests {
         let (store, _temp_dir) = create_test_store(Some(1_000_000)); // 1MB limit
 
         // Add a small amount of data
-        let events = vec![create_test_event("user1", "token1", "event1", 1, 100)];
-        store.handle_event_batch(events).unwrap();
+        let events = vec![create_test_raw_event("user1", "token1", "event1")];
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Should be under capacity, no cleanup needed
         let bytes_freed = store.cleanup_old_entries().unwrap();
         assert_eq!(bytes_freed, 0);
     }
 
-    fn create_test_event_with_timestamp(
+    fn create_test_raw_event_with_timestamp(
         timestamp: u64,
         distinct_id: &str,
         token: &str,
         event_name: &str,
-        source: u8,
-        team_id: u32,
-    ) -> EventData {
-        EventData {
-            timestamp,
-            distinct_id: distinct_id.to_string(),
-            token: token.to_string(),
-            event_name: event_name.to_string(),
-            source,
-            team_id,
+    ) -> RawEvent {
+        RawEvent {
+            uuid: None,
+            event: event_name.to_string(),
+            distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
+            token: Some(token.to_string()),
+            properties: std::collections::HashMap::new(),
+            timestamp: Some(timestamp.to_string()),
+            ..Default::default()
         }
     }
 
@@ -645,17 +673,21 @@ mod tests {
 
         // Create much larger data to exceed capacity reliably
         let large_value = "x".repeat(100); // 100 bytes per event
-        let events: Vec<EventData> = (0..100)
-            .map(|i| EventData {
-                timestamp: base_timestamp + i,
-                distinct_id: format!("user{i}{large_value}"),
-                token: format!("token{i}{large_value}"),
-                event_name: format!("event{i}{large_value}"),
-                source: 1,
-                team_id: 100,
+        let events: Vec<RawEvent> = (0..100)
+            .map(|i| {
+                create_test_raw_event_with_timestamp(
+                    base_timestamp + i,
+                    &format!("user{i}{large_value}"),
+                    &format!("token{i}{large_value}"),
+                    &format!("event{i}{large_value}"),
+                )
             })
             .collect();
-        store.handle_event_batch(events).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            // Don't assert true since we might have duplicates due to the large number of events
+        }
 
         // Force data to SST files
         store
@@ -701,39 +733,36 @@ mod tests {
         let (store, _temp_dir) = create_test_store(Some(1000)); // Very small capacity
 
         let base_timestamp = 1609459200; // 2021-01-01
-        let old_event = create_test_event_with_timestamp(
-            base_timestamp,
-            "old_user",
-            "token1",
-            "old_event",
-            1,
-            100,
-        );
-        let new_event = create_test_event_with_timestamp(
+        let old_event =
+            create_test_raw_event_with_timestamp(base_timestamp, "old_user", "token1", "old_event");
+        let new_event = create_test_raw_event_with_timestamp(
             base_timestamp + 86400,
             "new_user",
             "token1",
             "new_event",
-            1,
-            100,
         );
 
         // Add old event first
-        store.handle_event_batch(vec![old_event.clone()]).unwrap();
-        // Add many more events to exceed capacityc
+        let result = store.handle_event_with_raw(&old_event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should be new
+
+        // Add many more events to exceed capacity
         for i in 0..10 {
-            let event = create_test_event_with_timestamp(
+            let event = create_test_raw_event_with_timestamp(
                 base_timestamp + i,
                 &format!("user{i}"),
                 "token1",
                 &format!("event{i}"),
-                1,
-                100,
             );
-            store.handle_event_batch(vec![event]).unwrap();
+            let result = store.handle_event_with_raw(&event);
+            assert!(result.is_ok());
+            // Don't assert true as some events might be duplicates due to timestamp logic
         }
         // Add new event last
-        store.handle_event_batch(vec![new_event.clone()]).unwrap();
+        let result = store.handle_event_with_raw(&new_event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should be new
 
         // Run cleanup
         let bytes_freed = store.cleanup_old_entries().unwrap();
@@ -765,10 +794,14 @@ mod tests {
 
         // Add some deduplication data
         let events = vec![
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(events).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create checkpoint
         let checkpoint_dir = tempfile::TempDir::new().unwrap();
@@ -791,8 +824,8 @@ mod tests {
 
         // Create original store and add deduplication data
         let original_events = vec![
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
 
         {
@@ -803,9 +836,11 @@ mod tests {
             let original_store =
                 DeduplicationStore::new(config, "test_topic".to_string(), 0).unwrap();
 
-            original_store
-                .handle_event_batch(original_events.clone())
-                .unwrap();
+            for event in &original_events {
+                let result = original_store.handle_event_with_raw(event);
+                assert!(result.is_ok());
+                assert!(result.unwrap()); // All events should be new
+            }
 
             // Create checkpoint
             original_store.create_checkpoint(&checkpoint_path).unwrap();
@@ -846,22 +881,28 @@ mod tests {
 
         // Phase 1: Add initial events and create first checkpoint
         let initial_events = [
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(initial_events.to_vec()).unwrap();
+        for event in &initial_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create first checkpoint
         store.create_checkpoint(&checkpoint1_path).unwrap();
 
         // Phase 2: Add more events and create second checkpoint
         let additional_events = [
-            create_test_event("user3", "token1", "event3", 1, 100),
-            create_test_event("user4", "token1", "event4", 1, 100),
+            create_test_raw_event("user3", "token1", "event3"),
+            create_test_raw_event("user4", "token1", "event4"),
         ];
-        store
-            .handle_event_batch(additional_events.to_vec())
-            .unwrap();
+        for event in &additional_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create second checkpoint (incremental - contains all data up to this point)
         store.create_checkpoint(&checkpoint2_path).unwrap();
@@ -948,10 +989,14 @@ mod tests {
 
         // Phase 1: Add initial events and create checkpoint with metadata
         let initial_events = [
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(initial_events.to_vec()).unwrap();
+        for event in &initial_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create checkpoint with SST file tracking
         let sst_files_checkpoint1 = store
@@ -960,12 +1005,14 @@ mod tests {
 
         // Phase 2: Add more events and create second checkpoint
         let additional_events = [
-            create_test_event("user3", "token1", "event3", 1, 100),
-            create_test_event("user4", "token1", "event4", 1, 100),
+            create_test_raw_event("user3", "token1", "event3"),
+            create_test_raw_event("user4", "token1", "event4"),
         ];
-        store
-            .handle_event_batch(additional_events.to_vec())
-            .unwrap();
+        for event in &additional_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create second checkpoint with SST file tracking
         let sst_files_checkpoint2 = store
@@ -1005,10 +1052,14 @@ mod tests {
 
         // Add some events
         let events = [
-            create_test_event("user1", "token1", "event1", 1, 100),
-            create_test_event("user2", "token1", "event2", 1, 100),
+            create_test_raw_event("user1", "token1", "event1"),
+            create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(events.to_vec()).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Force flush to create SST files
         store

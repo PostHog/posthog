@@ -1,18 +1,20 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
+
+import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useEffect } from 'react'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
-import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
-import { StacktraceTab } from './Tabs/StacktraceTab'
 import { SessionTab } from './Tabs/SessionTab'
+import { StacktraceTab } from './Tabs/StacktraceTab'
+import { exceptionCardLogic } from './exceptionCardLogic'
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue

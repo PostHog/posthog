@@ -52,7 +52,6 @@ class TestQueryRunner(BaseTest):
 
         class TestQueryRunner(QueryRunner):
             query: TheTestQuery
-            response: TheTestBasicQueryResponse
             cached_response: TheTestCachedBasicQueryResponse
 
             def calculate(self):
@@ -161,6 +160,7 @@ class TestQueryRunner(BaseTest):
                             },
                             "revenueProperty": "revenue",
                             "subscriptionDropoffDays": 45,
+                            "subscriptionDropoffMode": "last_event",
                             "subscriptionProperty": "subscription",
                         }
                     ],

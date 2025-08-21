@@ -1,12 +1,14 @@
+import { useActions, useValues } from 'kea'
+
 import { IconLogomark } from '@posthog/icons'
 import { LemonButton, Popover, ProfilePicture } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ProjectDropdownMenu } from '~/layout/panel-layout/ProjectDropdownMenu'
 
 export function MinimalNavigation(): JSX.Element {

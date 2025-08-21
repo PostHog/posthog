@@ -11,15 +11,14 @@ from posthog.schema import (
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
 
 
 CONSTANT_ZERO = ast.Constant(value=0)
 
 
-class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsOverviewQueryResponse]):
     query: RevenueAnalyticsOverviewQuery
-    response: RevenueAnalyticsOverviewQueryResponse
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery:

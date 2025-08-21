@@ -3,8 +3,8 @@ import './LemonSegmentedButton.scss'
 import clsx from 'clsx'
 import React from 'react'
 
-import { useSliderPositioning } from '../hooks'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
+import { useSliderPositioning } from '../hooks'
 
 // Expects at least one of label or icon to be provided
 export type LemonSegmentedButtonOption<T extends React.Key> = { value: T } & (

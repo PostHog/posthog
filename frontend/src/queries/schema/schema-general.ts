@@ -40,6 +40,7 @@ import {
     PropertyMathType,
     PropertyOperator,
     QueryBasedInsightModel,
+    RecordingPropertyFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
     RevenueAnalyticsPropertyFilter,
@@ -453,6 +454,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     properties?: AnyPropertyFilter[]
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
+    comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
     /**
      * @default "AND"
@@ -1142,7 +1144,8 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export type ResultCustomizationBase = {
-    color: DataColorToken
+    color?: DataColorToken
+    hidden?: boolean
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -1285,7 +1288,9 @@ export type FunnelTimeToConvertResults = {
 }
 export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
-    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+    // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+    // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
+    results: any
     isUdf?: boolean
 }
 
@@ -2020,9 +2025,18 @@ export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<
     interval: IntervalType
 }
 
+export interface RevenueAnalyticsRevenueQueryResultItem {
+    total: unknown
+    new: unknown
+    expansion: unknown
+    contraction: unknown
+    churn: unknown
+}
+
 export interface RevenueAnalyticsRevenueQueryResult {
+    // This is just the total, while mrr is then split with all of the individual total/new/expansion/contraction/churn calculations
     gross: unknown[]
-    mrr: unknown[]
+    mrr: RevenueAnalyticsRevenueQueryResultItem[]
 }
 export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
     results: RevenueAnalyticsRevenueQueryResult
@@ -2117,12 +2131,16 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
-export interface ErrorTrackingSceneToolOutput
+export interface ErrorTrackingIssueFilteringToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
     newFilters?: AnyPropertyFilter[]
     removedFilterIndexes?: integer[]
     dateRange?: DateRange
     filterTestAccounts?: boolean
+}
+
+export interface ErrorTrackingIssueImpactToolOutput {
+    events: string[]
 }
 
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
@@ -2177,6 +2195,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    /**  @format date-time */
     last_seen: string
     library: string | null
     event: string
@@ -2454,6 +2473,7 @@ export interface ExperimentEventExposureConfig extends Node {
 export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
+    RATIO = 'ratio',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -2499,11 +2519,24 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
     metric.metric_type === ExperimentMetricType.FUNNEL
 
+export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.RATIO
+    numerator: ExperimentMetricSource
+    denominator: ExperimentMetricSource
+}
+
+export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
+    metric.metric_type === ExperimentMetricType.RATIO
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
-export type ExperimentMetricTypeProps = ExperimentMeanMetricTypeProps | ExperimentFunnelMetricTypeProps
+export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentMetricTypeProps =
+    | ExperimentMeanMetricTypeProps
+    | ExperimentFunnelMetricTypeProps
+    | ExperimentRatioMetricTypeProps
 
-export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
+export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -2561,6 +2594,9 @@ export interface ExperimentStatsBase {
     number_of_samples: integer
     sum: number
     sum_squares: number
+    denominator_sum?: number
+    denominator_sum_squares?: number
+    numerator_denominator_sum_product?: number
 }
 
 export enum ExperimentStatsValidationFailure {
@@ -2935,12 +2971,12 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort'
 >
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    property: string
+    property: string | integer
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin
@@ -3382,6 +3418,8 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
+export type SubscriptionDropoffMode = 'last_event' | 'after_dropoff_period'
+
 export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
@@ -3413,6 +3451,15 @@ export interface RevenueAnalyticsEventItem {
      * @default 45
      */
     subscriptionDropoffDays: number
+
+    /**
+     * After a subscription has dropped off, when should we consider it to have ended?
+     * It should either be at the date of the last event (will alter past periods, the default),
+     * or at the date of the last event plus the dropoff period.
+     *
+     * @default "last_event"
+     */
+    subscriptionDropoffMode: SubscriptionDropoffMode
 
     /**
      * TODO: In the future, this should probably be renamed to

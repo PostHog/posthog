@@ -1,12 +1,16 @@
-import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+
+import { IconCopy, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
-import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -15,27 +19,26 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { pluralize } from 'lib/utils'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { cn } from 'lib/utils/css-classes'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 
-import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { Query } from '~/queries/Query/Query'
-
-import { IconCopy, IconTrash } from '@posthog/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { createCohortDataNodeLogicKey } from './cohortUtils'
 import { SceneContent, SceneDivider, SceneSection, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { cn } from 'lib/utils/css-classes'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import { Query } from '~/queries/Query/Query'
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+
+import { createCohortDataNodeLogicKey } from './cohortUtils'
+
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
@@ -157,8 +160,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <ScenePanelDivider />
 
                 <ScenePanelActions>
-                    <SceneAddToDropdownMenu
-                        notebook={true}
+                    <SceneAddToNotebookDropdownMenu
                         dataAttrKey={RESOURCE_TYPE}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
@@ -336,7 +338,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             <SceneDivider />
                             <SceneSection
                                 title={isNewCohort ? 'Upload users' : 'Add users'}
-                                description="Upload a CSV file to add users to your cohort. The CSV file only requires a single column with the user's distinct ID. The very first row (the header) will be skipped during import."
+                                description="Upload a CSV file to add users to your cohort. For single-column files, include
+                                        one distinct ID per row (all rows will be processed as data). For multi-column
+                                        files, include a header row with a 'distinct_id' column containing the user
+                                        identifiers."
                                 className={cn('ph-ignore-input', !newSceneLayout && 'mt-4')}
                             >
                                 {/* TODO: @adamleithp Allow users to download a template CSV file */}
@@ -353,9 +358,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         <>
                                             {!newSceneLayout && (
                                                 <span>
-                                                    Upload a CSV file to add users to your cohort. The CSV file only
-                                                    requires a single column with the user's distinct ID. The very first
-                                                    row (the header) will be skipped during import.
+                                                    Upload a CSV file to add users to your cohort. For single-column
+                                                    files, include one distinct ID per row (all rows will be processed
+                                                    as data). For multi-column files, include a header row with a
+                                                    'distinct_id' column containing the user identifiers.
                                                 </span>
                                             )}
                                             <LemonFileInput

@@ -1,12 +1,13 @@
-import { IconRevert, IconTarget, IconX } from '@posthog/icons'
-
-import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { useActions, useValues } from 'kea'
+
+import { IconRevert, IconTarget, IconX } from '@posthog/icons'
+import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,8 +17,8 @@ import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dat
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
-import { infoTabLogic } from './infoTabLogic'
 import { UpstreamGraph } from './graph/UpstreamGraph'
+import { infoTabLogic } from './infoTabLogic'
 
 interface QueryInfoProps {
     codeEditorKey: string

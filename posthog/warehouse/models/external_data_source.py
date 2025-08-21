@@ -12,7 +12,7 @@ from posthog.models.utils import (
     CreatedMetaFields,
     DeletedMetaFields,
     UpdatedMetaFields,
-    UUIDModel,
+    UUIDTModel,
     sane_repr,
 )
 from posthog.sync import database_sync_to_async
@@ -20,7 +20,7 @@ from posthog.sync import database_sync_to_async
 logger = structlog.get_logger(__name__)
 
 
-class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"

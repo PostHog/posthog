@@ -1,18 +1,20 @@
-import { IconPlus, IconX } from '@posthog/icons'
-import { cn } from 'lib/utils/css-classes'
-
+import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+
+import { IconPlus, IconX } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { cn } from 'lib/utils/css-classes'
+import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
-import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
-import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
-import { SceneTab } from 'scenes/sceneTypes'
 
 export interface SceneTabsProps {
     className?: string

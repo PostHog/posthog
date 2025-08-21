@@ -48,9 +48,8 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TracesQueryRunner(AnalyticsQueryRunner):
+class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     query: TracesQuery
-    response: TracesQueryResponse
     cached_response: CachedTracesQueryResponse
     paginator: HogQLHasMorePaginator
 
@@ -154,13 +153,10 @@ class TracesQueryRunner(AnalyticsQueryRunner):
                                 event != '$ai_trace'
                             )
                         ),
-                        arrayFilter(
-                            x -> x.2 IN ('$ai_metric','$ai_feedback'),
-                            arraySort(x -> x.3,
-                                groupArrayIf(
-                                    tuple(uuid, event, timestamp, properties),
-                                    event != '$ai_trace'
-                                )
+                        arraySort(x -> x.3,
+                            groupArrayIf(
+                                tuple(uuid, event, timestamp, properties),
+                                event IN ('$ai_metric', '$ai_feedback') OR properties.$ai_parent_id = properties.$ai_trace_id
                             )
                         )
                     )
