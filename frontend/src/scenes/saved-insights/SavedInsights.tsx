@@ -47,7 +47,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconAction, IconGridView, IconListView, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
@@ -489,6 +489,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MarketingAnalyticsTableQuery]: {
         name: 'Marketing Analytics Table',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.ReplayActiveUsersQuery]: {
+        name: 'Replay Active Users',
+        description: 'List of active users in a replay.',
+        icon: IconRecording,
+        inMenu: false,
+    },
+    [NodeKind.ReplayActiveScreensQuery]: {
+        name: 'Replay Active Screens',
+        description: 'List of active screens in a replay.',
+        icon: IconRecording,
         inMenu: false,
     },
 }
