@@ -24,10 +24,8 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
             loadCountedUsers: async (_, breakpoint): Promise<{ person: PersonType; count: number }[]> => {
                 const q = hogql`
                     WITH
-            counted_sessions AS (
-                SELECT
-                    session_id,
-                    count() AS c
+            recorded_sessions AS (
+                SELECT session_id
                 FROM raw_session_replay_events
                 WHERE min_first_timestamp >= now() - interval 7 day
                   AND min_first_timestamp <= now()
@@ -42,16 +40,15 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                 FROM events
                 WHERE timestamp >= now() - interval 7 day
                   AND timestamp <= now()
-                  AND $session_id IN (SELECT session_id FROM counted_sessions)
+                  AND $session_id IN (SELECT session_id FROM recorded_sessions)
                   AND event IN ('$pageview', '$screen', '$autocapture', '$feature_flag_called', '$pageleave', '$identify', '$web_vitals', '$set', 'Application Opened', 'Application Backgrounded')
                 GROUP BY $session_id
             )
             SELECT
                 sp.person_id,
                 sp.pp,
-                sum(cs.c) as total_count
-            FROM counted_sessions cs
-            INNER JOIN session_persons sp ON cs.session_id = sp.session_id
+                count(distinct sp.session_id) as total_count
+            FROM session_persons sp 
             WHERE sp.person_id IS NOT NULL
             GROUP BY sp.person_id, sp.pp
             ORDER BY total_count DESC
