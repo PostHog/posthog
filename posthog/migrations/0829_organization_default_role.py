@@ -10,17 +10,40 @@ class Migration(migrations.Migration):
         ("posthog", "0828_grouptypemapping_created_at"),
     ]
 
-    operations = [
-        migrations.AddField(
-            model_name="organization",
-            name="default_role",
-            field=models.ForeignKey(
-                blank=True,
-                help_text="Role automatically assigned to new members joining the organization",
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="default_for_organizations",
-                to="ee.role",
+    migrations.SeparateDatabaseAndState(
+        state_operations=[
+            migrations.AddField(
+                model_name="organization",
+                name="default_role",
+                field=models.ForeignKey(
+                    blank=True,
+                    help_text="Role automatically assigned to new members joining the organization",
+                    null=True,
+                    on_delete=django.db.models.deletion.SET_NULL,
+                    related_name="default_for_organizations",
+                    to="ee.role",
+                ),
             ),
-        ),
-    ]
+        ],
+        database_operations=[
+            # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
+            migrations.RunSQL(
+                """
+                ALTER TABLE "organization" ADD COLUMN "default_role_id" uuid NULL CONSTRAINT "organization_default_role_id_1cbf8562_fk_posthog_a" REFERENCES "ee_role"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                SET CONSTRAINTS "organization_default_role_id_1cbf8562_fk_posthog_a" IMMEDIATE; -- existing-table-constraint-ignore
+                """,
+                reverse_sql="""
+                    ALTER TABLE "organization" DROP COLUMN IF EXISTS "default_role_id";
+                """,
+            ),
+            # We add CONCURRENTLY to the create command
+            migrations.RunSQL(
+                """
+                CREATE INDEX CONCURRENTLY "organization_default_role_id_1cbf8562" ON "organization" ("default_role_id");
+                """,
+                reverse_sql="""
+                    DROP INDEX IF EXISTS "organization_default_role_id_1cbf8562";
+                """,
+            ),
+        ],
+    )
