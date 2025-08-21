@@ -21,6 +21,7 @@ WHITELISTED_PATHS = [
     "/api/logout/",
     "/api/login/",
     "/api/login/token/",
+    "/api/users/@me/",
     "/_health/",
 ]
 
