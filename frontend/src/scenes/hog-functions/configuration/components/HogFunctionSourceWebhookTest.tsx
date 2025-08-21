@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useRef } from 'react'
+
 import { IconInfo, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -9,13 +14,10 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { useRef } from 'react'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { hogFunctionSourceWebhookTestLogic } from './hogFunctionSourceWebhookTestLogic'

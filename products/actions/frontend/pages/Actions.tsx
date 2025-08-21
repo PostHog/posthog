@@ -1,9 +1,13 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { ActionsTable } from '../components/ActionsTable'
-import { actionsLogic } from '../logics/actionsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import { ActionsTable } from '../components/ActionsTable'
 import { NewActionButton } from '../components/NewActionButton'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { actionsLogic } from '../logics/actionsLogic'
 
 export const scene: SceneExport = {
     component: Actions,

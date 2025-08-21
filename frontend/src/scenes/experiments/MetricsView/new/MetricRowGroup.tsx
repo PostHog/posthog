@@ -1,24 +1,37 @@
-import { IconTrending } from '@posthog/icons'
-import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber } from 'lib/utils'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+
+import { IconTrending } from '@posthog/icons'
+
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
+
+import {
+    ExperimentMetric,
+    ExperimentStatsBaseValidated,
+    NewExperimentQueryResponse,
+} from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
+
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
+import { useChartColors } from '../shared/colors'
 import {
+    type ExperimentVariantResult,
     formatDeltaPercent,
+    formatMetricValue,
+    getDelta,
+    getMetricSubtitleValues,
     getNiceTickValues,
     isDeltaPositive,
     isSignificant,
-    type ExperimentVariantResult,
-    getDelta,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
-
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { GridLines } from './GridLines'
+import { renderTooltipContent } from './MetricRowGroupTooltip'
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -26,10 +39,6 @@ import {
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
 } from './constants'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { GridLines } from './GridLines'
-import { renderTooltipContent } from './MetricRowGroupTooltip'
 import { useAxisScale } from './useAxisScale'
 
 interface MetricRowGroupProps {
@@ -85,14 +94,6 @@ export function MetricRowGroup({
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
-
-    // Helper function to format data
-    const formatData = (data: any): string => {
-        const primaryValue = data.sum / data.number_of_samples
-        return metric && 'metric_type' in metric && metric.metric_type === 'mean'
-            ? primaryValue.toFixed(2)
-            : `${(primaryValue * 100).toFixed(2)}%`
-    }
 
     // Helper function to calculate tooltip position
     const calculateTooltipPosition = (
@@ -224,6 +225,21 @@ export function MetricRowGroup({
     const baselineResult = result.baseline
     const variantResults = result.variant_results || []
 
+    const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
+        return (
+            <div className="text-xs text-muted">
+                {(() => {
+                    const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
+                    return (
+                        <>
+                            {humanFriendlyNumber(numerator)} / {humanFriendlyNumber(denominator)}
+                        </>
+                    )
+                })()}
+            </div>
+        )
+    }
+
     return (
         <>
             {/* Tooltip portal */}
@@ -288,11 +304,8 @@ export function MetricRowGroup({
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="text-sm">
-                        <div className="text-text-primary">{formatData(baselineResult)}</div>
-                        <div className="text-xs text-muted">
-                            {humanFriendlyNumber(baselineResult.sum)} /{' '}
-                            {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
-                        </div>
+                        <div className="text-text-primary">{formatMetricValue(baselineResult, metric)}</div>
+                        {ratioMetricLabel(baselineResult, metric)}
                     </div>
                 </td>
 
@@ -402,15 +415,12 @@ export function MetricRowGroup({
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <div className="text-sm">
-                                <div className="text-text-primary">{formatData(variant)}</div>
-                                <div className="text-xs text-muted">
-                                    {humanFriendlyNumber(variant.sum)} /{' '}
-                                    {humanFriendlyNumber(variant.number_of_samples || 0)}
-                                </div>
+                                <div className="text-text-primary">{formatMetricValue(variant, metric)}</div>
+                                {ratioMetricLabel(variant, metric)}
                             </div>
                         </td>
 
-                        {/* Change */}
+                        {/* Delta */}
                         <td
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'

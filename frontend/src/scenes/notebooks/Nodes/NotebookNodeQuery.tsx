@@ -1,20 +1,23 @@
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { JSONContent } from '@tiptap/core'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
+
 import { LemonButton } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
+import { InsightLogicProps, InsightShortId } from '~/types'
+
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,

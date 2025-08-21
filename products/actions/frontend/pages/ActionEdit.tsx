@@ -1,8 +1,10 @@
-import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
+
+import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -10,32 +12,35 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
-
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
+import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from '../logics/actionEditLogic'
+import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
-import { SceneTitleSection, SceneSection, SceneDivider, SceneContent } from '~/layout/scenes/SceneContent'
+import { ActionEditLogicProps, DEFAULT_ACTION_STEP, actionEditLogic } from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
 const RESOURCE_TYPE = 'action'
 
 export interface ActionEditProps extends ActionEditLogicProps {
@@ -96,7 +101,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     )
 
     return (
-        <SceneContent>
+        <SceneContent forceNewSpacing>
             <Form
                 logic={actionEditLogic}
                 props={logicProps}
@@ -316,7 +321,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 </ScenePanel>
 
                 <SceneTitleSection
-                    name={action.name}
+                    name={action?.name || ''}
                     description={action.description}
                     resourceType={{
                         to: urls.actions(),
@@ -333,6 +338,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                         setActionValue('description', value)
                     }}
                     docsURL="https://posthog.com/docs/data/actions"
+                    canEdit
                 />
 
                 <SceneDivider />

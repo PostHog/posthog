@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
 logger = structlog.get_logger(__name__)
@@ -114,7 +114,7 @@ class OrganizationDomainManager(models.Manager):
         return candidate_sso_enforcement
 
 
-class OrganizationDomain(UUIDModel):
+class OrganizationDomain(UUIDTModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")

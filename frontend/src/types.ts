@@ -1,8 +1,13 @@
+import { LogicWrapper } from 'kea'
+import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
+import { ReactNode } from 'react'
+import { Layout } from 'react-grid-layout'
+
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
-import { LogicWrapper } from 'kea'
+
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,8 +18,8 @@ import {
     ENTITY_MATCH_TYPE,
     FunnelLayout,
     OrganizationMembershipLevel,
-    PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
+    PluginsAccessLevel,
     RETENTION_FIRST_TIME,
     RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
@@ -23,10 +28,6 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { ReactNode } from 'react'
-import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
@@ -63,6 +64,8 @@ import type {
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -440,6 +443,7 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
+    default_role_id?: string | null
 }
 
 export interface OrganizationDomainType {
@@ -627,6 +631,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    web_analytics_pre_aggregated_tables_enabled?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -1207,7 +1212,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page'
+    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
     operator: PropertyOperator
 }
 
@@ -1523,6 +1528,11 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+}
+
+export enum GroupsTabType {
+    NOTES = 'notes',
+    OVERVIEW = 'overview',
 }
 
 export enum LayoutView {
@@ -4066,9 +4076,9 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined)[]
+        compareLabels?: (CompareLabelType | undefined | null)[]
         /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined)[]
+        personsValues?: (Person | undefined | null)[]
         index?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
         pointValue?: number
@@ -4573,6 +4583,8 @@ export enum ActivityScope {
     ACTION = 'Action',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
+    BATCH_EXPORT = 'BatchExport',
+    BATCH_IMPORT = 'BatchImport',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     GROUP = 'Group',
@@ -5651,6 +5663,30 @@ export interface LineageEdge {
 export interface LineageGraph {
     nodes: LineageNode[]
     edges: LineageEdge[]
+}
+
+export interface DataWarehouseSourceRowCount {
+    breakdownOfRowsBySource: Record<string, number>
+    billing_available: boolean
+    billing_interval: string
+    billing_period_end: string
+    billing_period_start: string
+    materialized_rows_in_billing_period: number
+    total_rows: number
+    tracked_billing_rows: number
+    pending_billing_rows: number
+}
+
+export interface DataWarehouseActivityRecord {
+    id: string
+    type: string
+    name: string | null
+    status: string
+    rows: number
+    created_at: string
+    finished_at: string | null
+    latest_error: string | null
+    workflow_run_id?: string
 }
 
 export enum OnboardingStepKey {

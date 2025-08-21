@@ -1,4 +1,5 @@
 import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+
 import {
     HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,

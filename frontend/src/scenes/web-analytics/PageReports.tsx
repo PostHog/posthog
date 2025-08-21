@@ -1,15 +1,17 @@
+import { useActions, useValues } from 'kea'
+
 import { IconAsterisk, IconGlobe } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { XRayHog2 } from 'lib/components/hedgehogs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { pageReportsLogic } from './pageReportsLogic'
 import { Tiles } from './WebAnalyticsDashboard'
 import { WebAnalyticsCompareFilter } from './WebAnalyticsFilters'
+import { pageReportsLogic } from './pageReportsLogic'
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (

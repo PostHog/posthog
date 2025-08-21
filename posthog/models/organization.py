@@ -19,7 +19,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
 from posthog.models.utils import (
     LowercaseSlugField,
-    UUIDModel,
+    UUIDTModel,
     create_with_slug,
     sane_repr,
 )
@@ -96,7 +96,7 @@ class OrganizationManager(models.Manager):
         return organization, organization_membership, team
 
 
-class Organization(ModelActivityMixin, UUIDModel):
+class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -149,6 +149,14 @@ class Organization(ModelActivityMixin, UUIDModel):
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    default_role = models.ForeignKey(
+        "ee.Role",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="default_for_organizations",
+        help_text="Role automatically assigned to new members joining the organization",
+    )
 
     # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
@@ -283,7 +291,7 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
-class OrganizationMembership(ModelActivityMixin, UUIDModel):
+class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 

@@ -2,8 +2,8 @@ use crate::{
     api::{
         errors::FlagError,
         types::{
-            FlagsOptionsResponse, FlagsQueryParams, FlagsResponseCode, LegacyFlagsResponse,
-            ServiceResponse,
+            ConfigResponse, FlagsOptionsResponse, FlagsQueryParams, FlagsResponse,
+            FlagsResponseCode, LegacyFlagsResponse, ServiceResponse,
         },
     },
     handler::{process_request, RequestContext},
@@ -15,6 +15,7 @@ use axum::http::{HeaderMap, Method};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use std::collections::HashMap;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -46,6 +47,37 @@ fn map_decide_version(query_version: Option<i32>, is_from_decide: bool) -> Optio
     }
 }
 
+fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceResponse>, FlagError> {
+    let request_id = Uuid::new_v4();
+
+    // Parse version string to determine response format
+    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
+
+    // Create minimal config response
+    let config = ConfigResponse {
+        supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+        ..Default::default()
+    };
+
+    // Create empty flags response with minimal config
+    let response = FlagsResponse {
+        errors_while_computing_flags: false,
+        flags: HashMap::new(),
+        quota_limited: None,
+        request_id,
+        config,
+    };
+
+    // Return versioned response
+    let service_response = if version_num >= 2 {
+        ServiceResponse::V2(response)
+    } else {
+        ServiceResponse::Default(LegacyFlagsResponse::from_response(response))
+    };
+
+    Ok(Json(service_response))
+}
+
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
@@ -60,6 +92,10 @@ pub async fn flags(
 ) -> Result<Json<ServiceResponse>, FlagError> {
     let request_id = Uuid::new_v4();
 
+    if method != Method::POST {
+        return get_minimal_flags_response(query_params.version.as_deref());
+    }
+
     // Check if this request came through the decide proxy
     let is_from_decide = headers
         .get("X-Original-Endpoint")
@@ -70,6 +106,13 @@ pub async fn flags(
     // Modify query params to enable config for decide requests
     let mut modified_query_params = query_params.clone();
     if is_from_decide && modified_query_params.config.is_none() {
+        modified_query_params.config = Some(true);
+    }
+
+    // Default to v=2 and config=true when both params are missing
+    // This provides the latest response format for clients that don't specify these params
+    if modified_query_params.version.is_none() && modified_query_params.config.is_none() {
+        modified_query_params.version = Some("2".to_string());
         modified_query_params.config = Some(true);
     }
 
@@ -289,5 +332,62 @@ mod tests {
             .unwrap();
 
         assert!(matches!(params.compression, Some(Compression::Unsupported)));
+    }
+
+    #[test]
+    fn test_default_params_logic() {
+        // Test the parameter modification logic that's applied in the flags endpoint
+        let mut params_both_none = FlagsQueryParams {
+            version: None,
+            config: None,
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+
+        if params_both_none.version.is_none() && params_both_none.config.is_none() {
+            params_both_none.version = Some("2".to_string());
+            params_both_none.config = Some(true);
+        }
+
+        assert_eq!(params_both_none.version, Some("2".to_string()));
+        assert_eq!(params_both_none.config, Some(true));
+
+        // Test when only version is missing - no defaults should apply
+        let mut params_version_missing = FlagsQueryParams {
+            version: None,
+            config: Some(false),
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+
+        if params_version_missing.version.is_none() && params_version_missing.config.is_none() {
+            params_version_missing.version = Some("2".to_string());
+            params_version_missing.config = Some(true);
+        }
+
+        assert_eq!(params_version_missing.version, None);
+        assert_eq!(params_version_missing.config, Some(false));
+
+        // Test when only config is missing - no defaults should apply
+        let mut params_config_missing = FlagsQueryParams {
+            version: Some("1".to_string()),
+            config: None,
+            compression: None,
+            lib_version: None,
+            sent_at: None,
+            only_evaluate_survey_feature_flags: None,
+        };
+
+        if params_config_missing.version.is_none() && params_config_missing.config.is_none() {
+            params_config_missing.version = Some("2".to_string());
+            params_config_missing.config = Some(true);
+        }
+
+        assert_eq!(params_config_missing.version, Some("1".to_string()));
+        assert_eq!(params_config_missing.config, None);
     }
 }

@@ -1,6 +1,8 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -11,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
-import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'
+import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {

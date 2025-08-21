@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -9,7 +10,7 @@ import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'

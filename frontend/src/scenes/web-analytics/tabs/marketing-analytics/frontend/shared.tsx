@@ -1,9 +1,11 @@
 import { IconGraph, IconLineGraph } from '@posthog/icons'
 import { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { IconAreaChart, IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
+
 import { ChartDisplayType } from '~/types'
-import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 
 // Simple mapping for the display mode options and their icons
 export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<ChartDisplayType>[] = [

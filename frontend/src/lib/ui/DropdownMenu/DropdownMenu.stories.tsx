@@ -1,6 +1,9 @@
-import { IconChevronRight, IconSearch } from '@posthog/icons'
 import { DropdownMenuCheckboxItemProps } from '@radix-ui/react-dropdown-menu'
 import type { Meta } from '@storybook/react'
+import { useState } from 'react'
+
+import { IconChevronRight, IconSearch } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link/Link'
 import {
     DropdownMenu,
@@ -17,7 +20,6 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { useState } from 'react'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
 

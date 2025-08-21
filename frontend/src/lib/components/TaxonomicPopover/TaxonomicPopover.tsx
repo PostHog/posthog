@@ -1,5 +1,8 @@
 import { Placement } from '@floating-ui/react'
+import { Ref, forwardRef, useEffect, useState } from 'react'
+
 import { IconX } from '@posthog/icons'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
@@ -8,7 +11,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { forwardRef, Ref, useEffect, useState } from 'react'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 

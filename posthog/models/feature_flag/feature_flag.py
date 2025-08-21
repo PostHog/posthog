@@ -75,14 +75,14 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
     webhook_subscriptions = models.JSONField(blank=True, null=True)
 
-    evaluation_runtime_CHOICES = [
+    EVALUATION_RUNTIME_CHOICES = [
         ("server", "Server"),
         ("client", "Client"),
         ("all", "All"),
     ]
     evaluation_runtime = models.CharField(
         max_length=10,
-        choices=evaluation_runtime_CHOICES,
+        choices=EVALUATION_RUNTIME_CHOICES,
         default="all",
         null=True,
         blank=True,

@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { Redis } from 'ioredis'
+import { CODES, Message, TopicPartition, features, librdkafkaVersion } from 'node-rdkafka'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { buildIntegerMatcher } from '../../../config/config'

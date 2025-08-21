@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
+
 import {
     LemonBadge,
     LemonButton,
@@ -8,12 +11,12 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useCallback, useMemo } from 'react'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
@@ -25,7 +28,6 @@ import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {

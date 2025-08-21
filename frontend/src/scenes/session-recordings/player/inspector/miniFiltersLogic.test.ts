@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 

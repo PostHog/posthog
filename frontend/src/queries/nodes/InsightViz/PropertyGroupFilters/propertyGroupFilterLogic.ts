@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

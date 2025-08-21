@@ -1,7 +1,7 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, cast
 
 import boto3
 from botocore.exceptions import ClientError
@@ -67,7 +67,7 @@ class SQSConsumer(ABC):
             messages = response.get("Messages", [])
             if messages:
                 logger.info(f"Received {len(messages)} messages from queue")
-            return messages
+            return cast(list[dict[str, Any]], messages)
 
         except ClientError as e:
             logger.exception(f"Error receiving messages: {e}")

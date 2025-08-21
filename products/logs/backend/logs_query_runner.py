@@ -23,9 +23,8 @@ from posthog.schema import (
 )
 
 
-class LogsQueryRunner(AnalyticsQueryRunner):
+class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
     query: LogsQuery
-    response: LogsQueryResponse
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
 
