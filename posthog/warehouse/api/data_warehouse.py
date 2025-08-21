@@ -1,4 +1,5 @@
 import structlog
+from typing import Any
 from dateutil import parser
 from django.db.models import Sum
 from django.db.models.functions import TruncDate
@@ -227,7 +228,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     .order_by("created_at")
                 )
 
-                jobs_by_date = {}
+                jobs_by_date: dict[str, list[dict[str, Any]]] = {}
                 for j in per_job:
                     key = j["sync_date"].strftime("%Y-%m-%d")
                     jobs_by_date.setdefault(key, []).append(
