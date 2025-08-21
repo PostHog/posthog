@@ -396,7 +396,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
 
 async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pageview_events):
     query = """\
-    select toDateTime64(now(), 3, 'Asia/Istanbul') as now_converted, now() as now
+    select toDateTime64(toDateTime('2025-01-01T00:00:00.000'), 3, 'Asia/Istanbul') as now_converted, toDateTime('2025-01-01T00:00:00.000') as now
     """
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=ateam,
@@ -429,13 +429,13 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
     assert table.num_rows == 1
     assert table.num_columns == 2
     assert table.column_names == ["now_converted", "now"]
-    assert table.column(0).type == pa.timestamp("us", tz="UTC")
-    assert table.column(1).type == pa.timestamp("us", tz="UTC")
+    assert table.column(0).type == pa.timestamp("us")
+    assert table.column(1).type == pa.timestamp("us")
 
     # replace microsecond because they won't match exactly
     row = table.to_pylist()[0]
-    now_converted = row["now_converted"].replace(microsecond=0)
-    now = row["now"].replace(microsecond=0)
+    now_converted = row["now_converted"]
+    now = row["now"]
     assert now_converted == now
 
 
