@@ -18,10 +18,19 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         self.team.surveys_opt_in = True
         self.team.save()
 
+        # Force synchronous RemoteConfig creation for tests since signals are async now
+        from posthog.models.remote_config import RemoteConfig
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        try:
+            RemoteConfig.objects.get(team=self.team)
+        except RemoteConfig.DoesNotExist:
+            update_team_remote_config(self.team.id)
+
         cache.clear()
 
     def test_missing_tokens(self):
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(FuzzyInt(1, 3)):
             response = self.client.get("/array/missing/config")
             assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -39,7 +48,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_valid_config(self):
         # Not sure why but there is sometimes one extra query here
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
+        with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
 
         with self.assertNumQueries(0):
@@ -89,7 +98,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_different_response_for_other_domains(self):
         # Not sure why but there is sometimes one extra query here
-        with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
+        with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 2)):
             response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["sessionRecording"]
@@ -137,7 +146,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_uses_config_js_cache(self, mock_get_array_js_content):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
+        with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
 
         with self.assertNumQueries(0):

@@ -29,7 +29,8 @@ pub fn decode_request(
     match base_content_type {
         "application/json" | "text/plain" => {
             let decoded_body = decode_body(body, query.compression, headers)?;
-            FlagRequest::from_bytes(decoded_body)
+
+            try_parse_with_fallbacks(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
         _ => {
@@ -46,18 +47,19 @@ fn decode_body(
     compression: Option<Compression>,
     headers: &HeaderMap,
 ) -> Result<Bytes, FlagError> {
-    // First try explicit compression parameter; Android doesn't send this but other clients do.
     if let Some(compression) = compression {
-        return match compression {
-            Compression::Gzip => decompress_gzip(body),
-            Compression::Base64 => decode_base64(body),
+        match compression {
+            Compression::Gzip => return decompress_gzip(body),
+            Compression::Base64 => {
+                // handle base64 detection separately in try_parse_with_fallbacks
+            }
             Compression::Unsupported => {
                 tracing::warn!("unsupported compression type");
-                Err(FlagError::RequestDecodingError(
+                return Err(FlagError::RequestDecodingError(
                     "Unsupported compression type".to_string(),
-                ))
+                ));
             }
-        };
+        }
     }
 
     // Check Content-Encoding header (Android uses this primarily)
@@ -121,6 +123,37 @@ fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
         FlagError::RequestDecodingError(format!("Base64 decoding error: {e}"))
     })?;
     Ok(Bytes::from(decoded))
+}
+
+pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
+    // Strategy 1: Try parsing as JSON directly
+    if let Ok(request) = FlagRequest::from_bytes(body.clone()) {
+        return Ok(request);
+    }
+
+    // Strategy 2: Try base64 decode then JSON
+    // Even if compression is not specified, we still try to decode it as base64
+    tracing::warn!("Direct JSON parsing failed, trying base64 decode fallback");
+    match decode_base64(body.clone()) {
+        Ok(decoded) => match FlagRequest::from_bytes(decoded) {
+            Ok(request) => {
+                inc(
+                    FLAG_REQUEST_KLUDGE_COUNTER,
+                    &[("type".to_string(), "base64_fallback_success".to_string())],
+                    1,
+                );
+                return Ok(request);
+            }
+            Err(e) => {
+                tracing::warn!("Base64 decode succeeded but JSON parsing failed: {}", e);
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Base64 decode failed: {}", e);
+        }
+    }
+
+    Err(FlagError::RequestDecodingError("invalid JSON".to_string()))
 }
 
 pub fn decode_form_data(
