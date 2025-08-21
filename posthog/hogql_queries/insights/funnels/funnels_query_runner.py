@@ -34,9 +34,8 @@ from posthog.schema import (
 )
 
 
-class FunnelsQueryRunner(AnalyticsQueryRunner):
+class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     query: FunnelsQuery
-    response: FunnelsQueryResponse
     cached_response: CachedFunnelsQueryResponse
     context: FunnelQueryContext
 

@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 
@@ -228,7 +228,8 @@ describe('PersonState.processEvent()', () => {
         customPersonRepository?: PostgresPersonRepository,
         processPerson = true,
         timestampParam = timestamp,
-        team = mainTeam
+        team = mainTeam,
+        moveLimit: number = 0
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -250,7 +251,8 @@ describe('PersonState.processEvent()', () => {
             processPerson,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
             personsStore,
-            0
+            0,
+            moveLimit
         )
         return new PersonMergeService(context)
     }
@@ -2394,6 +2396,98 @@ describe('PersonState.processEvent()', () => {
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
         })
 
+        it(`hitting the move limit drops the event: no merge, no IDs moved, goes to DLQ`, async () => {
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            // Add more distinct IDs to source so that limit < total
+            const repo = new PostgresPersonRepository(hub.db.postgres)
+            await repo.addDistinctId(second, 'second-2', 1)
+            await repo.addDistinctId(second, 'second-3', 1)
+
+            // Set a per-call limit of 2
+            const mergeService: PersonMergeService = personMergeService(
+                {},
+                undefined,
+                undefined,
+                true,
+                timestamp,
+                mainTeam,
+                2
+            )
+
+            await expect(
+                mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: { ...second },
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+            ).rejects.toThrow('person_merge_move_limit_hit')
+
+            // Persons should be unchanged (no delete, no merge)
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.find((p) => p.uuid === firstUserUuid)).toBeTruthy()
+            expect(persons.find((p) => p.uuid === secondUserUuid)).toBeTruthy()
+
+            // Distinct IDs should remain on source (we added 2 extra)
+            const sourceDistinctIds = await hub.db.fetchDistinctIdValues(second)
+            expect(sourceDistinctIds).toEqual(expect.arrayContaining([secondUserDistinctId, 'second-2', 'second-3']))
+        })
+
+        it(`exact limit hit: delete source and do not emit warning`, async () => {
+            mockProducerObserver.resetKafkaProducer()
+
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            // Add one more distinct ID on source so total equals limit (2)
+            const repo = new PostgresPersonRepository(hub.db.postgres)
+            await repo.addDistinctId(second, 'second-2', 1)
+
+            const mergeService: PersonMergeService = personMergeService(
+                {},
+                undefined,
+                undefined,
+                true,
+                timestamp,
+                mainTeam,
+                2
+            )
+
+            const [_, kafkaAcks] = await mergeService.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: { ...second },
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+
+            const context = mergeService.getContext()
+            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+            // Source should be deleted since we moved exactly the limit and none remain
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.find((p) => p.uuid === secondUserUuid)).toBeFalsy()
+
+            // No warning should be emitted
+            const warnings = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_INGESTION_WARNINGS)
+            expect(
+                warnings.some(
+                    (w) =>
+                        w.value?.type === 'merge_distinct_ids_over_limit' ||
+                        (typeof w.value === 'object' && (w.value as any).type === 'merge_distinct_ids_over_limit')
+                )
+            ).toBe(false)
+        })
+
         it(`throws if postgres unavailable`, async () => {
             const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
                 { distinctId: firstUserDistinctId },
@@ -2809,13 +2903,13 @@ describe('PersonState.processEvent()', () => {
             // Mock the batch store method which is what gets called through the transaction wrapper
             const moveDistinctIdsSpy = jest
                 .spyOn(batchStore, 'moveDistinctIds')
-                .mockImplementation(async (source, target, distinctId, tx) => {
+                .mockImplementation(async (source, target, distinctId, limit, tx) => {
                     moveDistinctIdsCalls++
                     if (moveDistinctIdsCalls === 1) {
                         // Simulate the race condition: move firstUserDistinctId to person3
                         // This simulates another process moving the distinct ID during the merge
                         await personRepository.inRawTransaction('test', async (tx) => {
-                            await personRepository.moveDistinctIds(person1, person3, tx)
+                            await personRepository.moveDistinctIds(person1, person3, undefined, tx)
                             await personRepository.deletePerson(person1, tx)
                         })
 
@@ -2827,7 +2921,7 @@ describe('PersonState.processEvent()', () => {
                         })
                     }
                     // Second call succeeds - call the original method
-                    return originalMoveDistinctIds(source, target, distinctId, tx)
+                    return originalMoveDistinctIds(source, target, distinctId, limit, tx)
                 })
 
             // Attempt to merge persons - this should trigger the retry logic

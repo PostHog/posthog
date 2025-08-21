@@ -80,7 +80,6 @@ export class HogFunctionHandler implements ActionHandler {
             bytecode: template.bytecode,
             inputs: action.config.inputs,
             inputs_schema: template.inputs_schema,
-            is_addon_required: false,
             created_at: '',
             updated_at: '',
         }
