@@ -16,6 +16,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.utils import logging_session_ids
 from posthog.cloud_utils import is_cloud
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_notebook_from_summary_content,
@@ -73,14 +74,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         ):
             results.append(update)
         if not results:
-            error_message = f"No summaries were generated for the provided sessions (session ids: {session_ids})"
+            error_message = f"No summaries were generated for the provided sessions (session ids: {logging_session_ids(session_ids)})"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         # The last item in the result should be the summary, if not - raise an exception
         last_result = results[-1]
         summary = last_result[-1]
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-            error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {session_ids}): {results}"
+            error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         return summary
@@ -134,11 +135,11 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
-                f"Failed to generate session group summary for sessions {session_ids} from team {self.team.pk} by user {user.pk}: {err}",
+                f"Failed to generate session group summary for sessions {logging_session_ids(session_ids)} from team {self.team.pk} by user {user.pk}: {err}",
                 team_id=self.team.pk,
                 user_id=user.pk,
                 error=str(err),
             )
             raise exceptions.APIException(
-                f"Failed to generate session summaries for sessions {session_ids}. Please try again later."
+                f"Failed to generate session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )

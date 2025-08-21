@@ -10,7 +10,7 @@ from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.utils import strip_raw_llm_content, unpack_full_event_id
+from ee.hogai.session_summaries.utils import logging_session_ids, strip_raw_llm_content, unpack_full_event_id
 from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
@@ -403,7 +403,7 @@ def combine_patterns_with_events_context(
     if ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO) > len(combined_patterns):
         exception_message = (
             f"Too many patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
-            f"sessions ({session_ids}) for user {user_id}"
+            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}"
         )
         logger.exception(exception_message)
         raise ApplicationError(exception_message)

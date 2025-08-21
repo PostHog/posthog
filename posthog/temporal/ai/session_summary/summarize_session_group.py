@@ -34,6 +34,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     format_patterns_assignment_progress,
     format_single_sessions_status,
 )
+from ee.hogai.session_summaries.utils import logging_session_ids
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.schema import CachedSessionBatchEventsQueryResponse
@@ -89,7 +90,7 @@ def _get_db_events_per_page(
     response = runner.run()
     if not isinstance(response, CachedSessionBatchEventsQueryResponse):
         raise ValueError(
-            f"Failed to fetch events for sessions {session_ids} in team {team.id} "
+            f"Failed to fetch events for sessions {logging_session_ids(session_ids)} in team {team.id} "
             f"when fetching batch events for group summary"
         )
     return response
@@ -390,7 +391,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             session_ids = [s.session_id for s in inputs]
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
-                f"({session_ids}) "
+                f"({logging_session_ids(session_ids)}) "
                 f"for user {inputs[0].user_id} in team {inputs[0].team_id}"
             )
             temporalio.workflow.logger.error(exception_message)

@@ -15,6 +15,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     SummaryNotebookIntermediateState,
     generate_notebook_content_from_summary,
 )
+from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
@@ -230,10 +231,12 @@ class SessionSummarizationNode(AssistantNode):
                 return summary.model_dump_json(exclude_none=True)
             else:
                 raise ValueError(
-                    f"Unexpected update type ({update_type}) in session group summarization (session_ids: {session_ids})."
+                    f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."
                 )
         else:
-            raise ValueError(f"No summary was generated from session group summarization (session_ids: {session_ids})")
+            raise ValueError(
+                f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
+            )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()

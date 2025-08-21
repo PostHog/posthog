@@ -39,7 +39,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
 )
-from ee.hogai.session_summaries.utils import estimate_tokens_from_strings
+from ee.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
@@ -355,7 +355,7 @@ async def _generate_patterns_assignments(
         res: RawSessionGroupPatternAssignmentsList | Exception = task.result()
         if isinstance(res, Exception):
             logger.warning(
-                f"Patterns assignments generation failed for chunk from sessions ({session_ids}) for user {user_id}: {res}"
+                f"Patterns assignments generation failed for chunk from sessions ({logging_session_ids(session_ids)}) for user {user_id}: {res}"
             )
             continue
         patterns_assignments_list_of_lists.append(res)
@@ -365,7 +365,7 @@ async def _generate_patterns_assignments(
     ):
         exception_message = (
             f"Too many patterns failed to assign session events, when summarizing {len(session_ids)} "
-            f"sessions ({session_ids}) for user {user_id}"
+            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}"
         )
         logger.error(exception_message)
         raise ApplicationError(exception_message)
@@ -418,7 +418,7 @@ async def assign_events_to_patterns_activity(
     if patterns_extraction_raw is None:
         # No reason to retry activity, as the data from the previous activity is not in Redis
         raise ApplicationError(
-            f"No patterns extraction found for sessions {session_ids} when assigning events to patterns",
+            f"No patterns extraction found for sessions {logging_session_ids(session_ids)} when assigning events to patterns",
             non_retryable=True,
         )
     patterns_extraction = cast(
