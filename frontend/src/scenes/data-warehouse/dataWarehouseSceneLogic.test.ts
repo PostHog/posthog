@@ -29,7 +29,7 @@ describe('dataWarehouseSceneLogic', () => {
             }))
 
             logic.mount()
-            logic.actions.loadRecentActivitySuccess(mockActivity)
+            logic.actions.loadRecentActivityResponseSuccess({ results: mockActivity, next: null })
 
             expect(logic.values.activityPaginationState).toMatchObject({
                 currentPage: 1,
@@ -56,7 +56,7 @@ describe('dataWarehouseSceneLogic', () => {
             }))
 
             logic.mount()
-            logic.actions.loadRecentActivitySuccess(mockActivity)
+            logic.actions.loadRecentActivityResponseSuccess({ results: mockActivity, next: null })
             logic.actions.setActivityCurrentPage(2)
 
             expect(logic.values.activityPaginationState).toMatchObject({

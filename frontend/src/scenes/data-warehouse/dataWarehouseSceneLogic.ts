@@ -48,7 +48,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         loadMoreRecentActivity: true,
         setActivityCurrentPage: (page: number) => ({ page }),
         checkAutoLoadMore: true,
-        setRecentActivityHasMore: (hasMore: boolean) => ({ hasMore }),
     }),
     loaders(() => ({
         totalRowsStats: [
@@ -59,40 +58,44 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 },
             },
         ],
-        recentActivity: [
-            [] as DataWarehouseActivityRecord[],
+        recentActivityResponse: [
+            null as PaginatedResponse<DataWarehouseActivityRecord> | null,
             {
-                loadRecentActivity: async () => {
-                    const response = await api.dataWarehouse.recentActivity({ limit: 20, offset: 0 })
-                    return response.results || []
+                loadRecentActivityResponse: async () => {
+                    return await api.dataWarehouse.recentActivity({ limit: 20, offset: 0 })
                 },
             },
         ],
     })),
     reducers(() => ({
-        recentActivityHasMore: [
-            true as boolean,
-            {
-                loadRecentActivity: () => true,
-                setRecentActivityHasMore: (_, { hasMore }) => hasMore,
-            },
-        ],
         activityCurrentPage: [
             1 as number,
             {
                 setActivityCurrentPage: (_, { page }) => page,
-                loadRecentActivity: () => 1,
+                loadRecentActivityResponse: () => 1,
             },
         ],
         recentActivityMoreLoading: [
             false as boolean,
             {
                 loadMoreRecentActivity: () => true,
-                loadRecentActivitySuccess: () => false,
+                loadRecentActivityResponseSuccess: () => false,
             },
         ],
     })),
     selectors({
+        recentActivity: [
+            (s) => [s.recentActivityResponse],
+            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): DataWarehouseActivityRecord[] => {
+                return response?.results || []
+            },
+        ],
+        recentActivityHasMore: [
+            (s) => [s.recentActivityResponse],
+            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): boolean => {
+                return !!response?.next
+            },
+        ],
         selfManagedTables: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
@@ -197,9 +200,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         checkAutoLoadMore: () => {
             const paginationState = values.activityPaginationState
             const { isOnLastPage, hasDataOnCurrentPage } = paginationState
-            const { recentActivityHasMore, recentActivityLoading } = values
+            const { recentActivityHasMore, recentActivityResponseLoading } = values
 
-            if (isOnLastPage && hasDataOnCurrentPage && recentActivityHasMore && !recentActivityLoading) {
+            if (isOnLastPage && hasDataOnCurrentPage && recentActivityHasMore && !recentActivityResponseLoading) {
                 actions.loadMoreRecentActivity()
             }
         },
@@ -211,12 +214,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     offset: currentData.length,
                 })
                 const newData = [...currentData, ...(response.results || [])]
+                const newResponse = { ...response, results: newData }
 
-                // Update the loader state manually for this case
-                actions.loadRecentActivitySuccess(newData)
-
-                // Update the hasMore flag
-                actions.setRecentActivityHasMore(!!response.next)
+                actions.loadRecentActivityResponseSuccess(newResponse)
             } catch (error) {
                 posthog.captureException(error)
             }
@@ -233,7 +233,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
-        actions.loadRecentActivity()
+        actions.loadRecentActivityResponse()
         actions.loadTotalRowsStats()
     }),
     beforeUnmount(({ cache }) => {
