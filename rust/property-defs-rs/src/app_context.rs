@@ -13,18 +13,17 @@ use crate::{
 };
 
 pub struct AppContext {
-    // this points to the original (shared) CLOUD DB instance in prod deployments
+    // this points to the original (shared) CLOUD DB instance in prod deployments.
+    // once the persons and groups tables are migrated, this will become the single
+    // database used in the service again.
     pub pool: PgPool,
 
-    // if populated, this pool will be used to read from the new, isolated
-    // persons DB instance in production. call sites will fall back to the
-    // std (shared) pool above if this is unset
+    // if config.dual_writes_enabled is true and this is not None, we will dual write
+    // to this pool for every update we issue during the persons and groups migration.
     pub persons_pool: Option<PgPool>,
 
-    // if populated, this pool can be used to write to the new, isolated
-    // propdefs DB instance in production. call sites will fall back to the
-    // std (shared) pool above if this is unset
-    pub propdefs_pool: Option<PgPool>,
+    // should we dual write to the new and old DBs when updating persons tables?
+    pub dual_writes_enabled: bool,
 
     pub query_manager: Manager,
     pub liveness: HealthRegistry,
@@ -32,13 +31,6 @@ pub struct AppContext {
     pub skip_writes: bool,
     pub skip_reads: bool,
     pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
-
-    // sentinel flag used to identify the "mirror" deployments (property-defs-rs-v2) in
-    // production environments to special case code that only works in those envs. Primary
-    // use so far is to condition which database the service writes to. When disabled, it
-    // targets the shared PostHog cloud DB. When enabled, it targets the new, isolated
-    // property definitions database instace.
-    pub enable_mirror: bool,
 }
 
 impl AppContext {
@@ -59,20 +51,6 @@ impl AppContext {
             None
         };
 
-        // only to be populated and used if config.enable_mirror is set, which
-        // assumes this is the new property-defs-rs-v2 deployment and always writes
-        // to the new isolated propdefs DB in production
-        let propdefs_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let propdefs_pool: Option<PgPool> =
-            match config.enable_mirror && config.database_propdefs_url.is_some() {
-                true => Some(
-                    propdefs_options
-                        .connect(config.database_propdefs_url.as_ref().unwrap())
-                        .await?,
-                ),
-                _ => None,
-            };
-
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
             .register("worker".to_string(), Duration::seconds(60))
@@ -83,14 +61,13 @@ impl AppContext {
         Ok(Self {
             pool: orig_pool,
             persons_pool,
-            propdefs_pool,
+            dual_writes_enabled: config.dual_writes_enabled,
             query_manager: qmgr,
             liveness,
             worker_liveness,
             skip_writes: config.skip_writes,
             skip_reads: config.skip_reads,
             group_type_cache,
-            enable_mirror: config.enable_mirror,
         })
     }
 
@@ -125,7 +102,9 @@ impl AppContext {
             }
         }
 
-        // Batch resolve all uncached group types
+        // Batch resolve all uncached group types; for now, alwayds read from
+        // the main pool (original cloud DB) until we've completed the persons
+        // and groups migration to new DB and this becomes the new DB.
         if !to_resolve.is_empty() {
             metrics::counter!(GROUP_TYPE_READS).increment(to_resolve.len() as u64);
 
@@ -134,19 +113,13 @@ impl AppContext {
                 .map(|(_, name, team_id)| (name.clone(), team_id))
                 .unzip();
 
-            let resolved_pool = if self.persons_pool.is_some() {
-                self.persons_pool.as_ref().unwrap()
-            } else {
-                &self.pool
-            };
-
             let results = sqlx::query!(
                 "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping
                  WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
                 &group_names,
                 &team_ids
             )
-            .fetch_all(resolved_pool)
+            .fetch_all(&self.pool)
             .await?;
 
             // Create a lookup map for resolved group types

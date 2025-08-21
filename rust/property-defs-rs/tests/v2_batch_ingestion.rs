@@ -21,7 +21,7 @@ async fn test_simple_batch_write(db: PgPool) {
     // should decompose into 1 event def, 100 event props, 100 prop defs (of event type)
     assert_eq!(updates.len(), 201);
 
-    process_batch(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, None, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -78,7 +78,7 @@ async fn test_group_batch_write(db: PgPool) {
             }
         }
     });
-    process_batch(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, None, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -111,7 +111,7 @@ async fn test_person_batch_write(db: PgPool) {
     // should decompose into 1 event def, 100 event props, 100 prop defs (50 $set, 50 $set_once props)
     assert_eq!(updates.len(), 201);
 
-    process_batch(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, None, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -247,7 +247,7 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
     };
 
     let initial_updates = vec![Update::Property(initial_prop)];
-    process_batch(&config, cache.clone(), &db, initial_updates).await;
+    process_batch(&config, cache.clone(), &db, None, initial_updates).await;
 
     // Verify initial state
     let initial_row = sqlx::query!(
@@ -275,7 +275,7 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
     };
 
     let updated_updates = vec![Update::Property(updated_prop)];
-    process_batch(&config, cache, &db, updated_updates).await;
+    process_batch(&config, cache, &db, None, updated_updates).await;
 
     // Verify both fields were updated
     let updated_row = sqlx::query!(

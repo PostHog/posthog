@@ -5,10 +5,19 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
-    // this maps to the original, shared CLOUD PG DB instance in production for
-    // both the property-defs-rs and new property-defs-rs-v2 deployments
+    // this maps to the original PH cloud DB instance that we're migrating persons and group tables away from
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
+
+    // this maps to the new persons and groups isolated DB instance that we're migrating to. Once those
+    // migrations are complete, we can remove dual writes and go back to a single "database_url" config
+    #[envconfig(from = "DATABASE_PERSONS_URL")]
+    pub database_persons_url: Option<String>,
+
+    // when enabled, if persons_database_url is set, we will write to both while
+    // still only reading (such as group type mappings) from the original "database_url"
+    #[envconfig(default = "false")]
+    pub dual_writes_enabled: bool,
 
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
@@ -22,8 +31,14 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
+    // size of each update batch collected from kafka consumer
     #[envconfig(default = "1000")]
     pub update_batch_size: usize,
+
+    // size of batches (row count) written to persons DB tables per request to postgres
+    // TODO: rename this to "write_batch_size" or similar. Update deploy configs first!!
+    #[envconfig(default = "100")]
+    pub v2_ingest_batch_size: usize,
 
     // We issue updates in batches of update_batch_size, or when we haven't
     // received a new update in this many seconds
@@ -88,27 +103,6 @@ pub struct Config {
     // once rollout is complete.
     #[envconfig(default = "opt_in")]
     pub filter_mode: TeamFilterMode,
-
-    // this enables codepaths used by the new mirror deployment
-    // property-defs-rs-v2 in ArgoCD. The main thing we're gating
-    // at first is use of the DB client for the new isolated Postgres
-    // on all write paths."
-    #[envconfig(default = "false")]
-    pub enable_mirror: bool,
-
-    #[envconfig(default = "100")]
-    pub v2_ingest_batch_size: usize,
-
-    // For use in the new property-defs-rs-v2 mirror deploy, and (for now)
-    // behind `enable_mirror` flag during the refactor/transition. Maps to the new
-    // isolated propdefs DB instances in production. If unset, defaults to use
-    // database_url and std pool
-    pub database_propdefs_url: Option<String>,
-
-    // RO creds for the new isolated persons DB is required to access
-    // the posthog_grouptypemappings for the team -> group_meta cache.
-    // if unset, defaults to use database_url and std pool
-    pub database_persons_url: Option<String>,
 }
 
 #[derive(Clone)]

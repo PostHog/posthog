@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -36,7 +36,7 @@ pub struct EventPropertiesBatch {
     pub event_names: Vec<String>,
     pub property_names: Vec<String>,
 
-    pub to_cache: VecDeque<Update>,
+    pub to_cache: Vec<Update>,
 }
 
 impl EventPropertiesBatch {
@@ -47,7 +47,7 @@ impl EventPropertiesBatch {
             project_ids: Vec::with_capacity(batch_size),
             event_names: Vec::with_capacity(batch_size),
             property_names: Vec::with_capacity(batch_size),
-            to_cache: VecDeque::with_capacity(batch_size),
+            to_cache: Vec::with_capacity(batch_size),
         }
     }
 
@@ -57,7 +57,7 @@ impl EventPropertiesBatch {
         self.event_names.push(ep.event.clone());
         self.property_names.push(ep.property.clone());
 
-        self.to_cache.push_back(Update::EventProperty(ep));
+        self.to_cache.push(Update::EventProperty(ep));
     }
 
     pub fn len(&self) -> usize {
@@ -72,11 +72,11 @@ impl EventPropertiesBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
+    pub fn uncache_batch(&self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
 
-        for update in self.to_cache.drain(..) {
-            cache.remove(&update);
+        for update in &self.to_cache {
+            cache.remove(update);
             metrics::counter!(V2_EVENT_PROPS_CACHE_REMOVED).increment(1);
         }
 
@@ -92,7 +92,7 @@ pub struct EventDefinitionsBatch {
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
     pub last_seen_ats: Vec<DateTime<Utc>>,
-    pub to_cache: VecDeque<Update>,
+    pub to_cache: Vec<Update>,
 }
 
 impl EventDefinitionsBatch {
@@ -104,7 +104,7 @@ impl EventDefinitionsBatch {
             team_ids: Vec::with_capacity(batch_size),
             project_ids: Vec::with_capacity(batch_size),
             last_seen_ats: Vec::with_capacity(batch_size),
-            to_cache: VecDeque::with_capacity(batch_size),
+            to_cache: Vec::with_capacity(batch_size),
         }
     }
 
@@ -115,7 +115,7 @@ impl EventDefinitionsBatch {
         self.project_ids.push(ed.project_id);
         self.last_seen_ats.push(ed.last_seen_at);
 
-        self.to_cache.push_back(Update::Event(ed));
+        self.to_cache.push(Update::Event(ed));
     }
 
     pub fn len(&self) -> usize {
@@ -130,11 +130,11 @@ impl EventDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
+    pub fn uncache_batch(&self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_CACHE_TIME, &[]);
 
-        for update in self.to_cache.drain(..) {
-            cache.remove(&update);
+        for update in &self.to_cache {
+            cache.remove(update);
             metrics::counter!(V2_EVENT_DEFS_CACHE_REMOVED).increment(1);
         }
 
@@ -154,7 +154,7 @@ pub struct PropertyDefinitionsBatch {
     pub property_types: Vec<Option<String>>,
     pub group_type_indices: Vec<Option<i16>>,
     // note: I left off deprecated fields we null out on writes
-    pub to_cache: VecDeque<Update>,
+    pub to_cache: Vec<Update>,
 }
 
 impl PropertyDefinitionsBatch {
@@ -169,7 +169,7 @@ impl PropertyDefinitionsBatch {
             property_types: Vec::with_capacity(batch_size),
             event_types: Vec::with_capacity(batch_size),
             group_type_indices: Vec::with_capacity(batch_size),
-            to_cache: VecDeque::with_capacity(batch_size),
+            to_cache: Vec::with_capacity(batch_size),
         }
     }
 
@@ -208,7 +208,7 @@ impl PropertyDefinitionsBatch {
         self.event_types.push(pd.event_type as i16);
         self.group_type_indices.push(group_type_index);
 
-        self.to_cache.push_back(Update::Property(pd));
+        self.to_cache.push(Update::Property(pd));
     }
 
     pub fn len(&self) -> usize {
@@ -223,11 +223,11 @@ impl PropertyDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
+    pub fn uncache_batch(&self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
 
-        for update in self.to_cache.drain(..) {
-            cache.remove(&update);
+        for update in &self.to_cache {
+            cache.remove(update);
             metrics::counter!(V2_PROP_DEFS_CACHE_REMOVED).increment(1);
         }
 
@@ -236,7 +236,13 @@ impl PropertyDefinitionsBatch {
 }
 
 // HACK: making this public so the test suite file can live under "../tests/" dir
-pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, batch: Vec<Update>) {
+pub async fn process_batch(
+    config: &Config,
+    cache: Arc<Cache>,
+    pool: &PgPool,
+    persons_pool: Option<&PgPool>,
+    batch: Vec<Update>,
+) {
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
@@ -249,38 +255,94 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
         match update {
             Update::Event(ed) => {
                 event_defs.append(ed);
+
                 if event_defs.should_flush_batch() {
-                    let pool = pool.clone();
-                    let cache = cache.clone();
-                    let outbound = event_defs;
+                    // swap out old batch for new one
+                    let outbound = Arc::new(event_defs);
                     event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
+
+                    let pool = pool.clone();
+                    let event_defs_orig = outbound.clone();
+                    let cache_orig = cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(cache, outbound, &pool).await
+                        write_event_definitions_batch(cache_orig, event_defs_orig, &pool).await
                     }));
+
+                    if config.dual_writes_enabled && persons_pool.is_some() {
+                        let persons_pool = persons_pool.unwrap().clone();
+                        let event_defs_dual = outbound.clone();
+                        let cache_dual = cache.clone();
+                        handles.push(tokio::spawn(async move {
+                            write_event_definitions_batch(
+                                cache_dual,
+                                event_defs_dual,
+                                &persons_pool,
+                            )
+                            .await
+                        }));
+                    }
                 }
             }
+
             Update::EventProperty(ep) => {
                 event_props.append(ep);
+
                 if event_props.should_flush_batch() {
-                    let pool = pool.clone();
-                    let cache = cache.clone();
-                    let outbound = event_props;
+                    // swap out old batch for new one
+                    let outbound = Arc::new(event_props);
                     event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
+
+                    let pool = pool.clone();
+                    let event_props_orig = outbound.clone();
+                    let cache_orig = cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_properties_batch(cache, outbound, &pool).await
+                        write_event_properties_batch(cache_orig, event_props_orig, &pool).await
                     }));
+
+                    if config.dual_writes_enabled && persons_pool.is_some() {
+                        let persons_pool = persons_pool.unwrap().clone();
+                        let event_props_dual = outbound.clone();
+                        let cache_dual = cache.clone();
+                        handles.push(tokio::spawn(async move {
+                            write_event_properties_batch(
+                                cache_dual,
+                                event_props_dual,
+                                &persons_pool,
+                            )
+                            .await
+                        }));
+                    }
                 }
             }
+
             Update::Property(pd) => {
                 prop_defs.append(pd);
+
                 if prop_defs.should_flush_batch() {
-                    let pool = pool.clone();
-                    let cache = cache.clone();
-                    let outbound = prop_defs;
+                    // swap out old batch for new one
+                    let outbound = Arc::new(prop_defs);
                     prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
+
+                    let pool = pool.clone();
+                    let prop_defs_orig = outbound.clone();
+                    let cache_orig = cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_property_definitions_batch(cache, outbound, &pool).await
+                        write_property_definitions_batch(cache_orig, prop_defs_orig, &pool).await
                     }));
+
+                    if config.dual_writes_enabled && persons_pool.is_some() {
+                        let persons_pool = persons_pool.unwrap().clone();
+                        let prop_defs_dual = outbound.clone();
+                        let cache_dual = cache.clone();
+                        handles.push(tokio::spawn(async move {
+                            write_property_definitions_batch(
+                                cache_dual,
+                                prop_defs_dual,
+                                &persons_pool,
+                            )
+                            .await
+                        }));
+                    }
                 }
             }
         }
@@ -289,24 +351,56 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
     // ensure partial batches are flushed to Postgres too
     if !event_defs.is_empty() {
         let pool = pool.clone();
-        let cache = cache.clone();
+        let event_defs = Arc::new(event_defs);
+        let event_defs_orig = event_defs.clone();
+        let cache_orig = cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(cache, event_defs, &pool).await
+            write_event_definitions_batch(cache_orig, event_defs_orig, &pool).await
         }));
+        if config.dual_writes_enabled && persons_pool.is_some() {
+            let persons_pool = persons_pool.unwrap().clone();
+            let event_defs_dual = event_defs.clone();
+            let cache_dual = cache.clone();
+            handles.push(tokio::spawn(async move {
+                write_event_definitions_batch(cache_dual, event_defs_dual, &persons_pool).await
+            }));
+        }
     }
+
     if !prop_defs.is_empty() {
         let pool = pool.clone();
-        let cache = cache.clone();
+        let prop_defs = Arc::new(prop_defs);
+        let prop_defs_orig = prop_defs.clone();
+        let cache_orig = cache.clone();
         handles.push(tokio::spawn(async move {
-            write_property_definitions_batch(cache, prop_defs, &pool).await
+            write_property_definitions_batch(cache_orig, prop_defs_orig, &pool).await
         }));
+        if config.dual_writes_enabled && persons_pool.is_some() {
+            let persons_pool = persons_pool.unwrap().clone();
+            let prop_defs_dual = prop_defs.clone();
+            let cache_dual = cache.clone();
+            handles.push(tokio::spawn(async move {
+                write_property_definitions_batch(cache_dual, prop_defs_dual, &persons_pool).await
+            }));
+        }
     }
+
     if !event_props.is_empty() {
         let pool = pool.clone();
-        let cache = cache.clone();
+        let event_props = Arc::new(event_props);
+        let event_props_orig = event_props.clone();
+        let cache_orig = cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_properties_batch(cache, event_props, &pool).await
+            write_event_properties_batch(cache_orig, event_props_orig, &pool).await
         }));
+        if config.dual_writes_enabled && persons_pool.is_some() {
+            let persons_pool = persons_pool.unwrap().clone();
+            let event_props_dual = event_props.clone();
+            let cache_dual = cache.clone();
+            handles.push(tokio::spawn(async move {
+                write_event_properties_batch(cache_dual, event_props_dual, &persons_pool).await
+            }));
+        }
     }
 
     // Execute final batch handles concurrently
@@ -330,7 +424,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
 
 async fn write_event_properties_batch(
     cache: Arc<Cache>,
-    mut batch: EventPropertiesBatch,
+    batch: Arc<EventPropertiesBatch>,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
@@ -364,7 +458,7 @@ async fn write_event_properties_batch(
                         &e
                     );
 
-                    // following the old strategy - if the batch write fails,
+                    // following the old (bad) strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
                     // at persisting on future event submissions
                     batch.uncache_batch(&cache);
@@ -402,7 +496,7 @@ async fn write_event_properties_batch(
 
 async fn write_property_definitions_batch(
     cache: Arc<Cache>,
-    mut batch: PropertyDefinitionsBatch,
+    batch: Arc<PropertyDefinitionsBatch>,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
@@ -450,7 +544,7 @@ async fn write_property_definitions_batch(
                         &e
                     );
 
-                    // following the old strategy - if the batch write fails,
+                    // following the old (bad) strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
                     // at persisting on future event submissions
                     batch.uncache_batch(&cache);
@@ -487,7 +581,7 @@ async fn write_property_definitions_batch(
 
 async fn write_event_definitions_batch(
     cache: Arc<Cache>,
-    mut batch: EventDefinitionsBatch,
+    batch: Arc<EventDefinitionsBatch>,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_WRITE_TIME, &[]);
@@ -539,7 +633,7 @@ async fn write_event_definitions_batch(
                         &e
                     );
 
-                    // following the old strategy - if the batch write fails,
+                    // following the old (bad) strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
                     // at persisting on future event submissions
                     batch.uncache_batch(&cache);
