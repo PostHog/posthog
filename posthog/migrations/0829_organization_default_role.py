@@ -29,20 +29,20 @@ class Migration(migrations.Migration):
             # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
             migrations.RunSQL(
                 """
-                ALTER TABLE "organization" ADD COLUMN "default_role_id" uuid NULL CONSTRAINT "organization_default_role_id_1cbf8562_fk_posthog_a" REFERENCES "ee_role"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
-                SET CONSTRAINTS "organization_default_role_id_1cbf8562_fk_posthog_a" IMMEDIATE; -- existing-table-constraint-ignore
+                ALTER TABLE "posthog_organization" ADD COLUMN "default_role_id" uuid NULL CONSTRAINT "posthog_organization_default_role_id_03bcd28b_fk_ee_role_id" REFERENCES "ee_role"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                SET CONSTRAINTS "posthog_organization_default_role_id_03bcd28b_fk_ee_role_id" IMMEDIATE; -- existing-table-constraint-ignore
                 """,
                 reverse_sql="""
-                    ALTER TABLE "organization" DROP COLUMN IF EXISTS "default_role_id";
+                    ALTER TABLE "posthog_organization" DROP COLUMN IF EXISTS "default_role_id";
                 """,
             ),
             # We add CONCURRENTLY to the create command
             migrations.RunSQL(
                 """
-                CREATE INDEX CONCURRENTLY "organization_default_role_id_1cbf8562" ON "organization" ("default_role_id");
+                CREATE INDEX CONCURRENTLY "posthog_organization_default_role_id_03bcd28b" ON "posthog_organization" ("default_role_id");
                 """,
                 reverse_sql="""
-                    DROP INDEX IF EXISTS "organization_default_role_id_1cbf8562";
+                    DROP INDEX IF EXISTS "posthog_organization_default_role_id_03bcd28b";
                 """,
             ),
         ],
