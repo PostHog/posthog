@@ -71,7 +71,7 @@ runs:
           run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
         - name: Set up Python
-          uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+          uses: actions/setup-python@v5
           with:
               python-version: ${{ inputs.python-version }}
               cache: pip
@@ -101,7 +101,7 @@ runs:
           uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
         - name: Set up Node.js
-          uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
+          uses: actions/setup-node@v4
           with:
               node-version: 22.17.1
               cache: pnpm
@@ -234,7 +234,7 @@ runs:
           run: docker compose -f docker-compose.dev.yml logs
 
         - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+          uses: actions/upload-artifact@v4
           if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.3.6.56' }}
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}

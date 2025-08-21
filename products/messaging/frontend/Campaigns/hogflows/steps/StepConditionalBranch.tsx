@@ -1,9 +1,11 @@
-import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { useMemo } from 'react'
 
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'

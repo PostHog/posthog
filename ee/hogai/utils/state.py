@@ -1,12 +1,13 @@
 from typing import Any, Literal, TypedDict, TypeGuard, Union
 
+from ee.hogai.utils.types.composed import MaxGraphState, MaxNodeName
 from langchain_core.messages import AIMessageChunk
 
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
-GraphValueUpdate = dict[AssistantNodeName | TaxonomyNodeName, dict[Any, Any] | Any]
+GraphValueUpdate = dict[MaxNodeName, dict[Any, Any] | Any]
 
 GraphValueUpdateTuple = tuple[Literal["values"], GraphValueUpdate]
 
@@ -23,8 +24,8 @@ def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdateTuple]:
 
 def validate_value_update(
     update: GraphValueUpdate,
-) -> dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | TaxonomyAgentState | Any]:
-    validated_update: dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | TaxonomyAgentState | Any] = {}
+) -> dict[MaxNodeName, MaxGraphState | Any]:
+    validated_update: dict[MaxNodeName, MaxGraphState | Any] = {}
     for node_name, value in update.items():
         if isinstance(value, dict):
             if isinstance(node_name, TaxonomyNodeName):
@@ -37,7 +38,7 @@ def validate_value_update(
 
 
 class LangGraphState(TypedDict):
-    langgraph_node: AssistantNodeName | TaxonomyNodeName
+    langgraph_node: MaxNodeName
 
 
 GraphMessageUpdateTuple = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]

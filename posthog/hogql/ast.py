@@ -250,6 +250,8 @@ class SelectQueryType(Type):
     anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
     parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
+    # whether this type is related to a lambda scope
+    is_lambda_type: bool = False
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():

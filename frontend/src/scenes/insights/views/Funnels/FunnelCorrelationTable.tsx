@@ -1,22 +1,24 @@
 import './FunnelCorrelationTable.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconArchive, IconTrending } from '@posthog/icons'
 import { LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { IconSelectEvents, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconSelectEvents, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'

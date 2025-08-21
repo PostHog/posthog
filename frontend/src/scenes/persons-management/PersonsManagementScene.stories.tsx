@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
-
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 

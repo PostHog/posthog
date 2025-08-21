@@ -1,5 +1,6 @@
-import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
+
+import { VMState } from '@posthog/hogvm'
 
 import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
@@ -179,7 +180,7 @@ export type MinimalAppMetric = {
     team_id: number
     app_source_id: string // The main item (like the hog function or hog flow ID)
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
-    metric_kind: 'failure' | 'success' | 'other' | 'email'
+    metric_kind: 'failure' | 'success' | 'other' | 'email' | 'billing'
     metric_name:
         | 'succeeded'
         | 'failed'
@@ -191,13 +192,12 @@ export type MinimalAppMetric = {
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
-        | 'event_triggered_destination'
-        | 'destination_invoked'
+        | 'billable_invocation'
         | 'dropped'
         | 'email_sent'
         | 'email_failed'
         | 'email_opened'
-        | 'email_clicked'
+        | 'email_link_clicked'
         | 'email_bounced'
         | 'email_blocked'
         | 'email_spam'
@@ -339,7 +339,6 @@ export type HogFunctionType = {
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
-    is_addon_required: boolean
     template_id?: string
     execution_order?: number
     created_at: string
@@ -382,6 +381,7 @@ export type DBHogFunctionTemplate = {
     inputs_schema: HogFunctionInputSchemaType[]
     bytecode: HogBytecode
     type: HogFunctionTypeType
+    free: boolean
 }
 
 export type IntegrationType = {

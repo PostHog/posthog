@@ -102,7 +102,7 @@ def configure_stdlib_logger(logger: logging.Logger) -> None:
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
-        configure_logger_async()
+        configure_logger_async(loop=asyncio.get_running_loop())
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
@@ -126,7 +126,7 @@ async def configure_temporal_worker_logger(
 ) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
-        configure_logger_async()
+        configure_logger_async(loop=asyncio.get_running_loop())
 
     temporal_context = get_temporal_context()
 
@@ -138,7 +138,7 @@ async def bind_temporal_org_worker_logger(
 ) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers scoped by organization instead of team."""
     if not structlog.is_configured():
-        configure_logger_async()
+        configure_logger_async(loop=asyncio.get_running_loop())
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()

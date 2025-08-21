@@ -1,5 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { MetricsFilters } from 'scenes/hog-functions/metrics/hogFunctionMetricsLogic'
 

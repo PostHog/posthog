@@ -156,7 +156,6 @@
         "eslint-plugin-no-only-tests": "^3.1.0",
         "eslint-plugin-node": "^11.1.0",
         "eslint-plugin-promise": "^6.1.1",
-        "eslint-plugin-simple-import-sort": "^7.0.0",
         "jest": "^30.0.0",
         "node-pg-migrate": "^8.0.3",
         "nodemon": "^3.1.10",

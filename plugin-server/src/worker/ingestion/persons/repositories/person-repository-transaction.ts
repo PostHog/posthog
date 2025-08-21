@@ -1,5 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
@@ -28,7 +29,9 @@ export interface PersonRepositoryTransaction {
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
 
-    moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult>
+    moveDistinctIds(source: InternalPerson, target: InternalPerson, limit?: number): Promise<MoveDistinctIdsResult>
+
+    fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]>
 
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 

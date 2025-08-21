@@ -34,11 +34,17 @@ class TestErrorTrackingIssueCorrelationQueryRunner(ClickhouseTestMixin, APIBaseT
         self.assertEqual(
             columns,
             [
+                "id",
+                "status",
+                "name",
+                "description",
+                "first_seen",
+                "assignee",
+                "external_issues",
+                "last_seen",
+                "library",
+                "odds_ratio",
+                "population",
                 "event",
-                "issue_ids",
-                "both",
-                "success_only",
-                "exception_only",
-                "neither",
             ],
         )

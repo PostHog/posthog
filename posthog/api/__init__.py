@@ -5,6 +5,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
+import products.tasks.backend.api as tasks
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet, MessagePreferencesViewSet
@@ -18,6 +19,7 @@ from posthog.api.batch_imports import BatchImportViewSet
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
     data_modeling_job,
+    data_warehouse,
     external_data_schema,
     external_data_source,
     modeling,
@@ -199,6 +201,8 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+
+register_grandfathered_environment_nested_viewset(r"tasks", tasks.TaskViewSet, "environment_tasks", ["team_id"])
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
@@ -343,6 +347,12 @@ register_grandfathered_environment_nested_viewset(
     r"external_data_sources",
     external_data_source.ExternalDataSourceViewSet,
     "environment_external_data_sources",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
+    r"data_warehouse",
+    data_warehouse.DataWarehouseViewSet,
+    "environment_data_warehouse",
     ["team_id"],
 )
 projects_router.register(
@@ -513,7 +523,7 @@ if EE_AVAILABLE:
         ExperimentSavedMetricViewSet,
     )
     from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
-    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet
+    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import (
         EnterprisePersonViewSet,
@@ -528,7 +538,12 @@ if EE_AVAILABLE:
         r"experiment_saved_metrics", ExperimentSavedMetricViewSet, "project_experiment_saved_metrics", ["project_id"]
     )
     register_grandfathered_environment_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
-    projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
+    group_types_router = projects_router.register(
+        r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
+    )
+    group_types_router.register(
+        r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
+    )
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
         r"insights", EnterpriseInsightsViewSet, "environment_insights", ["team_id"]
     )

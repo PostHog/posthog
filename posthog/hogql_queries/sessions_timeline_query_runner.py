@@ -6,7 +6,7 @@ from posthog.api.element import ElementSerializer
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.element.element import chain_to_elements
 from posthog.schema import (
     EventType,
@@ -18,7 +18,7 @@ from posthog.schema import (
 from posthog.utils import relative_date_parse
 
 
-class SessionsTimelineQueryRunner(QueryRunner):
+class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResponse]):
     """
     ## How does the sessions timeline work?
 
@@ -37,7 +37,6 @@ class SessionsTimelineQueryRunner(QueryRunner):
     EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
-    response: SessionsTimelineQueryResponse
     cached_response: CachedSessionsTimelineQueryResponse
 
     def _get_events_subquery(self) -> ast.SelectQuery:
@@ -128,7 +127,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             """SELECT DISTINCT person_id FROM {events_subquery}""", {"events_subquery": self._get_events_subquery()}
         )
 
-    def calculate(self) -> SessionsTimelineQueryResponse:
+    def _calculate(self) -> SessionsTimelineQueryResponse:
         query_result = execute_hogql_query(
             query=self.to_query(),
             team=self.team,

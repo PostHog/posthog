@@ -1,6 +1,8 @@
-import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'

@@ -33,9 +33,10 @@ import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writ
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
-import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
+    applyForceOverflowRestrictions,
     applyPersonProcessingRestrictions,
     parseKafkaMessage,
     resolveTeam,
@@ -629,6 +630,19 @@ export class IngestionConsumer {
         for (const message of messages) {
             const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
             if (!filteredMessage) {
+                continue
+            }
+
+            const forceOverflowDecision = applyForceOverflowRestrictions(
+                filteredMessage,
+                this.eventIngestionRestrictionManager
+            )
+            if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
+                ingestionEventOverflowed.inc(1)
+                forcedOverflowEventsCounter.inc()
+                void this.promiseScheduler.schedule(
+                    this.emitToOverflow([filteredMessage], forceOverflowDecision.preservePartitionLocality)
+                )
                 continue
             }
 

@@ -193,8 +193,7 @@ impl RawRequest {
                     );
                     report_dropped_events("event_too_big", 1);
                     return Err(CaptureError::EventTooBig(format!(
-                        "Event or batch exceeded {} during unzipping",
-                        limit
+                        "Event or batch exceeded {limit} during unzipping",
                     )));
                 }
             }
@@ -260,8 +259,7 @@ impl RawRequest {
                                         "from_bytes: request size limit exceeded after post-decode base64 unwrap");
                                     report_dropped_events("event_too_big", 1);
                                     return Err(CaptureError::EventTooBig(format!(
-                                        "from_bytes: payload size limit {} exceeded after post-decode base64 unwrap: {}",
-                                        limit, unwrapped_size,
+                                        "from_bytes: payload size limit {limit} exceeded after post-decode base64 unwrap: {unwrapped_size}",
                                     )));
                                 }
                                 unwrapped_payload

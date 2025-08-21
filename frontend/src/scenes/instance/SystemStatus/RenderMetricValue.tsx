@@ -1,4 +1,5 @@
 import { IconLock } from '@posthog/icons'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
