@@ -66,7 +66,12 @@ class RoleSerializer(serializers.ModelSerializer):
 
     def get_is_default(self, role: Role):
         """Check if this role is the default role for the organization"""
-        organization = self.context["request"].user.organization
+        request = self.context.get("request")
+        if not request or not hasattr(request, "user") or not request.user.is_authenticated:
+            return False
+        organization = getattr(request.user, "organization", None)
+        if not organization:
+            return False
         return organization.default_role_id == role.id
 
 

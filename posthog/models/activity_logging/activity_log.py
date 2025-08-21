@@ -159,7 +159,6 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return {
                 "id": obj.id,
                 "name": obj.name,
-                "organization_id": obj.organization_id,
             }
 
         return json.JSONEncoder.default(self, obj)
