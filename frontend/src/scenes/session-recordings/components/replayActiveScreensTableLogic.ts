@@ -26,7 +26,10 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
                     from (select session_id, arrayJoin(all_urls) as url
                           from raw_session_replay_events
                           where min_first_timestamp >= now() - toIntervalDay(7)
-                            and min_first_timestamp <= now())
+                            and min_first_timestamp <= now()
+                          group by session_id
+                          having date_diff('second', min(min_first_timestamp), max(max_last_timestamp)) > 5
+                          )
                     group by u
                     order by c desc limit 10
                 `
