@@ -1,7 +1,13 @@
 import uuid
+
+from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import ServerException
 from django.conf import settings
-from dlt.common.schema.typing import TSchemaTables
 from dlt.common.data_types.typing import TDataType
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+from dlt.common.schema.typing import TSchemaTables
+from structlog import get_logger
+
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -11,25 +17,21 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
 )
-
 from posthog.warehouse.models import (
-    aget_or_create_datawarehouse_credential,
-    DataWarehouseTable,
     DataWarehouseCredential,
-    get_external_data_job,
-    asave_datawarehousetable,
+    DataWarehouseTable,
     acreate_datawarehousetable,
-    asave_external_data_schema,
-    get_table_by_schema_id,
+    aget_or_create_datawarehouse_credential,
     aget_schema_by_id,
+    asave_datawarehousetable,
+    asave_external_data_schema,
+    get_external_data_job,
+    get_table_by_schema_id,
 )
-
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.temporal.common.logger import bind_temporal_worker_logger
-from clickhouse_driver.errors import ServerException
-from asgiref.sync import sync_to_async
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+
+LOGGER = get_logger(__name__)
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
@@ -94,7 +96,7 @@ async def validate_schema_and_update_table(
         table_row_counts: The count of synced rows from DLT
     """
 
-    logger = await bind_temporal_worker_logger(team_id=team_id)
+    logger = LOGGER.bind(team_id=team_id)
 
     if row_count == 0:
         logger.warn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")

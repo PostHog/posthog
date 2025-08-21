@@ -22,7 +22,8 @@ export class PersonContext {
         public readonly processPerson: boolean, // $process_person_profile flag from the event
         public readonly kafkaProducer: KafkaProducerWrapper,
         public readonly personStore: PersonsStoreForBatch,
-        public readonly measurePersonJsonbSize: number = 0
+        public readonly measurePersonJsonbSize: number = 0,
+        public readonly personMergeMoveDistinctIdLimit: number | undefined = undefined
     ) {
         this.eventProperties = event.properties!
     }

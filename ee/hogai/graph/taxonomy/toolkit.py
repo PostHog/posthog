@@ -253,7 +253,7 @@ class TaxonomyAgentToolkit:
             properties_by_type[property_type].append(prop_dict)
 
         result = {"properties": properties_by_type}
-        return yaml.dump(result, default_flow_style=False, sort_keys=True)
+        return yaml.dump(result, default_flow_style=False, sort_keys=False)
 
     def handle_incorrect_response(self, response: BaseModel) -> str:
         """

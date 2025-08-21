@@ -35,6 +35,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
                     await breakpoint(100)
                     const response = await api.comments.getCount({
                         ...values.commentsLogicProps,
+                        exclude_emoji_reactions: true,
                     })
 
                     breakpoint()

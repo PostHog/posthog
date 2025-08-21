@@ -6,7 +6,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DashboardType, InsightShortId, InsightType, ProductManifest } from '../../frontend/src/types'
@@ -50,11 +50,13 @@ export const manifest: ProductManifest = {
         insightView: (
             id: InsightShortId,
             dashboardId?: number,
-            variablesOverride?: Record<string, HogQLVariable>
+            variablesOverride?: Record<string, HogQLVariable>,
+            filtersOverride?: DashboardFilter
         ): string => {
             const params = [
                 { param: 'dashboard', value: dashboardId },
                 { param: 'variables_override', value: variablesOverride },
+                { param: 'filters_override', value: filtersOverride },
             ]
                 .filter((n) => Boolean(n.value))
                 .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)

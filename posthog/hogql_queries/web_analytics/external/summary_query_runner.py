@@ -49,7 +49,6 @@ logger = structlog.get_logger(__name__)
 
 class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
     query: WebAnalyticsExternalSummaryQuery
-    response: WebAnalyticsExternalSummaryQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()

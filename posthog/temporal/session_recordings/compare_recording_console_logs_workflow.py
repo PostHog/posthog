@@ -7,13 +7,15 @@ import typing
 import temporalio.activity
 import temporalio.common
 import temporalio.workflow
+from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries, Product
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
 from posthog.temporal.session_recordings.queries import get_sampled_session_ids
+
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -99,7 +101,7 @@ def get_console_logs_v2(session_ids: list[tuple[str, int]]) -> dict[tuple[str, i
 @temporalio.activity.defn
 async def compare_recording_console_logs_activity(inputs: CompareRecordingConsoleLogsActivityInputs) -> None:
     """Compare console logs between v1 and v2 storage for a sample of sessions."""
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
     start_time = dt.datetime.now()
     tag_queries(product=Product.REPLAY)
 
@@ -330,7 +332,7 @@ class CompareRecordingConsoleLogsWorkflow(PostHogWorkflow):
         started_after = dt.datetime.fromisoformat(inputs.started_after)
         started_before = dt.datetime.fromisoformat(inputs.started_before)
 
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
         workflow_start = dt.datetime.now()
 
         logger.info(

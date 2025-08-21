@@ -338,7 +338,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     const retriable = !!(interactable && isFinalGroup)
 
     const action = (() => {
-        if (message.status !== 'completed') {
+        if (message.status !== 'completed' && !isFailureMessage(message)) {
             return null
         }
 

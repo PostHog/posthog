@@ -1510,15 +1510,12 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
             f"/api/projects/{self.other_team.id}/groups_types/{str(self.other_group_type.group_type_index)}/metrics"
         )
 
-    def assertListFields(self, data, metric):
+    def assertFields(self, data, metric):
         self.assertEqual(data["id"], str(metric.id))
         self.assertEqual(data["name"], metric.name)
         self.assertEqual(data["format"], metric.format)
         self.assertEqual(data["interval"], metric.interval)
         self.assertEqual(data["display"], metric.display)
-
-    def assertDetailFields(self, data, metric):
-        self.assertListFields(data, metric)
         self.assertEqual(data["filters"], metric.filters)
 
     def _create_metric(self, **kwargs):
@@ -1537,7 +1534,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertListFields(response.json()["results"][0], metric)
+        self.assertFields(response.json()["results"][0], metric)
 
     def test_create(self):
         payload = {"name": "Events", "filters": {"foo": "bar"}}
@@ -1546,7 +1543,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         metric = GroupUsageMetric.objects.get(id=response.json().get("id"))
-        self.assertListFields(response.json(), metric)
+        self.assertFields(response.json(), metric)
         self.assertEqual(metric.team, self.team, "Should set team automatically")
         self.assertEqual(
             metric.group_type_index, self.group_type.group_type_index, "Should set group_type_index automatically"
@@ -1560,7 +1557,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDetailFields(response.json(), metric)
+        self.assertFields(response.json(), metric)
 
     def test_update(self):
         metric = self._create_metric()
@@ -1582,7 +1579,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(metric.interval, 30)
         self.assertEqual(metric.display, "sparkline")
         self.assertEqual(metric.filters, {"updated": "value"})
-        self.assertDetailFields(response.json(), metric)
+        self.assertFields(response.json(), metric)
 
     def test_delete(self):
         metric = self._create_metric()

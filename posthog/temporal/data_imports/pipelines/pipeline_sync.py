@@ -18,12 +18,14 @@ from django.db.models import Prefetch
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.types import ExternalDataSourceType
+
+LOGGER = get_logger(__name__)
 
 
 def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
@@ -79,8 +81,7 @@ def validate_schema_and_update_table_sync(
         table_format: The format of the table
         table_schema_dict: The schema of the table
     """
-
-    logger = bind_temporal_worker_logger_sync(team_id=team_id)
+    logger = LOGGER.bind(team_id=team_id)
 
     if row_count == 0:
         logger.warn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")

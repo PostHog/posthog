@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use common_types::RawEvent;
+use common_types::{CapturedEvent, RawEvent};
 use dashmap::DashMap;
+use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Message};
@@ -12,6 +13,14 @@ use tracing::{debug, error, info, warn};
 
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+
+/// Context for a Kafka message being processed
+struct MessageContext<'a> {
+    topic: &'a str,
+    partition: i32,
+    offset: i64,
+    key: String,
+}
 
 /// Configuration for the deduplication processor
 #[derive(Debug, Clone)]
@@ -96,13 +105,12 @@ impl DeduplicationProcessor {
     async fn process_raw_event(
         &self,
         raw_event: RawEvent,
-        topic: &str,
-        partition: i32,
-        offset: i64,
-        key: String,
+        original_payload: &[u8],
+        original_headers: Option<&OwnedHeaders>,
+        ctx: MessageContext<'_>,
     ) -> Result<bool> {
         // Get the store for this partition
-        let store = self.get_or_create_store(topic, partition).await?;
+        let store = self.get_or_create_store(ctx.topic, ctx.partition).await?;
 
         // Extract key for deduplication - always use composite key (timestamp:distinct_id:token:event_name)
         // UUID is only used for Kafka partitioning, NOT for deduplication
@@ -116,7 +124,7 @@ impl DeduplicationProcessor {
 
         debug!(
             "Processing event with key {} for partition {}:{} at offset {}",
-            dedup_key, topic, partition, offset
+            dedup_key, ctx.topic, ctx.partition, ctx.offset
         );
 
         // Use the store's handle_event_with_raw method which checks for duplicates, stores if new, and tracks metrics
@@ -137,7 +145,13 @@ impl DeduplicationProcessor {
                     .as_ref()
                     .expect("output_topic must exist when producer is Some");
                 return self
-                    .publish_event(producer, raw_event, key, output_topic)
+                    .publish_event(
+                        producer,
+                        original_payload,
+                        original_headers,
+                        ctx.key,
+                        output_topic,
+                    )
                     .await;
             }
             None => Ok(true),
@@ -147,17 +161,19 @@ impl DeduplicationProcessor {
     async fn publish_event(
         &self,
         producer: &FutureProducer,
-        raw_event: RawEvent,
+        original_payload: &[u8],
+        original_headers: Option<&OwnedHeaders>,
         key: String,
         output_topic: &str,
     ) -> Result<bool> {
-        let serialized_event = serde_json::to_string(&raw_event).with_context(|| {
-            format!("Failed to serialize event for publishing to topic '{output_topic}'")
-        })?;
-
-        let record = FutureRecord::to(output_topic)
+        // Create a new record with the original payload and key
+        let mut record = FutureRecord::to(output_topic)
             .key(&key)
-            .payload(&serialized_event);
+            .payload(original_payload);
+
+        if let Some(headers) = original_headers {
+            record = record.headers(headers.clone());
+        }
 
         match producer
             .send(record, Timeout::After(self.config.producer_send_timeout))
@@ -211,18 +227,41 @@ impl MessageProcessor for DeduplicationProcessor {
             }
         };
 
-        // Parse the raw event
-        let raw_event: RawEvent = match serde_json::from_slice(payload) {
-            Ok(event) => event,
+        // Parse the captured event and extract the raw event from it
+        let raw_event = match serde_json::from_slice::<CapturedEvent>(payload) {
+            Ok(captured_event) => {
+                // The RawEvent is serialized in the data field
+                match serde_json::from_str::<RawEvent>(&captured_event.data) {
+                    Ok(raw_event) => raw_event,
+                    Err(e) => {
+                        error!(
+                            "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
+                            topic, partition, offset, e
+                        );
+                        message
+                            .nack(format!("Failed to parse RawEvent from data field: {e}"))
+                            .await;
+                        return Err(anyhow::anyhow!(
+                            "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
+                            topic,
+                            partition,
+                            offset,
+                            e
+                        ));
+                    }
+                }
+            }
             Err(e) => {
                 error!(
-                    "Failed to parse event from {}:{} offset {}: {}",
+                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
                     topic, partition, offset, e
                 );
                 // Nack the message so it can be handled by error recovery/DLQ
-                message.nack(format!("Failed to parse JSON: {e}")).await;
+                message
+                    .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
+                    .await;
                 return Err(anyhow::anyhow!(
-                    "Failed to parse event from {}:{} offset {}: {}",
+                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
                     topic,
                     partition,
                     offset,
@@ -255,9 +294,20 @@ impl MessageProcessor for DeduplicationProcessor {
             None => String::new(), // Empty key is acceptable
         };
 
-        // Process the event through deduplication
+        // Get the original headers to preserve them when publishing
+        let headers = message.kafka_message().headers();
+
+        // Create message context
+        let ctx = MessageContext {
+            topic: &topic,
+            partition,
+            offset,
+            key,
+        };
+
+        // Process the event through deduplication, passing the original payload and headers for publishing
         match self
-            .process_raw_event(raw_event, &topic, partition, offset, key)
+            .process_raw_event(raw_event, payload, headers, ctx)
             .await
         {
             Ok(published) => {

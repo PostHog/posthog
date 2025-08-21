@@ -353,7 +353,7 @@ class Resolver(CloningVisitor):
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
             if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
-                node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+                node_type: ast.TableOrSelectType = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
 
@@ -373,10 +373,17 @@ class Resolver(CloningVisitor):
             node.next_join = self.visit(node.next_join)
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+            is_global = False
             if isinstance(node.type, ast.TableAliasType):
                 is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
-            else:
-                is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
+            elif isinstance(node.type, ast.TableType) and isinstance(node.type.table, EventsTable):
+                if self._is_next_s3(node.next_join):
+                    is_global = True
+                # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
+                elif node.next_join and isinstance(node.next_join.type, ast.SelectQueryAliasType):
+                    select_query_type = node.next_join.type.select_query_type
+                    tables = self._extract_tables_from_query_type(select_query_type)
+                    is_global = any(self._is_s3_table(table) for table in tables)
 
             if is_global and node.next_join is not None:
                 node.next_join.join_type = f"GLOBAL {node.next_join.join_type}"
@@ -904,9 +911,30 @@ class Resolver(CloningVisitor):
                 return isinstance(node.select_from.type.table, S3Table)
         return False
 
+    def _is_s3_table(self, table: ast.TableOrSelectType) -> bool:
+        if isinstance(table, ast.TableAliasType):
+            return self._is_s3_table(table.table_type)
+
+        if isinstance(table, ast.TableType):
+            return isinstance(table.table, S3Table)
+
+        return False
+
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:
             return False
         if isinstance(node.type, ast.TableAliasType):
-            return isinstance(node.type.table_type.table, S3Table)
+            return self._is_s3_table(node.type)
         return False
+
+    def _extract_tables_from_query_type(
+        self, select_query_type: ast.SelectQueryType | ast.SelectSetQueryType
+    ) -> list[ast.TableOrSelectType]:
+        tables: list[ast.TableOrSelectType] = []
+        if isinstance(select_query_type, ast.SelectQueryType):
+            tables.extend(list(select_query_type.tables.values()))
+        else:
+            for sqt in select_query_type.types:
+                tables.extend(self._extract_tables_from_query_type(sqt))
+
+        return tables

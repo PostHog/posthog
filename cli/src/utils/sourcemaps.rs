@@ -161,7 +161,7 @@ pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<So
 
     let mut builder = GlobSetBuilder::new();
     for glob in ignore_globs {
-        builder.add(Glob::new(&glob)?);
+        builder.add(Glob::new(glob)?);
     }
     let set: globset::GlobSet = builder.build()?;
 

@@ -12,16 +12,10 @@ from posthog.schema import (
 )
 
 
-class ActorsPropertyTaxonomyQueryRunner(
-    TaxonomyCacheMixin,
-    AnalyticsQueryRunner[  # type: ignore
-        ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyQueryResponse, CachedActorsPropertyTaxonomyQueryResponse
-    ],
-):
+class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[ActorsPropertyTaxonomyQueryResponse]):
     MAX_PROPERTY_LIMIT = 200
 
     query: ActorsPropertyTaxonomyQuery
-    response: ActorsPropertyTaxonomyQueryResponse
     cached_response: CachedActorsPropertyTaxonomyQueryResponse
 
     def _calculate(self):

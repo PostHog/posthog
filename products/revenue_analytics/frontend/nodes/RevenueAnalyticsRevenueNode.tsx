@@ -159,7 +159,7 @@ const MRRTile = ({
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-    const results = (response?.results?.mrr as GraphDataset[]) ?? []
+    const results = (response?.results?.mrr.map((mrr) => mrr.total) as GraphDataset[]) ?? []
 
     const { labels, datasets } = extractLabelAndDatasets(results)
 

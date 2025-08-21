@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::Arc;
 
 use axum::{debug_handler, Json};
@@ -7,7 +6,6 @@ use bytes::Bytes;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
@@ -18,7 +16,7 @@ use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::v0_request::{
-    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
+    DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
 };
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
@@ -77,8 +75,8 @@ async fn check_survey_quota_and_filter(
     Ok(events)
 }
 
-/// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
-/// handle_next owns the /e, /capture, /track, and /engage capture endpoints
+/// handle_event_payload owns processing of request payloads for the
+/// /i/v0/e/, /batch/, /e/, /capture/, /track/, and /engage/ endpoints
 #[instrument(
     skip_all,
     fields(
@@ -97,7 +95,7 @@ async fn check_survey_quota_and_filter(
         batch_size
     )
 )]
-async fn handle_next(
+async fn handle_event_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
@@ -139,7 +137,7 @@ async fn handle_next(
     let is_mirror_deploy = state.is_mirror_deploy;
     Span::current().record("is_mirror_deploy", is_mirror_deploy);
 
-    debug!("entering handle_next");
+    debug!("entering handle_event_payload");
 
     // unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
@@ -282,156 +280,7 @@ async fn handle_next(
 
     debug!(context=?context,
         event_count=?events.len(),
-        "handle_next: successfully hydrated events");
-    Ok((context, events))
-}
-
-/// Flexible endpoint that targets wide compatibility with the wide range of requests
-/// currently processed by posthog-events (analytics events capture). Replay is out
-/// of scope and should be processed on a separate endpoint.
-///
-/// Because it must accommodate several shapes, it is inefficient in places. A v1
-/// endpoint should be created, that only accepts the BatchedRequest payload shape.
-///
-/// NOTE: handle_common owns the /i and /batch capture endpoints
-async fn handle_common(
-    state: &State<router::State>,
-    InsecureClientIp(ip): &InsecureClientIp,
-    meta: &EventQuery,
-    headers: &HeaderMap,
-    method: &Method,
-    path: &MatchedPath,
-    body: Bytes,
-) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
-    let user_agent = headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = headers
-        .get("content-encoding")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let request_id = headers
-        .get("x-request-id")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    Span::current().record("user_agent", user_agent);
-    Span::current().record("content_encoding", content_encoding);
-    Span::current().record("request_id", request_id);
-    Span::current().record("method", method.as_str());
-    Span::current().record("path", path.as_str().trim_end_matches('/'));
-
-    // TODO(eli): add event_next compression and lib_version extraction into this flow if we don't unify entirely
-    let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
-    Span::current().record("version", meta.lib_version.clone());
-    Span::current().record("compression", resolved_cmp);
-
-    let request = match headers
-        .get("content-type")
-        .map_or("", |v| v.to_str().unwrap_or(""))
-    {
-        "application/x-www-form-urlencoded" => {
-            Span::current().record("content_type", "application/x-www-form-urlencoded");
-
-            let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                error!("failed to decode urlencoded form body: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
-            })?;
-
-            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
-                return Err(CaptureError::EmptyPayload);
-            }
-
-            let payload = base64::engine::general_purpose::STANDARD
-                .decode(input.data.unwrap())
-                .map_err(|e| {
-                    error!("failed to decode base64 form data: {}", e);
-                    CaptureError::RequestDecodingError(String::from(
-                        "missing or invalid data field",
-                    ))
-                })?;
-
-            // by setting compression "unsupported" here, we route handle_common
-            // outputs into the old RawRequest hydration behavior, prior to adding
-            // handle_next shims. handle_common doesn't extract compression hints
-            // as reliably as it should, and is probably losing some data due to
-            // this. We'll circle back once the legacy shims ship
-            RawRequest::from_bytes(
-                payload.into(),
-                Compression::Unsupported,
-                request_id,
-                state.event_size_limit,
-                path.as_str().to_string(),
-            )
-        }
-        ct => {
-            Span::current().record("content_type", ct);
-            // see above for details
-            RawRequest::from_bytes(
-                body,
-                Compression::Unsupported,
-                request_id,
-                state.event_size_limit,
-                path.as_str().to_string(),
-            )
-        }
-    }?;
-
-    let sent_at = request.sent_at().or(meta.sent_at());
-    let historical_migration = request.historical_migration();
-    Span::current().record("historical_migration", historical_migration);
-
-    // if this was a batch request, retrieve this now for later validation
-    let maybe_batch_token = request.get_batch_token();
-
-    // consumes the parent request, so it's no longer in scope to extract metadata from
-    let mut events = match request.events(path.as_str()) {
-        Ok(events) => events,
-        Err(e) => return Err(e),
-    };
-    Span::current().record("batch_size", events.len());
-
-    let token = match extract_and_verify_token(&events, maybe_batch_token) {
-        Ok(token) => token,
-        Err(err) => {
-            return Err(err);
-        }
-    };
-    Span::current().record("token", &token);
-
-    counter!("capture_events_received_total").increment(events.len() as u64);
-
-    let context = ProcessingContext {
-        lib_version: meta.lib_version.clone(),
-        sent_at,
-        token,
-        now: state.timesource.current_time(),
-        client_ip: ip.to_string(),
-        request_id: request_id.to_string(),
-        path: path.as_str().to_string(),
-        is_mirror_deploy: false,
-        historical_migration,
-        user_agent: Some(user_agent.to_string()),
-    };
-
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if billing_limited {
-        let start_len = events.len();
-        // TODO - right now the exception billing limits are applied only in ET's pipeline,
-        // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
-        report_dropped_events("over_quota", (start_len - events.len()) as u64);
-        if events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-    }
-
-    // Check for survey quota limiting if any events are survey-related
-    events = check_survey_quota_and_filter(state, &context, events).await?;
-
-    debug!(context=?context, events=?events, "decoded request");
-
+        "handle_event_payload: successfully hydrated events");
     Ok((context, events))
 }
 
@@ -440,7 +289,7 @@ async fn handle_common(
     fields(params_lib_version, params_compression)
 )]
 #[debug_handler]
-pub async fn event_next(
+pub async fn event(
     state: State<router::State>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
@@ -465,7 +314,7 @@ pub async fn event_next(
         );
     }
 
-    match handle_next(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
@@ -485,8 +334,12 @@ pub async fn event_next(
         }
 
         Err(err) => {
-            report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event_next: request payload processing error: {:?}", err);
+            report_internal_error_metrics(
+                err.to_metric_tag(),
+                "parsing",
+                state.capture_mode.as_tag(),
+            );
+            error!("event: request payload parsing error: {:?}", err);
             Err(err)
         }
 
@@ -501,93 +354,12 @@ pub async fn event_next(
             .await
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
-                report_internal_error_metrics(err.to_metric_tag(), "processing");
-                error!("event_next: rejected invalid payload: {}", err);
-                return Err(err);
-            }
-
-            Ok(CaptureResponse {
-                status: if params.beacon {
-                    CaptureResponseCode::NoContent
-                } else {
-                    CaptureResponseCode::Ok
-                },
-                quota_limited: None,
-            })
-        }
-    }
-}
-
-#[instrument(
-    skip_all,
-    fields(
-        path,
-        token,
-        batch_size,
-        user_agent,
-        content_encoding,
-        content_type,
-        version,
-        compression,
-        historical_migration
-    )
-)]
-#[debug_handler]
-pub async fn event(
-    state: State<router::State>,
-    ip: InsecureClientIp,
-    params: Query<EventQuery>,
-    headers: HeaderMap,
-    method: Method,
-    path: MatchedPath,
-    body: Bytes,
-) -> Result<CaptureResponse, CaptureError> {
-    match handle_common(&state, &ip, &params, &headers, &method, &path, body).await {
-        Err(CaptureError::BillingLimit) => {
-            // for v0 we want to just return ok 🙃
-            // this is because the clients are pretty dumb and will just retry over and over and
-            // over...
-            //
-            // for v1, we'll return a meaningful error code and error, so that the clients can do
-            // something meaningful with that error
-            Ok(CaptureResponse {
-                status: CaptureResponseCode::Ok,
-                quota_limited: None,
-            })
-        }
-
-        Err(CaptureError::EmptyPayloadFiltered) => {
-            // as per legacy behavior, for now we'll silently accept these submissions
-            // when invalid event type filtering has resulted in an empty event payload
-            Ok(CaptureResponse {
-                status: CaptureResponseCode::Ok,
-                quota_limited: None,
-            })
-        }
-
-        Err(err) => {
-            report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            Err(err)
-        }
-
-        Ok((context, events)) => {
-            if let Err(err) = process_events(
-                state.sink.clone(),
-                state.token_dropper.clone(),
-                state.historical_cfg.clone(),
-                &events,
-                &context,
-            )
-            .await
-            {
-                let cause = match err {
-                    CaptureError::MissingDistinctId => "missing_distinct_id",
-                    CaptureError::MissingEventName => "missing_event_name",
-                    _ => "process_events_error",
-                };
-                report_dropped_events(cause, events.len() as u64);
-                report_internal_error_metrics(err.to_metric_tag(), "processing");
-                warn!("rejected invalid payload: {}", err);
+                report_internal_error_metrics(
+                    err.to_metric_tag(),
+                    "processing",
+                    state.capture_mode.as_tag(),
+                );
+                error!("event: rejected payload: {}", err);
                 return Err(err);
             }
 
@@ -621,24 +393,38 @@ pub async fn event(
 pub async fn recording(
     state: State<router::State>,
     ip: InsecureClientIp,
-    params: Query<EventQuery>,
+    meta: Query<EventQuery>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
     body: Bytes,
 ) -> Result<CaptureResponse, CaptureError> {
-    match handle_common(&state, &ip, &params, &headers, &method, &path, body).await {
+    let mut params: EventQuery = meta.0;
+
+    match handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
         }),
-        Err(err) => Err(err),
+        Err(err) => {
+            report_internal_error_metrics(
+                err.to_metric_tag(),
+                "parsing",
+                state.capture_mode.as_tag(),
+            );
+            error!("recordings: request payload parsing error: {:?}", err);
+            Err(err)
+        }
         Ok((context, events)) => {
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 report_dropped_events(err.to_metric_tag(), count);
-                report_internal_error_metrics(err.to_metric_tag(), "process_replay_events");
-                warn!("rejected invalid payload: {:?}", err);
+                report_internal_error_metrics(
+                    err.to_metric_tag(),
+                    "processing",
+                    state.capture_mode.as_tag(),
+                );
+                error!("recordings:rejected payload: {:?}", err);
                 return Err(err);
             }
             Ok(CaptureResponse {

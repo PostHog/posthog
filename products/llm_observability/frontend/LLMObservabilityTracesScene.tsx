@@ -14,7 +14,7 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmObservabilityLogic } from './llmObservabilityLogic'
-import { formatLLMCost, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
+import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } =
@@ -117,7 +117,7 @@ TimestampColumn.displayName = 'TimestampColumn'
 const LatencyColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     if (typeof row.totalLatency === 'number') {
-        return <>{row.totalLatency}s</>
+        return <>{formatLLMLatency(row.totalLatency, true)}</>
     }
     return <>–</>
 }

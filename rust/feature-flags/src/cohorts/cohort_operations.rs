@@ -285,18 +285,6 @@ fn evaluate_single_cohort(
     target_properties: &HashMap<String, Value>,
     evaluation_results: &HashMap<CohortId, bool>,
 ) -> Result<bool, FlagError> {
-    let dependencies = cohort.extract_dependencies()?;
-
-    // Check if all dependencies have been met
-    let dependencies_met = dependencies
-        .iter()
-        .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
-
-    // If dependencies are not met, mark as not matched
-    if !dependencies_met {
-        return Ok(false);
-    }
-
     // Get the filters for this cohort
     let filters = match &cohort.filters {
         Some(filters) => filters,

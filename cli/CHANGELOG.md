@@ -1,5 +1,10 @@
 # posthog-cli
 
+## 0.4.3
+
+- add `ignore` argument to sourcemap inject, upload and process commands
+- add `skip_ssl_verification` argument for self-hosted instances
+
 ## 0.4.2
 
 - fix url encoded sourcemaps

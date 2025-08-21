@@ -510,13 +510,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
-        if request:
-            filters_override = filters_override_requested_by_client(request)
-
-            if filters_override is not None:
-                return filters_override
-
-        return dashboard.filters
+        return filters_override_requested_by_client(request, dashboard)
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")

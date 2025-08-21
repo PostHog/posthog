@@ -25,7 +25,7 @@ from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, Materializa
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_external_logger, get_logger
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
 from products.batch_exports.backend.temporal.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
@@ -58,8 +58,8 @@ from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_schema_json_columns,
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 
 class RecordBatchQueue(asyncio.Queue):

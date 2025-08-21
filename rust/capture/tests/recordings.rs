@@ -420,7 +420,7 @@ async fn it_returns_200() -> Result<()> {
 
     let timestamp = Utc::now().timestamp_millis();
     let beacon_url = format!(
-        "http://{:?}/s/?ip=1&_={}&ver=1.240.6&compression=gzip-js",
+        "http://{:?}/s/?ip=1&_={}&ver=1.240.6",
         server.addr, timestamp
     );
 
@@ -468,7 +468,7 @@ async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
 
     let timestamp = Utc::now().timestamp_millis();
     let beacon_url = format!(
-        "http://{:?}/s/?ip=1&_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        "http://{:?}/s/?ip=1&_={}&ver=1.240.6&beacon=1",
         server.addr, timestamp
     );
 

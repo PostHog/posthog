@@ -17,7 +17,6 @@ from datetime import UTC, timedelta
 
 class SuggestedQuestionsQueryRunner(QueryRunner):
     query: SuggestedQuestionsQuery
-    response: SuggestedQuestionsQueryResponse
     cached_response: CachedSuggestedQuestionsQueryResponse
 
     def _calculate(self):

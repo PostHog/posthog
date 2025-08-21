@@ -63,7 +63,7 @@ describe('insightNavLogic', () => {
             }).toMatchValues({
                 query: {
                     kind: NodeKind.InsightVizNode,
-                    source: { ...nodeKindToDefaultQuery[NodeKind.TrendsQuery], filterTestAccounts: true },
+                    source: { ...nodeKindToDefaultQuery[NodeKind.TrendsQuery], filterTestAccounts: true, version: 2 },
                 },
             })
         })
@@ -168,24 +168,6 @@ describe('insightNavLogic', () => {
                     },
                 },
             }
-            // const retentionQuery: InsightVizNode = {
-            //     kind: NodeKind.InsightVizNode,
-            //     source: {
-            //         kind: NodeKind.RetentionQuery,
-            //         retentionFilter: {
-            //             returningEntity: {
-            //                 id: 'returning',
-            //                 name: 'returning',
-            //                 type: 'events',
-            //             },
-            //             targetEntity: {
-            //                 id: 'target',
-            //                 name: 'target',
-            //                 type: 'events',
-            //             },
-            //         },
-            //     },
-            // }
 
             it('is initialized on mount', async () => {
                 await expectLogic(logic).toMatchValues({
@@ -193,6 +175,7 @@ describe('insightNavLogic', () => {
                         ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
                         commonFilter: {},
                         filterTestAccounts: true,
+                        version: 2,
                     },
                 })
             })
@@ -363,6 +346,7 @@ describe('insightNavLogic', () => {
                             ],
                             trendsFilter: {},
                             filterTestAccounts: true,
+                            version: 2,
                             breakdownFilter: {
                                 breakdowns: [
                                     { property: 'num', type: 'person' },
@@ -383,6 +367,7 @@ describe('insightNavLogic', () => {
                             { property: '$device_type', type: 'event' },
                         ],
                     },
+                    version: 2,
                 } as TrendsQuery
 
                 await expectLogic(logic, () => {
@@ -421,6 +406,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
                             trendsFilter: { showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: 2,
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,

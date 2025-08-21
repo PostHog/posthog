@@ -9,6 +9,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
+import { PersonMergeLimitExceededError } from '../persons/person-merge-service'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
@@ -389,6 +390,10 @@ export class EventPipelineRunner {
             // ensure that the caller knows that the event was not processed,
             // for a reason that we control and that is transient.
             return true
+        }
+        // Drop events for known non-retryable person merge limit condition
+        if (err instanceof PersonMergeLimitExceededError) {
+            return false
         }
         // TODO: Disallow via env of errors we're going to put into DLQ instead of taking Kafka lag
         return false

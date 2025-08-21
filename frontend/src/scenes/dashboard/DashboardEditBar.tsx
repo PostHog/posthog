@@ -19,14 +19,14 @@ import { DashboardMode, InsightLogicProps } from '~/types'
 
 export function DashboardEditBar(): JSX.Element {
     const {
-        canAutoPreview,
         dashboard,
+        dashboardMode,
+        hasVariables,
+        effectiveEditBarFilters,
+        showEditBarApplyPopover,
         loadingPreview,
         cancellingPreview,
-        temporaryFilters,
-        dashboardMode,
-        filtersUpdated,
-        hasVariables,
+        hasTemporaryFilters,
     } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode, previewTemporaryFilters } =
         useActions(dashboardLogic)
@@ -48,11 +48,16 @@ export function DashboardEditBar(): JSX.Element {
     return (
         // Only show preview button for large dashboards where we don't automatically preview filter changes */
         <Popover
-            visible={!canAutoPreview && filtersUpdated}
+            visible={showEditBarApplyPopover}
             overlay={
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton
-                        onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                        onClick={() =>
+                            setDashboardMode(
+                                hasTemporaryFilters ? dashboardMode : null,
+                                DashboardEventSource.DashboardHeaderDiscardChanges
+                            )
+                        }
                         loading={cancellingPreview}
                         type="secondary"
                         size="small"
@@ -78,8 +83,8 @@ export function DashboardEditBar(): JSX.Element {
                 <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                     <DateFilter
                         showCustom
-                        dateFrom={temporaryFilters.date_from}
-                        dateTo={temporaryFilters.date_to}
+                        dateFrom={effectiveEditBarFilters.date_from}
+                        dateTo={effectiveEditBarFilters.date_to}
                         onChange={(from_date, to_date) => {
                             if (dashboardMode !== DashboardMode.Edit) {
                                 setDashboardMode(DashboardMode.Edit, null)
@@ -103,7 +108,7 @@ export function DashboardEditBar(): JSX.Element {
                             setProperties(properties)
                         }}
                         pageKey={'dashboard_' + dashboard?.id}
-                        propertyFilters={temporaryFilters.properties}
+                        propertyFilters={effectiveEditBarFilters.properties}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.PersonProperties,
@@ -120,7 +125,7 @@ export function DashboardEditBar(): JSX.Element {
                     <BindLogic logic={insightLogic} props={insightProps}>
                         <TaxonomicBreakdownFilter
                             insightProps={insightProps}
-                            breakdownFilter={temporaryFilters.breakdown_filter}
+                            breakdownFilter={effectiveEditBarFilters.breakdown_filter}
                             isTrends={false}
                             showLabel={false}
                             updateBreakdownFilter={(breakdown_filter) => {
@@ -139,6 +144,7 @@ export function DashboardEditBar(): JSX.Element {
                                 setBreakdownFilter(saved_breakdown_filter)
                             }}
                             updateDisplay={() => {}}
+                            disablePropertyInfo
                             size="small"
                         />
                     </BindLogic>

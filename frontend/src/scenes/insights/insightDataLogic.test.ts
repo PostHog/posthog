@@ -106,6 +106,7 @@ describe('insightDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
+                            version: 2,
                         },
                     },
                 })

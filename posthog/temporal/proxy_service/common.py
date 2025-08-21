@@ -1,19 +1,22 @@
 import typing as t
 import uuid
 from dataclasses import dataclass
-from posthog.models.organization import Organization
-import posthoganalytics
 
 import grpc.aio
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import connection
+from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
-from posthog.temporal.common.logger import bind_temporal_org_worker_logger
+from posthog.models.organization import Organization
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
+
+LOGGER = get_logger(__name__)
 
 
 async def get_grpc_client():
@@ -88,7 +91,8 @@ async def activity_update_proxy_record(inputs: UpdateProxyRecordInputs):
     """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
     record matching the expected value.
     """
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    bind_contextvars(organization_id=inputs.organization_id)
+    logger = LOGGER.bind()
     logger.info(
         "Updating proxy record %s state to %s with message %s",
         inputs.proxy_record_id,

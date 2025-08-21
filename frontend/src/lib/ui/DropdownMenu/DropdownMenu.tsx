@@ -97,7 +97,7 @@ const DropdownMenuContent = React.forwardRef<
             className,
             children,
             sideOffset = 4,
-            collisionPadding = { top: 50, bottom: 50 },
+            collisionPadding = { top: 50, bottom: 50, left: 10, right: 10 },
             matchTriggerWidth,
             ...props
         },

@@ -13,16 +13,15 @@ from urllib.parse import urljoin
 import aiohttp
 import pyarrow as pa
 import requests
-import structlog
 from django.conf import settings
+from structlog import get_logger
 from temporalio import activity
 
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import get_query_tags, QueryTags, TemporalTags
 import posthog.temporal.common.asyncpa as asyncpa
-from posthog.temporal.common.logger import get_internal_logger
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 
-logger = structlog.get_logger()
+LOGGER = get_logger(__name__)
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -113,7 +112,6 @@ class ChunkBytesAsyncStreamIterator:
         data, end_of_chunk = await self._stream.readchunk()
 
         if data == b"" and end_of_chunk is False and self._stream.at_eof():
-            await logger.adebug("At EOF, stopping chunk iteration")
             raise StopAsyncIteration
 
         return data
@@ -235,9 +233,7 @@ class ClickHouseClient:
         self.ssl = ssl
         self.connector: None | aiohttp.TCPConnector = None
         self.session: None | aiohttp.ClientSession = None
-
-        logger = get_internal_logger()
-        self.logger = logger.bind(url=url, database=database, user=user)
+        self.logger = LOGGER.bind(url=url, database=database, user=user)
 
         if user:
             self.headers["X-ClickHouse-User"] = user
@@ -277,7 +273,7 @@ class ClickHouseClient:
                 raise_for_status=True,
             )
         except aiohttp.ClientResponseError as exc:
-            await self.logger.aexception("Failed ClickHouse liveness check", exc_info=exc)
+            self.logger.exception("Failed ClickHouse liveness check", exc_info=exc)
             return False
         return True
 

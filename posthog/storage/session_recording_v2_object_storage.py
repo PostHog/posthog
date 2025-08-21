@@ -1,4 +1,6 @@
 import abc
+
+import posthoganalytics
 import structlog
 from boto3 import client as boto3_client
 from botocore.client import Config
@@ -132,6 +134,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return snappy.decompress(file_body).decode("utf-8")
 
         except Exception as e:
+            posthoganalytics.tag("bucket", self.bucket)
             logger.exception("Failed to read and decompress file", error=e)
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 

@@ -29,7 +29,7 @@ import { CSS } from '@dnd-kit/utilities'
 import debounce from 'lodash.debounce'
 import isEqual from 'lodash.isequal'
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal, unstable_batchedUpdates } from 'react-dom'
+import { createPortal } from 'react-dom'
 
 import { IconTrash } from '@posthog/icons'
 
@@ -489,13 +489,11 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     function handleAddContainerItem(): void {
         const newItem: Item = createNewContainerItem()
 
-        unstable_batchedUpdates(() => {
-            setContainers((containers) => [...containers, newItem.id])
-            setItems((items) => ({
-                ...items,
-                [newItem.id]: newItem,
-            }))
-        })
+        setContainers((containers) => [...containers, newItem.id])
+        setItems((items) => ({
+            ...items,
+            [newItem.id]: newItem,
+        }))
     }
 
     function handleAddChildItem(containerId: UniqueIdentifier): void {

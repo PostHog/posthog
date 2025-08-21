@@ -303,7 +303,7 @@ export function HogFunctionFilters({
                     name="masking"
                     label="Trigger options"
                     info={`
-                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed. 
+                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed.
                         This is useful for rate limiting the destination for example if you only want to receive one message per day.
                     `}
                 >

@@ -8,28 +8,30 @@ import temporalio.activity
 import temporalio.common
 import temporalio.workflow
 from asgiref.sync import sync_to_async
+from structlog.contextvars import bind_contextvars
 
-from posthog.clickhouse.query_tagging import tag_queries, Product
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.models import Team
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
-from posthog.temporal.session_recordings.queries import get_sampled_session_ids
-from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.models import Team
+from posthog.temporal.common.logger import get_logger
+from posthog.temporal.session_recordings.queries import get_sampled_session_ids, get_session_metadata
+from posthog.temporal.session_recordings.segmentation import compute_active_milliseconds
 from posthog.temporal.session_recordings.session_comparer import (
-    get_url_from_event,
     add_url,
     count_events_per_window,
+    get_console_level,
+    get_url_from_event,
     group_events_by_type,
     is_click,
-    is_mouse_activity,
-    is_keypress,
     is_console_log,
-    get_console_level,
+    is_keypress,
+    is_mouse_activity,
 )
-from posthog.temporal.session_recordings.queries import get_session_metadata
 from posthog.temporal.session_recordings.snapshot_utils import fetch_v1_snapshots, fetch_v2_snapshots
-from posthog.temporal.session_recordings.segmentation import compute_active_milliseconds
+
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -52,7 +54,8 @@ class CompareSampledRecordingEventsActivityInputs:
 @temporalio.activity.defn
 async def compare_sampled_recording_events_activity(inputs: CompareSampledRecordingEventsActivityInputs) -> None:
     """Compare recording events between v1 and v2 storage for a sample of sessions."""
-    logger = get_internal_logger()
+    bind_contextvars()
+    logger = LOGGER.bind()
     start_time = dt.datetime.now()
     tag_queries(product=Product.REPLAY)
 
@@ -616,7 +619,7 @@ class CompareSampledRecordingEventsWorkflow(PostHogWorkflow):
         started_after = dt.datetime.fromisoformat(inputs.started_after)
         started_before = dt.datetime.fromisoformat(inputs.started_before)
 
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
         workflow_start = dt.datetime.now()
 
         logger.info(

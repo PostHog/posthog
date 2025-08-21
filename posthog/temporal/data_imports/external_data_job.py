@@ -6,13 +6,15 @@ import typing
 
 import posthoganalytics
 from django.db import close_old_connections
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
@@ -42,10 +44,11 @@ from posthog.warehouse.data_load.source_templates import (
     create_warehouse_templates_for_source,
 )
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
-from posthog.temporal.common.client import sync_connect
+from posthog.warehouse.types import ExternalDataSourceType
+
+LOGGER = get_logger(__name__)
 
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
@@ -131,7 +134,8 @@ class UpdateExternalDataJobStatusInputs:
 
 @activity.defn
 def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     close_old_connections()
 
@@ -244,7 +248,7 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     schema = ExternalDataSchema.objects.get(id=schedule_id)
-    logger = bind_temporal_worker_logger_sync(team_id=schema.team.pk)
+    logger = LOGGER.bind(team_id=schema.team.pk)
 
     logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
 

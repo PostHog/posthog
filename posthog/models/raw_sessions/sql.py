@@ -549,9 +549,6 @@ SELECT
     argMinMerge(initial_mc_cid) as initial_mc_cid,
     argMinMerge(initial_igshid) as initial_igshid,
     argMinMerge(initial_ttclid) as initial_ttclid,
-    argMinMerge(initial_epik) as initial_epik,
-    argMinMerge(initial_qclid) as initial_qclid,
-    argMinMerge(initial_sccid) as initial_sccid,
     argMinMerge(initial__kx) as initial__kx,
     argMinMerge(initial_irclid) as initial_irclid,
 

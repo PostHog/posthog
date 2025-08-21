@@ -29,7 +29,9 @@
                 }
 
                 > td {
+                    height: 100%;
                     padding: 0.75rem 0;
+                    vertical-align: top;
                 }
             }
         }
@@ -185,6 +187,19 @@
             width: fit-content;
             margin-top: 0;
             font-weight: 600;
+            white-space: normal;
+
+            .EntityFilterInfo {
+                display: -webkit-box;
+                -webkit-line-clamp: 5;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                overflow-wrap: break-word;
+            }
+        }
+
+        .LemonRow__main-area {
+            align-items: flex-start;
         }
     }
 

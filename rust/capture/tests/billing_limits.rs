@@ -350,7 +350,7 @@ async fn test_no_billing_limit_retains_all_events() {
     assert!(event_names.contains(&"click".to_string()));
 }
 
-// Test with /i/v0/e endpoint (handle_common)
+// Test with /i/v0/e endpoint
 #[tokio::test]
 async fn test_billing_limit_retains_survey_events_on_i_endpoint() {
     let token = "test_token_i_endpoint";

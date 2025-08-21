@@ -8,10 +8,10 @@ import uuid
 
 import orjson
 import pyarrow as pa
+from structlog import get_logger
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
-from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 T = typing.TypeVar("T")

@@ -15,6 +15,8 @@ from posthog.clickhouse.query_tagging import Product
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
+from structlog.contextvars import bind_contextvars
+
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportField,
@@ -28,7 +30,7 @@ from posthog.temporal.common.clickhouse import (
     get_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (

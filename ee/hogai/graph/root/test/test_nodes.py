@@ -792,6 +792,49 @@ class TestRootNodeTools(BaseTest):
             self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
+    @patch("ee.hogai.graph.root.nodes.capture_exception")
+    async def test_navigate_tool_error_does_not_raise_node_interrupt(self, mock_capture_exception):
+        """Test that navigate tool errors don't raise NodeInterrupt but return FailureMessage"""
+        node = RootNodeTools(self.team, self.user)
+
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="I'll help you navigate to insights",
+                    id="test-id",
+                    tool_calls=[AssistantToolCall(id="nav-123", name="navigate", args={"page_key": "insights"})],
+                )
+            ]
+        )
+
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+            # Mock the navigate tool to raise an exception
+            mock_navigate_tool = AsyncMock()
+            mock_navigate_tool.ainvoke = AsyncMock(side_effect=Exception("Navigation failed"))
+            mock_navigate_tool.show_tool_call_message = True
+            mock_navigate_tool._state = state
+            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
+
+            # The navigate tool call should NOT raise NodeInterrupt when there's an error
+            result = await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+
+            # Verify capture_exception was called
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertIsInstance(call_args[0][0], Exception)
+            self.assertEqual(call_args[0][0].args[0], "Navigation failed")
+
+            # Verify result is a PartialAssistantState with AssistantToolCallMessage
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertEqual(len(result.messages), 1)
+            failure_message = result.messages[0]
+            assert isinstance(failure_message, AssistantToolCallMessage)
+            self.assertEqual(
+                failure_message.content,
+                "The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+            )
+            self.assertEqual(result.root_tool_calls_count, 1)
+
     async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
         """Test that non-navigate contextual tool calls don't raise NodeInterrupt"""
         node = RootNodeTools(self.team, self.user)
@@ -1319,3 +1362,57 @@ Query results: 42 events
             tools = mock_model.bind_tools.call_args[0][0]
             tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
             self.assertNotIn("session_summarization", tool_names)
+
+    @patch("ee.hogai.graph.root.nodes.capture_exception")
+    async def test_tool_invocation_error_handling(self, mock_capture_exception):
+        """Test that tool invocation errors are properly handled and return FailureMessage"""
+        node = RootNodeTools(self.team, self.user)
+
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Let me search for recordings",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="search-123",
+                            name="search_session_recordings",
+                            args={"change": "test"},
+                        )
+                    ],
+                )
+            ]
+        )
+
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool_class:
+            # Mock the tool class to raise an exception
+            mock_tool_class = AsyncMock()
+            mock_tool_class.ainvoke = AsyncMock(side_effect=Exception("Tool execution failed"))
+            mock_tool_class.show_tool_call_message = True
+            # Set the initial state, but when exception happens, the code should use the FailureMessage path
+            mock_tool_class._state = state
+
+            # Mock get_contextual_tool_class to return a class constructor
+            def MockToolClass(team, user, state):
+                return mock_tool_class
+
+            mock_get_tool_class.return_value = MockToolClass
+
+            result = await node.arun(state, {"configurable": {"contextual_tools": {"search_session_recordings": {}}}})
+
+            # Verify capture_exception was called
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertIsInstance(call_args[0][0], Exception)
+            self.assertEqual(call_args[0][0].args[0], "Tool execution failed")
+
+            # Verify result is a PartialAssistantState with FailureMessage
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertEqual(len(result.messages), 1)
+            failure_message = result.messages[0]
+            assert isinstance(failure_message, AssistantToolCallMessage)
+            self.assertEqual(
+                failure_message.content,
+                "The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+            )
+            self.assertEqual(result.root_tool_calls_count, 1)
