@@ -27,7 +27,11 @@ from posthog.warehouse.api import (
     view_link,
 )
 from posthog.warehouse.api.lineage import LineageViewSet
+<<<<<<< HEAD
 from products.llm_analytics.backend.api import LLMProxyViewSet
+=======
+from products.llm_observability.backend.api import DatasetViewSet, LLMProxyViewSet
+>>>>>>> daa3f79afd (chore: re-organize products/llmo)
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
@@ -812,4 +816,11 @@ projects_router.register(
     flag_value.FlagValueViewSet,
     "project_flag_value",
     ["project_id"],
+)
+
+environments_router.register(
+    r"datasets",
+    DatasetViewSet,
+    "environment_datasets",
+    ["team_id"],
 )
