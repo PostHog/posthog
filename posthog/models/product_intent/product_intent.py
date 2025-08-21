@@ -6,7 +6,7 @@ from django.db import models
 from rest_framework import serializers
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.error_tracking import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey

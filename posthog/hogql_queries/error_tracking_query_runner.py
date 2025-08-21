@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.error_tracking import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue
 from posthog.models.property.util import property_to_django_filter
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.utils import relative_date_parse

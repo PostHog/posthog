@@ -31,7 +31,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.error_tracking import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue
 from posthog.schema import EventsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,

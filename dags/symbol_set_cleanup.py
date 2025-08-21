@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from dags.common import JobOwners
-from posthog.models.error_tracking.error_tracking import ErrorTrackingSymbolSet
+from products.error_tracking.backend.models import ErrorTrackingSymbolSet
 
 
 class SymbolSetSelectionConfig(dagster.Config):

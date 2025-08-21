@@ -31,17 +31,6 @@ from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSymbolSet,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-)
-from products.tasks.backend.models import Task
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -110,6 +99,16 @@ from .web_experiment import WebExperiment
 # Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
+    ErrorTrackingSuppressionRule,
+)
 
 __all__ = [
     "AlertConfiguration",

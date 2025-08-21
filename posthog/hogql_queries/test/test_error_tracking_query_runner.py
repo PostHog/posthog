@@ -18,7 +18,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 from ee.models.rbac.role import Role
-from posthog.models.error_tracking import (
+from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueAssignment,
