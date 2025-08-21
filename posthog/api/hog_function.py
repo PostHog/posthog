@@ -30,9 +30,9 @@ from posthog.cdp.validation import (
     MappingsSerializer,
     compile_hog,
     generate_template_bytecode,
+    has_data_pipelines_addon,
 )
 from posthog.cdp.site_functions import get_transpiled_function
-from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
@@ -157,7 +157,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def to_internal_value(self, data):
         self.initial_data = data
         team = self.context["get_team"]()
-        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        request = self.context.get("request", None)
+        has_addon = has_data_pipelines_addon(team, request.user if request else None)
         bypass_addon_check = self.context.get("bypass_addon_check", False)
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
@@ -265,6 +266,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     )
 
         if attrs.get("mappings", None) is not None:
+            # special case for items that migrate to mappings - we want to make sure event filters are not set
+            if attrs.get("filters", None) is not None:
+                attrs["filters"].pop("events", None)
+                attrs["filters"].pop("actions", None)
+
             if hog_type not in ["site_destination", "destination"]:
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 

@@ -1,29 +1,26 @@
-from freezegun import freeze_time
-from pathlib import Path
-from decimal import Decimal
 import datetime
+from decimal import Decimal
+from pathlib import Path
 from unittest.mock import ANY
 
-from posthog.models.utils import uuid7
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
-    RevenueAnalyticsTopCustomersQueryRunner,
-)
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-)
+from freezegun import freeze_time
 
+from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
     DateRange,
     HogQLQueryModifiers,
+    PropertyOperator,
+    RevenueAnalyticsPropertyFilter,
+    RevenueAnalyticsTopCustomersGroupBy,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
-    RevenueAnalyticsTopCustomersGroupBy,
-    RevenueAnalyticsPropertyFilter,
-    PropertyOperator,
+)
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -33,14 +30,16 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import ExternalDataSchema
-
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
+    RevenueAnalyticsTopCustomersQueryRunner,
+)
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
+    STRIPE_CUSTOMER_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
-    STRIPE_CUSTOMER_COLUMNS,
 )
 
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices"
@@ -190,9 +189,9 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
-            date_range: DateRange = DateRange(date_from="all")
+            date_range = DateRange(date_from="all")
         if group_by is None:
-            group_by: RevenueAnalyticsTopCustomersGroupBy = "month"
+            group_by = RevenueAnalyticsTopCustomersGroupBy.MONTH
         if properties is None:
             properties = []
 
@@ -237,24 +236,26 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 12)
+        self.assertEqual(len(results), 16)
 
     def test_with_data(self):
         results = self._run_revenue_analytics_top_customers_query().results
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 12)
+        self.assertEqual(len(results), 16)
 
     def test_with_data_and_limited_date_range(self):
         results = self._run_revenue_analytics_top_customers_query(
             date_range=DateRange(date_from="2025-02-03", date_to="2025-03-04"),
         ).results
 
-        self.assertEqual(len(results), 5)
+        self.assertEqual(len(results), 6)
 
     def test_with_data_group_by_all(self):
-        results = self._run_revenue_analytics_top_customers_query(group_by="all").results
+        results = self._run_revenue_analytics_top_customers_query(
+            group_by=RevenueAnalyticsTopCustomersGroupBy.ALL
+        ).results
 
         # Only one entry for each customer, sorted by ID
         results = sorted(results, key=lambda x: x[1])
@@ -263,7 +264,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             [
                 ("John Doe", "cus_1", Decimal("529.8954508132"), "all"),
                 ("Jane Doe", "cus_2", Decimal("222.6060849997"), "all"),
-                ("John Smith", "cus_3", Decimal("17453.43924"), "all"),
+                ("John Smith", "cus_3", Decimal("13092.275165"), "all"),
                 ("Jane Smith", "cus_4", Decimal("170.9565"), "all"),
                 ("John Doe Jr", "cus_5", Decimal("1379.39181"), "all"),
                 ("John Doe Jr Jr", "cus_6", Decimal("8756.78246"), "all"),

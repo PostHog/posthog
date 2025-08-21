@@ -1,14 +1,17 @@
 use anyhow::Result;
+use common_types::{CapturedEvent, RawEvent};
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 use rdkafka::{
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     config::ClientConfig,
     consumer::{Consumer, StreamConsumer},
+    message::{Header, Headers, OwnedHeaders},
     producer::{FutureProducer, FutureRecord, Producer},
     util::Timeout,
     Message,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::env;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -58,6 +61,45 @@ async fn create_kafka_topics(topics: Vec<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Helper function to create a test CapturedEvent with embedded RawEvent
+fn create_test_captured_event(
+    distinct_id: &str,
+    event_name: &str,
+    uuid: Uuid,
+    timestamp: u64,
+    properties: HashMap<String, Value>,
+) -> Result<CapturedEvent> {
+    // Create the RawEvent
+    let raw_event = RawEvent {
+        uuid: Some(uuid),
+        distinct_id: Some(Value::String(distinct_id.to_string())),
+        event: event_name.to_string(),
+        timestamp: Some(timestamp.to_string()),
+        token: Some("test_token".to_string()),
+        properties,
+        offset: None,
+        set: None,
+        set_once: None,
+    };
+
+    // Serialize the RawEvent to a string for the data field
+    let data = serde_json::to_string(&raw_event)?;
+
+    // Create the CapturedEvent wrapper
+    let captured_event = CapturedEvent {
+        uuid,
+        distinct_id: distinct_id.to_string(),
+        ip: "127.0.0.1".to_string(),
+        data,
+        now: format!("{timestamp}000"), // timestamp in milliseconds
+        sent_at: None,
+        token: "test_token".to_string(),
+        is_cookieless_mode: false,
+    };
+
+    Ok(captured_event)
+}
+
 /// Produce duplicate events to test deduplication
 async fn produce_duplicate_events(
     topic: &str,
@@ -91,22 +133,35 @@ async fn produce_duplicate_events_with_timestamp(
 
     println!("Producing {count} events to topic {topic}");
     for i in 0..count {
-        let event = json!({
-            "uuid": Uuid::new_v4().to_string(),
-            "distinct_id": distinct_id,
-            "event": event_name,
-            "timestamp": timestamp.to_string(),  // Convert to string
-            "token": "test_token",
-            "properties": {
-                "index": i,
-                "duplicate_test": true,
-            }
-        });
+        let uuid = Uuid::new_v4();
+
+        // Create properties for the event
+        let mut properties = HashMap::new();
+        properties.insert("index".to_string(), json!(i));
+        properties.insert("duplicate_test".to_string(), json!(true));
+
+        // Create the CapturedEvent using our helper
+        let captured_event =
+            create_test_captured_event(distinct_id, event_name, uuid, timestamp, properties)?;
 
         let key = format!("{distinct_id}:{event_name}");
-        let payload = serde_json::to_string(&event)?;
+        let payload = serde_json::to_string(&captured_event)?;
 
-        let record = FutureRecord::to(topic).key(&key).payload(&payload);
+        // Add test headers to verify they're preserved
+        let headers = OwnedHeaders::new()
+            .insert(Header {
+                key: "test-header",
+                value: Some(&format!("test-value-{i}")),
+            })
+            .insert(Header {
+                key: "event-index",
+                value: Some(&i.to_string()),
+            });
+
+        let record = FutureRecord::to(topic)
+            .key(&key)
+            .payload(&payload)
+            .headers(headers);
 
         producer
             .send(record, Timeout::After(Duration::from_secs(5)))
@@ -125,7 +180,7 @@ async fn consume_output_messages(
     topic: &str,
     group_id: &str,
     timeout: Duration,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<(Value, Option<OwnedHeaders>)>> {
     println!("Creating consumer for output topic: {topic}");
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -157,8 +212,9 @@ async fn consume_output_messages(
                 println!("Received a message!");
                 if let Some(payload) = msg.payload() {
                     if let Ok(json) = serde_json::from_slice::<Value>(payload) {
+                        let headers = msg.detach().headers().cloned();
                         println!("Parsed message from output topic");
-                        messages.push(json);
+                        messages.push((json, headers));
                     }
                 }
             }
@@ -269,11 +325,24 @@ async fn test_basic_deduplication() -> Result<()> {
     // Verify the events have different distinct_ids
     let distinct_ids: Vec<&str> = output_messages
         .iter()
-        .filter_map(|msg| msg.get("distinct_id")?.as_str())
+        .filter_map(|(msg, _)| msg.get("distinct_id")?.as_str())
         .collect();
 
     assert!(distinct_ids.contains(&"user_123"));
     assert!(distinct_ids.contains(&"user_456"));
+
+    // Verify headers were preserved
+    for (i, (_, headers)) in output_messages.iter().enumerate() {
+        assert!(headers.is_some(), "Message {i} should have headers");
+        let headers = headers.as_ref().unwrap();
+
+        // Use the iterator to check if our test header exists
+        let has_test_header = headers.iter().any(|h| h.key == "test-header");
+        assert!(
+            has_test_header,
+            "test-header should be preserved in message {i}"
+        );
+    }
 
     Ok(())
 }
@@ -345,14 +414,22 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     );
 
     // Verify we have all three event types
-    let event_names: Vec<&str> = output_messages
+    // Since output is CapturedEvent format, we need to parse the nested RawEvent from the data field
+    let event_names: Vec<String> = output_messages
         .iter()
-        .filter_map(|msg| msg.get("event")?.as_str())
+        .filter_map(|(msg, _)| {
+            // Get the data field which contains the serialized RawEvent
+            let data_str = msg.get("data")?.as_str()?;
+            // Parse the RawEvent from the data field
+            let raw_event: Value = serde_json::from_str(data_str).ok()?;
+            // Get the event name from the RawEvent
+            raw_event.get("event")?.as_str().map(|s| s.to_string())
+        })
         .collect();
 
-    assert!(event_names.contains(&"event_a"));
-    assert!(event_names.contains(&"event_b"));
-    assert!(event_names.contains(&"event_c"));
+    assert!(event_names.contains(&"event_a".to_string()));
+    assert!(event_names.contains(&"event_b".to_string()));
+    assert!(event_names.contains(&"event_c".to_string()));
 
     Ok(())
 }
@@ -500,14 +577,22 @@ async fn test_deduplication_persistence() -> Result<()> {
     );
 
     // Verify we have the right events
-    let events: Vec<&str> = output_messages
+    // Since output is CapturedEvent format, we need to parse the nested RawEvent from the data field
+    let events: Vec<String> = output_messages
         .iter()
-        .filter_map(|msg| msg.get("event")?.as_str())
+        .filter_map(|(msg, _)| {
+            // Get the data field which contains the serialized RawEvent
+            let data_str = msg.get("data")?.as_str()?;
+            // Parse the RawEvent from the data field
+            let raw_event: Value = serde_json::from_str(data_str).ok()?;
+            // Get the event name from the RawEvent
+            raw_event.get("event")?.as_str().map(|s| s.to_string())
+        })
         .collect();
 
-    assert!(events.contains(&"event_a"), "Missing event_a");
-    assert!(events.contains(&"event_b"), "Missing event_b");
-    assert!(events.contains(&"event_c"), "Missing event_c");
+    assert!(events.contains(&"event_a".to_string()), "Missing event_a");
+    assert!(events.contains(&"event_b".to_string()), "Missing event_b");
+    assert!(events.contains(&"event_c".to_string()), "Missing event_c");
 
     println!("✓ Persistence test passed: RocksDB correctly preserved deduplication state across restarts");
 
