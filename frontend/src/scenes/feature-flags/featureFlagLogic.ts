@@ -346,6 +346,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             defaults: {
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+                _should_create_usage_dashboard: true,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
