@@ -1,3 +1,4 @@
+from django.db.models import QuerySet
 import structlog
 from rest_framework import serializers
 from rest_framework.viewsets import ModelViewSet
@@ -13,7 +14,7 @@ class DatasetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dataset
         fields = ["id", "name", "description", "metadata", "created_at", "updated_at", "deleted"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "team", "created_by"]
 
     def create(self, validated_data: dict, *args, **kwargs):
         request = self.context["request"]
@@ -27,4 +28,11 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     serializer_class = DatasetSerializer
     queryset = Dataset.objects.all().exclude(deleted=True)
     param_derived_from_user_current_team = "team_id"
-    filterset_fields = ["name"]
+
+    def safely_get_queryset(self, queryset: QuerySet[Dataset]) -> QuerySet[Dataset]:
+        if self.action == "list":
+            filters = self.request.GET
+            if "name" in filters:
+                queryset = queryset.filter(name__icontains=filters["name"])
+
+        return queryset

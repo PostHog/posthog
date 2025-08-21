@@ -125,3 +125,68 @@ class TestDatasetsApi(APIBaseTest):
         # Verify dataset wasn't modified
         another_dataset.refresh_from_db()
         self.assertEqual(another_dataset.name, "Another Team Dataset")
+
+    def test_post_ignores_created_by(self):
+        self.client.force_login(self.user)
+        another_user = self._create_user("another@example.com")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/datasets/",
+            {
+                "name": "Test Dataset",
+                "description": "Test Description",
+                "metadata": {"key": "value"},
+                "created_by": another_user.id,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        dataset = Dataset.objects.first()
+        assert dataset is not None
+        self.assertEqual(dataset.created_by, self.user)
+
+    def test_patch_ignores_created_by_and_team(self):
+        self.client.force_login(self.user)
+        dataset = Dataset.objects.create(name="Original Name", team=self.team, created_by=self.user)
+        another_user = self._create_user("another@example.com")
+        another_team = Team.objects.create(name="Another Team", organization=self.organization)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/datasets/{dataset.id}/",
+            {
+                "name": "Updated Name",
+                "created_by": another_user.id,
+                "team": another_team.id,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dataset.refresh_from_db()
+        self.assertEqual(dataset.name, "Updated Name")
+        self.assertEqual(dataset.created_by, self.user)
+        self.assertEqual(dataset.team, self.team)
+
+    def test_can_filter_datasets_by_name(self):
+        self.client.force_login(self.user)
+        Dataset.objects.create(name="Alpha", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Beta", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"name": "alph"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["name"], "Alpha")
+
+    def test_new_dataset_is_first_in_list(self):
+        self.client.force_login(self.user)
+
+        Dataset.objects.create(name="Older", team=self.team, created_by=self.user)
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/datasets/",
+            {"name": "Newest"},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        list_response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(list_response.data.get("results", [])), 1)
+        self.assertEqual(list_response.data["results"][0]["name"], "Newest")
