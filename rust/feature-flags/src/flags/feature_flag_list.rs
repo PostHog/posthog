@@ -108,6 +108,7 @@ impl FeatureFlagList {
                         ensure_experience_continuity: row.ensure_experience_continuity,
                         version: row.version,
                         evaluation_runtime: row.evaluation_runtime,
+                        evaluation_tags: row.evaluation_tags,
                     }),
                     Err(e) => {
                         tracing::warn!(

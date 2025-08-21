@@ -27,7 +27,6 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -86,6 +85,7 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -536,17 +536,27 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         <span className="text-secondary">Tags:</span>
                                                     ) : null}{' '}
                                                     {featureFlag.can_edit ? (
-                                                        <ObjectTags
+                                                        <FeatureFlagEvaluationTags
+                                                            featureFlagId={id}
                                                             tags={featureFlag.tags}
-                                                            onChange={(tags) => {
-                                                                saveFeatureFlag({ tags })
+                                                            evaluationTags={featureFlag.evaluation_tags || []}
+                                                            onChange={(tags, evaluationTags) => {
+                                                                saveFeatureFlag({
+                                                                    tags,
+                                                                    evaluation_tags: evaluationTags,
+                                                                })
                                                             }}
                                                             tagsAvailable={tags.filter(
                                                                 (tag: string) => !featureFlag.tags?.includes(tag)
                                                             )}
                                                         />
                                                     ) : featureFlag.tags.length > 0 ? (
-                                                        <ObjectTags tags={featureFlag.tags} staticOnly />
+                                                        <FeatureFlagEvaluationTags
+                                                            featureFlagId={id}
+                                                            tags={featureFlag.tags}
+                                                            evaluationTags={featureFlag.evaluation_tags || []}
+                                                            staticOnly
+                                                        />
                                                     ) : null}
                                                 </>
                                             )}

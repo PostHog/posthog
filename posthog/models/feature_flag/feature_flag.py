@@ -521,3 +521,27 @@ class FeatureFlagDashboards(models.Model):
                 name="unique feature flag for a dashboard",
             )
         ]
+
+
+class FeatureFlagEvaluationTag(models.Model):
+    """
+    Marks an existing tag as also being an evaluation constraint for a feature flag.
+
+    When a tag is marked as an evaluation tag, it serves dual purpose:
+    1. It remains an organizational tag (via the TaggedItem relationship)
+    2. It acts as an evaluation constraint - the flag will only evaluate when
+       the SDK/client provides matching environment tags
+
+    This allows for user-specified evaluation environments like "docs-page",
+    "marketing-site", "app", etc.
+    """
+
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_tags")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="evaluation_flags")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["feature_flag", "tag"]]
+
+    def __str__(self) -> str:
+        return f"{self.feature_flag.key} - {self.tag.name}"

@@ -152,6 +152,7 @@ pub async fn fetch_and_filter(
     query_params: &FlagsQueryParams,
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,
+    environment_tags: Option<&Vec<String>>,
 ) -> Result<(FeatureFlagList, bool), FlagError> {
     let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
@@ -167,15 +168,22 @@ pub async fn fetch_and_filter(
     let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
     let flags_after_runtime_filter =
         filter_flags_by_runtime(flags_after_survey_filter, current_runtime);
+    
+    // Finally filter by evaluation tags
+    let flags_after_tag_filter = filter_flags_by_evaluation_tags(
+        flags_after_runtime_filter,
+        environment_tags,
+    );
 
     tracing::debug!(
-        "Runtime filtering: detected_runtime={:?}, flags_count={}",
+        "Flag filtering: detected_runtime={:?}, environment_tags={:?}, final_count={}",
         current_runtime,
-        flags_after_runtime_filter.len()
+        environment_tags,
+        flags_after_tag_filter.len()
     );
 
     Ok((
-        FeatureFlagList::new(flags_after_runtime_filter),
+        FeatureFlagList::new(flags_after_tag_filter),
         flag_result.had_deserialization_errors,
     ))
 }
@@ -190,6 +198,39 @@ fn filter_survey_flags(flags: Vec<FeatureFlag>, only_survey_flags: bool) -> Vec<
             .collect()
     } else {
         flags
+    }
+}
+
+/// Filters flags based on evaluation tags.
+/// Only includes flags that either:
+/// 1. Have no evaluation tags (backward compatibility)
+/// 2. Have at least one evaluation tag that matches the provided environment tags
+fn filter_flags_by_evaluation_tags(
+    flags: Vec<FeatureFlag>,
+    environment_tags: Option<&Vec<String>>,
+) -> Vec<FeatureFlag> {
+    match environment_tags {
+        None | Some(tags) if tags.is_empty() => {
+            // If no environment tags provided, include all flags
+            flags
+        }
+        Some(env_tags) => {
+            flags
+                .into_iter()
+                .filter(|flag| {
+                    match &flag.evaluation_tags {
+                        None | Some(tags) if tags.is_empty() => {
+                            // Flag has no evaluation tags, so it's not restricted
+                            true
+                        }
+                        Some(flag_tags) => {
+                            // Flag has evaluation tags, check if any match the environment tags
+                            flag_tags.iter().any(|tag| env_tags.contains(tag))
+                        }
+                    }
+                })
+                .collect()
+        }
     }
 }
 
