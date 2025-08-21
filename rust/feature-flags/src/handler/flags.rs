@@ -207,29 +207,19 @@ fn filter_flags_by_evaluation_tags(
     flags: Vec<FeatureFlag>,
     environment_tags: Option<&Vec<String>>,
 ) -> Vec<FeatureFlag> {
-    match environment_tags {
-        None | Some(tags) if tags.is_empty() => {
-            // If no environment tags provided, include all flags
-            flags
-        }
-        Some(env_tags) => {
-            flags
-                .into_iter()
-                .filter(|flag| {
-                    match &flag.evaluation_tags {
-                        None | Some(tags) if tags.is_empty() => {
-                            // Flag has no evaluation tags, so it's not restricted
-                            true
-                        }
-                        Some(flag_tags) => {
-                            // Flag has evaluation tags, check if any match the environment tags
-                            flag_tags.iter().any(|tag| env_tags.contains(tag))
-                        }
-                    }
-                })
-                .collect()
-        }
-    }
+    let env_tags = match environment_tags {
+        Some(t) if !t.is_empty() => t,
+        _ => return flags,
+    };
+
+    flags
+        .into_iter()
+        .filter(|flag| match &flag.evaluation_tags {
+            None => true,
+            Some(flag_tags) if flag_tags.is_empty() => true,
+            Some(flag_tags) => flag_tags.iter().any(|tag| env_tags.contains(tag)),
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -291,6 +281,7 @@ mod tests {
             ensure_experience_continuity: None,
             version: None,
             evaluation_runtime,
+            evaluation_tags: None,
         }
     }
 
