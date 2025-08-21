@@ -784,7 +784,7 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="saved-insights">
+        <SceneContent className={cn('saved-insights', !newSceneLayout && 'block')}>
             <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <SceneTitleSection
                 name="Product analytics"
