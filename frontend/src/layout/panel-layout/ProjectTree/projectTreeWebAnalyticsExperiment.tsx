@@ -5,7 +5,7 @@ import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { PRODUCT_ANALYTICS_PRODUCT_TREE_NAME } from '~/../../products/product_analytics/manifest'
 import { WEB_ANALYTICS_PRODUCT_TREE_NAME } from '~/../../products/web_analytics/manifest'
 
-const EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS = [
+const EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS: string[] = [
     PRODUCT_ANALYTICS_PRODUCT_TREE_NAME,
     WEB_ANALYTICS_PRODUCT_TREE_NAME,
 ] as const
@@ -20,8 +20,8 @@ export const getSortOverride = (featureFlags: FeatureFlagsSet) => {
             return null
         }
 
-        const aIndex = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS.indexOf(a.name as any)
-        const bIndex = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS.indexOf(b.name as any)
+        const aIndex = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS.indexOf(a.name)
+        const bIndex = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS.indexOf(b.name)
 
         // If both are in prioritized list, sort by their position on our priority list
         if (aIndex !== -1 && bIndex !== -1) {
