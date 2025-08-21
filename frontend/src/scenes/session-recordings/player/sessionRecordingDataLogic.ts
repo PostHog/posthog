@@ -84,8 +84,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         maybeLoadRecordingMeta: true,
         loadRecordingComments: true,
         loadRecordingNotebookComments: true,
-        loadSnapshots: true,
-        loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
+        loadSnapshots: (targetTimestamp?: number) => ({ targetTimestamp }),
+        loadTargetedSnapshot: (targetTimestamp: number) => ({ targetTimestamp }),
+        loadSnapshotSources: (breakpointLength?: number, targetTimestamp?: number) => ({
+            breakpointLength,
+            targetTimestamp,
+        }),
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
@@ -208,10 +212,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshotSources: [
             null as SessionRecordingSnapshotSource[] | null,
             {
-                loadSnapshotSources: async ({ breakpointLength }, breakpoint) => {
+                loadSnapshotSources: async (payload, breakpoint) => {
+                    const { breakpointLength, targetTimestamp } = payload || {}
                     if (breakpointLength) {
                         await breakpoint(breakpointLength)
                     }
+
+                    // Store targetTimestamp in cache for the success listener
+                    cache.loadSnapshotsTargetTimestamp = targetTimestamp
 
                     const headers: Record<string, string> = {}
                     if (props.accessToken) {
@@ -489,9 +497,15 @@ AND properties.$lib != 'web'`
             }
         },
         loadSnapshots: () => {
-            // This kicks off the loading chain
+            // This kicks off the loading chain (full loading)
             if (!values.snapshotSourcesLoading) {
                 actions.loadSnapshotSources()
+            }
+        },
+        loadTargetedSnapshot: ({ targetTimestamp }) => {
+            // This kicks off targeted loading for a specific timestamp
+            if (!values.snapshotSourcesLoading) {
+                actions.loadSnapshotSources(undefined, targetTimestamp)
             }
         },
         maybeLoadRecordingMeta: () => {
@@ -516,7 +530,31 @@ AND properties.$lib != 'web'`
         },
 
         loadSnapshotSourcesSuccess: () => {
-            // When we receive the list of sources, we can kick off the loading chain
+            // Check if we're doing targeted loading for a specific timestamp
+            const targetTimestamp = cache.loadSnapshotsTargetTimestamp
+            // Clear the cache to avoid affecting future calls
+            cache.loadSnapshotsTargetTimestamp = undefined
+
+            if (targetTimestamp && values.snapshotSources) {
+                // Find the source that contains the target timestamp
+                const targetSource = values.snapshotSources.find((source) => {
+                    // For blob sources, we need to check if timestamp falls within source range
+                    if (source.start_timestamp && source.end_timestamp) {
+                        return targetTimestamp >= source.start_timestamp && targetTimestamp <= source.end_timestamp
+                    }
+                    // For sources without explicit ranges, we'll load the first available one
+                    // This handles edge cases where timestamp info might not be available
+                    return true
+                })
+
+                if (targetSource) {
+                    // Load only the specific source containing our target timestamp
+                    actions.loadSnapshotsForSource([targetSource])
+                    return
+                }
+            }
+
+            // Default behavior: load all sources sequentially
             actions.loadNextSnapshotSource()
         },
 
