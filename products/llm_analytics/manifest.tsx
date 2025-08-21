@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -49,13 +51,20 @@ export const manifest: ProductManifest = {
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
     },
     redirects: {
-        '/llm-observability': '/llm-analytics',
-        '/llm-observability/dashboard': '/llm-analytics/dashboard',
-        '/llm-observability/generations': '/llm-analytics/generations',
-        '/llm-observability/traces': '/llm-analytics/traces',
-        '/llm-observability/traces/:id': '/llm-analytics/traces/:id',
-        '/llm-observability/users': '/llm-analytics/users',
-        '/llm-observability/playground': '/llm-analytics/playground',
+        '/llm-observability': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics`, searchParams, hashParams).url,
+        '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
+        '/llm-observability/generations': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/generations`, searchParams, hashParams).url,
+        '/llm-observability/traces': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/traces`, searchParams, hashParams).url,
+        '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/traces/${params.id}`, searchParams, hashParams).url,
+        '/llm-observability/users': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/users`, searchParams, hashParams).url,
+        '/llm-observability/playground': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
     },
     urls: {
         llmAnalyticsDashboard: (): string => '/llm-analytics',
