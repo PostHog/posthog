@@ -142,7 +142,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
             result = self.auth.authenticate(request)
             self.assertEqual(result, (self.user, None))
 
-    @patch("loginas.utils.is_impersonated_session")
+    @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_allows_when_organization_not_enforce_2fa(self, mock_is_impersonated):
         mock_is_impersonated.return_value = False
         org_no_2fa = Mock(spec=Organization)
@@ -232,7 +232,6 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         mock_default_device.return_value = None
 
         non_whitelisted_paths = [
-            "/api/users/@me/",
             "/api/projects/1/insights/",
             "/dashboard/123",
             "/insights/abc123",
@@ -385,7 +384,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         auth = SessionAuthentication()
 
         request_factory = RequestFactory()
-        http_request = request_factory.get("/api/users/@me/")
+        http_request = request_factory.get("/api/organizations/")
 
         user = Mock(is_authenticated=True, is_active=True)
         org = Mock(spec=Organization)
@@ -398,7 +397,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         http_request.session.save()
         self._set_session_after_enforcement_date(http_request)
 
-        request = self.factory.get("/api/users/@me/")
+        request = self.factory.get("/api/organizations/")
         request._request = http_request
 
         with (
