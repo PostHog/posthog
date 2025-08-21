@@ -10,6 +10,8 @@ import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import type { appMetricsLogicType } from './appMetricsLogicType'
 
+const DEFAULT_INTERVAL = 'hour'
+
 export type AppMetricsCommonParams = {
     appSource?: string
     appSourceId?: string
@@ -44,7 +46,6 @@ const loadAppMetricsTimeSeries = async (
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
     const interval = request.interval || 'hour'
-    request.dateTo = request.dateTo ?? dayjs().tz(timezone).endOf(interval).toISOString()
 
     let query = hogql`
         WITH
@@ -159,13 +160,8 @@ const loadAppMetricsTimeSeries = async (
     }
 }
 
-const convertDateToAbsoluteParams = (date: string | undefined, timezone: string): string | undefined => {
-    if (!date) {
-        return undefined
-    }
-
-    const value = dateStringToDayJs(date, timezone)?.toISOString()
-    return value
+const convertDateFieldToDayJs = (date: string, timezone: string): dayjs.Dayjs => {
+    return dateStringToDayJs(date, timezone) ?? dayjs().tz(timezone)
 }
 
 // IDEA - have a generic helper logic that can be used anywhere for rendering metrics
@@ -182,8 +178,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     reducers(({ props }) => ({
         params: [
             {
-                interval: 'hour',
-                dateFrom: '-24h',
+                interval: DEFAULT_INTERVAL,
+                dateFrom: '-7d',
                 ...props.defaultParams,
                 ...props.forceParams,
             } as Partial<AppMetricsCommonParams>,
@@ -197,16 +193,11 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             null as AppMetricsTimeSeriesResponse | null,
             {
                 loadAppMetricsTrends: async () => {
+                    const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
-                        dateFrom: convertDateToAbsoluteParams(
-                            values.params.dateFrom ?? '-7d',
-                            values.currentTeam?.timezone ?? 'UTC'
-                        ),
-                        dateTo: convertDateToAbsoluteParams(
-                            values.params.dateTo,
-                            values.currentTeam?.timezone ?? 'UTC'
-                        ),
+                        dateFrom: dateRange.dateFrom.toISOString(),
+                        dateTo: dateRange.dateTo.toISOString(),
                     }
 
                     return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
@@ -217,17 +208,14 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             null as AppMetricsTimeSeriesResponse | null,
             {
                 loadAppMetricsTrendsPreviousPeriod: async () => {
+                    const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
-                        dateFrom: convertDateToAbsoluteParams(
-                            values.params.dateFrom ?? '-7d',
-                            values.currentTeam?.timezone ?? 'UTC'
-                        ),
-                        dateTo: convertDateToAbsoluteParams(
-                            values.params.dateTo,
-                            values.currentTeam?.timezone ?? 'UTC'
-                        ),
+                        dateFrom: dateRange.dateFrom.subtract(dateRange.diffMs).toISOString(),
+                        dateTo: dateRange.dateTo.subtract(dateRange.diffMs).toISOString(),
                     }
+
+                    console.log('params previous', params, dateRange.diffMs)
                     return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
                 },
             },
@@ -267,15 +255,29 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                     }
                 },
         ],
+
+        getDateRangeAbsolute: [
+            (s) => [s.params, s.currentTeam],
+            (params, currentTeam) => (): { dateFrom: dayjs.Dayjs; dateTo: dayjs.Dayjs; diffMs: number } => {
+                const dateFrom = convertDateFieldToDayJs(params.dateFrom ?? '-7d', currentTeam?.timezone ?? 'UTC')
+                const dateTo = params.dateTo
+                    ? convertDateFieldToDayJs(params.dateTo, currentTeam?.timezone ?? 'UTC')
+                    : dayjs()
+                          .tz(currentTeam?.timezone ?? 'UTC')
+                          .endOf(params.interval ?? DEFAULT_INTERVAL)
+
+                const diffMs = dateTo.diff(dateFrom)
+
+                return { dateFrom, dateTo, diffMs }
+            },
+        ],
     })),
 
     listeners(({ actions, values, props }) => ({
         setParams: async (_, breakpoint) => {
             await breakpoint(100)
-            console.log('setParams', props.loadOnChanges, values.params)
             if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
-                    console.log('loading app metrics trends')
                     actions.loadAppMetricsTrends()
                     actions.loadAppMetricsTrendsPreviousPeriod()
                 }
