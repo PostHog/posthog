@@ -45,6 +45,11 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                 WHERE timestamp >= now() - interval 7 day
                   AND timestamp <= now()
                   AND $session_id IN (SELECT session_id FROM recorded_sessions)
+                  -- including events when querying the events table is always _much_ faster,
+                  -- but we don't know what events an account will have
+                  -- so we just include the most common ones
+                  -- this won't work for everyone but then that's try with the poorly performing query
+                  -- that this replaces, so it's at least no worse 🙈
                   AND event IN ('$pageview', '$screen', '$autocapture', '$feature_flag_called', '$pageleave', '$identify', '$web_vitals', '$set', 'Application Opened', 'Application Backgrounded')
                 GROUP BY $session_id
             )
