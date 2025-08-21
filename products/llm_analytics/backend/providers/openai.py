@@ -1,19 +1,20 @@
 import json
+import logging
+import uuid
 from collections.abc import Generator
-from django.conf import settings
+from typing import Any
+
 import posthoganalytics
-from posthoganalytics.ai.openai import OpenAI
 from anthropic.types import MessageParam
-from openai.types import ReasoningEffort, CompletionUsage
+from django.conf import settings
+from openai.types import CompletionUsage, ReasoningEffort
 from openai.types.chat import (
     ChatCompletionDeveloperMessageParam,
     ChatCompletionSystemMessageParam,
 )
-import logging
-import uuid
-from typing import Any
+from posthoganalytics.ai.openai import OpenAI
 
-from products.llm_observability.providers.formatters.openai_formatter import convert_to_openai_messages
+from products.llm_analytics.backend.providers.formatters.openai_formatter import convert_to_openai_messages
 
 logger = logging.getLogger(__name__)
 

@@ -77,7 +77,7 @@
         "@posthog/products-groups": "workspace:*",
         "@posthog/products-tasks": "workspace:*",
         "@posthog/products-links": "workspace:*",
-        "@posthog/products-llm-observability": "workspace:*",
+        "@posthog/products-llm-analytics": "workspace:*",
         "@posthog/products-logs": "workspace:*",
         "@posthog/products-managed-migrations": "workspace:*",
         "@posthog/products-messaging": "workspace:*",
