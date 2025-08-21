@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -34,7 +35,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleAccessControlLogic']),
     connect(() => ({
         values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
-        actions: [membersLogic, ['ensureAllMembersLoaded']],
+        actions: [membersLogic, ['ensureAllMembersLoaded'], organizationLogic, ['loadCurrentOrganization']],
     })),
     actions({
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
@@ -168,6 +169,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             actions.loadRoles()
             actions.setEditingRoleId(null)
             actions.selectRoleId(null)
+            actions.loadCurrentOrganization()
         },
 
         setEditingRoleId: () => {

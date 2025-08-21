@@ -168,12 +168,10 @@ pub async fn fetch_and_filter(
     let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
     let flags_after_runtime_filter =
         filter_flags_by_runtime(flags_after_survey_filter, current_runtime);
-    
+
     // Finally filter by evaluation tags
-    let flags_after_tag_filter = filter_flags_by_evaluation_tags(
-        flags_after_runtime_filter,
-        environment_tags,
-    );
+    let flags_after_tag_filter =
+        filter_flags_by_evaluation_tags(flags_after_runtime_filter, environment_tags);
 
     tracing::debug!(
         "Flag filtering: detected_runtime={:?}, environment_tags={:?}, final_count={}",
