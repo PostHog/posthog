@@ -5679,6 +5679,16 @@ export interface DataWarehouseDailyRowsBreakdown {
     breakdown_of_rows_by_day: Array<{
         date: string
         rows_synced: number
+        runs: Array<{
+            id: string
+            rows_synced: number
+            status: string
+            created_at: string
+            finished_at: string | null
+            schema_name: string
+            source_type: string
+            workflow_run_id: string
+        }>
     }>
 }
 
