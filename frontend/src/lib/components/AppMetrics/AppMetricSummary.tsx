@@ -30,8 +30,8 @@ export function AppMetricSummary({
     }, [timeSeries])
 
     return (
-        <div className="flex flex-1 flex-col relative border rounded p-2 bg-surface-primary min-w-[16rem] max-w-[24rem]">
-            <div className="flex flex-row justify-between items-center">
+        <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem] max-w-[24rem]">
+            <div className="flex flex-row justify-between items-start">
                 <LemonLabel info={description}>{name}</LemonLabel>
                 <div className="text-right text-2xl text-muted-foreground">{humanFriendlyNumber(total)}</div>
             </div>

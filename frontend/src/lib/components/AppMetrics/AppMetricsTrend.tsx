@@ -59,7 +59,7 @@ export function AppMetricsTrend({
                         beginAtZero: true,
                         ticks: {
                             maxRotation: 0,
-                            display: true,
+                            display: false,
                             callback: function (value, index, ticks) {
                                 // Show only first and last labels in compact mode
                                 const res =
@@ -67,7 +67,6 @@ export function AppMetricsTrend({
                                         ? this.getLabelForValue(Number(value))
                                         : undefined
 
-                                console.log({ res, value, index, ticks })
                                 return res
                             },
                         },

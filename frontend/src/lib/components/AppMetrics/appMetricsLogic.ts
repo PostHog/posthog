@@ -191,10 +191,14 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                     if (!appMetricsTrends) {
                         return null
                     }
-                    const series = appMetricsTrends.series.find((s) => s.name === name)
+                    const series = appMetricsTrends.series.find((s) => s.name === name) || {
+                        name,
+                        values: Array.from({ length: appMetricsTrends.labels.length }, () => 0),
+                    }
+
                     return {
                         labels: appMetricsTrends.labels,
-                        series: series ? [series] : [],
+                        series: [series],
                     }
                 },
         ],
