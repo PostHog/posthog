@@ -5,6 +5,7 @@ use anyhow::Error;
 use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
 
+use crate::cache::{AmplitudeIdentifyCache, MemoryAmplitudeIdentifyCache};
 use crate::config::Config;
 
 pub struct AppContext {
@@ -14,6 +15,7 @@ pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub running: AtomicBool, // Set to false on SIGTERM, etc.
     pub worker_liveness: Arc<HealthHandle>,
+    pub amplitude_identify_cache: Arc<dyn AmplitudeIdentifyCache>,
 }
 
 impl AppContext {
@@ -40,6 +42,7 @@ impl AppContext {
             health_registry,
             running: AtomicBool::new(true),
             worker_liveness: liveness,
+            amplitude_identify_cache: Arc::new(MemoryAmplitudeIdentifyCache::new()),
         };
 
         Ok(ctx)
