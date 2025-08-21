@@ -107,7 +107,8 @@ pub async fn flags(
                 StatusCode::OK,
                 [("content-type", "application/json")],
                 axum::body::Body::empty(),
-            ).into_response();
+            )
+                .into_response();
             return Ok(response);
         }
         Method::OPTIONS => {

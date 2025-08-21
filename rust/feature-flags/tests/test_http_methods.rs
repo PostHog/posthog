@@ -66,5 +66,3 @@ async fn it_handles_http_methods_correctly() -> Result<()> {
 
     Ok(())
 }
-
-
