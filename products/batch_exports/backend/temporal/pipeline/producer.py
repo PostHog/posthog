@@ -3,9 +3,9 @@ import typing
 
 from aiobotocore.response import StreamingBody
 from django.conf import settings
+from structlog import get_logger
 
 import posthog.temporal.common.asyncpa as asyncpa
-from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     get_s3_client,
     get_s3_staging_folder,

@@ -12,6 +12,7 @@ from django.conf import settings
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -26,9 +27,8 @@ from posthog.batch_exports.service import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
+    get_produce_only_logger,
+    get_write_only_logger,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -89,8 +89,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "MissingRequiredPermissionsError",
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 
 class MissingRequiredPermissionsError(Exception):

@@ -166,6 +166,19 @@
             align-items: center;
         }
 
+        /* Standard transitions - optimized for survey UX */
+        label,
+        input[type='checkbox'],
+        input[type='radio'],
+        input[type='text'],
+        textarea,
+        .ratings-emoji,
+        .ratings-number,
+        .footer-branding,
+        .form-cancel,
+        .form-submit {
+            transition: all 0.2s ease-out;
+        }
 
         /* Input Styling */
         textarea,
@@ -175,7 +188,6 @@
             padding: 1rem;
             font-size: 1rem;
             line-height: 1.5;
-            transition: all 0.2s ease;
             background: var(--ph-survey-input-background);
             color: var(--ph-survey-text-primary-color);
             width: 100%;
@@ -221,7 +233,6 @@
             border-radius: var(--ph-survey-border-radius);
             padding: 0.875rem 1.25rem;
             cursor: pointer;
-            transition: all 0.2s ease;
             background: white;
             font-size: 1rem;
             min-height: 56px;
@@ -257,7 +268,6 @@
             cursor: pointer;
             border-radius: 3px;
             flex-shrink: 0;
-            transition: all 0.2s ease;
             position: relative;
             margin: 0;
         }
@@ -327,7 +337,6 @@
             cursor: pointer;
             color: var(--ph-survey-rating-button-text-color);
             font-weight: 600;
-            transition: all 0.2s ease;
             font-family: var(--ph-survey-font-family);
         }
 
@@ -344,6 +353,36 @@
             color: var(--ph-survey-rating-button-active-text-color);
         }
 
+        .rating-options-emoji {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .ratings-emoji {
+            font-size: 16px;
+            background-color: transparent;
+            border: none;
+            padding: 0;
+            opacity: 0.5;
+        }
+
+        .ratings-emoji:hover {
+            cursor: pointer;
+            transform: scale(1.15);
+            opacity: 1;
+        }
+
+        .ratings-emoji.rating-active {
+            opacity: 1;
+        }
+
+        .ratings-emoji svg {
+            fill: var(--ph-survey-text-primary-color);
+            /* Smooth color transitions */
+            transition: fill 0.2s ease-out;
+        }
+
+
         /* Button Styling */
         .form-submit {
             background: var(--ph-survey-submit-button-color);
@@ -354,7 +393,6 @@
             font-weight: 600;
             color: var(--ph-survey-submit-button-text-color);
             cursor: pointer;
-            transition: all 0.2s ease;
             width: 100%;
             margin-top: 1rem;
             font-family: var(--ph-survey-font-family);
@@ -385,7 +423,6 @@
             align-items: center;
             text-decoration: none;
             opacity: 0.6;
-            transition: all 0.2s ease;
             color: var(--ph-survey-text-subtle-color);
             font-family: var(--ph-survey-font-family);
         }
