@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -20,14 +19,14 @@ class ReplayActiveUsersQueryRunner(AnalyticsQueryRunner[ReplayActiveUsersQueryRe
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
-        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+        return last_refresh + timedelta(hours=1)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # Use Python's datetime.now() which respects frozen time in tests
         now = datetime.now()
-        week_ago = now - timedelta(days=7)
 
-        query = f"""
+        query = """
             WITH
             counted_sessions AS (
                 SELECT
@@ -35,8 +34,8 @@ class ReplayActiveUsersQueryRunner(AnalyticsQueryRunner[ReplayActiveUsersQueryRe
                     any(distinct_id) AS sess_di,
                     count() AS c
                 FROM raw_session_replay_events
-                WHERE min_first_timestamp <= toDateTime('{now.isoformat()}')
-                  AND min_first_timestamp >= toDateTime('{week_ago.isoformat()}')
+                WHERE min_first_timestamp >= {python_now} - interval 7 day
+                  AND min_first_timestamp <= {python_now}
                 GROUP BY session_id
                 HAVING date_diff('second', min(min_first_timestamp), max(max_last_timestamp)) > 5
             ),
@@ -47,8 +46,8 @@ class ReplayActiveUsersQueryRunner(AnalyticsQueryRunner[ReplayActiveUsersQueryRe
                     any(person_id) as person_id,
                     any(person.properties) as pp
                 FROM events
-                WHERE timestamp <= toDateTime('{now.isoformat()}')
-                  AND timestamp >= toDateTime('{week_ago.isoformat()}')
+                WHERE timestamp >= {python_now} - interval 7 day
+                  AND timestamp <= {python_now}
                   AND $session_id IN (SELECT session_id FROM counted_sessions)
                   AND event IN ('$pageview', '$screen', '$autocapture', '$feature_flag_called', '$pageleave', '$identify', '$web_vitals', '$set', 'Application Opened', 'Application Backgrounded')
                 GROUP BY $session_id
@@ -67,7 +66,9 @@ class ReplayActiveUsersQueryRunner(AnalyticsQueryRunner[ReplayActiveUsersQueryRe
         """
 
         with self.timings.measure("parse_select"):
-            parsed_select = parse_select(query, timings=self.timings)
+            parsed_select = parse_select(
+                query, placeholders={"python_now": ast.Constant(value=now)}, timings=self.timings
+            )
 
         return parsed_select
 
