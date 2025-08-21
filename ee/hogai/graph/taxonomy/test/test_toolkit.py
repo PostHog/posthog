@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from unittest.mock import Mock, patch
 from parameterized import parameterized
 from datetime import datetime
@@ -7,7 +8,6 @@ from pydantic import BaseModel
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from posthog.models import Action
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
@@ -48,7 +48,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
     def test_entity_names_with_groups(self):
         # Create group type mappings
         for i, group_type in enumerate(["organization", "project"]):
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
             )
 
@@ -136,7 +136,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         self.assertIn("properties", result)
 
     def test_retrieve_entity_properties_group(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
         )
         self._create_property_definition(PropertyDefinition.Type.GROUP, "org_name", group_type_index=0)

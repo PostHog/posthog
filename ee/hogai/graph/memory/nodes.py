@@ -292,9 +292,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
         return "continue"
@@ -323,9 +321,7 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         # Compress the question/answer memory before saving it
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -353,9 +349,6 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
         if state.root_tool_insight_plan:
             return "insights"
         return "continue"
