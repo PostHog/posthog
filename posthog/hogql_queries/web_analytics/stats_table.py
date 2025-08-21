@@ -695,9 +695,28 @@ GROUP BY session_id, breakdown_value
                 return ast.Field(chain=["session", "$last_external_click_url"])
             case WebStatsBreakdown.PREVIOUS_PAGE:
                 return ast.Call(
-                    name="coalesce",
+                    name="multiIf",
                     args=[
+                        # if it's internal navigation within a SPA, use the previous pageview's pathname
+                        ast.Call(
+                            name="isNotNull",
+                            args=[ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])],
+                        ),
                         self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])),
+                        # if it's internal navigation but not within a SPA, the referrer will be on the same domain, and path cleaning should still be applied
+                        ast.Call(
+                            name="equals",
+                            args=[
+                                ast.Call(
+                                    name="domain", args=[ast.Field(chain=["events", "properties", "$current_url"])]
+                                ),
+                                ast.Call(name="domain", args=[ast.Field(chain=["events", "properties", "$referrer"])]),
+                            ],
+                        ),
+                        self._apply_path_cleaning(
+                            ast.Call(name="path", args=[ast.Field(chain=["events", "properties", "$referrer"])])
+                        ),
+                        # a visit from an external domain
                         ast.Field(chain=["events", "properties", "$referrer"]),
                     ],
                 )
