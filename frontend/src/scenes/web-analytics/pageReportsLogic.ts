@@ -167,7 +167,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.compareFilter,
-                s.webAnalyticsFilters,
                 s.isPathCleaningEnabled,
             ],
             (
@@ -177,7 +176,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 shouldFilterTestAccounts: boolean,
                 compareFilter: CompareFilter,
-                webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
