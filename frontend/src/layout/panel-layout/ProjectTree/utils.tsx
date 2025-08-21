@@ -23,6 +23,7 @@ export interface ConvertProps {
     users?: Record<string, UserBasicType>
     foldersFirst?: boolean
     allShortcuts?: boolean
+    customSort?: (a: TreeDataItem, b: TreeDataItem) => number | null
 }
 
 export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
@@ -93,6 +94,7 @@ export function convertFileSystemEntryToTreeDataItem({
     users,
     foldersFirst = true,
     allShortcuts = false,
+    customSort,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
@@ -257,6 +259,13 @@ export function convertFileSystemEntryToTreeDataItem({
     // Helper function to sort nodes (and their children) alphabetically by name.
     const sortNodes = (nodes: TreeDataItem[]): void => {
         nodes.sort((a, b) => {
+            if (customSort) {
+                const customResult = customSort(a, b)
+                if (customResult !== null) {
+                    return customResult
+                }
+            }
+
             // If they have a category, sort by that
             if (a.record?.category && b.record?.category && a.record.category !== b.record.category) {
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
