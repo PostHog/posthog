@@ -87,7 +87,7 @@ where
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
-    // flags endpoint - handle all HTTP methods
+    // flags endpoint
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
