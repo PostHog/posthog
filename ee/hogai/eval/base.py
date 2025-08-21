@@ -44,7 +44,7 @@ async def BaseMaxEval(
         scores=scores,
         trial_count=trial_count,
         timeout=timeout,
-        max_concurrency=20,
+        max_concurrency=100,
         is_public=is_public or False,
         metadata=metadata,
     )
