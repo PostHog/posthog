@@ -4,6 +4,7 @@ import os
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime, UTC
 from json import JSONDecodeError
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
@@ -68,7 +69,7 @@ from tenacity import retry, wait_random_exponential, retry_if_exception_type, st
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.storage import session_recording_v2_object_storage
+from posthog.storage import session_recording_v2_object_storage, object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -101,6 +102,10 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
     labelnames=["blob_version"],
+)
+
+LOADING_V1_LTS_COUNTER = Counter(
+    "session_snapshots_loading_v1_lts_counter", "Count of times we loaded a v1 recording from the lts path"
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
@@ -1061,19 +1066,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         sources: list[dict] = []
 
         with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2").time():
-            # TODO: how long do we need to support v1 LTS for?
-            # TODO: will have to be from 12 months from definite cut-off
-            # TODO: where object_storage_path and not full_recording_v2_path
-            # TODO: then we still load the LTS v1 and increment the counter
-            # if recording.object_storage_path:
-            #     LOADING_V1_LTS_COUNTER.inc()
-            #     # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
-            #     # /data has 1 to n files (it should be 1, but we support multiple files)
-            #     # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
-            #     blob_prefix = recording.object_storage_path
-            #     blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-            #     might_have_realtime = False
-
             with posthoganalytics.new_context():
                 posthoganalytics.tag("gather_session_recording_sources_version", "2")
                 if recording.full_recording_v2_path:
@@ -1092,6 +1084,31 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         )
                     except Exception as e:
                         capture_exception(e)
+                elif recording.object_storage_path:
+                    """
+                    there is no full_recording_v2_path, but there is a v1 LTS recording path
+                    need to support these until we move them or aug 2026 whichever happens first
+                    """
+                    LOADING_V1_LTS_COUNTER.inc()
+                    # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
+                    # /data has 1 to n files (it should be 1, but we support multiple files)
+                    # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
+                    blob_prefix = recording.object_storage_path
+                    blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                    for full_key in blob_keys:
+                        # Keys are like 1619712000-1619712060
+                        blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
+                        blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
+                        time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
+
+                        sources.append(
+                            {
+                                "source": "blob",
+                                "start_timestamp": time_range[0],
+                                "end_timestamp": time_range.pop(),
+                                "blob_key": blob_key,
+                            }
+                        )
                 else:
                     with timer("list_blocks__gather_session_recording_sources"):
                         blocks = list_blocks(recording)

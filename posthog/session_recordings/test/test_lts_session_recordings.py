@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 from freezegun import freeze_time
 from rest_framework import status
@@ -119,3 +119,60 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"timestamp": 2000, "type": "snapshot2"}
         """
         )
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    def test_can_still_load_v1_lts_recording_when_necessary(
+        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
+    ) -> None:
+        session_id = str(uuid7())
+        lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
+
+        def list_objects_func(path: str) -> list[str]:
+            # this mock simulates a recording whose blob storage has been deleted by TTL
+            # but which has been stored in LTS blob storage
+            if path == lts_storage_path:
+                return [
+                    f"{lts_storage_path}/1-2",
+                    f"{lts_storage_path}/3-4",
+                ]
+            else:
+                return []
+
+        mock_list_objects.side_effect = list_objects_func
+
+        # this recording was shared several days ago, it has been stored in LTS storage
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            storage_version="2023-08-01",
+            object_storage_path=lts_storage_path,
+            full_recording_v2_path=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
+        response_data = response.json()
+
+        assert mock_list_objects.call_args_list == [
+            call(lts_storage_path),
+        ]
+
+        assert response_data == {
+            "sources": [
+                {
+                    "blob_key": "1-2",
+                    "source": "blob",
+                    "start_timestamp": "1970-01-01T00:00:00.001000Z",
+                    "end_timestamp": "1970-01-01T00:00:00.002000Z",
+                },
+                {
+                    "blob_key": "3-4",
+                    "source": "blob",
+                    "start_timestamp": "1970-01-01T00:00:00.003000Z",
+                    "end_timestamp": "1970-01-01T00:00:00.004000Z",
+                },
+            ],
+        }
