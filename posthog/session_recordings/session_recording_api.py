@@ -376,8 +376,8 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             if blob_key and (start_blob_key or end_blob_key):
                 raise serializers.ValidationError("Must provide a single blob key or start and end blob keys, not both")
 
-            if blob_key and blob_key.startswith("/"):
-                # blob key that starts with / is (probably) an LTS path
+            if blob_key and "/" in blob_key:
+                # blob key that has any / is (probably) an LTS path
                 pass
             else:
                 if start_blob_key and not end_blob_key:
@@ -1063,7 +1063,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         max_blob_key=validated_data["max_blob_key"],
                     )
                 elif "blob_key" in validated_data:
-                    response = self._stream_lts_blob_v2_to_client(recording, timer, blob_key=validated_data["blob_key"])
+                    response = self._stream_lts_blob_v2_to_client(blob_key=validated_data["blob_key"])
                 else:
                     response = self._gather_session_recording_sources(
                         recording, timer, is_v2_enabled, is_v2_lts_enabled
@@ -1166,7 +1166,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             sources.append(
                                 {
                                     "source": "blob_v2",
-                                    "blob_key": urlparse(recording.full_recording_v2_path).path,
+                                    "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
                                 }
                             )
                         except Exception as e:
@@ -1367,15 +1367,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     async def _stream_lts_blob_v2_to_client_async(
         self,
-        recording: SessionRecording,
-        timer: ServerTimingsGathered,
         blob_key: str,
     ) -> HttpResponse:
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with (
-                timer("list_blocks__stream_lts_blob_v2_to_client_async"),
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
+                posthoganalytics.tag("lts_v2_blob_key", blob_key)
                 content = await asyncio.to_thread(session_recording_v2_object_storage.client().fetch_file, blob_key)
 
             twenty_four_hours_in_seconds = 60 * 60 * 24
@@ -1462,11 +1460,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     def _stream_lts_blob_v2_to_client(
         self,
-        recording: SessionRecording,
-        timer: ServerTimingsGathered,
         blob_key: str,
     ) -> HttpResponse:
-        return asyncio.run(self._stream_lts_blob_v2_to_client_async(recording, timer, blob_key))
+        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key))
 
     def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():

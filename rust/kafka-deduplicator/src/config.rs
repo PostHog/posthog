@@ -78,7 +78,7 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "8080")]
+    #[envconfig(from = "BIND_PORT", default = "8000")]
     pub port: u16,
 
     // Checkpoint configuration - integrated from checkpoint::config
