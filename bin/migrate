@@ -49,6 +49,18 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Run persons database migrations if the database is configured
+if [ -n "$PERSONS_DB_WRITER_URL" ] || [ "$DEBUG" = "1" ] || [ "$DEBUG" = "true" ]; then
+    echo "Running persons database migrations..."
+    python manage.py migrate --database=persons_db_writer --skip-checks
+    if [ $? -ne 0 ]; then
+        echo "Error in persons database migrations, killing background process and exiting."
+        kill $CLICKHOUSE_PID 2>/dev/null || true
+        rm $CLICKHOUSE_STATUS
+        exit 1
+    fi
+fi
+
 # NOTE: we do not apply any non-noop migrations here. Rather these are run
 # manually within the UI. See https://posthog.com/docs/runbook/async-migrations
 # for details.

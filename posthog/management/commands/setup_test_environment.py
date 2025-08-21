@@ -45,6 +45,7 @@ class Command(BaseCommand):
 
         if options["only_postgres"]:
             print("Only setting up Postgres database")  # noqa: T201
+            # Don't tear down databases since we want to keep them for tests
             return
 
         print("\nCreating test ClickHouse database...")  # noqa: T201
@@ -85,6 +86,8 @@ def disable_migrations() -> None:
     """
     Disables django migrations when creating test database. Model definitions are used instead.
 
+    Exception: persons_database app will use real migrations since it's in a separate database.
+
     Speeds up setup significantly.
     """
     from django.conf import settings
@@ -92,19 +95,31 @@ def disable_migrations() -> None:
 
     class DisableMigrations:
         def __contains__(self, item: str) -> bool:
+            # Allow persons_database to use real migrations
+            if item == "persons_database":
+                return False
             return True
 
         def __getitem__(self, item: str) -> None:
+            # Return real migrations for persons_database
+            if item == "persons_database":
+                return "products.persons_database.migrations"
             return None
 
     class MigrateSilentCommand(migrate.Command):
         def handle(self, *args, **kwargs):
-            from django.db import connection
+            from django.db import connections
 
             # :TRICKY: Create extension and function depended on by models.
-            with connection.cursor() as cursor:
-                cursor.execute("CREATE EXTENSION pg_trgm")
-                cursor.execute("CREATE EXTENSION ltree")
+            # Need to create extensions on all configured databases
+            for db_alias in connections:
+                with connections[db_alias].cursor() as cursor:
+                    try:
+                        cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                        cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
+                    except Exception:
+                        # Some databases might not need these extensions
+                        pass  # noqa: T201
 
             return super().handle(*args, **kwargs)
 

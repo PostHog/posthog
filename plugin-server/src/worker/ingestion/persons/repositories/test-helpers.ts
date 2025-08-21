@@ -1,6 +1,4 @@
-import fs from 'fs'
 import { DateTime } from 'luxon'
-import path from 'path'
 
 import { Hub, Team } from '~/types'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
@@ -15,24 +13,24 @@ export const TEST_UUIDS = {
 export const TEST_TIMESTAMP = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
 export async function setupMigrationDb(migrationPostgres: PostgresRouter): Promise<void> {
-    const drops = [
+    // Clean up any existing test data to ensure a clean state
+    const tables = [
         'posthog_featureflaghashkeyoverride',
         'posthog_cohortpeople',
         'posthog_persondistinctid',
         'posthog_personlessdistinctid',
         'posthog_person',
     ]
-    for (const table of drops) {
+
+    // Delete data from tables in reverse dependency order to avoid foreign key conflicts
+    for (const table of tables) {
         await migrationPostgres.query(
             PostgresUse.PERSONS_WRITE,
-            `DROP TABLE IF EXISTS ${table} CASCADE`,
+            `TRUNCATE TABLE ${table} CASCADE`,
             [],
-            `drop-${table}`
+            `truncate-${table}`
         )
     }
-    const sqlPath = path.resolve(__dirname, '../../../../../sql/create_persons_tables.sql')
-    const sql = fs.readFileSync(sqlPath, 'utf8')
-    await migrationPostgres.query(PostgresUse.PERSONS_WRITE, sql, [], 'create-persons-schema-secondary')
 }
 
 export async function cleanupPrepared(hub: Hub) {
