@@ -23,18 +23,19 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
         forceParams: {
             appSource: 'hog_function',
             appSourceId: id,
-            metricName: ['succeeded', 'failed', 'filtered', 'dropped', 'disabled_temporarily', 'disabled_permanently'],
+            metricName: ['succeeded', 'failed', 'filtered', 'dropped', 'disabled_permanently'],
             breakdownBy: 'metric_name',
             interval: 'day',
         },
     })
 
     const { appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
-    const { loadAppMetricsTrends } = useActions(logic)
+    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod } = useActions(logic)
 
     useEffect(() => {
         loadAppMetricsTrends()
-    }, [loadAppMetricsTrends])
+        loadAppMetricsTrendsPreviousPeriod()
+    }, [loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod])
 
     return (
         <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
@@ -44,6 +45,7 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
                 description={METRICS_INFO.succeeded}
                 loading={appMetricsTrendsLoading}
                 timeSeries={getSingleTrendSeries('succeeded')}
+                previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
             />
 
             <AppMetricSummary
@@ -52,6 +54,7 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
                 description={METRICS_INFO.failed}
                 loading={appMetricsTrendsLoading}
                 timeSeries={getSingleTrendSeries('failed')}
+                previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
             />
 
             <AppMetricSummary
@@ -60,6 +63,7 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
                 description={METRICS_INFO.filtered}
                 loading={appMetricsTrendsLoading}
                 timeSeries={getSingleTrendSeries('filtered')}
+                previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
             />
 
             <AppMetricSummary
@@ -68,6 +72,7 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
                 description={METRICS_INFO.dropped}
                 loading={appMetricsTrendsLoading}
                 timeSeries={getSingleTrendSeries('dropped')}
+                previousPeriodTimeSeries={getSingleTrendSeries('dropped', true)}
             />
 
             <AppMetricSummary
@@ -76,6 +81,7 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
                 description={METRICS_INFO.disabled_permanently}
                 loading={appMetricsTrendsLoading}
                 timeSeries={getSingleTrendSeries('disabled_permanently')}
+                previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
             />
         </div>
     )

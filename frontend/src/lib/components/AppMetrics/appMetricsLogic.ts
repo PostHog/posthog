@@ -17,8 +17,8 @@ export type AppMetricsCommonParams = {
     metricKind?: string | string[]
     breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
     interval?: 'day' | 'hour' | 'minute'
-    before?: string
-    after?: string
+    dateFrom?: string
+    dateTo?: string
 }
 
 export type AppMetricsLogicProps = {
@@ -43,15 +43,13 @@ const loadAppMetricsTimeSeries = async (
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
     const interval = request.interval || 'day'
-    const dateFrom = dayjs().tz(timezone).subtract(7, 'day').toISOString()
-    const dateTo = dayjs().tz(timezone).toISOString()
 
     let query = hogql`
         WITH
             ${interval} AS g,
             /* snap bounds to the granularity */
-            dateTrunc(g, toDateTime(${dateFrom})) AS start_bucket,
-            dateTrunc(g, toDateTime(${dateTo}))   AS end_bucket,
+            dateTrunc(g, toDateTime(${request.dateFrom})) AS start_bucket,
+            dateTrunc(g, toDateTime(${request.dateTo}))   AS end_bucket,
 
             /* step in seconds for the chosen granularity */
             multiIf(
@@ -118,10 +116,6 @@ const loadAppMetricsTimeSeries = async (
 
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
-        filtersOverride: {
-            date_from: request.before ?? '-7d',
-            date_to: request.after,
-        },
     })
 
     const labels = response.results?.[0]?.[0].map((label: string) => {
@@ -163,6 +157,32 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                 loadAppMetricsTrends: async () => {
                     const params: AppMetricsTimeSeriesRequest = {
                         ...props.forceParams,
+                        dateFrom: dayjs()
+                            .tz(values.currentTeam?.timezone ?? 'UTC')
+                            .subtract(7, 'day')
+                            .toISOString(),
+                        dateTo: dayjs()
+                            .tz(values.currentTeam?.timezone ?? 'UTC')
+                            .toISOString(),
+                    }
+                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                },
+            },
+        ],
+        appMetricsTrendsPreviousPeriod: [
+            null as AppMetricsTimeSeriesResponse | null,
+            {
+                loadAppMetricsTrendsPreviousPeriod: async () => {
+                    const params: AppMetricsTimeSeriesRequest = {
+                        ...props.forceParams,
+                        dateFrom: dayjs()
+                            .tz(values.currentTeam?.timezone ?? 'UTC')
+                            .subtract(14, 'day')
+                            .toISOString(),
+                        dateTo: dayjs()
+                            .tz(values.currentTeam?.timezone ?? 'UTC')
+                            .subtract(7, 'day')
+                            .toISOString(),
                     }
                     return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
                 },
@@ -185,19 +205,20 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     }),
     selectors(() => ({
         getSingleTrendSeries: [
-            (s) => [s.appMetricsTrends],
-            (appMetricsTrends) =>
-                (name: string): AppMetricsTimeSeriesResponse | null => {
-                    if (!appMetricsTrends) {
+            (s) => [s.appMetricsTrends, s.appMetricsTrendsPreviousPeriod],
+            (appMetricsTrends, appMetricsTrendsPreviousPeriod) =>
+                (name: string, previousPeriod: boolean = false): AppMetricsTimeSeriesResponse | null => {
+                    const targetTrend = previousPeriod ? appMetricsTrendsPreviousPeriod : appMetricsTrends
+                    if (!targetTrend) {
                         return null
                     }
-                    const series = appMetricsTrends.series.find((s) => s.name === name) || {
+                    const series = targetTrend.series.find((s) => s.name === name) || {
                         name,
-                        values: Array.from({ length: appMetricsTrends.labels.length }, () => 0),
+                        values: Array.from({ length: targetTrend.labels.length }, () => 0),
                     }
 
                     return {
-                        labels: appMetricsTrends.labels,
+                        labels: targetTrend.labels,
                         series: [series],
                     }
                 },
@@ -210,6 +231,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             if (props.loadOnChanges) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
+                    actions.loadAppMetricsTrendsPreviousPeriod()
                 }
             }
         },
