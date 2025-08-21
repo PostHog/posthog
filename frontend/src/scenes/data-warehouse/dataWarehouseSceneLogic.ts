@@ -10,16 +10,18 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { DataWarehouseActivityRecord, DataWarehouseDailyRowsBreakdown, DataWarehouseSourceRowCount } from '~/types'
+import {
+    DataWarehouseActivityRecord,
+    DataWarehouseDailyRowsBreakdown,
+    DataWarehouseDailyRowsSyncedData,
+    DataWarehouseSavedQuery,
+    DataWarehouseSourceRowCount,
+    DataWarehouseSyncJobRun,
+} from '~/types'
 
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
-
-export interface DailyRowsSyncedData {
-    date: string
-    rows_synced: number | null
-}
 
 const REFRESH_INTERVAL = 10000
 
@@ -48,8 +50,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         setActivityCurrentPage: (page: number) => ({ page }),
         checkAutoLoadMore: true,
         loadDailyBreakdown: true,
-        setSelectedDate: (date) => ({ date }),
-        setSelectedRows: (rows) => ({ rows }),
+        setSelectedDate: (date: string) => ({ date }),
+        setSelectedRows: (rows: number | null) => ({ rows }),
         clearModal: true,
     }),
     loaders(() => ({
@@ -193,10 +195,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
         materializedViews: [
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
-            (views: any[], dataWarehouseSavedQueryMapById: any) => {
+            (
+                views: DatabaseSchemaDataWarehouseTable[],
+                dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
+            ) => {
                 return views
-                    .filter((view: any) => dataWarehouseSavedQueryMapById[view.id]?.status)
-                    .map((view: any) => ({
+                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .map((view) => ({
                         ...view,
                         type: 'materialized_view',
                         last_run_at: dataWarehouseSavedQueryMapById[view.id]?.last_run_at,
@@ -212,7 +217,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
         dailyRowsSyncedData: [
             (s) => [s.dailyBreakdownData],
-            (dailyBreakdownData): DailyRowsSyncedData[] => {
+            (dailyBreakdownData): DataWarehouseDailyRowsSyncedData[] => {
                 if (!dailyBreakdownData?.billing_available) {
                     return []
                 }
@@ -293,7 +298,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     return null
                 }
 
-                const runsBySource: Record<string, { count: number; rows: number; runs: any[] }> = {}
+                const runsBySource: Record<string, { count: number; rows: number; runs: DataWarehouseSyncJobRun[] }> =
+                    {}
 
                 dateBreakdown.runs.forEach((run) => {
                     const source = run.source_type || 'Unknown'

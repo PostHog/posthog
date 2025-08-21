@@ -5703,6 +5703,22 @@ export interface DataWarehouseActivityRecord {
     workflow_run_id?: string
 }
 
+export interface DataWarehouseDailyRowsSyncedData {
+    date: string
+    rows_synced: number | null
+}
+
+export interface DataWarehouseSyncJobRun {
+    id: string
+    rows_synced: number
+    status: string
+    created_at: string
+    finished_at: string | null
+    workflow_run_id: string
+    schema_name: string
+    source_type: string
+}
+
 export interface DataWarehouseDashboardDataSource {
     id: string
     name: string
