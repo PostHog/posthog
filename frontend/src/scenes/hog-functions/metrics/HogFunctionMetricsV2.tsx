@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
+import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
 import { HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
@@ -20,6 +21,7 @@ const METRICS_INFO = {
 export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.Element {
     const logic = appMetricsLogic({
         logicKey: `hog-function-metrics-${id}`,
+        loadOnChanges: true,
         forceParams: {
             appSource: 'hog_function',
             appSourceId: id,
@@ -37,51 +39,55 @@ export function HogFunctionMetricsV2({ id }: HogFunctionMetricsLogicProps): JSX.
     }, [loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod])
 
     return (
-        <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
-            <AppMetricSummary
-                name="Success"
-                color="success"
-                description={METRICS_INFO.succeeded}
-                loading={appMetricsTrendsLoading}
-                timeSeries={getSingleTrendSeries('succeeded')}
-                previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
-            />
+        <div>
+            <AppMetricsFilters logicKey={`hog-function-metrics-${id}`} />
 
-            <AppMetricSummary
-                name="Failure"
-                color="danger"
-                description={METRICS_INFO.failed}
-                loading={appMetricsTrendsLoading}
-                timeSeries={getSingleTrendSeries('failed')}
-                previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
-            />
+            <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
+                <AppMetricSummary
+                    name="Success"
+                    color="data-color-1"
+                    description={METRICS_INFO.succeeded}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('succeeded')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
+                />
 
-            <AppMetricSummary
-                name="Filtered"
-                color="warning"
-                description={METRICS_INFO.filtered}
-                loading={appMetricsTrendsLoading}
-                timeSeries={getSingleTrendSeries('filtered')}
-                previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
-            />
+                <AppMetricSummary
+                    name="Failure"
+                    color="data-color-1"
+                    description={METRICS_INFO.failed}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('failed')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
+                />
 
-            <AppMetricSummary
-                name="Dropped"
-                color="danger"
-                description={METRICS_INFO.dropped}
-                loading={appMetricsTrendsLoading}
-                timeSeries={getSingleTrendSeries('dropped')}
-                previousPeriodTimeSeries={getSingleTrendSeries('dropped', true)}
-            />
+                <AppMetricSummary
+                    name="Filtered"
+                    color="data-color-1"
+                    description={METRICS_INFO.filtered}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('filtered')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
+                />
 
-            <AppMetricSummary
-                name="Disabled"
-                color="warning"
-                description={METRICS_INFO.disabled_permanently}
-                loading={appMetricsTrendsLoading}
-                timeSeries={getSingleTrendSeries('disabled_permanently')}
-                previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
-            />
+                <AppMetricSummary
+                    name="Dropped"
+                    color="data-color-1"
+                    description={METRICS_INFO.dropped}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('dropped')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('dropped', true)}
+                />
+
+                <AppMetricSummary
+                    name="Disabled"
+                    color="data-color-1"
+                    description={METRICS_INFO.disabled_permanently}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('disabled_permanently')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
+                />
+            </div>
         </div>
     )
 }

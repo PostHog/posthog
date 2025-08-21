@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
@@ -43,45 +44,58 @@ const loadAppMetricsTimeSeries = async (
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
     const interval = request.interval || 'hour'
+    request.dateTo = request.dateTo ?? dayjs().tz(timezone).endOf(interval).toISOString()
 
     let query = hogql`
         WITH
-            ${interval} AS g,
-            /* snap bounds to the granularity */
-            dateTrunc(g, toDateTime(${request.dateFrom})) AS start_bucket,
-            dateTrunc(g, toDateTime(${request.dateTo}))   AS end_bucket,
+            ${timezone} AS tz,
+            ${interval}  AS g,
 
-            /* step in seconds for the chosen granularity */
+            -- Interpret the input bounds in the user's TZ
+            toDateTime(${request.dateFrom}, tz) AS from_local,
+            toDateTime(${request.dateTo},   tz) AS to_local,
+
+            -- Snap to buckets in that TZ
+            dateTrunc(g, from_local, tz) AS start_bucket,
+            dateTrunc(g, to_local,   tz) AS end_bucket,
+
+            -- Number of buckets (inclusive), DST-safe
             multiIf(
-                g = 'minute', 60,
-                g = 'hour',   3600,
-                g = 'day',    86400,
-                g = 'week',   7*86400,
-                1
-            ) AS step_s,
+                g = 'minute', dateDiff('minute', start_bucket, end_bucket) + 1,
+                g = 'hour',   dateDiff('hour',   start_bucket, end_bucket) + 1,
+                g = 'day',    dateDiff('day',    start_bucket, end_bucket) + 1,
+                g = 'week',   dateDiff('week',   start_bucket, end_bucket) + 1,
+                0
+            ) AS steps,
 
-            /* number of points, inclusive of end_bucket */
-            (intDiv(toInt(end_bucket - start_bucket), step_s) + 1) AS steps,
-
-            /* calendar of bucket starts (DateTime) */
-            arrayMap(n -> start_bucket + (n * step_s), range(0, steps)) AS calendar
+            -- Calendar of bucket starts, stepped by units (not seconds), DST-safe
+            arrayMap(n ->
+                multiIf(
+                    g = 'minute', addMinutes(start_bucket, n),
+                    g = 'hour',   addHours(start_bucket, n),
+                    g = 'day',    addDays(start_bucket, n),
+                    g = 'week',   addWeeks(start_bucket, n),
+                    start_bucket
+                ),
+                range(0, steps)
+            ) AS calendar
 
         SELECT
             calendar AS date,
             breakdown,
-            /* for each calendar bucket, take matching count or 0 */
-            arrayMap(d -> if(indexOf(days, d) = 0, 0, counts[indexOf(days, d)]), calendar) AS total
+            arrayMap(d -> if(indexOf(buckets, d) = 0, 0, counts[indexOf(buckets, d)]), calendar) AS total
         FROM
         (
             SELECT
                 breakdown,
-                groupArray(bucket) AS days,
+                groupArray(bucket) AS buckets,
                 groupArray(cnt)    AS counts
             FROM
             (
                 SELECT
                     ${hogql.raw(request.breakdownBy!)} AS breakdown,
-                    dateTrunc(g, timestamp) AS bucket,
+                    -- Convert data to user's TZ before truncating
+                    dateTrunc(g, toTimeZone(timestamp, tz), tz) AS bucket,
                     sum(count) AS cnt
                 FROM app_metrics
                 WHERE app_source = ${request.appSource}
@@ -104,8 +118,14 @@ const loadAppMetricsTimeSeries = async (
 
     query = (query +
         hogql`
-                AND timestamp >= start_bucket
-                AND timestamp < (end_bucket + step_s)
+                AND toTimeZone(timestamp, tz) >= start_bucket
+                AND toTimeZone(timestamp, tz) < multiIf(
+                        g = 'minute', addMinutes(end_bucket, 1),
+                        g = 'hour',   addHours(end_bucket,   1),
+                        g = 'day',    addDays(end_bucket,    1),
+                        g = 'week',   addWeeks(end_bucket,   1),
+                        end_bucket
+                )
                 GROUP BY breakdown, bucket
                 ORDER BY breakdown, bucket
             )
@@ -139,6 +159,15 @@ const loadAppMetricsTimeSeries = async (
     }
 }
 
+const convertDateToAbsoluteParams = (date: string | undefined, timezone: string): string | undefined => {
+    if (!date) {
+        return undefined
+    }
+
+    const value = dateStringToDayJs(date, timezone)?.toISOString()
+    return value
+}
+
 // IDEA - have a generic helper logic that can be used anywhere for rendering metrics
 export const appMetricsLogic = kea<appMetricsLogicType>([
     props({} as unknown as AppMetricsLogicProps),
@@ -148,23 +177,38 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         values: [teamLogic, ['currentTeam']],
     })),
     actions({
-        // set: (filters: Partial<AppMetricsFilters>) => ({ filters }),
+        setParams: (params: Partial<AppMetricsCommonParams>) => ({ params }),
     }),
-    loaders(({ props, values }) => ({
+    reducers(({ props }) => ({
+        params: [
+            {
+                interval: 'hour',
+                dateFrom: '-24h',
+                ...props.defaultParams,
+                ...props.forceParams,
+            } as Partial<AppMetricsCommonParams>,
+            {
+                setParams: (state, { params }) => ({ ...state, ...params }),
+            },
+        ],
+    })),
+    loaders(({ values }) => ({
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
                 loadAppMetricsTrends: async () => {
                     const params: AppMetricsTimeSeriesRequest = {
-                        ...props.forceParams,
-                        dateFrom: dayjs()
-                            .tz(values.currentTeam?.timezone ?? 'UTC')
-                            .subtract(7, 'day')
-                            .toISOString(),
-                        dateTo: dayjs()
-                            .tz(values.currentTeam?.timezone ?? 'UTC')
-                            .toISOString(),
+                        ...values.params,
+                        dateFrom: convertDateToAbsoluteParams(
+                            values.params.dateFrom ?? '-7d',
+                            values.currentTeam?.timezone ?? 'UTC'
+                        ),
+                        dateTo: convertDateToAbsoluteParams(
+                            values.params.dateTo,
+                            values.currentTeam?.timezone ?? 'UTC'
+                        ),
                     }
+
                     return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
                 },
             },
@@ -174,15 +218,15 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             {
                 loadAppMetricsTrendsPreviousPeriod: async () => {
                     const params: AppMetricsTimeSeriesRequest = {
-                        ...props.forceParams,
-                        dateFrom: dayjs()
-                            .tz(values.currentTeam?.timezone ?? 'UTC')
-                            .subtract(14, 'day')
-                            .toISOString(),
-                        dateTo: dayjs()
-                            .tz(values.currentTeam?.timezone ?? 'UTC')
-                            .subtract(7, 'day')
-                            .toISOString(),
+                        ...values.params,
+                        dateFrom: convertDateToAbsoluteParams(
+                            values.params.dateFrom ?? '-7d',
+                            values.currentTeam?.timezone ?? 'UTC'
+                        ),
+                        dateTo: convertDateToAbsoluteParams(
+                            values.params.dateTo,
+                            values.currentTeam?.timezone ?? 'UTC'
+                        ),
                     }
                     return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
                 },
@@ -226,10 +270,12 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
-        setFilters: async (_, breakpoint) => {
+        setParams: async (_, breakpoint) => {
             await breakpoint(100)
-            if (props.loadOnChanges) {
+            console.log('setParams', props.loadOnChanges, values.params)
+            if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
+                    console.log('loading app metrics trends')
                     actions.loadAppMetricsTrends()
                     actions.loadAppMetricsTrendsPreviousPeriod()
                 }

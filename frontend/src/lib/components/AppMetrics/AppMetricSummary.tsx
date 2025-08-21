@@ -49,7 +49,7 @@ export function AppMetricSummary({
                 <LemonLabel info={description}>{name}</LemonLabel>
                 <div className="text-right text-2xl text-muted-foreground">{humanFriendlyNumber(total)}</div>
             </div>
-            <div className="text-xs text-muted-foreground text-right">
+            <div className="text-xs text-muted text-right">
                 {diff > 0 ? ` (+${(diff * 100).toFixed(1)}%)` : ` (-${(-diff * 100).toFixed(1)}%)`}
             </div>
 
