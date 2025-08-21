@@ -168,11 +168,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
 
                     return item
                 },
-                setLocalDefinition: (state, { item }) =>
-                    ({
-                        ...state,
-                        ...item,
-                    }) as Partial<TaxonomicDefinitionTypes>,
+                setLocalDefinition: (state, { item }) => ({ ...state, ...item }) as Partial<TaxonomicDefinitionTypes>,
             },
         ],
     }),
