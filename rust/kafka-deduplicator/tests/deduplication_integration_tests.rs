@@ -1,5 +1,6 @@
 use anyhow::Result;
 use common_types::{CapturedEvent, RawEvent};
+use health::HealthRegistry;
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 use rdkafka::{
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -273,8 +274,9 @@ async fn test_basic_deduplication() -> Result<()> {
 
     // Create the service using the same abstraction as production
     println!("Creating Kafka Deduplicator service...");
-    let mut service = KafkaDeduplicatorService::new(config)?;
-    service.initialize()?;
+    let liveness = HealthRegistry::new("test_liveness");
+    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    service.initialize().await?;
     println!("Service initialized");
 
     // Produce test events
@@ -378,8 +380,9 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     let config = Config::init_with_defaults()?;
 
     // Create and initialize the service
-    let mut service = KafkaDeduplicatorService::new(config)?;
-    service.initialize()?;
+    let liveness = HealthRegistry::new("test_liveness");
+    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    service.initialize().await?;
 
     // Produce events with same distinct_id but different event names
     produce_duplicate_events(&input_topic, "user_123", "event_a", 3).await?;
@@ -481,8 +484,9 @@ async fn test_deduplication_persistence() -> Result<()> {
         let config = Config::init_with_defaults()?;
 
         println!("First processor: Creating and initializing service...");
-        let mut service = KafkaDeduplicatorService::new(config)?;
-        service.initialize()?;
+        let liveness = HealthRegistry::new("test_liveness");
+        let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+        service.initialize().await?;
 
         println!("First processor: Starting to process first 3 events...");
 
@@ -533,8 +537,9 @@ async fn test_deduplication_persistence() -> Result<()> {
         let config = Config::init_with_defaults()?;
 
         println!("Second processor: Creating and initializing service with same store path...");
-        let mut service = KafkaDeduplicatorService::new(config)?;
-        service.initialize()?;
+        let liveness = HealthRegistry::new("test_liveness");
+        let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+        service.initialize().await?;
 
         println!("Second processor: Starting to process remaining 2 events...");
 
