@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
@@ -10,6 +10,9 @@ import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
+
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
@@ -70,6 +73,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
         isRenderingMarkdown: [
             true as boolean,
+            persistConfig,
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
@@ -77,6 +81,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
         isRenderingXml: [
             false as boolean,
+            persistConfig,
             {
                 setIsRenderingXml: (_, { isRenderingXml }) => isRenderingXml,
                 toggleXmlRendering: (state) => !state,
@@ -130,6 +135,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
         displayOption: [
             DisplayOption.CollapseExceptOutputAndLastInput as DisplayOption,
+            persistConfig,
             {
                 setDisplayOption: (_, { displayOption }) => displayOption,
             },
@@ -189,21 +195,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setIsRenderingMarkdown: ({ isRenderingMarkdown }) => {
-            localStorage.setItem('llm-analytics-markdown-rendering', JSON.stringify(isRenderingMarkdown))
-        },
-        toggleMarkdownRendering: () => {
-            localStorage.setItem('llm-analytics-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
-        },
-        setIsRenderingXml: ({ isRenderingXml }) => {
-            localStorage.setItem('llm-analytics-xml-rendering', JSON.stringify(isRenderingXml))
-        },
-        toggleXmlRendering: () => {
-            localStorage.setItem('llm-analytics-xml-rendering', JSON.stringify(values.isRenderingXml))
-        },
-        setDisplayOption: ({ displayOption }) => {
-            localStorage.setItem('llm-analytics-display-option', JSON.stringify(displayOption))
-        },
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
@@ -247,38 +238,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        const savedMarkdownState = localStorage.getItem('llm-analytics-markdown-rendering')
-        if (savedMarkdownState !== null) {
-            try {
-                const isRenderingMarkdown = JSON.parse(savedMarkdownState)
-                actions.setIsRenderingMarkdown(isRenderingMarkdown)
-            } catch {
-                // If parsing fails, keep the default value
-            }
-        }
-
-        const savedXmlState = localStorage.getItem('llm-analytics-xml-rendering')
-        if (savedXmlState !== null) {
-            try {
-                const isRenderingXml = JSON.parse(savedXmlState)
-                actions.setIsRenderingXml(isRenderingXml)
-            } catch {
-                // If parsing fails, keep the default value
-            }
-        }
-
-        const savedDisplayOption = localStorage.getItem('llm-analytics-display-option')
-        if (savedDisplayOption !== null) {
-            try {
-                const displayOption = JSON.parse(savedDisplayOption)
-                actions.setDisplayOption(displayOption)
-            } catch {
-                // If parsing fails, keep the default value
-            }
-        }
-    }),
 
     urlToAction(({ actions }) => ({
         [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, search }) => {
