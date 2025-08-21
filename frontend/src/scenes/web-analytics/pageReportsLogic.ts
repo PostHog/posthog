@@ -470,7 +470,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
