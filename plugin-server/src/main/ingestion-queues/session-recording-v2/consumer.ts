@@ -111,7 +111,9 @@ export class SessionRecordingIngester {
 
         this.redisPool = createRedisPool(this.config, 'session-recording')
 
-        this.teamFilter = new TeamFilter(new TeamService(postgres))
+        const teamService = new TeamService(postgres)
+
+        this.teamFilter = new TeamFilter(teamService)
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
@@ -119,7 +121,7 @@ export class SessionRecordingIngester {
             this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
 
-        const retentionService = new RetentionService(postgres, this.redisPool)
+        const retentionService = new RetentionService(this.redisPool, teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(

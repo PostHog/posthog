@@ -1,9 +1,7 @@
-import { RedisPool, Team } from '../../../../types'
+import { RedisPool } from '../../../../types'
 import { TeamId } from '../../../../types'
-import { BackgroundRefresher } from '../../../../utils/background-refresher'
-import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
-import { logger } from '../../../../utils/logger'
 import { ValidRetentionPeriods } from '../constants'
+import { TeamService } from '../teams/team-service'
 import { RetentionPeriod } from '../types'
 import { RetentionServiceMetrics } from './metrics'
 
@@ -12,41 +10,25 @@ function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is Ret
 }
 
 export class RetentionService {
-    private readonly retentionRefresher: BackgroundRefresher<Record<TeamId, RetentionPeriod>>
-
     constructor(
-        private postgres: PostgresRouter,
         private redisPool: RedisPool,
+        private teamService: TeamService,
         private keyPrefix = '@posthog/replay/'
-    ) {
-        this.retentionRefresher = new BackgroundRefresher(
-            () => this.fetchTeamRetentionPeriods(),
-            5 * 60 * 1000, // 5 minutes
-            (e) => {
-                // We log and count the error and wait for postgres to recover
-                logger.error('Error refreshing team retention periods', e)
-                RetentionServiceMetrics.incrementRefreshErrors()
-            }
-        )
-    }
-
-    private async fetchTeamRetentionPeriods(): Promise<Record<TeamId, RetentionPeriod>> {
-        return fetchTeamRetentionPeriods(this.postgres)
-    }
+    ) {}
 
     private generateRedisKey(sessionId: string): string {
         return `${this.keyPrefix}session-retention-${sessionId}`
     }
 
     public async getRetentionByTeamId(teamId: TeamId): Promise<RetentionPeriod> {
-        const retentionPeriods = await this.retentionRefresher.get()
+        const retentionPeriod = await this.teamService.getRetentionPeriodByTeamId(teamId)
 
-        if (!(teamId in retentionPeriods)) {
+        if (retentionPeriod === null) {
             RetentionServiceMetrics.incrementLookupErrors()
             throw new Error(`Error during retention period lookup: Unknown team id ${teamId}`)
         }
 
-        return retentionPeriods[teamId]
+        return retentionPeriod
     }
 
     public async getSessionRetention(teamId: TeamId, sessionId: string): Promise<RetentionPeriod> {
@@ -77,29 +59,4 @@ export class RetentionService {
             throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
         }
     }
-}
-
-export async function fetchTeamRetentionPeriods(client: PostgresRouter): Promise<Record<TeamId, RetentionPeriod>> {
-    const selectResult = await client.query<{ session_recording_retention_period: RetentionPeriod } & Pick<Team, 'id'>>(
-        PostgresUse.COMMON_READ,
-        `
-            SELECT id, session_recording_retention_period
-            FROM posthog_team
-            WHERE session_recording_opt_in = true
-        `,
-        [],
-        'fetchTeamRetentionPeriods'
-    )
-
-    const rows = selectResult.rows.reduce(
-        (acc, row) => {
-            acc[row.id] = row.session_recording_retention_period
-            return acc
-        },
-        {} as Record<TeamId, RetentionPeriod>
-    )
-
-    RetentionServiceMetrics.incrementRefreshCount()
-
-    return rows
 }

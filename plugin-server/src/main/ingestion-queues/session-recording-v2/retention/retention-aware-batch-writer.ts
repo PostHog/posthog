@@ -12,7 +12,6 @@ import { RetentionPeriod } from '../types'
 import { RetentionService } from './retention-service'
 
 class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
-    private storageMap: { [key in RetentionPeriod]: SessionBatchFileStorage }
     private writerMap: { [key in RetentionPeriod]: SessionBatchFileWriter | null }
 
     constructor(
@@ -20,21 +19,9 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
         private readonly bucket: string,
         private readonly prefix: string,
         private readonly timeout: number,
-        private readonly retentionService: RetentionService
+        private readonly retentionService: RetentionService,
+        private readonly storageMap: { [key in RetentionPeriod]: SessionBatchFileStorage }
     ) {
-        this.storageMap = ValidRetentionPeriods.reduce(
-            (storage, retentionPeriod) => {
-                storage[retentionPeriod] = new S3SessionBatchFileStorage(
-                    this.s3,
-                    this.bucket,
-                    retentionPeriod === 'legacy' ? 'session_recording_batches' : `${this.prefix}/${retentionPeriod}`,
-                    this.timeout
-                )
-                return storage
-            },
-            {} as { [key in RetentionPeriod]: SessionBatchFileStorage }
-        )
-
         this.writerMap = ValidRetentionPeriods.reduce(
             (writers, retentionPeriod) => {
                 writers[retentionPeriod] = null
@@ -75,19 +62,41 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
 }
 
 export class RetentionAwareStorage implements SessionBatchFileStorage {
+    private storageMap: { [key in RetentionPeriod]: SessionBatchFileStorage }
+
     constructor(
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
         private readonly timeout: number = 5000,
         private readonly retentionService: RetentionService
-    ) {}
+    ) {
+        this.storageMap = ValidRetentionPeriods.reduce(
+            (storage, retentionPeriod) => {
+                storage[retentionPeriod] = new S3SessionBatchFileStorage(
+                    this.s3,
+                    this.bucket,
+                    retentionPeriod === 'legacy' ? 'session_recording_batches' : `${this.prefix}/${retentionPeriod}`,
+                    this.timeout
+                )
+                return storage
+            },
+            {} as { [key in RetentionPeriod]: SessionBatchFileStorage }
+        )
+    }
 
     public newBatch(): RetentionAwareBatchFileWriter {
-        return new RetentionAwareBatchFileWriter(this.s3, this.bucket, this.prefix, this.timeout, this.retentionService)
+        return new RetentionAwareBatchFileWriter(
+            this.s3,
+            this.bucket,
+            this.prefix,
+            this.timeout,
+            this.retentionService,
+            this.storageMap
+        )
     }
 
     public checkHealth(): Promise<boolean> {
-        return Promise.resolve(true)
+        return this.storageMap[ValidRetentionPeriods[0]].checkHealth()
     }
 }

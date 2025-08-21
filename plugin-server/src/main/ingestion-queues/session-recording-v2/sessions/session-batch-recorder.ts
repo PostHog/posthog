@@ -64,7 +64,6 @@ export class SessionBatchRecorder {
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
     private readonly batchId: string
-    public createdAt: number
 
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
@@ -74,7 +73,6 @@ export class SessionBatchRecorder {
         private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {
         this.batchId = uuidv7()
-        this.createdAt = Date.now()
         logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
     }
 
