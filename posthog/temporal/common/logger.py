@@ -27,6 +27,7 @@ automatically included.
 import asyncio
 import collections.abc
 import contextvars
+import functools
 import json
 import ssl
 import sys
@@ -113,6 +114,9 @@ class LogMessages(typing.TypedDict):
     produce_message: bytes | None
 
 
+DEFAULT_SERIALIZER = functools.partial(json.dumps, default=str)
+
+
 class LogMessagesRenderer:
     """Render messages for writing and producing.
 
@@ -120,7 +124,9 @@ class LogMessagesRenderer:
     """
 
     def __init__(
-        self, event_key: str = "event", json_serializer: typing.Callable[[structlog.types.EventDict], str] = json.dumps
+        self,
+        event_key: str = "event",
+        json_serializer: typing.Callable[[structlog.types.EventDict], str] = DEFAULT_SERIALIZER,
     ):
         """Initialize renderer.
 
