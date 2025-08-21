@@ -1074,8 +1074,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         actions.setPause()
                     }, 400)
                 }
-            } else {
-                actions.setPause()
             }
         },
 
