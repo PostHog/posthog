@@ -71,13 +71,13 @@ describe('HogRateLimiter', () => {
             expect(res[id1].tokens).toBe(0)
             expect(res[id1].isRateLimited).toBe(true)
 
-            res = await rateLimiter.rateLimitMany({ [id1]: 1 })
+            res = await rateLimiter.rateLimitMany({ [id1]: 20 })
 
-            expect(res[id1].tokens).toBe(99)
-            expect(res[id1].isRateLimited).toBe(false)
+            expect(res[id1].tokens).toBe(-1) // It never goes below -1
+            expect(res[id1].isRateLimited).toBe(true)
         })
 
-        it('should rate limit many IDs', async () => {
+        it('should use tokens for many IDs', async () => {
             const res = await rateLimiter.rateLimitMany({ [id1]: 1, [id2]: 5 })
 
             expect(res).toEqual({
@@ -105,9 +105,24 @@ describe('HogRateLimiter', () => {
             })
         })
 
-        // it('should refill over time', async () => {
-        //     const res = await rateLimiter.rateLimitMany({ [id1]: 50 })
+        it('should refill over time', async () => {
+            const res = await rateLimiter.rateLimitMany({ [id1]: 50 })
 
-        //     expect(res[id1].tokens).toBe(50)
+            expect(res[id1].tokens).toBe(50)
+
+            advanceTime(1000) // 1 second = 10 tokens
+
+            const res2 = await rateLimiter.rateLimitMany({ [id1]: 5 })
+
+            expect(res2[id1].tokens).toBe(55) // cost 5 but added 10 tokens
+            expect(res2[id1].isRateLimited).toBe(false)
+
+            advanceTime(4000) // 4 seconds = 40 tokens
+
+            const res3 = await rateLimiter.rateLimitMany({ [id1]: 0 })
+
+            expect(res3[id1].tokens).toBe(95)
+            expect(res3[id1].isRateLimited).toBe(false)
+        })
     })
 })
