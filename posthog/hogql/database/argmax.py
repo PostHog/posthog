@@ -36,13 +36,14 @@ def argmax_select(
 
     # see more: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/argmax
 
-    # we use tuple to force nulls to be treated as values and untuple it after the call
+    # we use tuple to force nulls to be treated as values and tupleElement select it after the call
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="untuple",
+        name="tupleElement",
         args=[
             ast.Call(
                 name="argMax", args=[ast.Call(name="tuple", args=[field]), ast.Field(chain=[table_name, argmax_field])]
-            )
+            ),
+            ast.Constant(value=1),
         ],
     )
 

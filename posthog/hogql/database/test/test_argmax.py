@@ -16,7 +16,7 @@ class TestArgmax(BaseTest):
                 ast.Alias(
                     alias="moo",
                     expr=ast.Call(
-                        name="untuple",
+                        name="tupleElement",
                         args=[
                             ast.Call(
                                 name="argMax",
@@ -29,7 +29,8 @@ class TestArgmax(BaseTest):
                                     ),
                                     ast.Field(chain=["raw_persons", "version"]),
                                 ],
-                            )
+                            ),
+                            ast.Constant(value=1),
                         ],
                     ),
                 ),
@@ -53,7 +54,7 @@ class TestArgmax(BaseTest):
                 ast.Alias(
                     alias="moo",
                     expr=ast.Call(
-                        name="untuple",
+                        name="tupleElement",
                         args=[
                             ast.Call(
                                 name="argMax",
@@ -64,6 +65,7 @@ class TestArgmax(BaseTest):
                                     ast.Field(chain=["raw_persons", "version"]),
                                 ],
                             ),
+                            ast.Constant(value=1),
                         ],
                     ),
                 ),
@@ -74,7 +76,7 @@ class TestArgmax(BaseTest):
             having=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Call(
-                    name="untuple",
+                    name="tupleElement",
                     args=[
                         ast.Call(
                             name="argMax",
@@ -88,6 +90,7 @@ class TestArgmax(BaseTest):
                                 ast.Field(chain=["raw_persons", "version"]),
                             ],
                         ),
+                        ast.Constant(value=1),
                     ],
                 ),
                 right=ast.Constant(value=0),
