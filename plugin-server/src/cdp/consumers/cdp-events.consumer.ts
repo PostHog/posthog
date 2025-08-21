@@ -133,14 +133,14 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            // TODO: Add rate limiting here
-
-            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
+            const states = await this.runInstrumented('handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+                return await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
+            })
+            const rateLimits = await this.runInstrumented('handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+                return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFunction.id, 1]))
+            })
 
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
-            const rateLimits = await this.hogRateLimiter.rateLimitMany(
-                possibleInvocations.map((x) => [x.hogFunction.id, 1])
-            )
 
             // Iterate over adding them to the list and updating their priority
             await Promise.all(
@@ -303,10 +303,12 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
-            const rateLimits = await this.hogRateLimiter.rateLimitMany(
-                possibleInvocations.map((x) => [x.hogFlow.id, 1])
-            )
+            const states = await this.runInstrumented('handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+                return await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
+            })
+            const rateLimits = await this.runInstrumented('handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+                return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFlow.id, 1]))
+            })
             const validInvocations: CyclotronJobInvocation[] = []
 
             // Iterate over adding them to the list and updating their priority
