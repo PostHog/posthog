@@ -32,8 +32,11 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneSection, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
@@ -211,7 +214,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <SceneContent>
                     <SceneTitleSection
                         name={cohort.name}
-                        description={cohort.description}
+                        description={cohort.description || ''}
                         resourceType={{
                             to: urls.cohorts(),
                             type: RESOURCE_TYPE,
@@ -226,6 +229,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             setCohortValue('description', value)
                         }}
                         docsURL="https://posthog.com/docs/data/cohorts"
+                        canEdit
                     />
 
                     <SceneDivider />

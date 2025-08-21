@@ -211,7 +211,11 @@ export class PersonMergeService {
         }
         return promiseRetry(
             () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
-            'merge_distinct_ids'
+            'merge_distinct_ids',
+            undefined,
+            undefined,
+            undefined,
+            [PersonMergeLimitExceededError]
         )
     }
 

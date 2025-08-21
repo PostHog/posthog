@@ -6,6 +6,7 @@ import json
 
 import aiohttp
 from django.conf import settings
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -17,7 +18,7 @@ from posthog.batch_exports.service import (
 from posthog.models import BatchExportRun
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -38,6 +39,7 @@ from products.batch_exports.backend.temporal.temporary_file import (
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError",)
+LOGGER = get_logger(__name__)
 
 
 class RetryableResponseError(Exception):
@@ -107,8 +109,6 @@ class HttpInsertInputs(BatchExportInsertInputs):
 async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
     """Returns the `interval_start` to use, either resuming from previous heartbeat data or
     using the `data_interval_start` from the inputs."""
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
-
     interval_start = inputs.data_interval_start
     details = activity.info().heartbeat_details
 
@@ -121,7 +121,7 @@ async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
     except IndexError:
         # This is the error we expect when there are no activity details as the sequence will be
         # empty.
-        logger.debug(
+        LOGGER.debug(
             "Did not receive details from previous activity Excecution. Export will start from the beginning %s",
             interval_start,
         )
@@ -129,7 +129,7 @@ async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
         # We still start from the beginning, but we make a point to log unexpected errors. Ideally,
         # any new exceptions should be added to the previous block after the first time and we will
         # never land here.
-        logger.warning(
+        LOGGER.warning(
             "Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning %s",
             interval_start,
         )
@@ -159,7 +159,14 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="HTTP",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+    )
+    logger = LOGGER.bind()
+
     logger.info(
         "Batch exporting range %s - %s to HTTP endpoint: %s",
         inputs.data_interval_start or "START",
