@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Literal, Optional, Union, cast
 from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext, AR
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.warehouse.models import ExternalDataSchema
@@ -66,7 +66,7 @@ class RevenueSubqueries:
 
 
 # Base class, empty for now but might include some helpers in the future
-class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
+class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     query: Union[
         RevenueAnalyticsMetricsQuery,
         RevenueAnalyticsGrowthRateQuery,

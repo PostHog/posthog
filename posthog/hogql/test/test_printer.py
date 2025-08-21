@@ -27,8 +27,9 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest
+from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest, clean_varying_query_parts
 from posthog.hogql.query import execute_hogql_query
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestPrinter(BaseTest):
@@ -2490,6 +2491,53 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
             )
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_cte(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+        printed = self._select("""
+            WITH some_remote_table AS
+            (
+                SELECT * FROM test_table
+            )
+            SELECT event FROM events
+            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+
+        assert "GLOBAL JOIN" in printed
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_cte_nested(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+        printed = self._select("""
+            WITH some_remote_table AS
+            (
+                SELECT e.event, t.id FROM events e
+                JOIN test_table t on toString(t.id) = e.event
+            )
+            SELECT some_remote_table.event FROM events
+            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+
+        assert "GLOBAL JOIN" in printed
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
 
 class TestPrinted(APIBaseTest):
