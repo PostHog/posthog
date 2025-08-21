@@ -429,8 +429,8 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
     assert table.num_rows == 1
     assert table.num_columns == 2
     assert table.column_names == ["now_converted", "now"]
-    assert table.column(0).type == pa.timestamp("us")
-    assert table.column(1).type == pa.timestamp("us")
+    assert table.column(0).type == pa.timestamp("us", tz="UTC")
+    assert table.column(1).type == pa.timestamp("us", tz="UTC")
 
     # replace microsecond because they won't match exactly
     row = table.to_pylist()[0]
@@ -1517,7 +1517,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
         timestamp_column = table.column("timestamp")
         assert pa.types.is_timestamp(timestamp_column.type)
 
-        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0)
+        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0, tzinfo=dt.UTC)
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED

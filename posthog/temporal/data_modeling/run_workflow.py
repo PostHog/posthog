@@ -873,10 +873,10 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
             continue
 
         if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
-            new_column = pc.cast(column, pa.timestamp("us"))
-            new_field = field.with_type(pa.timestamp("us"))
+            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
+            new_column = pc.cast(column, new_field.type)
         elif "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us"))
+            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
             # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
             int64_col = pc.cast(column, pa.int64())
             seconds_col = pc.cast(int64_col, pa.timestamp("s"))
