@@ -197,7 +197,6 @@ export function AppMetricsTrend({
                         return {
                             label: series.name,
                             data: series.values,
-                            borderColor: '',
                             ...colorConfig,
                         }
                     }),
