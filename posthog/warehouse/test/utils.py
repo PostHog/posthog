@@ -21,7 +21,7 @@ from posthog.settings import (
 def create_data_warehouse_table_from_csv(
     csv_path: Path,
     table_name: str,
-    table_columns: dict[str, str],
+    table_columns: dict[str, dict[str, str]],
     test_bucket: str,
     team: Team,
     *,
