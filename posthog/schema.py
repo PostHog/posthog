@@ -1571,6 +1571,11 @@ class HogQueryResponse(BaseModel):
     stdout: Optional[str] = None
 
 
+class InfinityValue(float, Enum):
+    NUMBER_999999 = 999999
+    NUMBER__999999 = -999999
+
+
 class Compare(StrEnum):
     CURRENT = "current"
     PREVIOUS = "previous"
@@ -1680,10 +1685,10 @@ class OrderBy2(StrEnum):
 class MarketingAnalyticsBaseColumns(StrEnum):
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
-    TOTAL_COST = "Total Cost"
-    TOTAL_CLICKS = "Total Clicks"
-    TOTAL_IMPRESSIONS = "Total Impressions"
-    COST_PER_CLICK = "Cost per Click"
+    COST = "Cost"
+    CLICKS = "Clicks"
+    IMPRESSIONS = "Impressions"
+    CPC = "CPC"
     CTR = "CTR"
 
 
@@ -2721,6 +2726,13 @@ class WebAnalyticsExternalSummaryRequest(BaseModel):
     explicit_date: Optional[bool] = None
 
 
+class WebAnalyticsItemKind(StrEnum):
+    UNIT = "unit"
+    DURATION_S = "duration_s"
+    PERCENTAGE = "percentage"
+    CURRENCY = "currency"
+
+
 class WebAnalyticsOrderByDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
@@ -2750,11 +2762,17 @@ class Sampling(BaseModel):
     forceSamplingRate: Optional[SamplingRate] = None
 
 
-class WebOverviewItemKind(StrEnum):
-    UNIT = "unit"
-    DURATION_S = "duration_s"
-    PERCENTAGE = "percentage"
-    CURRENCY = "currency"
+class WebOverviewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[float] = None
+    usedPreAggregatedTables: Optional[bool] = None
+    value: Optional[float] = None
 
 
 class WebStatsBreakdown(StrEnum):
@@ -3972,6 +3990,19 @@ class LogPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class MarketingAnalyticsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    hasComparison: Optional[bool] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[Union[float, str]] = None
+    value: Optional[Union[float, str]] = None
+
+
 class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4896,6 +4927,30 @@ class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
     status: ExternalQueryStatus
 
 
+class WebAnalyticsItemBaseNumberString(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[Union[float, str]] = None
+    value: Optional[Union[float, str]] = None
+
+
+class WebAnalyticsItemBaseNumber(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[float] = None
+    value: Optional[float] = None
+
+
 class WebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4954,19 +5009,6 @@ class WebGoalsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class WebOverviewItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    changeFromPreviousPct: Optional[float] = None
-    isIncreaseBad: Optional[bool] = None
-    key: str
-    kind: WebOverviewItemKind
-    previous: Optional[float] = None
-    usedPreAggregatedTables: Optional[bool] = None
-    value: Optional[float] = None
 
 
 class WebOverviewQueryResponse(BaseModel):
@@ -6088,7 +6130,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -7621,7 +7663,7 @@ class Response17(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -8680,7 +8722,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -9320,7 +9362,7 @@ class QueryResponseAlternative31(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -9742,7 +9784,7 @@ class QueryResponseAlternative49(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"

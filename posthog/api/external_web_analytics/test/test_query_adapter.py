@@ -11,7 +11,7 @@ from posthog.api.external_web_analytics.serializers import (
     WebAnalyticsOverviewRequestSerializer,
     WebAnalyticsBreakdownRequestSerializer,
 )
-from posthog.schema import WebOverviewItem, WebOverviewItemKind, WebStatsBreakdown
+from posthog.schema import WebAnalyticsItemKind, WebOverviewItem, WebStatsBreakdown
 from posthog.test.base import APIBaseTest
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
@@ -33,7 +33,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         self.sample_overview_items = [
             WebOverviewItem(
                 key="visitors",
-                kind=WebOverviewItemKind.UNIT,
+                kind=WebAnalyticsItemKind.UNIT,
                 value=1500.0,
                 previous=1200.0,
                 changeFromPreviousPct=25.0,
@@ -41,7 +41,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             ),
             WebOverviewItem(
                 key="views",
-                kind=WebOverviewItemKind.UNIT,
+                kind=WebAnalyticsItemKind.UNIT,
                 value=5678.0,
                 previous=4500.0,
                 changeFromPreviousPct=26.2,
@@ -49,7 +49,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             ),
             WebOverviewItem(
                 key="sessions",
-                kind=WebOverviewItemKind.UNIT,
+                kind=WebAnalyticsItemKind.UNIT,
                 value=987.0,
                 previous=850.0,
                 changeFromPreviousPct=16.1,
@@ -57,7 +57,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             ),
             WebOverviewItem(
                 key="bounce rate",
-                kind=WebOverviewItemKind.PERCENTAGE,
+                kind=WebAnalyticsItemKind.PERCENTAGE,
                 value=45.0,  # 45%
                 previous=50.0,
                 changeFromPreviousPct=-10.0,
@@ -65,7 +65,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             ),
             WebOverviewItem(
                 key="session duration",
-                kind=WebOverviewItemKind.DURATION_S,
+                kind=WebAnalyticsItemKind.DURATION_S,
                 value=123.4,
                 previous=115.2,
                 changeFromPreviousPct=7.1,
@@ -112,8 +112,8 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             # Case 1: Null values
             {
                 "items": [
-                    WebOverviewItem(key="visitors", kind=WebOverviewItemKind.UNIT, value=None),
-                    WebOverviewItem(key="bounce rate", kind=WebOverviewItemKind.PERCENTAGE, value=None),
+                    WebOverviewItem(key="visitors", kind=WebAnalyticsItemKind.UNIT, value=None),
+                    WebOverviewItem(key="bounce rate", kind=WebAnalyticsItemKind.PERCENTAGE, value=None),
                 ],
                 "expected": {
                     "visitors": 0,
@@ -137,8 +137,8 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             # Case 3: Only some metrics present
             {
                 "items": [
-                    WebOverviewItem(key="visitors", kind=WebOverviewItemKind.UNIT, value=100.0),
-                    WebOverviewItem(key="sessions", kind=WebOverviewItemKind.UNIT, value=80.0),
+                    WebOverviewItem(key="visitors", kind=WebAnalyticsItemKind.UNIT, value=100.0),
+                    WebOverviewItem(key="sessions", kind=WebAnalyticsItemKind.UNIT, value=80.0),
                 ],
                 "expected": {
                     "visitors": 100,
@@ -264,9 +264,9 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
     def test_ignores_unknown_metrics(self, mock_runner_class):
         items = [
-            WebOverviewItem(key="visitors", kind=WebOverviewItemKind.UNIT, value=100.0),
-            WebOverviewItem(key="unknown_metric", kind=WebOverviewItemKind.UNIT, value=999.0),
-            WebOverviewItem(key="another_unknown", kind=WebOverviewItemKind.PERCENTAGE, value=50.0),
+            WebOverviewItem(key="visitors", kind=WebAnalyticsItemKind.UNIT, value=100.0),
+            WebOverviewItem(key="unknown_metric", kind=WebAnalyticsItemKind.UNIT, value=999.0),
+            WebOverviewItem(key="another_unknown", kind=WebAnalyticsItemKind.PERCENTAGE, value=50.0),
         ]
 
         mock_runner = MagicMock()
@@ -294,7 +294,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         for internal_value, expected_external in test_cases:
             mock_runner = MagicMock()
             mock_runner.calculate.return_value = self._create_mock_overview_response(
-                [WebOverviewItem(key="bounce rate", kind=WebOverviewItemKind.PERCENTAGE, value=internal_value)]
+                [WebOverviewItem(key="bounce rate", kind=WebAnalyticsItemKind.PERCENTAGE, value=internal_value)]
             )
             mock_runner_class.return_value = mock_runner
 

@@ -4350,7 +4350,12 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                        },
+                        "type": "array"
+                    },
                     "type": "array"
                 },
                 "samplingRate": {
@@ -8333,7 +8338,12 @@
                                     "description": "The date range used for the query"
                                 },
                                 "results": {
-                                    "items": {},
+                                    "items": {
+                                        "items": {
+                                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                                        },
+                                        "type": "array"
+                                    },
                                     "type": "array"
                                 },
                                 "samplingRate": {
@@ -13774,6 +13784,10 @@
             "required": ["type", "content"],
             "type": "object"
         },
+        "InfinityValue": {
+            "enum": [999999, -999999],
+            "type": "number"
+        },
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -15178,7 +15192,7 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Total Cost", "Total Clicks", "Total Impressions", "Cost per Click", "CTR"],
+            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
@@ -15206,6 +15220,34 @@
         "MarketingAnalyticsHelperForColumnNames": {
             "enum": ["Goal", "Cost per"],
             "type": "string"
+        },
+        "MarketingAnalyticsItem": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "hasComparison": {
+                    "type": "boolean"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": ["number", "string"]
+                },
+                "value": {
+                    "type": ["number", "string"]
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
         },
         "MarketingAnalyticsOrderBy": {
             "items": [
@@ -15382,7 +15424,12 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                        },
+                        "type": "array"
+                    },
                     "type": "array"
                 },
                 "samplingRate": {
@@ -18384,7 +18431,12 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "items": {
+                                    "$ref": "#/definitions/MarketingAnalyticsItem"
+                                },
+                                "type": "array"
+                            },
                             "type": "array"
                         },
                         "samplingRate": {
@@ -19345,7 +19397,12 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "items": {
+                                    "$ref": "#/definitions/MarketingAnalyticsItem"
+                                },
+                                "type": "array"
+                            },
                             "type": "array"
                         },
                         "samplingRate": {
@@ -24753,6 +24810,60 @@
             "required": ["date_from", "date_to"],
             "type": "object"
         },
+        "WebAnalyticsItemBase<(number|string)>": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": ["number", "string"]
+                },
+                "value": {
+                    "type": ["number", "string"]
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebAnalyticsItemBase<number>": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebAnalyticsItemKind": {
+            "enum": ["unit", "duration_s", "percentage", "currency"],
+            "type": "string"
+        },
         "WebAnalyticsOrderBy": {
             "items": [
                 {
@@ -25089,7 +25200,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "$ref": "#/definitions/WebOverviewItemKind"
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
                 },
                 "previous": {
                     "type": "number"
@@ -25103,10 +25214,6 @@
             },
             "required": ["key", "kind"],
             "type": "object"
-        },
-        "WebOverviewItemKind": {
-            "enum": ["unit", "duration_s", "percentage", "currency"],
-            "type": "string"
         },
         "WebOverviewQuery": {
             "additionalProperties": false,

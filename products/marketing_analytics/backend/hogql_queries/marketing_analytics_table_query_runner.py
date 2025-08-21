@@ -32,6 +32,7 @@ from .constants import (
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
+    to_marketing_analytics_data,
 )
 from .utils import (
     convert_team_conversion_goals_to_objects,
@@ -175,6 +176,73 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         # Trim results to the requested limit if we got extra
         if has_more:
             results = results[:requested_limit]
+
+        has_comparison = self.query.compareFilter is not None and self.query.compareFilter.compare
+
+        # Transform tuple results to WebAnalyticsItemBase objects when using compare filter
+        if has_comparison:
+            transformed_results = []
+            for row in results:
+                transformed_row = []
+                for i, column_name in enumerate(columns):
+                    if i < len(row):
+                        cell_value = row[i]
+                        if isinstance(cell_value, list | tuple) and len(cell_value) >= 2:
+                            # This is a tuple from compare query: (current, previous)
+                            current_value, previous_value = cell_value[0], cell_value[1]
+                            transformed_item = to_marketing_analytics_data(
+                                key=str(column_name),
+                                value=current_value,
+                                previous=previous_value,
+                                has_comparison=has_comparison,
+                            )
+                            transformed_row.append(transformed_item)
+                        else:
+                            # Single value, create object with no previous data
+                            transformed_item = to_marketing_analytics_data(
+                                key=str(column_name),
+                                value=cell_value,
+                                previous=None,
+                                has_comparison=has_comparison,
+                            )
+                            transformed_row.append(transformed_item)
+                    else:
+                        # Missing column data
+                        transformed_item = to_marketing_analytics_data(
+                            key=str(column_name),
+                            value=None,
+                            previous=None,
+                            has_comparison=has_comparison,
+                        )
+                        transformed_row.append(transformed_item)
+                transformed_results.append(transformed_row)
+            results = transformed_results
+        else:
+            # For non-compare queries, create objects without previous values
+            transformed_results = []
+            for row in results:
+                transformed_row = []
+                for i, column_name in enumerate(columns):
+                    if i < len(row):
+                        cell_value = row[i]
+                        transformed_item = to_marketing_analytics_data(
+                            key=str(column_name),
+                            value=cell_value,
+                            previous=None,
+                            has_comparison=has_comparison,
+                        )
+                        transformed_row.append(transformed_item)
+                    else:
+                        # Missing column data
+                        transformed_item = to_marketing_analytics_data(
+                            key=str(column_name),
+                            value=None,
+                            previous=None,
+                            has_comparison=has_comparison,
+                        )
+                        transformed_row.append(transformed_item)
+                transformed_results.append(transformed_row)
+            results = transformed_results
 
         return MarketingAnalyticsTableQueryResponse(
             results=results,
@@ -440,9 +508,9 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                         )
                     )
         else:
-            if MarketingAnalyticsBaseColumns.TOTAL_COST.value in select_columns:
+            if MarketingAnalyticsBaseColumns.COST.value in select_columns:
                 # Build default order by: Total Cost DESC
-                default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.TOTAL_COST.value])
+                default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
 
         return order_by_exprs
