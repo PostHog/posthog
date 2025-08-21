@@ -74,6 +74,7 @@ from posthog.schema import (
     QueryStatusResponse,
     QueryTiming,
     ReplayActiveUsersQuery,
+    ReplayActiveScreensQuery,
     RetentionQuery,
     SamplingRate,
     SessionAttributionExplorerQuery,
@@ -168,6 +169,7 @@ RunnableQueryNode = Union[
     MarketingAnalyticsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ReplayActiveUsersQuery,
+    ReplayActiveScreensQuery,
 ]
 
 
@@ -436,6 +438,19 @@ def get_query_runner(
         )
 
         return ReplayActiveUsersQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ReplayActiveScreensQuery":
+        from posthog.session_recordings.replay_active_screens.replay_active_screens_query_runner import (
+            ReplayActiveScreensQueryRunner,
+        )
+
+        return ReplayActiveScreensQueryRunner(
             query=query,
             team=team,
             timings=timings,

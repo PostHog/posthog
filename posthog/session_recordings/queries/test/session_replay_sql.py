@@ -36,6 +36,7 @@ INSERT INTO sharded_session_replay_events (
     block_urls,
     block_first_timestamps,
     block_last_timestamps,
+    all_urls,
     _timestamp
 )
 SELECT
@@ -58,6 +59,7 @@ SELECT
     %(block_urls)s,
     %(block_first_timestamps)s,
     %(block_last_timestamps)s,
+    %(all_urls)s,
     %(_timestamp)s
 """
 
@@ -136,6 +138,7 @@ def produce_replay_summary(
     block_urls: list[str] | None = None,
     block_first_timestamps: list[datetime] | None = None,
     block_last_timestamps: list[datetime] | None = None,
+    all_urls: list[str] | None = None,
 ):
     """
     Creates a session replay event in ClickHouse for testing purposes.
@@ -168,6 +171,7 @@ def produce_replay_summary(
         "block_urls": block_urls or [],
         "block_first_timestamps": block_first_timestamps or [],
         "block_last_timestamps": block_last_timestamps or [],
+        "all_urls": all_urls or [],
     }
 
     if settings.TEST:

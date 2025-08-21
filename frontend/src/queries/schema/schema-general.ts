@@ -123,6 +123,7 @@ export enum NodeKind {
 
     // Session recordings queries
     ReplayActiveUsersQuery = 'ReplayActiveUsersQuery',
+    ReplayActiveScreensQuery = 'ReplayActiveScreensQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
@@ -185,6 +186,7 @@ export type AnyDataNode =
     | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
     | ReplayActiveUsersQuery
+    | ReplayActiveScreensQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
@@ -239,6 +241,7 @@ export type QuerySchema =
 
     // Session recordings
     | ReplayActiveUsersQuery
+    | ReplayActiveScreensQuery
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
@@ -1912,6 +1915,20 @@ export interface ReplayActiveUsersQueryResponse extends AnalyticsQueryResponseBa
     offset?: integer
 }
 export type CachedReplayActiveUsersQueryResponse = CachedQueryResponse<ReplayActiveUsersQueryResponse>
+
+export interface ReplayActiveScreensQuery extends DataNode<ReplayActiveScreensQueryResponse> {
+    kind: NodeKind.ReplayActiveScreensQuery
+    modifiers?: HogQLQueryModifiers
+}
+export interface ReplayActiveScreensQueryResponse extends AnalyticsQueryResponseBase {
+    results: Array<{ screen: string; count: number }>
+    types?: unknown[]
+    columns?: unknown[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedReplayActiveScreensQueryResponse = CachedQueryResponse<ReplayActiveScreensQueryResponse>
 
 export type WebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
