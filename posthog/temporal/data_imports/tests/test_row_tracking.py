@@ -1,14 +1,15 @@
 import contextlib
+import uuid
 from datetime import datetime
 from typing import Optional
 from unittest import mock
-import uuid
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
+from structlog.types import FilteringBoundLogger
+
 from posthog.models import Team
 from posthog.tasks.usage_report import ExternalDataJob
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.row_tracking import (
     finish_row_tracking,
     increment_rows,

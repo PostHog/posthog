@@ -2,18 +2,20 @@ import asyncio
 import dataclasses
 import datetime as dt
 import json
-import typing
 import statistics
+import typing
 
 import temporalio.activity
 import temporalio.common
 import temporalio.workflow
+from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries, Product
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
+
+LOGGER = get_logger(__name__)
 
 
 def get_session_replay_events(
@@ -126,7 +128,7 @@ class CompareRecordingMetadataActivityInputs:
 @temporalio.activity.defn
 async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataActivityInputs) -> None:
     """Compare session recording metadata between storage backends."""
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
     start_time = dt.datetime.now()
     tag_queries(product=Product.REPLAY)
     await logger.ainfo(
@@ -372,7 +374,7 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
         started_after = dt.datetime.fromisoformat(inputs.started_after)
         started_before = dt.datetime.fromisoformat(inputs.started_before)
 
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
         workflow_start = dt.datetime.now()
         logger.info(
             "Starting comparison workflow for sessions between %s and %s using %d second windows%s%s",
