@@ -30,7 +30,6 @@ import { getKafkaConfigFromEnv } from './config'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
-const CONSUMER_LOOP_STALL_THRESHOLD_MS = 120_000 // 2 minutes - consider loop stalled after this
 const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
 
 const consumedBatchDuration = new Histogram({
@@ -140,6 +139,7 @@ export class KafkaConsumer {
     private consumerConfig: ConsumerGlobalConfig
     private fetchBatchSize: number
     private maxBackgroundTasks: number
+    private consumerLoopStallThresholdMs: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
@@ -166,6 +166,7 @@ export class KafkaConsumer {
         this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
+        this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -229,7 +230,7 @@ export class KafkaConsumer {
 
         // 2. Consumer loop liveness check (ensure loop is not stalled)
         const timeSinceLastLoop = Date.now() - this.lastConsumerLoopTime
-        if (this.lastConsumerLoopTime > 0 && timeSinceLastLoop > CONSUMER_LOOP_STALL_THRESHOLD_MS) {
+        if (this.lastConsumerLoopTime > 0 && timeSinceLastLoop > this.consumerLoopStallThresholdMs) {
             return {
                 healthy: false,
                 message: `Consumer loop appears stalled (no activity for ${Math.round(timeSinceLastLoop / 1000)}s)`,
@@ -237,7 +238,7 @@ export class KafkaConsumer {
                     ...details,
                     lastConsumerLoopTime: this.lastConsumerLoopTime,
                     timeSinceLastLoop,
-                    threshold: CONSUMER_LOOP_STALL_THRESHOLD_MS,
+                    threshold: this.consumerLoopStallThresholdMs,
                 },
             }
         }
