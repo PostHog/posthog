@@ -21,26 +21,14 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
         }
     }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const displayData: SparklineTimeSeries[] = [
-        {
-            color: 'success',
-            name: 'Success',
-            values: appMetricsTrends?.find((s) => s.breakdown === 'success')?.count || [],
-        },
-        {
-            color: 'danger',
-            name: 'Failures',
-            values: appMetricsTrends?.find((s) => s.breakdown === 'failure')?.count || [],
-        },
-    ]
+    const displayData: SparklineTimeSeries[] =
+        appMetricsTrends?.series.map((s) => ({
+            color: s.name === 'success' ? 'success' : 'danger',
+            name: s.name,
+            values: s.values,
+        })) || []
 
-    const labels = appMetricsTrends?.map((s) => s.timestamp) || []
-
-    console.log({
-        appMetricsTrends,
-        labels,
-        displayData,
-    })
+    const labels = appMetricsTrends?.labels || []
 
     return (
         <div ref={inViewRef}>

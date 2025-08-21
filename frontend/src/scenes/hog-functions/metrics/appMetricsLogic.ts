@@ -1,17 +1,13 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import type { appMetricsLogicType } from './appMetricsLogicType'
-
-// Type for interval units
-type IntervalUnit = 'day' | 'hour' | 'minute' | 'second'
-
-// Type for interval strings like "1 day", "2 hour", etc.
-type IntervalString = `${number} ${IntervalUnit}` | IntervalUnit
 
 export type AppMetricsCommonParams = {
     appSource?: string
@@ -20,7 +16,7 @@ export type AppMetricsCommonParams = {
     metricName?: string | string[]
     metricKind?: string | string[]
     breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
-    interval?: IntervalString
+    interval?: 'day' | 'hour' | 'minute' | 'second'
     before?: string
     after?: string
 }
@@ -35,26 +31,62 @@ export type AppMetricsLogicProps = {
 export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
 
 export type AppMetricsTimeSeriesResponse = {
-    timestamp: string
-    breakdown: string
-    count: number[]
-}[]
+    labels: string[]
+    series: {
+        name: string
+        values: number[]
+    }[]
+}
 
 const loadAppMetricsTimeSeries = async (
-    request: AppMetricsTimeSeriesRequest
+    request: AppMetricsTimeSeriesRequest,
+    timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
-    // Parse interval - handle both "1 day" and "day" formats
-    const interval = request.interval || '1 day'
+    const interval = request.interval || 'day'
+    const dateFrom = dayjs().tz(timezone).subtract(7, 'day').toISOString()
+    const dateTo = dayjs().tz(timezone).toISOString()
 
     let query = hogql`
+        WITH
+            ${interval} AS g,
+            /* snap bounds to the granularity */
+            dateTrunc(g, toDateTime(${dateFrom})) AS start_bucket,
+            dateTrunc(g, toDateTime(${dateTo}))   AS end_bucket,
+
+            /* step in seconds for the chosen granularity */
+            multiIf(
+                g = 'minute', 60,
+                g = 'hour',   3600,
+                g = 'day',    86400,
+                g = 'week',   7*86400,
+                1
+            ) AS step_s,
+
+            /* number of points, inclusive of end_bucket */
+            (intDiv(toInt(end_bucket - start_bucket), step_s) + 1) AS steps,
+
+            /* calendar of bucket starts (DateTime) */
+            arrayMap(n -> start_bucket + (n * step_s), range(0, steps)) AS calendar
+
         SELECT
-            toStartOfInterval(timestamp, INTERVAL ${hogql.raw(interval)}) as timestamp,
-            ${hogql.raw(request.breakdownBy!)} as breakdown,
-            sum(count) as count
-        FROM app_metrics
-        WHERE app_source = ${request.appSource}
-        AND timestamp > toStartOfInterval({filters.dateRange.from}, INTERVAL ${hogql.raw(interval)})
-        AND timestamp < toEndOfInterval({filters.dateRange.to}, INTERVAL ${hogql.raw(interval)})
+            calendar AS date,
+            breakdown,
+            /* for each calendar bucket, take matching count or 0 */
+            arrayMap(d -> if(indexOf(days, d) = 0, 0, counts[indexOf(days, d)]), calendar) AS total
+        FROM
+        (
+            SELECT
+                breakdown,
+                groupArray(bucket) AS days,
+                groupArray(cnt)    AS counts
+            FROM
+            (
+                SELECT
+                    ${hogql.raw(request.breakdownBy!)} AS breakdown,
+                    dateTrunc(g, timestamp) AS bucket,
+                    sum(count) AS cnt
+                FROM app_metrics
+                WHERE app_source = ${request.appSource}
     `
 
     if (request.appSourceId) {
@@ -73,10 +105,16 @@ const loadAppMetricsTimeSeries = async (
     }
 
     query = (query +
-        hogql`\nGROUP BY timestamp, ${hogql.raw(request.breakdownBy!)} ORDER BY timestamp ASC`) as HogQLQueryString
-
-    // oxlint-disable-next-line no-console
-    console.log('Performing', query)
+        hogql`
+                AND timestamp >= start_bucket
+                AND timestamp <  (end_bucket + step_s)           -- include last bucket
+                GROUP BY breakdown, bucket
+                ORDER BY breakdown, bucket
+            )
+            GROUP BY breakdown
+        )
+        ORDER BY breakdown
+        `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
@@ -86,14 +124,16 @@ const loadAppMetricsTimeSeries = async (
         },
     })
 
-    // oxlint-disable-next-line no-console
-    console.log('Response', response.results)
+    const labels = response.results?.[0]?.[0].map((label: string) => dayjs(label).tz(timezone).format('YYYY-MM-DD'))
 
-    return response.results.map((result) => ({
-        timestamp: result[0],
-        breakdown: result[1],
-        count: result[2],
-    }))
+    return {
+        labels: labels || [],
+        series:
+            response.results?.map((result) => ({
+                name: result[1],
+                values: result[2],
+            })) || [],
+    }
 }
 
 // IDEA - have a generic helper logic that can be used anywhere for rendering metrics
@@ -101,10 +141,13 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     props({} as unknown as AppMetricsLogicProps),
     key(({ logicKey }: AppMetricsLogicProps) => logicKey),
     path((id) => ['scenes', 'hog-functions', 'metrics', 'appMetricsLogic', id]),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam']],
+    })),
     actions({
         // set: (filters: Partial<AppMetricsFilters>) => ({ filters }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
@@ -112,7 +155,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                     const params: AppMetricsTimeSeriesRequest = {
                         ...props.forceParams,
                     }
-                    return await loadAppMetricsTimeSeries(params)
+                    return await loadAppMetricsTimeSeries(params, values.currentTeam.timezone)
                 },
             },
         ],

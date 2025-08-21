@@ -34,11 +34,6 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
         },
     ]
 
-    console.log({
-        labels: appMetrics?.labels,
-        displayData,
-    })
-
     return (
         <div ref={inViewRef}>
             {!inView || !appMetrics || appMetricsLoading ? (
