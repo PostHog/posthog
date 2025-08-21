@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
     TipTapContent,
@@ -20,6 +18,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     PatternAssignedEventSegmentContext,
     RawSessionGroupSummaryPattern,
 )
+from django.utils import timezone
 from structlog import get_logger
 
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
@@ -192,7 +191,7 @@ async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
     """Create an empty notebook for a summary."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=f"Session Summaries Report - {team.name} ({datetime.now().strftime('%Y-%m-%d')})",
+        title=f"Session Summaries Report - {team.name} ({timezone.now().strftime('%Y-%m-%d')})",
         content="",
         created_by=user,
         last_modified_by=user,
@@ -204,7 +203,7 @@ async def create_notebook_from_summary_content(user: User, team: Team, summary_c
     """Create a notebook with session summary patterns."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=f"Session Summaries Report - {team.name} ({datetime.now().strftime('%Y-%m-%d')})",
+        title=f"Session Summaries Report - {team.name} ({timezone.now().strftime('%Y-%m-%d')})",
         content=summary_content,
         created_by=user,
         last_modified_by=user,
