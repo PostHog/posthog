@@ -54,8 +54,10 @@ fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceRespo
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
 
     // Create minimal config response
-    let mut config = ConfigResponse::default();
-    config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
+    let config = ConfigResponse {
+        supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+        ..Default::default()
+    };
 
     // Create empty flags response with minimal config
     let response = FlagsResponse {

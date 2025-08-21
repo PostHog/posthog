@@ -40,7 +40,7 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
     assert_eq!(get_response.status(), StatusCode::OK);
 
     let json: FlagsResponse = get_response.json().await?;
-    assert_eq!(json.errors_while_computing_flags, false);
+    assert!(!json.errors_while_computing_flags);
     assert!(json.flags.is_empty());
     assert!(json.quota_limited.is_none());
     assert_eq!(json.config.supported_compression, vec!["gzip", "gzip-js"]);
@@ -57,7 +57,7 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
     let get_response = reqwest::get(format!("http://{}/flags?v=1", server.addr)).await?;
     assert_eq!(get_response.status(), StatusCode::OK);
     let legacy_json: LegacyFlagsResponse = get_response.json().await?;
-    assert_eq!(legacy_json.errors_while_computing_flags, false);
+    assert!(!legacy_json.errors_while_computing_flags);
     assert!(legacy_json.feature_flags.is_empty());
 
     Ok(())
