@@ -4,7 +4,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from products.llm_observability.models import Dataset
+from products.llm_analytics.backend.models import Dataset
 
 logger = structlog.get_logger(__name__)
 

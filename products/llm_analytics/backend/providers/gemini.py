@@ -11,13 +11,8 @@ from google.genai.errors import APIError
 from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 
-<<<<<<<< HEAD:products/llm_analytics/backend/providers/gemini.py
 from products.llm_analytics.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
-========
-from products.llm_observability.backend.providers.formatters.gemini_formatter import (
-    convert_anthropic_messages_to_gemini,
-)
->>>>>>>> daa3f79afd (chore: re-organize products/llmo):products/llm_observability/backend/providers/gemini.py
+
 
 logger = logging.getLogger(__name__)
 

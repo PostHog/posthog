@@ -12,11 +12,8 @@ from openai.types import CompletionUsage, ReasoningEffort
 from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletionSystemMessageParam
 from posthoganalytics.ai.openai import OpenAI
 
-<<<<<<<< HEAD:products/llm_analytics/backend/providers/openai.py
 from products.llm_analytics.backend.providers.formatters.openai_formatter import convert_to_openai_messages
-========
-from products.llm_observability.backend.providers.formatters.openai_formatter import convert_to_openai_messages
->>>>>>>> daa3f79afd (chore: re-organize products/llmo):products/llm_observability/backend/providers/openai.py
+
 
 logger = logging.getLogger(__name__)
 

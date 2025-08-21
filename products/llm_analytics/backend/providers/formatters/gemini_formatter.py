@@ -4,11 +4,8 @@ from typing import cast
 from anthropic.types import MessageParam
 from google.genai.types import Blob, Content, ContentListUnion, Part
 
-<<<<<<<< HEAD:products/llm_analytics/backend/providers/formatters/gemini_formatter.py
+
 from products.llm_analytics.backend.providers.formatters.anthropic_typeguards import (
-========
-from products.llm_observability.backend.providers.formatters.anthropic_typeguards import (
->>>>>>>> daa3f79afd (chore: re-organize products/llmo):products/llm_observability/backend/providers/formatters/gemini_formatter.py
     is_base64_image_param,
     is_image_block_param,
     is_text_block_param,
