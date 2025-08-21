@@ -52,6 +52,9 @@ export default {
         // mocks used by all stories in this file
         mswDecorator({
             get: {
+                // Data warehouse
+                '/api/environments/:team_id/external_data_sources/wizard': empty,
+
                 // Legacy pipeline parts
                 '/api/projects/:team_id/pipeline_destination_configs/': empty,
                 '/api/organizations/:organization_id/pipeline_destinations/': empty,
