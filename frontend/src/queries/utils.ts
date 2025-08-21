@@ -482,6 +482,8 @@ export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefin
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizationBy
     }
     return undefined
 }

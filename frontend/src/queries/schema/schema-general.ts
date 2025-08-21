@@ -1428,6 +1428,15 @@ export type StickinessFilter = {
         value: integer
     }
     computedAs?: StickinessComputationMode
+    /**
+     * Wether result datasets are associated by their values or by their order.
+     * @default value
+     **/
+    resultCustomizationBy?: ResultCustomizationBy
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?:
+        | Record<string, ResultCustomizationByValue>
+        | Record<numerical_key, ResultCustomizationByPosition>
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
