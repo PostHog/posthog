@@ -1,21 +1,18 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-
-from .oauth_application import OAuthApplicationPublicMetadataViewSet
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
-import products.tasks.backend.api as tasks
-from products.user_interviews.backend.api import UserInterviewViewSet
-from products.llm_observability.api import LLMProxyViewSet
-from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet, MessagePreferencesViewSet
+import products.links.backend.api as link
 import products.logs.backend.api as logs
-from posthog.api import data_color_theme, hog_flow, metalytics, project, my_notifications
-from posthog.api.wizard import http as wizard
+import products.revenue_analytics.backend.api as revenue_analytics
+import products.tasks.backend.api as tasks
+from posthog.api import data_color_theme, hog_flow, metalytics, my_notifications, project
+from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
-from posthog.api.batch_imports import BatchImportViewSet
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
     data_modeling_job,
@@ -29,9 +26,10 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
-import products.revenue_analytics.backend.api as revenue_analytics
 from posthog.warehouse.api.lineage import LineageViewSet
-import products.links.backend.api as link
+from products.llm_analytics.backend.api import LLMProxyViewSet
+from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
+from products.user_interviews.backend.api import UserInterviewViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -83,11 +81,12 @@ from . import (
     user,
     web_vitals,
 )
-from .file_system import file_system, file_system_shortcut, persisted_folder
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
-from .session import SessionViewSet
 from .external_web_analytics import http as external_web_analytics
+from .file_system import file_system, file_system_shortcut, persisted_folder
+from .oauth_application import OAuthApplicationPublicMetadataViewSet
+from .session import SessionViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])

@@ -1,29 +1,31 @@
 import uuid
 
+from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import ServerException
 from django.conf import settings
+from structlog.contextvars import bind_contextvars
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models import (
-    DataWarehouseSavedQuery,
-    aget_or_create_datawarehouse_credential,
-    DataWarehouseTable,
     DataWarehouseCredential,
-    asave_datawarehousetable,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
     acreate_datawarehousetable,
-    aget_table_by_saved_query_id,
+    aget_or_create_datawarehouse_credential,
     aget_saved_query_by_id,
+    aget_table_by_saved_query_id,
+    asave_datawarehousetable,
     asave_saved_query,
 )
-
-from asgiref.sync import sync_to_async
-from posthog.temporal.common.logger import bind_temporal_worker_logger
-from clickhouse_driver.errors import ServerException
-
 from posthog.warehouse.s3 import get_size_of_folder
+
+LOGGER = get_logger(__name__)
 
 
 async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int) -> float:
-    logger = await bind_temporal_worker_logger(team_id=team_id)
+    bind_contextvars(team_id=team_id)
+    logger = LOGGER.bind()
 
     await logger.adebug("Calculating table size in S3")
 
@@ -44,7 +46,8 @@ async def create_table_from_saved_query(
     """
     Create a table from a saved query if it doesn't exist.
     """
-    logger = await bind_temporal_worker_logger(team_id=team_id)
+    bind_contextvars(team_id=team_id)
+    logger = LOGGER.bind()
 
     credential: DataWarehouseCredential = await aget_or_create_datawarehouse_credential(
         team_id=team_id,

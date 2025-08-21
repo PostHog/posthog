@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 
+from posthog.schema import IntervalType, RevenueAnalyticsRevenueQuery
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
     RevenueAnalyticsQueryRunner,
 )
-from posthog.schema import RevenueAnalyticsRevenueQuery, IntervalType
-from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
 
 
 # This is required because we can't instantiate the base class directly
@@ -23,7 +23,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     query = RevenueAnalyticsRevenueQuery(groupBy=[], properties=[], interval=IntervalType.MONTH)
     date = datetime(2025, 1, 1)
 
-    def assertDiff(self, diff: timedelta | None):
+    def assertDiff(self, diff: timedelta):
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
         self.assertEqual(runner.cache_target_age(self.date), self.date + diff)
 
