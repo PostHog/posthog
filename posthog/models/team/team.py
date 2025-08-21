@@ -342,6 +342,7 @@ class Team(UUIDTClassicModel):
     capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
+    web_analytics_pre_aggregated_tables_enabled = models.BooleanField(default=False, null=True)
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
