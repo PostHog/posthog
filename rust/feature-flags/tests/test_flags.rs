@@ -20,6 +20,49 @@ use feature_flags::utils::test_utils::{
 
 pub mod common;
 
+#[tokio::test]
+async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test GET request without any body - should return 200 with minimal response
+    let get_response = reqwest::get(format!("http://{}/flags?v=2", server.addr)).await?;
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let json: FlagsResponse = get_response.json().await?;
+    assert!(!json.errors_while_computing_flags);
+    assert!(json.flags.is_empty());
+    assert!(json.quota_limited.is_none());
+    assert_eq!(json.config.supported_compression, vec!["gzip", "gzip-js"]);
+
+    // Test GET request with token in query params
+    let get_response = reqwest::get(format!(
+        "http://{}/flags?v=2&api_key={}",
+        server.addr, token
+    ))
+    .await?;
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    // Test legacy version format
+    let get_response = reqwest::get(format!("http://{}/flags?v=1", server.addr)).await?;
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let legacy_json: LegacyFlagsResponse = get_response.json().await?;
+    assert!(!legacy_json.errors_while_computing_flags);
+    assert!(legacy_json.feature_flags.is_empty());
+
+    Ok(())
+}
+
 #[rstest]
 #[case(Some("1"))]
 #[case(Some("banana"))]
