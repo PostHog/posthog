@@ -2,7 +2,6 @@ use anyhow::Error;
 use common_redis::{Client, RedisClient};
 use std::sync::Arc;
 
-use super::CacheStats;
 
 /// Redis-based cache for tracking user_id -> device_id mappings to determine
 /// when to inject $identify events (first time only per user-device pair)
@@ -53,7 +52,10 @@ impl IdentifyCache {
 
     /// Generate Redis key for user-device combination
     fn make_key(team_id: i32, user_id: &str, device_id: &str) -> String {
-        format!("identify:{}:{}:{}", team_id, user_id, device_id)
+        // URL encode user_id and device_id to prevent key format conflicts
+        let encoded_user_id = urlencoding::encode(user_id);
+        let encoded_device_id = urlencoding::encode(device_id);
+        format!("identify:{}:{}:{}", team_id, encoded_user_id, encoded_device_id)
     }
 
     /// Check if we've already seen this user_id + device_id combination
@@ -91,24 +93,250 @@ impl IdentifyCache {
 
         Ok(())
     }
-
-    /// Get cache statistics for monitoring
-    pub async fn stats(&self) -> Result<CacheStats, Error> {
-        // For Redis, we don't maintain in-memory stats
-        // In a production system, you might want to expose Redis INFO stats
-        Ok(CacheStats {
-            total_entries: 0, // Would need to scan all keys to count
-            cache_hits: 0,    // Would need Redis INFO stats
-            cache_misses: 0,  // Would need Redis INFO stats
-        })
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use common_redis::{CustomRedisError, MockRedisClient};
+
     #[tokio::test]
     async fn test_redis_cache_make_key() {
         let key = super::IdentifyCache::make_key(1, "user123", "device456");
         assert_eq!(key, "identify:1:user123:device456");
+    }
+
+    #[tokio::test]
+    async fn test_cache_first_time_detection() {
+        // Setup mock to return NotFound for first call, then success for second call
+        let mut mock_client = MockRedisClient::new();
+        mock_client = mock_client.get_ret("identify:1:user123:device456", Err(CustomRedisError::NotFound));
+        let cache = IdentifyCache {
+            redis_client: Arc::new(mock_client),
+            ttl_seconds: 86400,
+        };
+
+        // First call should return false (not seen)
+        let result1 = cache.has_seen_user_device(1, "user123", "device456").await.unwrap();
+        assert_eq!(result1, false);
+
+        // Now setup mock for mark operation (set_nx_ex should succeed)
+        let mut mock_client2 = MockRedisClient::new();
+        mock_client2 = mock_client2.set_nx_ex_ret("identify:1:user123:device456", Ok(true));
+        let cache2 = IdentifyCache {
+            redis_client: Arc::new(mock_client2),
+            ttl_seconds: 86400,
+        };
+
+        // Mark as seen
+        cache2.mark_seen_user_device(1, "user123", "device456").await.unwrap();
+
+        // Setup mock for second has_seen call (should find the key)
+        let mut mock_client3 = MockRedisClient::new();
+        mock_client3 = mock_client3.get_ret("identify:1:user123:device456", Ok("1".to_string()));
+        let cache3 = IdentifyCache {
+            redis_client: Arc::new(mock_client3),
+            ttl_seconds: 86400,
+        };
+
+        // Second call should return true (seen)
+        let result2 = cache3.has_seen_user_device(1, "user123", "device456").await.unwrap();
+        assert_eq!(result2, true);
+    }
+
+    #[tokio::test]
+    async fn test_cache_different_teams_isolated() {
+        // Setup mocks for two different teams
+        let mut mock_client1 = MockRedisClient::new();
+        mock_client1 = mock_client1.get_ret("identify:1:user123:device456", Err(CustomRedisError::NotFound));
+        let cache1 = IdentifyCache {
+            redis_client: Arc::new(mock_client1),
+            ttl_seconds: 86400,
+        };
+
+        let mut mock_client2 = MockRedisClient::new();
+        mock_client2 = mock_client2.get_ret("identify:2:user123:device456", Ok("1".to_string()));
+        let cache2 = IdentifyCache {
+            redis_client: Arc::new(mock_client2),
+            ttl_seconds: 86400,
+        };
+
+        // Same user and device, different teams should be isolated
+        let result1 = cache1.has_seen_user_device(1, "user123", "device456").await.unwrap();
+        let result2 = cache2.has_seen_user_device(2, "user123", "device456").await.unwrap();
+
+        assert_eq!(result1, false); // Team 1 hasn't seen it
+        assert_eq!(result2, true);  // Team 2 has seen it
+    }
+
+    #[tokio::test]
+    async fn test_cache_key_format_edge_cases() {
+        // Test with special characters in user_id and device_id
+        let key1 = IdentifyCache::make_key(1, "user@123", "device:456");
+        assert_eq!(key1, "identify:1:user%40123:device%3A456");
+
+        // Test with empty strings
+        let key2 = IdentifyCache::make_key(1, "", "");
+        assert_eq!(key2, "identify:1::");
+
+        // Test with unicode characters
+        let key3 = IdentifyCache::make_key(1, "用户123", "设备456");
+        assert_eq!(key3, "identify:1:%E7%94%A8%E6%88%B7123:%E8%AE%BE%E5%A4%87456");
+
+        // Test with negative team_id
+        let key4 = IdentifyCache::make_key(-1, "user123", "device456");
+        assert_eq!(key4, "identify:-1:user123:device456");
+
+        // Test with multiple colons in user_id and device_id
+        let key5 = IdentifyCache::make_key(1, "user:123:abc", "device:456:xyz");
+        assert_eq!(key5, "identify:1:user%3A123%3Aabc:device%3A456%3Axyz");
+
+        // Test with only colons (should be fully escaped)
+        let key6 = IdentifyCache::make_key(1, ":::", ":::");  // 3 colons each
+        assert_eq!(key6, "identify:1:%3A%3A%3A:%3A%3A%3A");
+
+        // Test with other special characters
+        let key7 = IdentifyCache::make_key(1, "user space", "device+plus");
+        assert_eq!(key7, "identify:1:user%20space:device%2Bplus");
+    }
+
+    #[tokio::test]
+    async fn test_cache_error_handling() {
+        // Test Redis connection error during has_seen
+        let mut mock_client = MockRedisClient::new();
+        mock_client = mock_client.get_ret("identify:1:user123:device456", Err(CustomRedisError::Other("Connection failed".to_string())));
+        let cache = IdentifyCache {
+            redis_client: Arc::new(mock_client),
+            ttl_seconds: 86400,
+        };
+
+        let result = cache.has_seen_user_device(1, "user123", "device456").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Redis error checking user-device"));
+
+        // Test Redis connection error during mark_seen
+        let mut mock_client2 = MockRedisClient::new();
+        mock_client2 = mock_client2.set_nx_ex_ret("identify:1:user123:device456", Err(CustomRedisError::Other("Connection failed".to_string())));
+        let cache2 = IdentifyCache {
+            redis_client: Arc::new(mock_client2),
+            ttl_seconds: 86400,
+        };
+
+        let result2 = cache2.mark_seen_user_device(1, "user123", "device456").await;
+        assert!(result2.is_err());
+        assert!(result2.unwrap_err().to_string().contains("Redis error marking user-device"));
+    }
+
+    #[tokio::test]
+    async fn test_cache_mark_seen_twice_same_key() {
+        // First mark_seen should succeed
+        let mut mock_client1 = MockRedisClient::new();
+        mock_client1 = mock_client1.set_nx_ex_ret("identify:1:user123:device456", Ok(true));
+        let cache1 = IdentifyCache {
+            redis_client: Arc::new(mock_client1),
+            ttl_seconds: 86400,
+        };
+
+        let result1 = cache1.mark_seen_user_device(1, "user123", "device456").await;
+        assert!(result1.is_ok());
+
+        // Second mark_seen should also succeed (set_nx_ex doesn't fail if key exists)
+        let mut mock_client2 = MockRedisClient::new();
+        mock_client2 = mock_client2.set_nx_ex_ret("identify:1:user123:device456", Ok(false)); // false = key already existed
+        let cache2 = IdentifyCache {
+            redis_client: Arc::new(mock_client2),
+            ttl_seconds: 86400,
+        };
+
+        let result2 = cache2.mark_seen_user_device(1, "user123", "device456").await;
+        assert!(result2.is_ok());
+    }
+
+
+
+    #[tokio::test]
+    async fn test_cache_with_different_user_device_combinations() {
+        // Test different combinations of user_id and device_id
+        let test_cases = vec![
+            (1, "user1", "device1"),
+            (1, "user1", "device2"), // Same user, different device
+            (1, "user2", "device1"), // Different user, same device
+            (2, "user1", "device1"), // Same user/device, different team
+        ];
+
+        for (team_id, user_id, device_id) in test_cases {
+            // URL encode user_id and device_id for expected key
+            let encoded_user_id = urlencoding::encode(user_id);
+            let encoded_device_id = urlencoding::encode(device_id);
+            let expected_key = format!("identify:{}:{}:{}", team_id, encoded_user_id, encoded_device_id);
+            let actual_key = IdentifyCache::make_key(team_id, user_id, device_id);
+            assert_eq!(actual_key, expected_key);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cache_colon_combinations_separate() {
+        // Test that different colon combinations result in different cache keys
+        // This ensures that similar-looking IDs with colons are properly isolated
+
+        let mut mock_client = MockRedisClient::new();
+
+        // Setup different responses for different key combinations
+        mock_client = mock_client.get_ret("identify:1:foo%3Abar::baz", Err(CustomRedisError::NotFound)); // "foo:bar" + ":baz"
+        mock_client = mock_client.get_ret("identify:1:foo%3A:bar%3Abaz", Err(CustomRedisError::NotFound)); // "foo:" + "bar:baz"
+
+        let cache = IdentifyCache {
+            redis_client: Arc::new(mock_client),
+            ttl_seconds: 86400,
+        };
+
+        // Test first combination: "foo:bar" + ":baz"
+        let result1 = cache.has_seen_user_device(1, "foo:bar", ":baz").await.unwrap();
+        assert_eq!(result1, false); // Should not be seen
+
+        // Test second combination: "foo:" + "bar:baz"
+        let result2 = cache.has_seen_user_device(1, "foo:", "bar:baz").await.unwrap();
+        assert_eq!(result2, false); // Should not be seen
+
+        // Verify they produce different keys
+        let key1 = IdentifyCache::make_key(1, "foo:bar", ":baz");
+        let key2 = IdentifyCache::make_key(1, "foo:", "bar:baz");
+        assert_ne!(key1, key2, "Keys should be different for different colon combinations");
+
+        // Test that marking one doesn't affect the other
+        let mut mock_client2 = MockRedisClient::new();
+        mock_client2 = mock_client2.set_nx_ex_ret("identify:1:foo%3Abar:%3Abaz", Ok(true));
+        let cache2 = IdentifyCache {
+            redis_client: Arc::new(mock_client2),
+            ttl_seconds: 86400,
+        };
+
+        // Mark first combination as seen (this should succeed)
+        let mark_result = cache2.mark_seen_user_device(1, "foo:bar", ":baz").await;
+        assert!(mark_result.is_ok(), "Marking first combination should succeed");
+
+        // Check that second combination is still not seen
+        let mut mock_client3 = MockRedisClient::new();
+        mock_client3 = mock_client3.get_ret("identify:1:foo%3A:bar%3Abaz", Err(CustomRedisError::NotFound));
+        let cache3 = IdentifyCache {
+            redis_client: Arc::new(mock_client3),
+            ttl_seconds: 86400,
+        };
+
+        let result3 = cache3.has_seen_user_device(1, "foo:", "bar:baz").await.unwrap();
+        assert_eq!(result3, false, "Second combination should still be unseen");
+    }
+
+    #[tokio::test]
+    async fn test_cache_redis_url_validation() {
+        // Test that empty Redis URL fails
+        let result = IdentifyCache::new("").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Redis URL is required"));
+
+        // Test with TTL
+        let result2 = IdentifyCache::with_ttl("", 3600).await;
+        assert!(result2.is_err());
+        assert!(result2.unwrap_err().to_string().contains("Redis URL is required"));
     }
 }

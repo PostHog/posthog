@@ -44,6 +44,7 @@ zip = "4.0.0"
 flate2.workspace = true
 httpdate = "1"
 metrics = { workspace = true }
+urlencoding = "2.1"
 
 [dev-dependencies]
 httpmock = { workspace = true }

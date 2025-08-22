@@ -1104,6 +1104,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
  "uuid",
  "zip 4.0.0",
 ]
