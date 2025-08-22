@@ -412,7 +412,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        _dashboardLoading: [
+        dashboardLoading: [
             false,
             {
                 loadDashboard: () => true,
@@ -953,7 +953,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [s._dashboardLoading, s.refreshStatus, s.initialVariablesLoaded],
+            (s) => [s.dashboardLoading, s.refreshStatus, s.initialVariablesLoaded],
             (dashboardLoading, refreshStatus, initialVariablesLoaded) => {
                 return (
                     dashboardLoading ||
