@@ -473,10 +473,13 @@ def get_teams_with_billable_event_count_in_period(
         distinct_expression = "1"
 
     # We are excluding $exception events during the beta
+    # We also exclude $ai_* events as they are billed separately through ai_event_count_in_period
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+            AND event NOT LIKE '$ai_%'
         GROUP BY team_id
     """
 
@@ -499,10 +502,14 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
+    # We exclude $ai_* events as they are billed separately through ai_event_count_in_period
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+            AND event NOT LIKE '$ai_%'
+            AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
