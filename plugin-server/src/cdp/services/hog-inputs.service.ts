@@ -1,11 +1,11 @@
 import { convertHogToJS } from '@posthog/hogvm'
 
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { Hub } from '~/types'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
@@ -101,7 +101,7 @@ export class HogInputsService {
                         ...integration.config,
                         ...integration.sensitive_config,
                         access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
-                        access_token_raw: integration.sensitive_config.access_token
+                        access_token_raw: integration.sensitive_config.access_token,
                     },
                 }
             }
