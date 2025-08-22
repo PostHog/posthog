@@ -1,8 +1,10 @@
+import { useState } from 'react'
+
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { pluralize } from 'lib/utils'
-import { useState } from 'react'
 
 import { WebhookSubscription } from '~/types'
 

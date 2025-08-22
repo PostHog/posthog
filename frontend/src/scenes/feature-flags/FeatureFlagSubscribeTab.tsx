@@ -1,4 +1,5 @@
 import { LemonCollapse } from '@posthog/lemon-ui'
+
 import { pluralize } from 'lib/utils'
 
 import { FeatureFlagType, WebhookSubscription } from '~/types'
