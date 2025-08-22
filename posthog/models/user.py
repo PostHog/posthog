@@ -267,9 +267,14 @@ class User(AbstractUser, UUIDTClassicModel):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("access_control", "id").first()
             else:
-                # If project access control IS applicable, make sure the user is assigned a project they have access to
-                # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
-                self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
+                # If access control IS applicable, make sure the user is assigned a project they have access to
+                if organization.teams.filter(access_control=True).exists():
+                    # Legacy access control
+                    self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
+                else:
+                    # New access control
+                    accessible_teams = self.teams.filter(organization=organization)
+                    self.current_team = accessible_teams.first()
             self.save()
 
         # Auto-assign default role if configured
