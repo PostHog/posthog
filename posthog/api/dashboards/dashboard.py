@@ -49,15 +49,6 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
-    """
-    Serialize a single tile with error handling. Returns (order, tile_data) tuple.
-    This function is designed to be thread-safe and used with ThreadPoolExecutor.
-    Uses fast orjson-based serialization instead of DRF serializers for performance.
-    """
-    return fast_serialize_tile_with_context(tile, order, context)
-
-
 class CanEditDashboard(BasePermission):
     message = "You don't have edit permissions for this dashboard."
 
@@ -479,7 +470,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 return []
 
             for order, tile in enumerate(sorted_tiles):
-                order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                order, tile_data = fast_serialize_tile_with_context(tile, order, self.context)
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 
         return serialized_tiles
