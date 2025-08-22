@@ -155,19 +155,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
-        loadDashboard: (payload: {
-            action: InitialDashboardLoadAction
-            manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
-        }) => payload,
-        refreshDashboard: (payload: {
-            action: RefreshDashboardAction
-            manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
-        }) => payload,
+        loadDashboard: (payload: { action: InitialDashboardLoadAction }) => payload,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
-        loadingDashboardItemsStarted: (action: string, manualDashboardRefresh: boolean) => ({
-            action,
-            manualDashboardRefresh,
-        }),
+        loadingDashboardItemsStarted: (action: InitialDashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         /** Manually refresh a single insight from the insight card on the dashboard. */
@@ -176,8 +166,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: true,
         /** Automatically trigger a refresh of all insight tiles after a successful dashboard fetch. */
         updateDashboardItems: (payload: {
-            tiles?: DashboardTile<QueryBasedInsightModel>[]
-            action: string
+            action: RefreshDashboardAction | InitialDashboardLoadAction
             manualDashboardRefresh?: boolean
         }) => payload,
         /** Update a single refresh status. */
@@ -288,16 +277,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                /**
-                 * TRICKY: Load dashboard only gets the dashboard meta + cached insights (as we pass `force_cache`)
-                 * if manualDashboardRefresh is passed then in loadDashboardSuccess we trigger
-                 * updateDashboardItems to refresh all insights with `force_blocking`
-                 */
-                loadDashboard: async ({ action, manualDashboardRefresh }, breakpoint) => {
-                    actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
+                loadDashboard: async ({ action }, breakpoint) => {
+                    actions.loadingDashboardItemsStarted(action)
 
                     await breakpoint(200)
-                    actions.resetIntermittentFilters()
 
                     try {
                         const apiUrl = values.apiUrl('force_cache', values.temporaryFilters, values.temporaryVariables)
@@ -333,12 +316,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 filters: values.effectiveEditBarFilters,
                                 variables: values.temporaryVariables,
-                                breakdown_colors: values.temporaryBreakdownColors,
-                                data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
                             }
                         )
-                        actions.resetDashboardFilters()
                         return getQueryBasedDashboard(dashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -606,22 +586,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadTimer: [null as Date | null, { loadDashboard: () => new Date() }],
         dashboardLoadData: [
             {
-                action: '',
-                manualDashboardRefresh: false,
+                action: undefined,
                 dashboardQueryId: '',
                 startTime: 0,
                 responseBytes: 0,
             } as {
-                action: string
-                manualDashboardRefresh: boolean
+                action: InitialDashboardLoadAction | undefined
                 dashboardQueryId: string
                 startTime: number
                 responseBytes: number
             },
             {
-                loadingDashboardItemsStarted: (_, { action, manualDashboardRefresh }) => ({
+                loadingDashboardItemsStarted: (_, { action }) => ({
                     action,
-                    manualDashboardRefresh,
                     dashboardQueryId: uuid(), // generate new query id for the refresh
                     startTime: performance.now(),
                     responseBytes: 0,
@@ -1175,9 +1152,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
-                        actions.loadDashboard({
-                            action: InitialDashboardLoadAction.InitialLoad,
-                        })
+                        actions.loadDashboard({ action: InitialDashboardLoadAction.InitialLoad })
                     }
                 }
             }
@@ -1285,7 +1260,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            actions.refreshDashboard({ action: RefreshDashboardAction.Refresh, manualDashboardRefresh: true })
+            actions.updateDashboardItems({ action: RefreshDashboardAction.Refresh, manualDashboardRefresh: true })
         },
         /** Called when a single insight is refreshed manually on the dashboard */
         triggerDashboardItemRefresh: async ({ tile }, breakpoint) => {
@@ -1311,7 +1286,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     uuid(),
                     'force_blocking',
                     undefined,
-                    undefined,
+                    values.temporaryFilters,
                     values.temporaryVariables
                 )
 
@@ -1325,19 +1300,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id, e)
             }
         },
-        updateDashboardItems: async ({ tiles, action, manualDashboardRefresh }, breakpoint) => {
+        updateDashboardItems: async ({ action, manualDashboardRefresh }, breakpoint) => {
+            const isInitialLoad =
+                action === InitialDashboardLoadAction.InitialLoad ||
+                action === InitialDashboardLoadAction.InitialLoadWithVariables
+            const isInitialLoadOrUpdate = isInitialLoad || action === InitialDashboardLoadAction.Update
+
             const dashboardId: number = props.id
-            const sortedInsights = (tiles || values.insightTiles || [])
+            const sortedInsights = (values.insightTiles || [])
                 // sort tiles so we poll them in the exact order they are computed on the backend
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .map((t) => t.insight)
                 .filter((i): i is QueryBasedInsightModel => !!i)
                 // only refresh stale insights
                 .filter(
-                    (i) => manualDashboardRefresh || !i.cache_target_age || dayjs(i.cache_target_age).isBefore(dayjs())
+                    (i) =>
+                        manualDashboardRefresh ||
+                        !isInitialLoadOrUpdate ||
+                        !i.cache_target_age ||
+                        dayjs(i.cache_target_age).isBefore(dayjs())
                 )
 
             if (sortedInsights.length > 0) {
+                await breakpoint()
+                actions.resetIntermittentFilters()
+
                 // Set refresh status for all insights
                 actions.setRefreshStatuses(
                     sortedInsights.map((item) => item.short_id),
@@ -1358,7 +1345,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setRefreshStatus(insight.short_id, true, true)
 
                     try {
-                        const syncInsight = await getInsightWithRetry(
+                        const refreshedInsight = await getInsightWithRetry(
                             values.currentTeamId,
                             insight,
                             dashboardId,
@@ -1369,11 +1356,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             values.temporaryVariables
                         )
 
-                        if (syncInsight) {
-                            if (action === RefreshDashboardAction.Preview && syncInsight?.dashboard_tiles) {
-                                syncInsight.dashboards = [dashboardId]
-                            }
-                            dashboardsModel.actions.updateDashboardInsight(syncInsight)
+                        if (refreshedInsight) {
+                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                             actions.setRefreshStatus(insight.short_id)
                         } else {
                             actions.setRefreshError(insight.short_id)
@@ -1399,24 +1383,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
-                // capture time to see data
-                const { dashboardQueryId, startTime, responseBytes } = values.dashboardLoadData
-                eventUsageLogic.actions.reportTimeToSeeData({
-                    team_id: values.currentTeamId,
-                    type: 'dashboard_load',
-                    context: 'dashboard',
-                    action,
-                    status: 'success',
-                    primary_interaction_id: dashboardQueryId,
-                    time_to_see_data_ms: Math.floor(performance.now() - startTime),
-                    api_response_bytes: responseBytes,
-                    insights_fetched: sortedInsights.length,
-                    insights_fetched_cached: values.dashboard?.tiles.reduce(
-                        (acc, curr) => acc + (curr.is_cached ? 1 : 0),
-                        0
-                    ),
-                    ...getJSHeapMemory(),
-                })
+                if (isInitialLoad) {
+                    // capture time to see data
+                    const { dashboardQueryId, startTime, responseBytes } = values.dashboardLoadData
+                    eventUsageLogic.actions.reportTimeToSeeData({
+                        team_id: values.currentTeamId,
+                        type: 'dashboard_load',
+                        context: 'dashboard',
+                        action,
+                        status: 'success',
+                        primary_interaction_id: dashboardQueryId,
+                        time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                        api_response_bytes: responseBytes,
+                        insights_fetched: sortedInsights.length,
+                        insights_fetched_cached: values.dashboard?.tiles.reduce(
+                            (acc, curr) => acc + (curr.is_cached ? 1 : 0),
+                            0
+                        ),
+                        ...getJSHeapMemory(),
+                    })
+                }
 
                 eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
             }
@@ -1437,7 +1423,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.resetVariables()
 
                 // reset tile data by reloading dashboard
-                actions.refreshDashboard({ action: RefreshDashboardAction.Preview })
+                actions.updateDashboardItems({ action: RefreshDashboardAction.Preview, manualDashboardRefresh: false })
 
                 // also reset layout to that we stored in dashboardLayouts
                 // this is done in the reducer for dashboard
@@ -1449,7 +1435,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.resetVariables()
 
                 // reset tile data by reloading dashboard
-                actions.refreshDashboard({ action: RefreshDashboardAction.Preview })
+                actions.updateDashboardItems({ action: RefreshDashboardAction.Refresh, manualDashboardRefresh: false })
             } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                 // save edit mode changes
                 actions.setFiltersAndLayoutsAndVariables(
@@ -1480,10 +1466,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     values.lastDashboardRefresh &&
                     values.lastDashboardRefresh.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
-                    actions.refreshDashboard({ action: RefreshDashboardAction.Refresh })
+                    actions.updateDashboardItems({
+                        action: RefreshDashboardAction.Refresh,
+                        manualDashboardRefresh: true,
+                    })
                 }
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshDashboard({ action: RefreshDashboardAction.Refresh })
+                    actions.updateDashboardItems({
+                        action: RefreshDashboardAction.Refresh,
+                        manualDashboardRefresh: true,
+                    })
                 }, values.autoRefresh.interval * 1000)
             }
         },
@@ -1498,8 +1490,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.placement !== DashboardPlacement.Export) {
                 // access stored values from dashboardLoadData
                 // as we can't pass them down to this listener
-                const { action, manualDashboardRefresh } = values.dashboardLoadData
-                actions.updateDashboardItems({ action, manualDashboardRefresh })
+                const { action } = values.dashboardLoadData
+                actions.updateDashboardItems({ action, manualDashboardRefresh: false })
             }
 
             if (values.shouldReportOnAPILoad) {
@@ -1555,25 +1547,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         previewTemporaryFilters: () => {
-            actions.refreshDashboard({ action: RefreshDashboardAction.Preview })
+            actions.updateDashboardItems({ action: RefreshDashboardAction.Preview, manualDashboardRefresh: false })
         },
         setProperties: () => {
             if (values.canAutoPreview) {
-                actions.refreshDashboard({ action: RefreshDashboardAction.Preview })
+                actions.updateDashboardItems({ action: RefreshDashboardAction.Preview, manualDashboardRefresh: false })
             }
         },
         setDates: () => {
             if (values.canAutoPreview) {
-                actions.refreshDashboard({ action: RefreshDashboardAction.Preview })
+                actions.updateDashboardItems({ action: RefreshDashboardAction.Preview, manualDashboardRefresh: false })
             }
         },
         setBreakdownFilter: () => {
             if (values.canAutoPreview) {
-                actions.refreshDashboard({ action: RefreshDashboardAction.Preview })
+                actions.updateDashboardItems({ action: RefreshDashboardAction.Preview, manualDashboardRefresh: false })
             }
         },
         overrideVariableValue: () => {
-            actions.refreshDashboard({ action: RefreshDashboardAction.Preview })
+            actions.updateDashboardItems({ action: RefreshDashboardAction.Preview, manualDashboardRefresh: false })
             actions.setDashboardMode(DashboardMode.Edit, null)
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
@@ -1584,9 +1576,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
-                actions.loadDashboard({
-                    action: InitialDashboardLoadAction.InitialLoadWithVariables,
-                })
+                actions.loadDashboard({ action: InitialDashboardLoadAction.InitialLoadWithVariables })
             }
 
             actions.setInitialVariablesLoaded(true)
