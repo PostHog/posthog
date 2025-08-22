@@ -18,7 +18,7 @@ from rest_framework.request import Request
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
-from posthog.api.insight import InsightSerializer
+from posthog.api.dashboards.fast_serializers import FastInsightSerializer
 from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
@@ -395,7 +395,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
-            insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
+            fast_serializer = FastInsightSerializer(insight_context)
+            insight_data = fast_serializer.serialize(resource.insight)
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:

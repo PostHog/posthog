@@ -42,6 +42,7 @@ from posthog.api.dashboards.fast_serializers import (
     fast_serialize_tile_with_context,
     serialize_text,
     serialize_dashboard_tile,
+    FastInsightSerializer,
 )
 
 
@@ -280,8 +281,10 @@ class DashboardSerializer(DashboardBasicSerializer):
 
     def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
         if existing_tile.insight:
+            # Use fast serializer for data extraction, passing full context
+            fast_serializer = FastInsightSerializer(self.context)
             new_data = {
-                **InsightSerializer(existing_tile.insight, context=self.context).data,
+                **fast_serializer.serialize(existing_tile.insight),
                 "id": None,  # to create a new Insight
                 "last_refresh": now(),
                 "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
@@ -304,7 +307,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             )
         elif existing_tile.text:
             new_data = {
-                **TextSerializer(existing_tile.text, context=self.context).data,
+                **serialize_text(existing_tile.text),
                 "id": None,  # to create a new Text
             }
             new_data.pop("dashboards", None)
