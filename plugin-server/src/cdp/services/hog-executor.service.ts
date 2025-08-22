@@ -554,10 +554,25 @@ export class HogExecutorService {
         const addLog = createAddLogFunction(result.logs)
 
         const method = params.method.toUpperCase()
-        const headers = params.headers ?? {}
+        let headers = params.headers ?? {}
 
         if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
             headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+        }
+
+        if (!!invocation.state.globals.inputs?.oauth) {
+            const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+            const accessToken: string = integrationInputs.oauth.value.access_token_raw
+            const placeholder: string = integrationInputs.oauth.value.access_token
+
+            params.body = params.body?.replaceAll(placeholder, accessToken)
+            headers = Object.fromEntries(
+                Object.entries(params.headers ?? {}).map(([key, value]) => [
+                    key,
+                    typeof value === 'string' ? value.replaceAll(placeholder, accessToken) : value,
+                ])
+            )
+            params.url = params.url?.replaceAll(placeholder, accessToken)
         }
 
         const fetchParams: FetchOptions = { method, headers }
