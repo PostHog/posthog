@@ -1,3 +1,6 @@
+/**
+ * @jest-environment jsdom
+ */
 import { CanvasReplayerPlugin } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
