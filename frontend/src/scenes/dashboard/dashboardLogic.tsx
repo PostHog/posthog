@@ -160,10 +160,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        /** Manually refresh a single insight from the insight card on the dashboard. */
-        refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
         /** Manually refresh the entire dashboard. */
         triggerDashboardRefresh: true,
+        /** Manually refresh a single insight from the insight card on the dashboard. */
+        refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
         refreshDashboardItems: (payload: {
             action: RefreshDashboardItemsAction | DashboardLoadAction
