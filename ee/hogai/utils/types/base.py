@@ -23,8 +23,12 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
+    TrendsQuery,
     VisualizationMessage,
     NotebookUpdateMessage,
+    RetentionQuery,
+    FunnelsQuery,
+    HogQLQuery,
 )
 
 AIMessageUnion = Union[
@@ -42,7 +46,8 @@ AssistantOutput = (
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
 
-AssistantQuery = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+AssistantQueryType = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+SupportedAssistantQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 
 
 def merge(_: Any | None, right: Any | None) -> Any | None:

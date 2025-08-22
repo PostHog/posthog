@@ -1726,6 +1726,23 @@
                 }
             ]
         },
+        "AssistantQueryType": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantHogQLQuery"
+                }
+            ],
+            "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
+        },
         "AssistantRetentionActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -23426,6 +23443,23 @@
             "required": ["questions"],
             "type": "object"
         },
+        "SupportedAssistantQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            ],
+            "description": "The union type with all supported base queries for the assistant."
+        },
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {
@@ -24610,16 +24644,10 @@
                 "answer": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AssistantQueryType"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/SupportedAssistantQuery"
                         }
                     ]
                 },

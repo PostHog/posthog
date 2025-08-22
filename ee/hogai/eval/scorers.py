@@ -7,7 +7,7 @@ from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
 from langchain_core.messages import AIMessage as LangchainAIMessage
 
-from ee.hogai.utils.types import AssistantQuery
+from ee.hogai.utils.types.base import AssistantQueryType
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -55,7 +55,7 @@ class ToolRelevance(ScorerWithPartial):
 
 class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
-    query: AssistantQuery
+    query: AssistantQueryType
     query_generation_retry_count: int | None
 
 

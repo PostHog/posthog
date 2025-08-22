@@ -6,20 +6,16 @@ import { humanFriendlyDuration } from 'lib/utils'
 import {
     AssistantMessage,
     AssistantMessageType,
+    AssistantQueryType,
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     NotebookUpdateMessage,
     ReasoningMessage,
     RootAssistantMessage,
+    SupportedAssistantQuery,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from '~/queries/schema/schema-assistant-queries'
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
@@ -61,7 +57,7 @@ export function isNotebookUpdateMessage(
 }
 
 export function castAssistantQuery(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    query: AssistantQueryType | SupportedAssistantQuery
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return query
