@@ -2,7 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentMetric,
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+} from '~/queries/schema/schema-general'
 
 import { MetricTitle } from '../MetricsView/shared/MetricTitle'
 import { experimentLogic } from '../experimentLogic'
@@ -103,8 +108,8 @@ export const MetricSelectorStep = ({
                 </div>
             ) : (
                 <div className="border-t pt-2">
-                    {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.MEAN && <MeanMetricDataPanel />}
-                    {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.FUNNEL && (
+                    {metric && isExperimentMeanMetric(metric) && <MeanMetricDataPanel />}
+                    {metric && isExperimentFunnelMetric(metric) && (
                         <FunnelMetricDataPanel onChangeType={onChangeFunnelConversionRateType} />
                     )}
                 </div>

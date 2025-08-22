@@ -88,6 +88,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
+    CREATE_MESSAGE_TEMPLATE = "create_message_template"
     NAVIGATE = "navigate"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
@@ -1331,6 +1332,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"
     INSIGHT_CALENDAR_HEATMAP = "insightCalendarHeatmap"
+    CODE = "code"
 
 
 class FileSystemImport(BaseModel):
@@ -2292,12 +2294,15 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
-class RevenueAnalyticsRevenueQueryResult(BaseModel):
+class RevenueAnalyticsRevenueQueryResultItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    gross: list
-    mrr: list
+    churn: Any
+    contraction: Any
+    expansion: Any
+    new: Any
+    total: Any
 
 
 class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
@@ -2738,7 +2743,7 @@ class WebAnalyticsOrderByFields(StrEnum):
     ERRORS = "Errors"
 
 
-class Sampling(BaseModel):
+class WebAnalyticsSampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2758,6 +2763,7 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
     EXIT_CLICK = "ExitClick"
+    PREVIOUS_PAGE = "PreviousPage"
     SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
@@ -4274,29 +4280,12 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
 
 
-class RevenueAnalyticsRevenueQueryResponse(BaseModel):
+class RevenueAnalyticsRevenueQueryResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: RevenueAnalyticsRevenueQueryResult
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
+    gross: list
+    mrr: list[RevenueAnalyticsRevenueQueryResultItem]
 
 
 class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -10264,21 +10253,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10350,21 +10324,29 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsRevenueQuery(BaseModel):
+class RevenueAnalyticsRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: Optional[DateRange] = None
-    groupBy: list[RevenueAnalyticsGroupBy]
-    interval: IntervalType
-    kind: Literal["RevenueAnalyticsRevenueQuery"] = "RevenueAnalyticsRevenueQuery"
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: RevenueAnalyticsRevenueQueryResult
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class RevenueAnalyticsTopCustomersQuery(BaseModel):
@@ -10562,18 +10544,6 @@ class VectorSearchQueryResponse(BaseModel):
     )
 
 
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    id: Optional[str] = None
-    initiator: Optional[str] = None
-    plan: Optional[str] = None
-    query: Optional[str] = ""
-    type: Literal["ai/viz"] = "ai/viz"
-
-
 class WebAnalyticsExternalSummaryQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10603,7 +10573,7 @@ class WebExternalClicksTableQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebExternalClicksTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
@@ -10628,7 +10598,7 @@ class WebGoalsQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -10651,7 +10621,7 @@ class WebOverviewQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -10675,7 +10645,7 @@ class WebPageURLSearchQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebPageURLSearchQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     searchTerm: Optional[str] = None
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
@@ -10705,7 +10675,7 @@ class WebStatsTableQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -11400,7 +11370,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     )
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[MarketingAnalyticsTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     select: Optional[list[str]] = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
@@ -11615,6 +11585,38 @@ class RetentionQueryResponse(BaseModel):
     )
 
 
+class RevenueAnalyticsBaseQueryRevenueAnalyticsRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsRevenueQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    groupBy: list[RevenueAnalyticsGroupBy]
+    interval: IntervalType
+    kind: Literal["RevenueAnalyticsRevenueQuery"] = "RevenueAnalyticsRevenueQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11782,7 +11784,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     percentile: WebVitalsPercentile
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: Optional[bool] = None
@@ -13158,6 +13160,21 @@ class QueryResponseAlternative(
     ]
 
 
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Union[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
+        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+    ]
+    id: Optional[str] = None
+    initiator: Optional[str] = None
+    plan: Optional[str] = None
+    query: Optional[str] = ""
+    type: Literal["ai/viz"] = "ai/viz"
+
+
 class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13252,7 +13269,7 @@ class WebVitalsQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     source: Union[
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")

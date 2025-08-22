@@ -3,9 +3,8 @@ import contextvars
 import threading
 import typing
 
+from structlog import get_logger
 from temporalio import activity
-
-from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 

@@ -13,7 +13,11 @@ BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
 IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_bool)  # Set in ee/hogai/eval/pytest.ini
 DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
-TEST = get_from_env("TEST", "test" in sys.argv or sys.argv[0].endswith("pytest"), type_cast=str_to_bool)
+TEST = get_from_env(
+    "TEST",
+    "test" in sys.argv or "reset_test_clickhouse_db" in sys.argv or sys.argv[0].endswith("pytest"),
+    type_cast=str_to_bool,
+)
 STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
