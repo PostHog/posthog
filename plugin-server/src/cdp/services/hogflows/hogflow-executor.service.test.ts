@@ -1,3 +1,24 @@
+// sort-imports-ignore
+import { DateTime } from 'luxon'
+
+import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
+import { createHogExecutionGlobals, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
+import { compileHog } from '~/cdp/templates/compiler'
+import { HogFlow } from '~/schema/hogflow'
+import { resetTestDatabase } from '~/tests/helpers/sql'
+
+import { Hub } from '../../../types'
+import { createHub } from '../../../utils/db/hub'
+import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
+import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { HogExecutorService } from '../hog-executor.service'
+import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { HogFlowExecutorService } from './hogflow-executor.service'
+import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import { fetch } from '~/utils/request'
+
+// Mock before importing fetch
 jest.mock('~/utils/request', () => {
     const original = jest.requireActual('~/utils/request')
     return {
@@ -7,23 +28,6 @@ jest.mock('~/utils/request', () => {
         }),
     }
 })
-
-import { DateTime } from 'luxon'
-
-import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
-import { createHogExecutionGlobals, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
-import { compileHog } from '~/cdp/templates/compiler'
-import { HogFlow } from '~/schema/hogflow'
-import { resetTestDatabase } from '~/tests/helpers/sql'
-import { fetch } from '~/utils/request'
-
-import { Hub } from '../../../types'
-import { createHub } from '../../../utils/db/hub'
-import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
-import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
-import { HogExecutorService } from '../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { HogFlowExecutorService } from './hogflow-executor.service'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -52,6 +56,8 @@ describe('Hogflow Executor', () => {
         })
         const hogExecutor = new HogExecutorService(hub)
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
+        const recipientsManager = new RecipientsManagerService(hub)
+        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
 
         const exampleHog = `
             print(f'Hello, {inputs.name}!')
@@ -60,7 +66,7 @@ describe('Hogflow Executor', () => {
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
-            hog: exampleHog,
+            code: exampleHog,
             inputs_schema: [
                 {
                     key: 'name',
@@ -81,7 +87,7 @@ describe('Hogflow Executor', () => {
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor-async',
             name: 'Test template multi fetch',
-            hog: exampleHogMultiFetch,
+            code: exampleHogMultiFetch,
             inputs_schema: [
                 {
                     key: 'name',
@@ -92,7 +98,7 @@ describe('Hogflow Executor', () => {
             bytecode: await compileHog(exampleHogMultiFetch),
         })
 
-        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager)
+        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager, recipientPreferencesService)
     })
 
     describe('general event processing', () => {
@@ -390,7 +396,7 @@ describe('Hogflow Executor', () => {
                     finished: boolean
                     scheduledAt?: DateTime
                     nextActionId: string
-                }
+                },
             ][] = [
                 [
                     'wait_until_condition',

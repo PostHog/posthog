@@ -1,10 +1,7 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
+import { HogFlow } from '~/schema/hogflow'
+
 import {
     createOrganization,
     createTeam,
@@ -13,20 +10,23 @@ import {
     resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
+import { Hub, Team } from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
-    createHogExecutionGlobals,
     insertHogFunction as _insertHogFunction,
-    createKafkaMessage,
+    createHogExecutionGlobals,
     createIncomingEvent,
     createInternalEvent,
+    createKafkaMessage,
 } from '../_tests/fixtures'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer, counterMissingAddon } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { HogFlow } from '~/schema/hogflow'
-import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 
 jest.setTimeout(1000)
 
@@ -205,42 +205,27 @@ describe.each([
                         ? []
                         : [
                               {
-                                  key: globals.event.uuid,
+                                  key: expect.any(String),
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp_destination',
-                                      app_source_id: globals.event.uuid,
+                                      app_source: 'hog_function',
+                                      app_source_id: fnFetchNoFilters.id,
                                       count: 1,
-                                      metric_kind: 'success',
-                                      metric_name: 'event_triggered_destination',
+                                      metric_kind: 'billing',
+                                      metric_name: 'billable_invocation',
                                       team_id: 2,
                                       timestamp: expect.any(String),
                                   },
                               },
                               {
-                                  key: 'custom',
+                                  key: expect.any(String),
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp_destination',
-                                      app_source_id: 'custom',
+                                      app_source: 'hog_function',
+                                      app_source_id: fnPrinterPageviewFilters.id,
                                       count: 1,
-                                      metric_kind: 'success',
-                                      metric_name: 'destination_invoked',
-                                      instance_id: invocations[0].id,
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                              {
-                                  key: 'custom',
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'cdp_destination',
-                                      app_source_id: 'custom',
-                                      count: 1,
-                                      metric_kind: 'success',
-                                      metric_name: 'destination_invoked',
-                                      instance_id: invocations[1].id,
+                                      metric_kind: 'billing',
+                                      metric_name: 'billable_invocation',
                                       team_id: 2,
                                       timestamp: expect.any(String),
                                   },
@@ -281,28 +266,14 @@ describe.each([
                         ? []
                         : [
                               {
-                                  key: globals.event.uuid,
+                                  key: expect.any(String),
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp_destination',
-                                      app_source_id: globals.event.uuid,
+                                      app_source: 'hog_function',
+                                      app_source_id: fnFetchNoFilters.id,
                                       count: 1,
-                                      metric_kind: 'success',
-                                      metric_name: 'event_triggered_destination',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                              {
-                                  key: 'custom',
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'cdp_destination',
-                                      app_source_id: 'custom',
-                                      count: 1,
-                                      metric_kind: 'success',
-                                      metric_name: 'destination_invoked',
-                                      instance_id: invocations[0].id,
+                                      metric_kind: 'billing',
+                                      metric_name: 'billable_invocation',
                                       team_id: 2,
                                       timestamp: expect.any(String),
                                   },
@@ -311,12 +282,9 @@ describe.each([
                 ])
             })
 
-            it.each([
-                [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
-                [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
-            ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, state)
+            it('should filter out functions that are disabled', async () => {
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, HogWatcherState.disabled)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, HogWatcherState.disabled)
 
                 const { invocations } = await processor.processBatch([globals])
 
@@ -331,7 +299,7 @@ describe.each([
                             app_source_id: fnFetchNoFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },
@@ -342,7 +310,7 @@ describe.each([
                             app_source_id: fnPrinterPageviewFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },

@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent, setupPlugin } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
     setupPlugin: setupPlugin as any,
@@ -14,7 +15,7 @@ export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/posthog/posthog-filter-out-plugin/main/logo.png',
         category: ['Transformation'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'filters',

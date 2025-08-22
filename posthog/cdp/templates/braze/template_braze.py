@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -11,7 +11,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/braze.png",
     category=["Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 let getPayload := () -> [{
   'attributes': inputs.attributes,
   'events': [inputs.event]

@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import posthog from 'posthog-js'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -30,7 +31,7 @@ type SnippetOption = {
     comment?: string
 }
 
-export function useJsSnippet(indent = 0, arrayJs?: string): string {
+export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: string): string {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -61,8 +62,10 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
         },
     }
 
+    const scriptTag = scriptAttributes ? `<script ${scriptAttributes}>` : '<script>'
+
     return [
-        '<script>',
+        scriptTag,
         `    ${snippetFunctions(arrayJs)}`,
         `    posthog.init('${currentTeam?.api_token}', {`,
         ...Object.entries(options)

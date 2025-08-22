@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import itertools
 import re
 import zoneinfo
@@ -25,7 +26,6 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import (
     BREAKDOWN_OTHER_DISPLAY,
     TrendsQueryRunner,
 )
-from posthog.models import GroupTypeMapping
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
@@ -232,10 +232,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 
@@ -555,6 +555,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.default_date_to,
             IntervalType.DAY,
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            hogql_modifiers=HogQLQueryModifiers(timings=True),
         )
 
         self.assertEqual(2, len(response.results))
@@ -1837,6 +1838,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["data"] == [0, 4, 0]
 
     def test_trends_aggregation_monthly_active_groups_long_interval(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
         self._create_test_events_for_groups()
 
         response = self._run_trends_query(
@@ -4175,6 +4182,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """
         Test all possible combinations do not throw.
         """
+        self._create_test_groups()
         self._create_test_events_for_groups()
         flush_persons_and_events()
 
@@ -5717,3 +5725,43 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             response.results[0]["days"],
         )
+
+    def test_cohort_breakdown_list_assertion_error_scenario(self):
+        """
+        In trends query runner, we run a couple things after init. When updating filters, make sure they get run again.
+        """
+        self._create_test_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="test cohort",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        base_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+        )
+
+        # Apply filters_override with cohort breakdown list (like from dashboard)
+        from posthog.schema import DashboardFilter
+
+        filters_override = DashboardFilter(
+            breakdown_filter=BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[cohort.pk],  # This is a list - the problematic case
+            )
+        )
+
+        runner = TrendsQueryRunner(team=self.team, query=base_query)
+        runner.apply_dashboard_filters(filters_override)
+
+        # This is the call that would fail with assertion error before the fix
+        response = runner.calculate()
+
+        # If we get here, the fix is working
+        self.assertIsNotNone(response)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)

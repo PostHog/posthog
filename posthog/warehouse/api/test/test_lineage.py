@@ -1,64 +1,29 @@
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.api.lineage import join_components_greedily, topological_sort
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.api.lineage import topological_sort
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestLineage(APIBaseTest):
-    def test_join_components_greedily(self):
-        components = ["table1", "column1", "123e4567-e89b-12d3-a456-426614174000", "table2"]
-        result = join_components_greedily(components)
-        self.assertEqual(result, ["table1.column1", "123e4567-e89b-12d3-a456-426614174000", "table2"])
-
-        components = ["postgres", "supabase", "users"]
-        result = join_components_greedily(components)
-        self.assertEqual(result, ["postgres.supabase.users"])
-
-        components = ["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d7-b654-987654321000"]
-        result = join_components_greedily(components)
-        self.assertEqual(result, ["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d7-b654-987654321000"])
-
-        components = []
-        result = join_components_greedily(components)
-        self.assertEqual(result, [])
-
-        components = [
-            "schema",
-            "table1",
-            "123e4567-e89b-12d3-a456-426614174000",
-            "column1",
-            "987fcdeb-51a2-43d7-b654-987654321000",
-            "table2",
-        ]
-        result = join_components_greedily(components)
-        self.assertEqual(
-            result,
-            [
-                "schema.table1",
-                "123e4567-e89b-12d3-a456-426614174000",
-                "column1",
-                "987fcdeb-51a2-43d7-b654-987654321000",
-                "table2",
-            ],
-        )
-
-    def test_get_upstream(self):
-        base_query = DataWarehouseSavedQuery.objects.create(
+    def test_get_upstream_simple_chain(self):
+        DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="base_query",
             query={
                 "kind": "HogQLQuery",
-                "query": "select event as event from events LIMIT 100",
+                "query": "select event as event from postgres.supabase.users LIMIT 100",
             },
+            external_tables=["postgres.supabase.users"],
         )
 
-        intermediate_query = DataWarehouseSavedQuery.objects.create(
+        DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="intermediate_query",
             query={
                 "kind": "HogQLQuery",
                 "query": "select event as event from base_query LIMIT 100",
             },
+            external_tables=["base_query"],
         )
 
         final_query = DataWarehouseSavedQuery.objects.create(
@@ -68,84 +33,113 @@ class TestLineage(APIBaseTest):
                 "kind": "HogQLQuery",
                 "query": "select event as event from intermediate_query LIMIT 100",
             },
+            external_tables=["intermediate_query"],
         )
 
-        DataWarehouseModelPath.objects.create(
-            team=self.team,
-            path=["postgres", "supabase", "users"],
-            saved_query=None,
-        )
-
-        DataWarehouseModelPath.objects.create(
-            team=self.team,
-            path=["postgres", "supabase", "users", base_query.id.hex],
-            saved_query=base_query,
-        )
-
-        DataWarehouseModelPath.objects.create(
-            team=self.team,
-            path=["postgres", "supabase", "users", base_query.id.hex, intermediate_query.id.hex],
-            saved_query=intermediate_query,
-        )
-
-        DataWarehouseModelPath.objects.create(
-            team=self.team,
-            path=["postgres", "supabase", "users", base_query.id.hex, intermediate_query.id.hex, final_query.id.hex],
-            saved_query=final_query,
-        )
-
-        # Test that we only make 2 total queries realted to paths and saved queries
         with capture_db_queries() as context:
             response = self.client.get(
                 f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}"
             )
             self.assertEqual(response.status_code, 200)
-
-            # Measure only the queries that are path of the upstream workflow - we get some extra queries from our auth/session system
-            view_queries = [
-                q
-                for q in context.captured_queries
-                if "datawarehousemodelpath" in q["sql"].lower() or "datawarehousesavedquery" in q["sql"].lower()
-            ]
-            self.assertEqual(
-                len(view_queries), 2, "Expected exactly 2 queries: one for paths and one for saved queries"
-            )
             data = response.json()
 
-        nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(len(nodes), 4)
+        self.assertEqual(len(data["nodes"]), 4)
 
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertEqual(nodes["final_query"]["type"], "view")
+        self.assertEqual(nodes["intermediate_query"]["type"], "view")
+        self.assertEqual(nodes["base_query"]["type"], "view")
         self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
-        self.assertEqual(nodes[base_query.id.hex]["type"], "view")
-        self.assertEqual(nodes[intermediate_query.id.hex]["type"], "view")
-        self.assertEqual(nodes[final_query.id.hex]["type"], "view")
 
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
-            ("postgres.supabase.users", base_query.id.hex),
-            (base_query.id.hex, intermediate_query.id.hex),
-            (intermediate_query.id.hex, final_query.id.hex),
+            ("intermediate_query", "final_query"),
+            ("base_query", "intermediate_query"),
+            ("postgres.supabase.users", "base_query"),
         }
         self.assertEqual(edges, expected_edges)
 
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={intermediate_query.id}"
+        view_queries = [
+            q
+            for q in context.captured_queries
+            if "datawarehousesavedquery" in q["sql"].lower() or "datawarehousetable" in q["sql"].lower()
+        ]
+        self.assertLessEqual(len(view_queries), 7, f"Expected 7 queries, got {len(view_queries)}")
+
+    def test_get_upstream_with_datawarehouse_table(self):
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="my_table",
+            url_pattern="https://example.com/data",
+            format="JSONEachRow",
         )
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select * from my_table",
+            },
+            external_tables=["my_table"],
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={saved_query.id}")
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
+        self.assertEqual(len(data["nodes"]), 2)
+
         nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(len(nodes), 3)
+        self.assertEqual(nodes["test_query"]["type"], "view")
+        self.assertEqual(nodes["my_table"]["type"], "table")
+        self.assertEqual(nodes["my_table"]["name"], "my_table")
+
+        edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
+        expected_edges = {("my_table", "test_query")}
+        self.assertEqual(edges, expected_edges)
+
+    def test_get_upstream_mixed_dependencies(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="base_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select * from postgres.supabase.users",
+            },
+            external_tables=["postgres.supabase.users"],
+        )
+
+        mixed_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="mixed_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select * from base_query join postgres.supabase.events",
+            },
+            external_tables=["base_query", "postgres.supabase.events"],
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={mixed_query.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertEqual(len(data["nodes"]), 4)
+
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertEqual(nodes["mixed_query"]["type"], "view")
+        self.assertEqual(nodes["base_query"]["type"], "view")
+        self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
+        self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
 
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
-            ("postgres.supabase.users", base_query.id.hex),
-            (base_query.id.hex, intermediate_query.id.hex),
+            ("base_query", "mixed_query"),
+            ("postgres.supabase.events", "mixed_query"),
+            ("postgres.supabase.users", "base_query"),
         }
         self.assertEqual(edges, expected_edges)
 
-    def test_get_upstream_no_paths(self):
-        # Create a saved query with external tables but no paths
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="test_query",
@@ -160,26 +154,40 @@ class TestLineage(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
-        # Should have 3 nodes: the view and 2 external tables
         self.assertEqual(len(data["nodes"]), 3)
 
-        # Should have 2 edges: from each external table to the view
-        self.assertEqual(len(data["edges"]), 2)
-
-        # Check nodes
         nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(nodes[str(saved_query.id)]["type"], "view")
-        self.assertEqual(nodes[str(saved_query.id)]["name"], "test_query")
+        self.assertEqual(nodes["test_query"]["type"], "view")
         self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
         self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
 
-        # Check edges
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
-            ("postgres.supabase.users", str(saved_query.id)),
-            ("postgres.supabase.events", str(saved_query.id)),
+            ("postgres.supabase.users", "test_query"),
+            ("postgres.supabase.events", "test_query"),
         }
         self.assertEqual(edges, expected_edges)
+
+    def test_get_upstream_no_external_tables(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select 1 as value",
+            },
+            external_tables=[],
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={saved_query.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertEqual(len(data["nodes"]), 1)
+        self.assertEqual(len(data["edges"]), 0)
+
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertEqual(nodes["test_query"]["type"], "view")
 
     def test_topological_sort(self):
         nodes = ["A", "B", "C"]

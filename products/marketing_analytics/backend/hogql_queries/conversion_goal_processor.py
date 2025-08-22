@@ -882,7 +882,7 @@ class ConversionGoalProcessor:
             constraint=ast.JoinConstraint(expr=join_condition, constraint_type="ON"),
         )
 
-    def generate_select_columns(self) -> list[ast.Expr]:
+    def generate_select_columns(self) -> list[ast.Alias]:
         """Generate SELECT columns for this conversion goal"""
         goal_name = self.goal.conversion_goal_name
         alias_prefix = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)

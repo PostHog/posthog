@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import gzip
 import json
 import base64
@@ -28,7 +29,6 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.error_tracking import ErrorTrackingIssue
@@ -70,6 +70,7 @@ from posthog.warehouse.models import (
     ExternalDataSource,
     ExternalDataSchema,
 )
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -295,13 +296,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # Some groups
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="organization",
                 group_type_index=0,
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="company",
@@ -599,6 +600,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ai_event_count_in_period": 1,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "cdp_billable_invocations_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -663,6 +665,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 1,
                         },
                         str(self.org_1_team_2.id): {
@@ -722,6 +725,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 0,
                         },
                     },
@@ -804,6 +808,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "cdp_billable_invocations_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
@@ -871,6 +876,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 0,
                         }
                     },
@@ -1516,7 +1522,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
@@ -1575,7 +1581,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
@@ -1654,7 +1660,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
@@ -1712,7 +1718,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
 
         for _ in range(5):
@@ -1971,6 +1977,12 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="failed", count=3)
         create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="fetch", count=1)
         create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="fetch", count=2)
+        create_app_metric2(
+            team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="billable_invocation", count=5
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="billable_invocation", count=3
+        )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -1983,10 +1995,13 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["hog_function_calls_in_period"] == 5
         assert org_1_report["hog_function_fetch_calls_in_period"] == 3
+        assert org_1_report["cdp_billable_invocations_in_period"] == 8
         assert org_1_report["teams"]["3"]["hog_function_calls_in_period"] == 2
         assert org_1_report["teams"]["3"]["hog_function_fetch_calls_in_period"] == 1
+        assert org_1_report["teams"]["3"]["cdp_billable_invocations_in_period"] == 5
         assert org_1_report["teams"]["4"]["hog_function_calls_in_period"] == 3
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
+        assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
 
 @freeze_time("2022-01-10T10:00:00Z")

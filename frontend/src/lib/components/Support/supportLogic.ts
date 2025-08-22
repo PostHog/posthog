@@ -1,13 +1,15 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
-import api from 'lib/api'
+import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,12 +20,13 @@ import {
     OrganizationBasicType,
     Region,
     SidePanelTab,
+    StartupProgramLabel,
     TeamPublicType,
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
+import type { supportLogicType } from './supportLogicType'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -53,21 +56,31 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
-function getErrorTrackingLink(): string {
+function getErrorTrackingLink(uuid?: string): string {
+    const values = [
+        {
+            key: '$session_id',
+            value: [posthog.get_session_id()],
+            operator: 'exact',
+            type: 'event',
+        },
+    ]
+
+    if (uuid) {
+        values.push({
+            type: 'hogql',
+            key: `uuid = '${uuid}'`,
+            value: null,
+        } as any)
+    }
+
     const filterGroup = encodeURIComponent(
         JSON.stringify({
             type: 'AND',
             values: [
                 {
                     type: 'AND',
-                    values: [
-                        {
-                            key: '$session_id',
-                            value: [posthog.get_session_id()],
-                            operator: 'exact',
-                            type: 'event',
-                        },
-                    ],
+                    values,
                 },
             ],
         })
@@ -107,6 +120,16 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
+                value: 'login',
+                'data-attr': `support-form-target-area-login`,
+                label: 'Authentication (incl. login, sign-up, invites)',
+            },
+            {
+                value: 'analytics_platform',
+                'data-attr': `support-form-target-area-analytics_platform`,
+                label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
+            },
+            {
                 value: 'billing',
                 'data-attr': `support-form-target-area-billing`,
                 label: 'Billing',
@@ -125,11 +148,6 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'data_management',
                 'data-attr': `support-form-target-area-data_management`,
                 label: 'Data management (incl. events, actions, properties)',
-            },
-            {
-                value: 'login',
-                'data-attr': `support-form-target-area-login`,
-                label: 'Authentication (incl. login, sign-up, invites)',
             },
             {
                 value: 'mobile',
@@ -162,9 +180,9 @@ export const TARGET_AREA_TO_NAME = [
         title: 'Individual product',
         options: [
             {
-                value: 'analytics',
-                'data-attr': `support-form-target-area-analytics`,
-                label: 'Product analytics (incl. insights, dashboards, annotations)',
+                value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'Data warehouse (sources)',
             },
             {
                 value: 'batch_exports',
@@ -175,11 +193,6 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'cdp_destinations',
                 'data-attr': `support-form-target-area-cdp_destinations`,
                 label: 'Destinations (real-time)',
-            },
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
             },
             {
                 value: 'error_tracking',
@@ -202,9 +215,9 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
-                value: 'llm-observability',
-                'data-attr': `support-form-target-area-llm-observability`,
-                label: 'LLM observability',
+                value: 'llm-analytics',
+                'data-attr': `support-form-target-area-llm-analytics`,
+                label: 'LLM analytics',
             },
             {
                 value: 'max-ai',
@@ -215,6 +228,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'messaging',
                 'data-attr': `support-form-target-area-messaging`,
                 label: 'Messaging',
+            },
+            {
+                value: 'analytics',
+                'data-attr': `support-form-target-area-analytics`,
+                label: 'Product analytics (incl. insights, dashboards, etc.)',
             },
             {
                 value: 'revenue_analytics',
@@ -283,6 +301,8 @@ export type SupportTicketTargetArea =
     | 'max-ai'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
+
+export type SupportTicketExceptionEvent = { uuid: string; event: string; properties?: Record<string, any> }
 
 export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): null | string => {
     for (const category of TARGET_AREA_TO_NAME) {
@@ -359,6 +379,7 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
+    exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
@@ -474,6 +495,7 @@ export const supportLogic = kea<supportLogicType>([
             target_area,
             severity_level,
             message,
+            exception_event,
         }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
@@ -486,7 +508,8 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? values.sendSupportRequest.message ?? '',
+                exception_event,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -504,13 +527,21 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
+        submitZendeskTicket: async ({
+            name,
+            email,
+            kind,
+            target_area,
+            severity_level,
+            message,
+            exception_event,
+        }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
                 ': ' +
                 (target_area
-                    ? getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`
+                    ? (getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`)
                     : 'General') +
                 ' (' +
                 zendesk_ticket_uuid +
@@ -562,6 +593,13 @@ export const supportLogic = kea<supportLogicType>([
                 }
             }
 
+            const startupProgramLabel = billing?.startup_program_label
+            if (startupProgramLabel === StartupProgramLabel.YC) {
+                planLevelTag = 'plan_yc'
+            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
+                planLevelTag = 'plan_startup'
+            }
+
             const { accountOwner } = billingLogic.values
 
             const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
@@ -594,12 +632,16 @@ export const supportLogic = kea<supportLogicType>([
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                                ? 'email_support'
-                                : 'free_support',
+                                  ? 'email_support'
+                                  : 'free_support',
                         },
                         {
                             id: 37742340880411,
                             value: accountOwner?.name || 'unassigned',
+                        },
+                        {
+                            id: 39967113285659,
+                            value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],
                     comment: {
@@ -610,7 +652,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
-                            getErrorTrackingLink() +
+                            getErrorTrackingLink(exception_event?.uuid) +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,
@@ -734,8 +776,7 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         closeSupportForm: () => {
-            // Reset the form when closing so Cancel button clears the data
-            actions.resetSendSupportRequest()
+            // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },
 

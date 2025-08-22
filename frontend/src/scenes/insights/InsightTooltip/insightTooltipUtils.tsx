@@ -1,6 +1,8 @@
+import React from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import React from 'react'
+import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -8,7 +10,6 @@ import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
-import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -23,6 +24,7 @@ export interface SeriesDatum {
     color?: string
     count: number
     filter?: FilterType
+    hideTooltip?: boolean
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series
@@ -45,6 +47,7 @@ export interface TooltipConfig {
     showHeader?: boolean
     hideColorCol?: boolean
     groupTypeLabel?: string
+    filter?: (s: SeriesDatum) => boolean
 }
 
 export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {

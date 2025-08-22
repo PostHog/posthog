@@ -1,6 +1,7 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -138,9 +139,9 @@ describe('CdpCyclotronWorker', () => {
             const hogExecutorSpy = jest.spyOn(processor['hogExecutor'], 'executeWithAsyncFunctions')
 
             const invocations = [
-                createExampleInvocation(nativeFn, globals, 'native'),
-                createExampleInvocation(pluginFn, globals, 'plugin'),
-                createExampleInvocation(segmentFn, globals, 'segment'),
+                createExampleInvocation(nativeFn, globals),
+                createExampleInvocation(pluginFn, globals),
+                createExampleInvocation(segmentFn, globals),
                 createExampleInvocation(fn, globals),
             ]
 
@@ -150,7 +151,6 @@ describe('CdpCyclotronWorker', () => {
             expect(nativeExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'native-webhook' }),
-                    queue: 'native',
                 })
             )
 
@@ -158,7 +158,6 @@ describe('CdpCyclotronWorker', () => {
             expect(pluginExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'plugin-posthog-intercom-plugin' }),
-                    queue: 'plugin',
                 })
             )
 
@@ -166,7 +165,6 @@ describe('CdpCyclotronWorker', () => {
             expect(segmentExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'segment-actions-amplitude' }),
-                    queue: 'segment',
                 })
             )
 
@@ -174,7 +172,6 @@ describe('CdpCyclotronWorker', () => {
             expect(hogExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'template-webhook' }),
-                    queue: 'hog',
                 })
             )
         })

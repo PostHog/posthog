@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -107,6 +108,9 @@ export async function createPlaylist(
     redirect = false
 ): Promise<SessionRecordingPlaylistType | null> {
     playlist.filters = playlist.filters || DEFAULT_RECORDING_FILTERS
+    if (playlist.type === 'collection') {
+        playlist.filters = undefined
+    }
     const res = await api.recordings.createPlaylist(playlist)
     if (redirect) {
         router.actions.push(urls.replayPlaylist(res.short_id))

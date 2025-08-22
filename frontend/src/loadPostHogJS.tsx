@@ -1,7 +1,9 @@
+import posthog, { CaptureResult } from 'posthog-js'
+
 import { lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
-import posthog, { CaptureResult } from 'posthog-js'
 
 interface WindowWithCypressCaptures extends Window {
     // our Cypress tests will use this to check what events were sent to PostHog
@@ -21,6 +23,7 @@ export function loadPostHogJS(): void {
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             api_transport: 'fetch',
+            disable_surveys: window.IMPERSONATED_SESSION,
             before_send: (payload) => {
                 const win = window as WindowWithCypressCaptures
                 if (win.Cypress && payload) {
@@ -47,7 +50,7 @@ export function loadPostHogJS(): void {
                             return
                         }
 
-                        const oneMinuteInMs = 60000
+                        const tenMinuteInMs = 60000 * 10
                         setInterval(() => {
                             // this is deprecated and not available in all browsers,
                             // but the supposed standard at https://developer.mozilla.org/en-US/docs/Web/API/Performance/measureUserAgentSpecificMemory
@@ -57,9 +60,11 @@ export function loadPostHogJS(): void {
                                 loadedInstance.capture('memory_usage', {
                                     totalJSHeapSize: memory.totalJSHeapSize,
                                     usedJSHeapSize: memory.usedJSHeapSize,
+                                    pageIsVisible: document.visibilityState === 'visible',
+                                    pageIsFocused: document.hasFocus(),
                                 })
                             }
-                        }, oneMinuteInMs)
+                        }, tenMinuteInMs)
                     }
                 }
 
@@ -92,6 +97,7 @@ export function loadPostHogJS(): void {
             person_profiles: 'always',
             __preview_remote_config: true,
             __preview_flags_v2: true,
+            __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

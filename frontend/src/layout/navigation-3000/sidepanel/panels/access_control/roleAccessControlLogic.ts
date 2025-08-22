@@ -1,17 +1,20 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    APIScopeObject,
     AccessControlResponseType,
     AccessControlTypeRole,
-    APIScopeObject,
     OrganizationMemberType,
     RoleType,
 } from '~/types'
@@ -32,7 +35,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleAccessControlLogic']),
     connect(() => ({
         values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
-        actions: [membersLogic, ['ensureAllMembersLoaded']],
+        actions: [membersLogic, ['ensureAllMembersLoaded'], organizationLogic, ['loadCurrentOrganization']],
     })),
     actions({
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
@@ -142,6 +145,12 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     })),
 
     selectors({
+        sortedRoles: [
+            (s) => [s.roles],
+            (roles: RoleType[]): RoleType[] => {
+                return [...roles].sort((a, b) => a.name.localeCompare(b.name))
+            },
+        ],
         canEditRoles: [
             (s) => [s.resourceAccessControls],
             (resourceAccessControls: AccessControlResponseType | null): boolean | null => {
@@ -160,6 +169,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             actions.loadRoles()
             actions.setEditingRoleId(null)
             actions.selectRoleId(null)
+            actions.loadCurrentOrganization()
         },
 
         setEditingRoleId: () => {

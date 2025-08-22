@@ -1,7 +1,9 @@
-import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,7 +17,7 @@ import { PipelineStage, ProductKey } from '~/types'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { CustomerCountTile, OverviewTile, RevenueGrowthRateTile, RevenueTile, TopCustomersTile } from './tiles'
+import { MetricsTile, OverviewTile, RevenueGrowthRateTile, RevenueTile, TopCustomersTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -101,17 +103,6 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
                 directly to us!
             </LemonBanner>
 
-            <LemonBanner type="warning" dismissKey="revenue-analytics-deferred-revenue-banner" className="mb-2">
-                <b>We've made some updates!</b>
-                <br />
-                We've recently introduced deferred revenue recognition for data warehouse sources. This means you will
-                see revenue in the future if you've created an invoice item with a <code>period.start</code> and{' '}
-                <code>period.end</code> that spans several months.
-                <br />
-                More information on{' '}
-                <Link to="https://posthog.com/docs/web-analytics/revenue-analytics#deferred-revenue">our docs</Link>.
-            </LemonBanner>
-
             {sourceRunningForTheFirstTime && (
                 <LemonBanner
                     type="success"
@@ -193,7 +184,7 @@ const RevenueAnalyticsTables = (): JSX.Element => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <RevenueTile />
-                <CustomerCountTile />
+                <MetricsTile />
                 <RevenueGrowthRateTile />
                 <TopCustomersTile />
             </div>

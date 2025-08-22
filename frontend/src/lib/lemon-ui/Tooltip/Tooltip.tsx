@@ -1,13 +1,13 @@
 import './Tooltip.scss'
 
 import {
+    FloatingArrow,
+    FloatingPortal,
+    Placement,
     arrow,
     autoUpdate,
     flip,
-    FloatingArrow,
-    FloatingPortal,
     offset as offsetFunc,
-    Placement,
     shift,
     useDismiss,
     useFloating,
@@ -19,8 +19,9 @@ import {
     useTransitionStyles,
 } from '@floating-ui/react'
 import clsx from 'clsx'
-import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import React, { useRef, useState } from 'react'
+
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 
 import { Link } from '../Link'
 
@@ -34,8 +35,9 @@ interface BaseTooltipProps {
     delayMs?: number
     closeDelayMs?: number
     offset?: number
-    arrowOffset?: number
+    arrowOffset?: number | ((placement: Placement) => number)
     placement?: Placement
+    fallbackPlacements?: Placement[]
     className?: string
     visible?: boolean
     /**
@@ -56,6 +58,7 @@ export function Tooltip({
     title,
     className = '',
     placement = 'top',
+    fallbackPlacements,
     offset = 8,
     arrowOffset,
     delayMs = 500,
@@ -79,8 +82,8 @@ export function Tooltip({
         whileElementsMounted: autoUpdate,
         middleware: [
             offsetFunc(offset),
-            flip({ fallbackAxisSideDirection: 'start' }),
-            shift(),
+            flip({ fallbackPlacements, fallbackAxisSideDirection: 'start' }),
+            shift({ padding: 4 }),
             arrow({ element: caretRef }),
         ],
     })
@@ -160,10 +163,7 @@ export function Tooltip({
                         })}
                     >
                         <div
-                            className={clsx(
-                                'bg-surface-tooltip text-primary-inverse py-1.5 px-2 break-words rounded text-start',
-                                className
-                            )}
+                            className={clsx('bg-surface-tooltip py-1.5 px-2 break-words rounded text-start', className)}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...transitionStyles }}
                         >
@@ -186,8 +186,10 @@ export function Tooltip({
                                 context={context}
                                 width={8}
                                 height={4}
-                                staticOffset={arrowOffset}
-                                fill="var(--bg-surface-tooltip)"
+                                staticOffset={
+                                    typeof arrowOffset === 'function' ? arrowOffset(context.placement) : arrowOffset
+                                }
+                                fill="var(--color-bg-surface-tooltip)"
                             />
                         </div>
                     </div>

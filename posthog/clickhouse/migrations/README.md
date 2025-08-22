@@ -26,7 +26,6 @@ Also, since to fill this table we need to consume events from Kafka, we need to 
 
 </details>
 
-
 ### When to run a migration for all nodes
 
 - Basically when the migration does not include any of the above listed in the previous section.

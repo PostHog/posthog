@@ -8,6 +8,8 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
+from django.db.models import OuterRef, Subquery
+
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
@@ -17,6 +19,7 @@ from posthog.models import (
     Organization,
     OrganizationInvite,
     OrganizationMembership,
+    PersonalAPIKey,
     Plugin,
     PluginConfig,
     Team,
@@ -24,8 +27,14 @@ from posthog.models import (
 )
 from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
+from posthog.caching.login_device_cache import check_and_cache_login_device
+from posthog.geoip import get_geoip_properties
+from posthog.event_usage import groups
+from posthog.ph_client import get_client
+
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +61,7 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
         organization_id=team.organization_id
     )
     for membership in memberships:
-        if not membership.user.notification_settings.get(notification_setting, True):
+        if not should_send_notification(membership.user, notification_setting):
             continue
         team_permissions = UserPermissions(membership.user).team(team)
         # Only send the email to users who have access to the affected project
@@ -97,9 +106,9 @@ def should_send_notification(
 
         return True
 
-    # Default to False (disabled) if not set
+    # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
-        return not settings.get(notification_type, True)
+        return settings.get(notification_type, True)
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
@@ -219,7 +228,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send(send_async=False)
     posthoganalytics.capture(
-        distinct_id=user.distinct_id,
+        distinct_id=str(user.distinct_id),
         event="verification email sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
@@ -448,6 +457,68 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     message.send()
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+def login_from_new_device_notification(
+    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str
+) -> None:
+    """Send login notification email if login is from a new device"""
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user: User = User.objects.get(pk=user_id)
+
+    # Send email if feature flag is enabled or in tests
+    if settings.TEST:
+        enabled = True
+    elif user.current_organization is None:
+        enabled = False
+    else:
+        enabled = posthoganalytics.feature_enabled(
+            key="login-from-new-device-notification",
+            distinct_id=str(user.distinct_id),
+            groups={"organization": str(user.current_organization.id)},
+        )
+
+    if not enabled:
+        return
+
+    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
+    country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
+
+    is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
+    if not is_new_device:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="login_notification",
+        subject="A new device logged into your account",
+        template_context={
+            "login_time": login_time_str,
+            "ip_address": ip_address,
+            "location": country,
+            "browser": short_user_agent,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+    # Capture event using ph_client for reliability in Celery tasks
+    ph_client = get_client()
+    ph_client.capture(
+        distinct_id=str(user.distinct_id),
+        event="login notification sent",
+        properties={
+            "ip_address": ip_address,
+            "location": country,
+            "short_user_agent": short_user_agent,
+        },
+        groups=groups(user.current_organization, user.current_team),
+    )
+    ph_client.shutdown()
+
+
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
@@ -505,7 +576,7 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_hog_functions_digest_email(digest_data: dict) -> None:
+def send_hog_functions_digest_email(digest_data: dict, test_email_override: str | None = None) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -522,7 +593,30 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
     if not memberships_to_email:
         return
 
+    # If test email override is provided, validate it early
+    if test_email_override:
+        test_membership = None
+        for membership in memberships_to_email:
+            if membership.user.email == test_email_override:
+                test_membership = membership
+                break
+
+        if not test_membership:
+            logger.warning(
+                f"Test email override {test_email_override} not found in organization memberships for team {team_id}"
+            )
+            return
+
+        # For testing: use only the override recipient
+        memberships_to_email = [test_membership]
+        logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
+
     campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
+
+    # Sort functions by failure rate descending (highest first)
+    sorted_functions = sorted(
+        digest_data["functions"], key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True
+    )
 
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -530,11 +624,12 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         template_name="hog_functions_daily_digest",
         template_context={
             "team": team,
-            "functions": digest_data["functions"],
+            "functions": sorted_functions,
             "site_url": settings.SITE_URL,
         },
     )
 
+    # Add recipients (either filtered list for test override or full list for normal flow)
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
 
@@ -670,13 +765,50 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         return
 
     # Get all active HogFunctions for the team that had failures
-    hog_functions = HogFunction.objects.filter(
-        team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids
-    ).values("id", "team_id", "name", "type")
+    hog_functions = (
+        HogFunction.objects.filter(team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids)
+        .select_related("created_by")
+        .values("id", "team_id", "name", "type", "created_by__email")
+    )
 
     if not hog_functions:
         logger.info(f"No active HogFunctions found for team {team_id}")
         return
+
+    # Get the last editor for each HogFunction from activity log
+    hog_function_ids_list = [str(hf["id"]) for hf in hog_functions]
+    last_editors: dict[str, str | None] = {}
+    last_edit_dates: dict[str, str | None] = {}
+
+    # Use a subquery to get only the latest activity for each HogFunction
+    latest_activities_subquery = (
+        ActivityLog.objects.filter(team_id=team_id, scope="HogFunction", item_id=OuterRef("item_id"))
+        .order_by("-created_at")
+        .values("id")[:1]
+    )
+
+    latest_activities = ActivityLog.objects.select_related("user").filter(
+        team_id=team_id,
+        scope="HogFunction",
+        item_id__in=hog_function_ids_list,
+        id__in=Subquery(latest_activities_subquery),
+    )
+
+    # Build the dictionaries from the optimized result set
+    for activity in latest_activities:
+        if activity.item_id is not None:  # Ensure item_id is not None before using as dict key
+            if activity.user:
+                last_editors[activity.item_id] = activity.user.email
+                last_edit_dates[activity.item_id] = activity.created_at.strftime("%Y-%m-%d")
+            else:
+                last_editors[activity.item_id] = None
+                last_edit_dates[activity.item_id] = None
+
+    # Ensure all HogFunctions have entries (even if no activity log exists)
+    for hog_function_id in hog_function_ids_list:
+        if hog_function_id not in last_editors:
+            last_editors[hog_function_id] = None
+            last_edit_dates[hog_function_id] = None
 
     # Build function metrics
     function_metrics = []
@@ -684,22 +816,31 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         hog_function_id = str(hog_function["id"])
         if hog_function_id in metrics_by_function:
             metrics = metrics_by_function[hog_function_id]
-            function_info = {
-                "id": hog_function_id,
-                "name": hog_function["name"],
-                "type": hog_function["type"],
-                "succeeded": metrics["succeeded"],
-                "failed": metrics["failed"],
-                "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
-            }
-            function_metrics.append(function_info)
+            total_runs = metrics["succeeded"] + metrics["failed"]
+            failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+
+            # Only include functions with failure rate > 1%
+            if failure_rate > 1.0:
+                function_info = {
+                    "id": hog_function_id,
+                    "name": hog_function["name"],
+                    "type": hog_function["type"],
+                    "created_by_email": hog_function["created_by__email"],
+                    "last_edited_by_email": last_editors.get(hog_function_id),
+                    "last_edit_date": last_edit_dates.get(hog_function_id),
+                    "succeeded": metrics["succeeded"],
+                    "failed": metrics["failed"],
+                    "failure_rate": round(failure_rate, 1),
+                    "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+                }
+                function_metrics.append(function_info)
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")
         return
 
-    # Sort by failed count descending
-    function_metrics.sort(key=lambda x: int(x["failed"]) if x["failed"] is not None else 0, reverse=True)
+    # Sort by failure rate descending (highest failure rate first)
+    function_metrics.sort(key=lambda x: x["failure_rate"] or 0, reverse=True)
 
     # Prepare data for email
     digest_data = {
@@ -709,3 +850,27 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     send_hog_functions_digest_email.delay(digest_data)
     logger.info(f"Scheduled HogFunctions digest email for team {team_id} with {len(function_metrics)} failed functions")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_mask_value: str, more_info: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.get(pk=user_id)
+    personal_api_key = PersonalAPIKey.objects.get(id=personal_api_key_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"personal-api-key-exposed-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Personal API Key has been deactivated",
+        template_name="personal_api_key_exposed",
+        template_context={
+            "preheader": "Personal API Key has been deactivated",
+            "label": personal_api_key.label,
+            "more_info": more_info,
+            "mask_value": old_mask_value,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()

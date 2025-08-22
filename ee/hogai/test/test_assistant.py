@@ -11,6 +11,7 @@ from django.test import override_settings
 from langchain_core import messages
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_core.messages import AIMessageChunk
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
@@ -18,8 +19,9 @@ from pydantic import BaseModel
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
+from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.tool import search_documentation
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
@@ -36,6 +38,8 @@ from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionActionsNode,
@@ -48,14 +52,20 @@ from posthog.schema import (
     DashboardFilter,
     FailureMessage,
     HumanMessage,
+    MaxAddonInfo,
+    MaxBillingContext,
     MaxDashboardContext,
     MaxInsightContext,
+    MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from ee.hogai.utils.state import GraphValueUpdateTuple
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
@@ -129,6 +139,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         mode: AssistantMode = AssistantMode.ASSISTANT,
         contextual_tools: Optional[dict[str, Any]] = None,
         ui_context: Optional[MaxUIContext] = None,
+        filter_ack_messages: bool = True,
     ) -> tuple[list[tuple[str, Any]], Assistant]:
         # Create assistant instance with our test graph
         assistant = Assistant(
@@ -147,6 +158,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output: list[AssistantOutput] = []
         async for event in assistant.astream():
             output.append(event)
+        if filter_ack_messages:
+            output = [
+                event
+                for event in output
+                if event[0] != AssistantEventType.STATUS and event[1].type != AssistantGenerationStatusType.ACK
+            ]
         return output, assistant
 
     def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[tuple[Any, Any]]):
@@ -963,12 +980,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(
-            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
-        )
+        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
+            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -1024,12 +1039,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(
-            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
-        )
+        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
+            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -1760,3 +1773,120 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result, "")  # Should return empty headline
         self.assertIsNone(assistant._reasoning_headline_chunk)
         self.assertEqual(assistant._last_reasoning_headline, "")
+
+    def test_process_value_update_returns_ack_event(self):
+        """Test that _process_value_update returns an ACK event for state updates."""
+
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        # Create a value update tuple that doesn't match special nodes
+        update: GraphValueUpdateTuple = (
+            AssistantNodeName.ROOT,
+            {"root": {"messages": []}},  # Empty update that doesn't match visualization or verbose nodes
+        )
+
+        # Process the update
+        result = assistant._process_value_update(update)
+
+        # Should receive a list with an ACK event
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
+        self.assertEqual(result[0].type, AssistantGenerationStatusType.ACK)
+
+    def test_billing_context_in_config(self):
+        billing_context = MaxBillingContext(
+            has_active_subscription=True,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            settings=MaxBillingContextSettings(active_destinations=2.0, autocapture_on=True),
+            products=[
+                MaxProductInfo(
+                    name="Product Analytics",
+                    description="Track user behavior",
+                    current_usage=1000000.0,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    percentage_usage=85.0,
+                    type="product_analytics",
+                    addons=[
+                        MaxAddonInfo(
+                            name="Data Pipeline",
+                            description="Advanced data pipeline features",
+                            current_usage=100.0,
+                            has_exceeded_limit=False,
+                            is_used=True,
+                            type="data_pipeline",
+                        )
+                    ],
+                )
+            ],
+        )
+        assistant = Assistant(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            billing_context=billing_context,
+        )
+
+        config = assistant._get_config()
+        self.assertEqual(config["configurable"]["billing_context"], billing_context)
+
+    def test_handles_mixed_content_types_in_chunks(self):
+        """Test that assistant correctly handles switching between string and list content formats."""
+        assistant = Assistant(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+        )
+
+        # Test string to list transition
+        assistant._chunks = AIMessageChunk(content="initial string content")
+
+        # Simulate a chunk from OpenAI Responses API (list format)
+        list_chunk = AIMessageChunk(content=[{"type": "text", "text": "new content from o3"}])
+        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
+
+        update = ("messages", (list_chunk, langgraph_state))
+        assistant._process_message_update(update)
+
+        # Verify the chunks were reset to list format
+        assert isinstance(assistant._chunks.content, list)
+        assert len(assistant._chunks.content) == 1
+        assert assistant._chunks.content[0]["text"] == "new content from o3"
+
+        # Test list to string transition
+        string_chunk = AIMessageChunk(content="back to string format")
+        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
+
+        update = ("messages", (string_chunk, langgraph_state))
+        assistant._process_message_update(update)
+
+        # Verify the chunks were reset to string format
+        assert isinstance(assistant._chunks.content, str)
+        assert assistant._chunks.content == "back to string format"
+
+    def test_handles_multiple_list_chunks(self):
+        """Test that multiple list-format chunks are properly concatenated."""
+        assistant = Assistant(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+        )
+
+        # Start with empty chunks
+        assistant._chunks = AIMessageChunk(content="")
+
+        # Add first list chunk
+        chunk1 = AIMessageChunk(content=[{"type": "text", "text": "First part"}])
+        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
+        update = ("messages", (chunk1, langgraph_state))
+        assistant._process_message_update(update)
+
+        # Add second list chunk
+        chunk2 = AIMessageChunk(content=[{"type": "text", "text": " second part"}])
+        update = ("messages", (chunk2, langgraph_state))
+        result = assistant._process_message_update(update)
+
+        # Verify the content was extracted correctly
+        assert result is not None
+        assert result.content == "First part second part"

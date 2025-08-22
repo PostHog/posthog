@@ -1,25 +1,24 @@
-import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { DndContext } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropsWithChildren, useEffect } from 'react'
 
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+
+import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
-import { PageHeader } from 'lib/components/PageHeader'
-
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { DndContext } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-
-import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { cn } from 'lib/utils/css-classes'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 function isRuleDisabled(rule: ErrorTrackingRule): boolean {
     return 'disabled_data' in rule && !!rule.disabled_data
@@ -28,9 +27,11 @@ function isRuleDisabled(rule: ErrorTrackingRule): boolean {
 function ErrorTrackingRules<T extends ErrorTrackingRule>({
     ruleType,
     children,
+    disabledReason,
 }: {
     ruleType: ErrorTrackingRuleType
     children: ({ rule, editing, disabled }: { rule: T; editing: boolean; disabled: boolean }) => JSX.Element
+    disabledReason?: string
 }): JSX.Element {
     const logicProps = { ruleType }
     const logic = errorTrackingRulesLogic(logicProps)
@@ -46,6 +47,11 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
         <Spinner />
     ) : (
         <BindLogic logic={errorTrackingRulesLogic} props={logicProps}>
+            <div className="flex gap-x-2">
+                <AddRule disabledReason={disabledReason} />
+                {allRules.length > 1 && <ReorderRules />}
+            </div>
+
             <DndContext
                 modifiers={[restrictToVerticalAxis, restrictToParentElement]}
                 onDragEnd={({ active, over }) => {
@@ -67,27 +73,14 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
 
                             return (
                                 <SortableRule key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
-                                    <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
-                                        {disabled && <DisabledBanner />}
-                                        {children({ rule, editing, disabled })}
-                                    </LemonCard>
+                                    {disabled && <DisabledBanner />}
+                                    {children({ rule, editing, disabled })}
                                 </SortableRule>
                             )
                         })}
                     </div>
                 </SortableContext>
             </DndContext>
-
-            {false ? (
-                <PageHeader
-                    buttons={
-                        <>
-                            {allRules.length > 1 && <ReorderRules />}
-                            <AddRule />
-                        </>
-                    }
-                />
-            ) : null}
         </BindLogic>
     )
 }
@@ -115,7 +108,7 @@ const SortableRule = ({
                     {...listeners}
                 />
             )}
-            <LemonCard hoverEffect={false} className="flex flex-col flex-1 p-0">
+            <LemonCard hoverEffect={false} className="flex flex-col flex-1 p-0 w-full">
                 {children}
             </LemonCard>
         </div>
@@ -138,12 +131,12 @@ const ReorderRules = (): JSX.Element | null => {
     ) : (
         <div>
             <LemonButton
-                type="secondary"
                 size="small"
+                type="secondary"
                 onClick={startReorderingRules}
                 disabledReason={localRules.length > 0 ? 'Finish editing all rules before reordering' : undefined}
             >
-                Reorder rules
+                Reorder
             </LemonButton>
         </div>
     )
@@ -166,20 +159,28 @@ const DisabledBanner = (): JSX.Element => {
     )
 }
 
-const AddRule = (): JSX.Element | null => {
+export const AddRule = ({ disabledReason }: { disabledReason: string | undefined }): JSX.Element | null => {
     const { hasNewRule, isReorderingRules } = useValues(errorTrackingRulesLogic)
     const { addRule } = useActions(errorTrackingRulesLogic)
 
     return !hasNewRule && !isReorderingRules ? (
         <div>
-            <LemonButton type="primary" size="small" onClick={addRule}>
+            <LemonButton type="primary" size="small" onClick={addRule} disabledReason={disabledReason}>
                 Add rule
             </LemonButton>
         </div>
     ) : null
 }
 
-const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean }): JSX.Element => {
+function Actions<T extends ErrorTrackingRule>({
+    rule,
+    editing,
+    validate,
+}: {
+    rule: T
+    editing: boolean
+    validate?: (rule: T) => string | undefined
+}): JSX.Element {
     const { isReorderingRules } = useValues(errorTrackingRulesLogic)
     const { saveRule, deleteRule, setRuleEditable, unsetRuleEditable } = useActions(errorTrackingRulesLogic)
 
@@ -212,7 +213,18 @@ const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean 
                     <LemonButton size="small" onClick={() => unsetRuleEditable(rule.id)}>
                         Cancel
                     </LemonButton>
-                    <LemonButton size="small" type="primary" onClick={() => saveRule(rule.id)}>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                            let invalidReason = validate?.(rule) ?? validateFilters(rule)
+                            if (invalidReason) {
+                                lemonToast.error(invalidReason)
+                                return
+                            }
+                            saveRule(rule.id)
+                        }}
+                    >
                         Save
                     </LemonButton>
                 </>
@@ -221,6 +233,10 @@ const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean 
             )}
         </div>
     )
+}
+
+function validateFilters(rule: ErrorTrackingRule): string | undefined {
+    return rule.filters.values.length === 0 ? 'You must add at least one filter to each rule.' : undefined
 }
 
 const Filters = ({

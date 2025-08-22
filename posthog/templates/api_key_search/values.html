@@ -60,12 +60,15 @@
                             <th scope="col">
                                 <div class="text"><span>{% trans "Last Used" %}</span></div>
                             </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Last Rolled" %}</span></div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td>Personal API Key ({{ personal_api_key_hash_mode }})</td>
-                            <td>{{ personal_api_key_object.label }}</td>
+                            <td><a href="/admin/posthog/personalapikey/{{ personal_api_key_object.id }}/change/">Personal API Key ({{ personal_api_key_hash_mode }})</a></td>
+                            <td><a href="/admin/posthog/personalapikey/{{ personal_api_key_object.id }}/change/">{{ personal_api_key_object.label }}</a></td>
                             <td><a href="/admin/posthog/user/{{ personal_api_key_object.user.id }}/change/">{{ personal_api_key_object.user.email }}</a></td>
                             <td>{{ personal_api_key_object.scopes }}</td>
                             <td>
@@ -79,6 +82,7 @@
                             </td>
                             <td>{{ personal_api_key_object.created_at }}</td>
                             <td>{{ personal_api_key_object.last_used_at }}</td>
+                            <td>{{ personal_api_key_object.last_rolled_at }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -97,7 +101,7 @@
                     <tbody>
                         <tr>
                             <td>
-                                Team Secret API Token
+                                Feature Flags Secure API Key
                                 {% if team_object_key_type == "backup" %}
                                 (Backup)
                                 {% endif %}

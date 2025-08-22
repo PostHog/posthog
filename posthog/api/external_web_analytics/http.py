@@ -33,7 +33,7 @@ TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [1, 2]
 
 class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     """
-    Provides access to web analytics data for a project. This is currently in beta, please contact support to enable it for your team.
+    Provides access to web analytics data for a project. This is currently in Concept state, please join the feature preview to try it out when it's ready.
     """
 
     scope_object = "query"
@@ -86,7 +86,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def overview(self, request: Request, **kwargs) -> Response:
         """
-        Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration. This endpoint is in beta, please contact support to enable it for your team.
+        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration.
         """
         self._can_use_external_web_analytics()
 
@@ -114,9 +114,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
                 description="Example paginated response with trend data",
                 response_only=True,
                 value={
-                    "count": 3,
                     "next": None,
-                    "previous": None,
                     "results": [
                         {"time": "2024-01-01T00:00:00Z", "value": 420},
                         {"time": "2024-01-02T00:00:00Z", "value": 380},
@@ -129,7 +127,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, **kwargs) -> Response:
         """
-        Get trends for visitors, views, or sessions over time. This endpoint is in beta, please contact support to enable it for your team.
+        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get trends for visitors, views, or sessions over time.
         """
         self._can_use_external_web_analytics()
 
@@ -157,9 +155,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
                 description="Example paginated response with breakdown data",
                 response_only=True,
                 value={
-                    "count": 25,
                     "next": f"{settings.SITE_URL}/api/web_analytics/breakdown?offset=2&limit=2",
-                    "previous": None,
                     "results": [
                         {"breakdown_value": "/home", "visitors": 8500, "views": 12000, "sessions": 9200},
                         {"breakdown_value": "/about", "visitors": 2100, "views": 2800, "sessions": 2300},
@@ -171,7 +167,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def breakdown(self, request: Request, **kwargs) -> Response:
         """
-        Get a breakdown by a property (e.g. browser, device type, country, etc.). This endpoint is in beta, please contact support to enable it for your team.
+        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get a breakdown by a property (e.g. browser, device type, country, etc.).
         """
         self._can_use_external_web_analytics()
 
@@ -182,6 +178,6 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
             team_id=self.team.pk,
             task_id=f"web_analytics_breakdown_{self.team.pk}",
         ):
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team, request=request)
             data = adapter.get_breakdown_data(serializer)
             return Response(data)

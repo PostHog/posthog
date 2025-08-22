@@ -203,26 +203,98 @@ fn gen_test_prop_key_value(ndx: usize) -> (String, Value) {
     match [0, 1, 2, 3].choose(&mut rand::thread_rng()) {
         // String
         Some(&0) => (
-            format!("str_prop_{}", ndx),
-            Value::String(format!("value_{}", ndx)),
+            format!("str_prop_{ndx}"),
+            Value::String(format!("value_{ndx}")),
         ),
 
         // Boolean
-        Some(&1) => (format!("bool_prop_{}", ndx), Value::Bool(true)),
+        Some(&1) => (format!("bool_prop_{ndx}"), Value::Bool(true)),
 
         // Numeric
         Some(&2) => (
-            format!("numeric_prop_{}", ndx),
+            format!("numeric_prop_{ndx}"),
             json!(rand::thread_rng().gen_range(0..1000)),
         ),
 
         // DateTime
         Some(&3) => (
-            format!("datetime_prop_{}", ndx),
+            format!("datetime_prop_{ndx}"),
             Value::String(Utc::now().to_rfc3339()),
         ),
 
         // skipping Duration as it's unused for now
         _ => panic!("not reachable"),
     }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_property_definitions_conflict_update(db: PgPool) {
+    let config = Config::init_with_defaults().unwrap();
+    let cache: Arc<Cache> = Arc::new(Cache::new(config.cache_capacity));
+
+    // First, insert a property definition with null type and is_numerical false
+    let initial_prop = property_defs_rs::types::PropertyDefinition {
+        team_id: 111,
+        project_id: 111,
+        name: "test_prop".to_string(),
+        property_type: None,
+        is_numerical: false,
+        event_type: PropertyParentType::Event,
+        group_type_index: None,
+        property_type_format: None,
+        volume_30_day: None,
+        query_usage_30_day: None,
+    };
+
+    let initial_updates = vec![Update::Property(initial_prop)];
+    process_batch(&config, cache.clone(), &db, initial_updates).await;
+
+    // Verify initial state
+    let initial_row = sqlx::query!(
+        r#"SELECT property_type, is_numerical FROM posthog_propertydefinition WHERE name = 'test_prop'"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+
+    assert_eq!(initial_row.property_type, None);
+    assert!(!initial_row.is_numerical);
+
+    // Now insert the same property with a numeric type and is_numerical true
+    let updated_prop = property_defs_rs::types::PropertyDefinition {
+        team_id: 111,
+        project_id: 111,
+        name: "test_prop".to_string(),
+        property_type: Some(property_defs_rs::types::PropertyValueType::Numeric),
+        is_numerical: true,
+        event_type: PropertyParentType::Event,
+        group_type_index: None,
+        property_type_format: None,
+        volume_30_day: None,
+        query_usage_30_day: None,
+    };
+
+    let updated_updates = vec![Update::Property(updated_prop)];
+    process_batch(&config, cache, &db, updated_updates).await;
+
+    // Verify both fields were updated
+    let updated_row = sqlx::query!(
+        r#"SELECT property_type, is_numerical FROM posthog_propertydefinition WHERE name = 'test_prop'"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+
+    assert_eq!(updated_row.property_type, Some("Numeric".to_string()));
+    assert!(updated_row.is_numerical);
+
+    // Verify only one row exists (no duplicate)
+    let count: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM posthog_propertydefinition WHERE name = 'test_prop'"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+
+    assert_eq!(count, Some(1));
 }

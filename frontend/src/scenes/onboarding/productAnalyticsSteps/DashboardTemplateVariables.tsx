@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconCheckCircle, IconInfo, IconTarget, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonMenu, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
-import { useEffect } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -185,8 +187,8 @@ function VariableSelector({
                                     allVariablesAreTouched
                                         ? goToNextUntouchedActiveVariableIndex()
                                         : variables.length !== activeVariableIndex + 1
-                                        ? incrementActiveVariableIndex()
-                                        : null
+                                          ? incrementActiveVariableIndex()
+                                          : null
                                 }}
                             >
                                 Continue
@@ -305,7 +307,7 @@ export function DashboardTemplateVariables({
     // TODO: onboarding-dashboard-templates: this is a hack, I'm not sure why it's not set properly initially.
     useEffect(() => {
         setVariables(activeDashboardTemplate?.variables || [])
-    }, [activeDashboardTemplate])
+    }, [activeDashboardTemplate]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="mb-4 DashboardTemplateVariables max-w-192">

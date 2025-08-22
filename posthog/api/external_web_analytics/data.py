@@ -80,7 +80,6 @@ class WebAnalyticsDataFactory:
 
         # Generate dummy pagination URLs
         has_next = offset + limit < total_count
-        has_previous = offset > 0
 
         base_params = {
             "date_from": date_from.isoformat(),
@@ -92,22 +91,15 @@ class WebAnalyticsDataFactory:
             "offset": offset,
         }
 
-        # Initialize pagination URLs
+        # Initialize pagination URL
         next_url = None
-        previous_url = None
 
         if has_next:
             next_params = {**base_params, "offset": offset + limit}
             next_url = self._get_api_url(request, team_id, "trend", next_params)
 
-        if has_previous:
-            prev_params = {**base_params, "offset": max(0, offset - limit)}
-            previous_url = self._get_api_url(request, team_id, "trend", prev_params)
-
         data = {
-            "count": total_count,
             "next": next_url,
-            "previous": previous_url,
             "results": paginated_results,
         }
 

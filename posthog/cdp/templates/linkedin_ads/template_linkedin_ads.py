@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="hidden",
     free=False,
     type="destination",
@@ -10,7 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/linkedin.png",
     category=["Advertisement"],
     code_language="hog",
-    hog="""
+    code="""
 let body := {
     'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
     'conversionHappenedAt': inputs.conversionDateTime,

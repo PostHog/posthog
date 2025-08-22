@@ -1,5 +1,6 @@
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
@@ -9,7 +10,7 @@ import { LogEntryLevel } from '~/types'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 
 export type LogsViewerLogicProps = {
     sourceType: 'hog_function' | 'hog_flow'
@@ -295,24 +296,30 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         newestLogTimestamp: [
             (s) => [s.logs, s.hiddenLogs],
             (logs: GroupedLogEntry[], hiddenLogs: GroupedLogEntry[]): Dayjs | null => {
-                return logs.concat(hiddenLogs).reduce((max, log) => {
-                    if (!max) {
-                        return log.maxTimestamp
-                    }
-                    return log.maxTimestamp.isAfter(max) ? log.maxTimestamp : max
-                }, null as Dayjs | null)
+                return logs.concat(hiddenLogs).reduce(
+                    (max, log) => {
+                        if (!max) {
+                            return log.maxTimestamp
+                        }
+                        return log.maxTimestamp.isAfter(max) ? log.maxTimestamp : max
+                    },
+                    null as Dayjs | null
+                )
             },
         ],
 
         oldestLogTimestamp: [
             (s) => [s.logs, s.hiddenLogs],
             (logs: GroupedLogEntry[], hiddenLogs: GroupedLogEntry[]): Dayjs | null => {
-                return logs.concat(hiddenLogs).reduce((min, log) => {
-                    if (!min) {
-                        return log.minTimestamp
-                    }
-                    return log.minTimestamp.isBefore(min) ? log.minTimestamp : min
-                }, null as Dayjs | null)
+                return logs.concat(hiddenLogs).reduce(
+                    (min, log) => {
+                        if (!min) {
+                            return log.minTimestamp
+                        }
+                        return log.minTimestamp.isBefore(min) ? log.minTimestamp : min
+                    },
+                    null as Dayjs | null
+                )
             },
         ],
     })),

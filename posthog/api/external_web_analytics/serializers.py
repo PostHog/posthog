@@ -84,9 +84,7 @@ class WebAnalyticsTrendPointSerializer(serializers.Serializer):
 
 
 class WebAnalyticsBaseListResponseSerializer(serializers.Serializer):
-    count = serializers.IntegerField(help_text="Total number of items available")
     next = serializers.URLField(required=False, allow_null=True, help_text="URL for next page of results")
-    previous = serializers.URLField(required=False, allow_null=True, help_text="URL for previous page of results")
 
 
 class WebAnalyticsTrendResponseSerializer(WebAnalyticsBaseListResponseSerializer):

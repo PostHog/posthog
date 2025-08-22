@@ -1,4 +1,5 @@
 import { LemonDivider } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import ErrorTrackingRules from './ErrorTrackingRules'
@@ -7,7 +8,10 @@ import { ErrorTrackingGroupingRule, ErrorTrackingRuleType } from './types'
 export function ErrorTrackingCustomGrouping(): JSX.Element {
     return (
         <>
-            <p>Use the properties of an exception to decide how it should be grouped as an issue.</p>
+            <p>
+                Use the properties of an exception to decide how it should be grouped as an issue. The first rule that
+                matches will be applied.
+            </p>
             <ErrorTrackingRules<ErrorTrackingGroupingRule> ruleType={ErrorTrackingRuleType.Grouping}>
                 {({ rule, editing, disabled }) => {
                     return (

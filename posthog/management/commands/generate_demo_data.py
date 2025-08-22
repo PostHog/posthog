@@ -126,17 +126,22 @@ class Command(BaseCommand):
                         matrix_manager.reset_master()
                     else:
                         team = Team.objects.get(pk=existing_team_id)
-                        existing_user = team.organization.members.first()
-                        matrix_manager.run_on_team(team, existing_user)
+                        user = team.organization.members.first()
+                        matrix_manager.run_on_team(team, user)
                 else:
-                    matrix_manager.ensure_account_and_save(
+                    organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
                         "Hedgebox Inc.",
                         is_staff=bool(options.get("staff")),
                         password=password,
-                        disallow_collision=True,
+                        email_collision_handling="disambiguate",
                     )
+                    # Optionally generate demo issues for issue tracker if extension is available
+                    gen_issues = getattr(self, "generate_demo_issues", None)
+                    team_for_issues = getattr(matrix_manager, "team", None)
+                    if callable(gen_issues) and team_for_issues is not None:
+                        gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
             else:
@@ -146,12 +151,12 @@ class Command(BaseCommand):
                     else (
                         f"\nDemo data ready for project {team.name}!\n"
                         if existing_team_id is not None
-                        else f"\nDemo data ready for {email}!\n\n"
+                        else f"\nDemo data ready for {user.email}!\n\n"
                         "Pre-fill the login form with this link:\n"
-                        f"http://localhost:8000/login?email={email}\n"
+                        f"http://localhost:8000/login?email={user.email}\n"
                         f"The password is:\n{password}\n\n"
                         "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={email}\n"
+                        f"http://localhost:8000/signup?email={user.email}\n"
                     )
                 )
             print("Materializing common columns...")

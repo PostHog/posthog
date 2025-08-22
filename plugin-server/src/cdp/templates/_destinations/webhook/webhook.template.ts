@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 let payload := {
   'headers': inputs.headers,
   'body': inputs.body,

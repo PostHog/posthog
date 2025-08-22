@@ -1,7 +1,8 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+
+import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
-import { useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -21,22 +22,20 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
     const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
 
+    const checked = !!currentTeam?.autocapture_exceptions_opt_in
+
     return (
         <div className="flex flex-col gap-y-4">
             <div>
+                <LemonBanner type="warning" className="mb-4">
+                    This configuration only applies to the JS Web SDK. For all other SDKs autocapture can be configured
+                    directly in code. See the{' '}
+                    <Link to="https://posthog.com/docs/error-tracking/installation">installation instructions</Link> for
+                    more details.
+                </LemonBanner>
                 <p>
                     Captures frontend exceptions thrown on a customers using `onError` and `onUnhandledRejection`
                     listeners in our web JavaScript SDK.
-                </p>
-                <p>
-                    Autocapture is also available for our{' '}
-                    <Link
-                        to="https://posthog.com/docs/error-tracking/installation?tab=Python#setting-up-python-exception-autocapture"
-                        target="_blank"
-                    >
-                        Python SDK
-                    </Link>
-                    , where it can be configured directly in code.
                 </p>
                 <LemonSwitch
                     id="posthog-autocapture-exceptions-switch"
@@ -61,16 +60,26 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
 
             <div>
                 <h3>Suppression rules</h3>
-                <p>You can filter by type or message content to skip capturing certain exceptions on the client</p>
-                <ErrorTrackingClientSuppression />
+                <p>
+                    Autocaptured exceptions can be filtered by type or message to skip capturing certain exceptions in
+                    the JS Web SDK
+                </p>
+                <ErrorTrackingClientSuppression disabled={!checked} />
             </div>
         </div>
     )
 }
 
-function ErrorTrackingClientSuppression(): JSX.Element {
+function ErrorTrackingClientSuppression({ disabled }: { disabled: boolean }): JSX.Element {
     return (
-        <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
+        <ErrorTrackingRules<ErrorTrackingSuppressionRule>
+            ruleType={ErrorTrackingRuleType.Suppression}
+            disabledReason={
+                disabled
+                    ? 'Suppression rules only apply to autocaptured exceptions. Enable exception autocapture first.'
+                    : undefined
+            }
+        >
             {({ rule, editing }) => {
                 return (
                     <>
@@ -80,7 +89,7 @@ function ErrorTrackingClientSuppression(): JSX.Element {
                                 <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                 <div>of the following filters:</div>
                             </div>
-                            <ErrorTrackingRules.Actions rule={rule} editing={editing} />
+                            {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
                         </div>
                         <LemonDivider className="my-0" />
                         <div className="p-2">

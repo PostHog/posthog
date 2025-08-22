@@ -7,7 +7,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { formatHogInput, HogInputsService } from './hog-inputs.service'
+import { HogInputsService, formatHogInput } from './hog-inputs.service'
 
 describe('Hog Inputs', () => {
     let hub: Hub
@@ -164,7 +164,7 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.slack).toMatchInlineSnapshot(`1`)
+            expect(inputs.slack).toMatchInlineSnapshot(`null`)
         })
     })
 })

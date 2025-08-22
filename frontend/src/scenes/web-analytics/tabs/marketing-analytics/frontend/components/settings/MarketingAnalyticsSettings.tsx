@@ -1,4 +1,12 @@
+import { IconApps } from '@posthog/icons'
+
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
@@ -6,13 +14,31 @@ import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDat
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
 
 export function MarketingAnalyticsSettings(): JSX.Element {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
     return (
-        <div className="flex flex-col gap-8 mb-10">
+        <SceneContent className={cn(!newSceneLayout && 'gap-8 mb-10')}>
+            {newSceneLayout && (
+                <SceneTitleSection
+                    name="Marketing analytics"
+                    description={null}
+                    resourceType={{
+                        type: 'marketing',
+                        typePlural: 'marketing',
+                        forceIcon: <IconApps />,
+                    }}
+                />
+            )}
+            <SceneDivider />
             <BaseCurrency />
+            <SceneDivider />
             <ConversionGoalsConfiguration />
+            <SceneDivider />
             <NativeExternalDataSourceConfiguration />
+            <SceneDivider />
             <NonNativeExternalDataSourceConfiguration />
+            <SceneDivider />
             <SelfManagedExternalDataSourceConfiguration />
-        </div>
+        </SceneContent>
     )
 }

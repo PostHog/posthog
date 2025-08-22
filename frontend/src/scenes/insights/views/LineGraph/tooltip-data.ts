@@ -17,6 +17,7 @@ export function createTooltipData(
                 id: idx,
                 dataIndex: dp.dataIndex,
                 datasetIndex: dp.datasetIndex,
+                seriesIndex: dp.dataIndex,
                 dotted: !!pointDataset?.dotted,
                 breakdown_value:
                     pointDataset?.breakdown_value ??
@@ -32,6 +33,7 @@ export function createTooltipData(
                     : pointDataset.borderColor,
                 count: pointDataset?.data?.[dp.dataIndex] || 0,
                 filter: pointDataset?.filter ?? {},
+                hideTooltip: (pointDataset as any).hideTooltip,
             }
         })
         .sort((a, b) => {

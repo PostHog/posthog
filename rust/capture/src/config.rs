@@ -10,6 +10,15 @@ pub enum CaptureMode {
     Recordings,
 }
 
+impl CaptureMode {
+    pub fn as_tag(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "events",
+            CaptureMode::Recordings => "recordings",
+        }
+    }
+}
+
 impl std::str::FromStr for CaptureMode {
     type Err = String;
 
@@ -93,9 +102,9 @@ pub struct Config {
     #[envconfig(default = "info")]
     pub log_level: Level,
 
-    // temporary: gates some chatty debug logging
+    // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]
-    pub base64_detect_percent: f32,
+    pub verbose_sample_percent: f32,
 }
 
 #[derive(Envconfig, Clone)]

@@ -50,8 +50,7 @@ impl ServerHandle {
         // Add handling for token verification
         for (token, team_id) in valid_tokens {
             println!(
-                "Setting up mock for token: {} with key: {}{}",
-                token, TEAM_TOKEN_CACHE_PREFIX, token
+                "Setting up mock for token: {token} with key: {TEAM_TOKEN_CACHE_PREFIX}{token}"
             );
 
             // Create a minimal valid Team object
@@ -67,12 +66,10 @@ impl ServerHandle {
 
             // Serialize to JSON
             let team_json = serde_json::to_string(&team).unwrap();
-            println!("Team JSON for mock: {}", team_json);
+            println!("Team JSON for mock: {team_json}");
 
-            mock_client = mock_client.get_ret(
-                &format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, token),
-                Ok(team_json),
-            );
+            mock_client =
+                mock_client.get_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(team_json));
         }
 
         tokio::spawn(async move {
@@ -176,10 +173,10 @@ impl ServerHandle {
         let mut url = format!("http://{}/flags", self.addr);
         let mut params = vec![];
         if let Some(v) = version {
-            params.push(format!("v={}", v));
+            params.push(format!("v={v}"));
         }
         if let Some(c) = config {
-            params.push(format!("config={}", c));
+            params.push(format!("config={c}"));
         }
         if !params.is_empty() {
             url.push('?');

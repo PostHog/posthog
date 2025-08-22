@@ -14,11 +14,13 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.api.test.utils import create_external_data_source_ok
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 pytestmark = [
     pytest.mark.django_db,
@@ -65,8 +67,7 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_incremental_fields_stripe(self):
         source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_type=ExternalDataSource.Type.STRIPE,
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
@@ -76,10 +77,10 @@ class TestExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
-        )
+        with mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
         payload = response.json()
 
         assert payload == {
@@ -113,8 +114,7 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_incremental_fields_missing_table_name(self):
         source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_type=ExternalDataSource.Type.STRIPE,
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
         schema = ExternalDataSchema.objects.create(
             name="Some_other_non_existent_table",
@@ -129,14 +129,7 @@ class TestExternalDataSchema(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
         )
 
-        # should respond but with empty list. Example: Hubspot has not incremental fields but the response should be an empty list so that full refresh is selectable
-        assert response.status_code == 200
-        assert response.json() == {
-            "incremental_fields": [],
-            "incremental_available": False,
-            "append_available": False,
-            "full_refresh_available": True,
-        }
+        assert response.status_code == 400
 
     @pytest.mark.asyncio
     async def test_incremental_fields_postgres(self):
@@ -193,7 +186,7 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSource.Type.STRIPE, job_inputs={}
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
@@ -221,7 +214,7 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSource.Type.STRIPE, job_inputs={}
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
         table = DataWarehouseTable.objects.create(team=self.team)
         schema = ExternalDataSchema.objects.create(

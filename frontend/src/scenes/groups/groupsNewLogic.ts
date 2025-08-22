@@ -1,19 +1,21 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl } from 'kea-router'
+import { router } from 'kea-router'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
+import { Breadcrumb, CreateGroupParams, Group, GroupTypeIndex } from '~/types'
 
 import type { groupsNewLogicType } from './groupsNewLogicType'
-import { forms } from 'kea-forms'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { CreateGroupParams, Group, GroupTypeIndex, Breadcrumb } from '~/types'
-import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
-import { Scene } from 'scenes/sceneTypes'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { router } from 'kea-router'
 
 export type GroupsNewLogicProps = {
     groupTypeIndex: number
@@ -23,11 +25,12 @@ export interface NewGroupFormData {
     name: string
     group_key: string
     group_type_index: number
-    properties: Record<string, any>
+    customProperties: GroupProperty[]
 }
 
 export interface GroupProperty {
     name: string
+    type: 'string' | 'boolean'
     value: string
 }
 
@@ -55,11 +58,6 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
             (logicProps, groupTypeName): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    },
-                    {
                         key: Scene.Groups,
                         name: capitalizeFirstLetter(groupTypeName),
                         path: urls.groups(logicProps.groupTypeIndex),
@@ -75,9 +73,8 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
 
     actions({
         saveGroup: (groupParams: CreateGroupParams) => ({ groupParams }),
-        addProperty: () => ({}),
-        removeProperty: (index: number) => ({ index }),
-        updateProperty: (index: number, field: 'name' | 'value', value: string) => ({ index, field, value }),
+        addFormProperty: () => ({}),
+        removeFormProperty: (index: number) => ({ index }),
     }),
 
     reducers({
@@ -91,7 +88,7 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         customProperties: [
             [] as GroupProperty[],
             {
-                addProperty: (state) => [...state, { name: '', value: '' }],
+                addProperty: (state) => [...state, { name: '', type: 'string' as const, value: '' }],
                 removeProperty: (state, { index }) => state.filter((_, i) => i !== index),
                 updateProperty: (state, { index, field, value }) =>
                     state.map((prop, i) => (i === index ? { ...prop, [field]: value } : prop)),
@@ -100,17 +97,53 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         ],
     }),
 
-    forms(({ actions, props, values }) => ({
+    forms(({ actions, props }) => ({
         group: {
             defaults: NEW_GROUP,
-            errors: ({ group_key, name }: NewGroupFormData) => {
-                return {
+            errors: ({ group_key, name, customProperties }: NewGroupFormData) => {
+                const errors: Record<string, string | object | undefined> = {
                     name: !name?.trim() ? 'Group name cannot be empty' : undefined,
                     group_key: !group_key?.trim() ? 'Group key cannot be empty' : undefined,
                 }
+
+                if (customProperties && customProperties.length > 0) {
+                    const customPropertyErrors: any[] = []
+                    let hasCustomPropertyErrors = false
+
+                    customProperties.forEach((prop, index) => {
+                        const propertyErrors: any = {}
+
+                        if (!prop?.name?.trim()) {
+                            propertyErrors.name = 'Property name cannot be empty'
+                            hasCustomPropertyErrors = true
+                        }
+
+                        const duplicateIndex = customProperties.findIndex(
+                            (p, i) => i !== index && p?.name?.trim() === prop?.name?.trim()
+                        )
+                        if (duplicateIndex !== -1 && prop?.name?.trim()) {
+                            propertyErrors.name = 'Property name must be unique'
+                            hasCustomPropertyErrors = true
+                        }
+
+                        // Check for reserved property name 'name'
+                        if (prop?.name?.trim().toLowerCase() === 'name') {
+                            propertyErrors.name = 'Property name "name" is reserved'
+                            hasCustomPropertyErrors = true
+                        }
+
+                        customPropertyErrors[index] = propertyErrors
+                    })
+
+                    if (hasCustomPropertyErrors) {
+                        errors.customProperties = customPropertyErrors
+                    }
+                }
+
+                return errors
             },
             submit: (formData: NewGroupFormData) => {
-                const flattenedCustomProperties = flattenProperties(values.customProperties)
+                const flattenedCustomProperties = flattenProperties(formData.customProperties || [])
                 const group_properties = {
                     name: formData.name,
                     ...flattenedCustomProperties,
@@ -151,6 +184,20 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
             }
         },
         saveGroupSuccess: () => actions.resetGroup(),
+        addFormProperty: () => {
+            const currentProperties = values.group.customProperties || []
+            actions.setGroupValue('customProperties', [
+                ...currentProperties,
+                { name: '', type: 'string' as const, value: '' },
+            ])
+        },
+        removeFormProperty: ({ index }) => {
+            const currentProperties = values.group.customProperties || []
+            actions.setGroupValue(
+                'customProperties',
+                currentProperties.filter((_, i) => i !== index)
+            )
+        },
     })),
 
     actionToUrl(({ values }) => ({
@@ -167,11 +214,34 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
     beforeUnmount(({ actions }) => actions.resetGroup()),
 ])
 
-export function flattenProperties(properties: GroupProperty[]): Record<string, string> {
+export function flattenProperties(properties: GroupProperty[]): Record<string, any> {
     return properties
         .filter((prop) => prop.name.trim() && prop.value.trim())
-        .reduce((acc, prop) => {
-            acc[prop.name.trim()] = prop.value
-            return acc
-        }, {} as Record<string, string>)
+        .reduce(
+            (acc, prop) => {
+                const key = prop.name.trim()
+                let value: any = prop.value
+
+                // Convert boolean type values to proper types
+                if (prop.type === 'boolean') {
+                    if (value === 'true') {
+                        value = true
+                    } else if (value === 'false') {
+                        value = false
+                    } else if (value === 'null') {
+                        value = null
+                    }
+                } else if (prop.type === 'string') {
+                    // Convert numeric strings to numbers
+                    const numericValue = Number(value)
+                    if (!isNaN(numericValue) && isFinite(numericValue) && value.trim() !== '') {
+                        value = numericValue
+                    }
+                }
+
+                acc[key] = value
+                return acc
+            },
+            {} as Record<string, any>
+        )
 }

@@ -1,7 +1,11 @@
 from collections.abc import AsyncGenerator, Callable
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
-from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.tests.conftest import *
+from ee.hogai.session_summaries.constants import (
+    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
+    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_SYNC_MODEL,
+)
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.tests.conftest import *
 from posthog.redis import TEST_clear_clients
 from unittest.mock import MagicMock
 import pytest
@@ -28,6 +32,7 @@ def mock_single_session_summary_inputs(
             user_id=mock_user.id,
             team_id=mock_team.id,
             redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
         )
 
     return _create_inputs
@@ -57,6 +62,7 @@ def mock_single_session_summary_llm_inputs(
             window_mapping_reversed=mock_window_mapping_reversed,
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs
@@ -77,6 +83,7 @@ def mock_session_group_summary_inputs(
             redis_key_base=redis_key_base,
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs
@@ -96,6 +103,7 @@ def mock_session_group_summary_of_summaries_inputs(
             single_session_summaries_inputs=single_session_summaries_inputs,
             user_id=mock_user.id,
             redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs
@@ -126,12 +134,14 @@ def mock_patterns_extraction_yaml_response() -> str:
 @pytest.fixture
 def mock_patterns_assignment_yaml_response() -> str:
     """Mock YAML response for pattern assignment"""
-    # No pattern 3 assignments and it should be ok, as not all patterns are required to have assigned events
+    # All patterns need events assigned to meet the FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO threshold
     return """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234", "defg4567"]
   - pattern_id: 2
     event_ids: ["ghij7890", "mnop3456"]
+  - pattern_id: 3
+    event_ids: ["stuv9012"]
 """
 
 

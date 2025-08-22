@@ -38,7 +38,7 @@ export function getDefaultEventsQueryForTeam(team: Partial<TeamType>): EventsQue
         ? {
               kind: NodeKind.EventsQuery,
               select: liveColumns,
-              after: '-24h',
+              after: '-1h',
               orderBy: liveColumns.includes('timestamp') ? ['timestamp DESC'] : [],
           }
         : null
@@ -52,7 +52,7 @@ export function getEventsQueriesForTeam(team: Partial<TeamType>): Record<string,
         'Event counts view': {
             kind: NodeKind.EventsQuery,
             select: ['event', 'count()'],
-            after: '-24h',
+            after: '-1h',
             orderBy: ['count() DESC'],
         } as EventsQuery,
     }

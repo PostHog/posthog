@@ -1,12 +1,15 @@
-import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
-import { CyclotronJobInputType } from '~/types'
-
-import { hogFunctionStepLogic, StepFunctionNode } from './hogFunctionStepLogic'
-import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
+
+import { Spinner } from '@posthog/lemon-ui'
+
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
+
+import { CyclotronJobInputType } from '~/types'
+
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { StepFunctionNode, hogFunctionStepLogic } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
     const { configuration, templateLoading, template } = useValues(hogFunctionStepLogic({ node }))
@@ -39,6 +42,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                     inputs_schema: template?.inputs_schema ?? [],
                 }}
                 showSource={false}
+                sampleGlobalsWithInputs={null} // TODO: Load this based on the trigger event
             />
         </Form>
     )

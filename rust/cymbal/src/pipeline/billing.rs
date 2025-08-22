@@ -1,4 +1,5 @@
 use metrics::counter;
+use tracing::info;
 
 use crate::{app_context::AppContext, error::PipelineFailure, metric_consts::DROPPED_EVENTS};
 
@@ -21,6 +22,7 @@ pub async fn apply_billing_limits(
         };
 
         if context.billing_limiter.is_limited(&e.token).await {
+            info!("Dropped event for {}", &e.token);
             continue;
         }
         out.push(IncomingEvent::Captured(e));

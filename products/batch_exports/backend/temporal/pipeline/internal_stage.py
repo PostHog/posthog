@@ -15,6 +15,8 @@ from posthog.clickhouse.query_tagging import Product
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
+from structlog.contextvars import bind_contextvars
+
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportField,
@@ -28,7 +30,7 @@ from posthog.temporal.common.clickhouse import (
     get_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -50,7 +52,7 @@ from products.batch_exports.backend.temporal.sql import (
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
-LOGGER = get_logger()
+LOGGER = get_write_only_logger()
 
 
 def _get_s3_endpoint_url() -> str:
@@ -145,7 +147,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
         set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema, inputs.batch_export_id
         )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None

@@ -1,19 +1,21 @@
-import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+
 import { RecordingUniversalFilters } from '~/types'
+import { ReplayTabs } from '~/types'
+
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
-    MAX_SELECTED_RECORDINGS,
     DELETE_CONFIRMATION_TEXT,
+    MAX_SELECTED_RECORDINGS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { ReplayTabs } from '~/types'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -25,6 +27,15 @@ const SortingKeyToLabel = {
     click_count: 'Clicks',
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
+}
+
+function getLabel(filters: RecordingUniversalFilters): string {
+    const order_field = filters.order || 'start_time'
+    if (order_field === 'start_time') {
+        return filters.order_direction === 'ASC' ? 'Oldest' : 'Latest'
+    }
+
+    return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
 }
 
 function SortedBy({
@@ -39,9 +50,20 @@ function SortedBy({
             highlightWhenActive={false}
             items={[
                 {
-                    label: SortingKeyToLabel['start_time'],
-                    onClick: () => setFilters({ order: 'start_time' }),
-                    active: filters.order === 'start_time',
+                    label: 'Start time',
+                    items: [
+                        {
+                            label: 'Latest',
+                            onClick: () => setFilters({ order: 'start_time', order_direction: 'DESC' }),
+                            active:
+                                !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
+                        },
+                        {
+                            label: 'Oldest',
+                            onClick: () => setFilters({ order: 'start_time', order_direction: 'ASC' }),
+                            active: filters.order === 'start_time' && filters.order_direction === 'ASC',
+                        },
+                    ],
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
@@ -95,7 +117,7 @@ function SortedBy({
                 },
             ]}
             icon={<IconSort className="text-lg" />}
-            label={SortingKeyToLabel[filters.order || 'start_time']}
+            label={getLabel(filters)}
         />
     )
 }
@@ -218,7 +240,6 @@ export function SessionRecordingsPlaylistTopSettings({
     type?: 'filters' | 'collection'
     shortId?: string
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
     const { playlists, playlistsLoading } = useValues(
@@ -231,6 +252,8 @@ export function SessionRecordingsPlaylistTopSettings({
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
         setIsNewCollectionDialogOpen,
+        handleBulkMarkAsViewed,
+        handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
@@ -275,15 +298,25 @@ export function SessionRecordingsPlaylistTopSettings({
             })
         }
 
-        if (featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_SELECTED_RECORDINGS]) {
-            menuItems.push({
-                label: 'Delete',
-                onClick: () => setIsDeleteSelectedRecordingsDialogOpen(true),
-                icon: <IconTrash />,
-                'data-attr': 'delete-recordings',
-                status: 'danger' as const,
-            })
-        }
+        menuItems.push({
+            label: 'Mark as viewed',
+            onClick: () => handleBulkMarkAsViewed(shortId),
+            'data-attr': 'mark-as-viewed',
+        })
+
+        menuItems.push({
+            label: 'Mark as not viewed',
+            onClick: () => handleBulkMarkAsNotViewed(shortId),
+            'data-attr': 'mark-as-not-viewed',
+        })
+
+        menuItems.push({
+            label: 'Delete',
+            onClick: () => setIsDeleteSelectedRecordingsDialogOpen(true),
+            icon: <IconTrash />,
+            'data-attr': 'delete-recordings',
+            status: 'danger' as const,
+        })
 
         return menuItems
     }
@@ -301,7 +334,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     onChange={(checked) => handleSelectUnselectAll(checked, type)}
                     stopPropagation
                     className="ml-2"
-                    dataAttr="select-all-recordings"
+                    data-attr="select-all-recordings"
                     aria-label="Select all recordings"
                 />
                 {filters && setFilters ? (

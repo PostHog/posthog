@@ -1,6 +1,6 @@
 import { UUIDT } from '../../utils/utils'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../types'
-import { createHogFunction, SAMPLE_GLOBALS } from './fixtures'
+import { SAMPLE_GLOBALS, createHogFunction } from './fixtures'
 
 export const createExampleSegmentInvocation = (
     hogFunctionOverrides: Partial<HogFunctionType> = {},
@@ -21,7 +21,7 @@ export const createExampleSegmentInvocation = (
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: 'segment',
+        queue: 'hog',
         queuePriority: 0,
     }
 }
