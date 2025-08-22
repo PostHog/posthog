@@ -85,16 +85,16 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner.run.return_value = mock_results
         return mock_query_runner
 
-    def _create_mock_db_sync_to_async(self) -> Callable[[Callable], Callable[..., Awaitable]]:
+    def _create_mock_db_sync_to_async(self) -> Callable:
         """Helper to create a mock database_sync_to_async."""
 
-        def mock_sync_to_async(func: Callable) -> Callable[..., Awaitable]:
+        def mock_database_sync_to_async(func: Callable, thread_sensitive: bool = True) -> Callable[..., Awaitable]:
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 return func(*args, **kwargs)
 
             return async_wrapper
 
-        return mock_sync_to_async
+        return mock_database_sync_to_async
 
     def _create_test_state(
         self, query: str | None = None, root_tool_call_id: str | None = "test_tool_call_id"
