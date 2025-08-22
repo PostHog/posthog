@@ -47,7 +47,7 @@ from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_DATA_TABLE,
-    QUERY_LOG_ARCHIVE_MV_NAME,
+    QUERY_LOG_ARCHIVE_MV,
     QUERY_LOG_ARCHIVE_NEW_MV_SQL,
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
 )
@@ -1216,7 +1216,7 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV_NAME, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
         ]
     )
     run_clickhouse_statement_in_parallel(

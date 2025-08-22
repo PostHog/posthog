@@ -3,7 +3,7 @@ from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
-QUERY_LOG_ARCHIVE_MV_NAME = "query_log_archive_mv"
+QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
