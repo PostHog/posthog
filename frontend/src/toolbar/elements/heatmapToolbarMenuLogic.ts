@@ -453,12 +453,40 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
+        // Set up real-time scroll event listener for immediate updates
+        cache.onScroll = () => {
+            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+            if (values.heatmapScrollY !== scrollY) {
+                actions.setHeatmapScrollY(scrollY)
+            }
+        }
+
+        const addScrollListeners = () => {
+            document.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
+            window.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
+
+            document.addEventListener('wheel', cache.onScroll, { capture: true, passive: true })
+
+            document.addEventListener('touchmove', cache.onScroll, { capture: true, passive: true })
+        }
+
+        // Remove all scroll listeners
+        cache.removeScrollListeners = () => {
+            document.removeEventListener('scroll', cache.onScroll, { capture: true })
+            window.removeEventListener('scroll', cache.onScroll, { capture: true })
+            document.removeEventListener('wheel', cache.onScroll, { capture: true })
+            document.removeEventListener('touchmove', cache.onScroll, { capture: true })
+        }
+
+        // Initial setup of scroll listeners
+        addScrollListeners()
+
         cache.scrollCheckTimer = setInterval(() => {
             const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
             if (values.heatmapScrollY !== scrollY) {
                 actions.setHeatmapScrollY(scrollY)
             }
-        }, 100)
+        }, 500) // Increased interval since we have real-time listeners now
 
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
@@ -474,10 +502,28 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         // Store for cleanup
         cache.intersectionObserver = intersectionObserver
+
+        cache.mutationObserver = new MutationObserver(() => {
+            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+            if (values.heatmapScrollY !== scrollY) {
+                actions.setHeatmapScrollY(scrollY)
+            }
+        })
+
+        cache.mutationObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class'],
+        })
     }),
     beforeUnmount(({ cache }) => {
         clearInterval(cache.scrollCheckTimer)
         cache.intersectionObserver?.disconnect()
+        cache.mutationObserver?.disconnect()
+        cache.removeScrollListeners?.()
+        // Clean up the scroll handler function reference
+        cache.onScroll = undefined
     }),
 ])
 
