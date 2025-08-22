@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
+from time import time
 from typing import (
     Any,
     Optional,
@@ -13,6 +14,19 @@ from typing import (
 
 from asgiref.sync import SyncToAsync
 from django.db import close_old_connections
+from prometheus_client import Histogram
+
+from structlog import get_logger
+
+logger = get_logger(__name__)
+
+# Prometheus metric to track database_sync_to_async execution time
+DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
+    "database_sync_to_async_main_thread_blocked_time_seconds",
+    "Time spent blocking the main thread while executing database_sync_to_async operations",
+    labelnames=["function_name"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, float("inf")),
+)
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -24,11 +38,18 @@ class DatabaseSyncToAsync(SyncToAsync):
     """
 
     def thread_handler(self, loop, *args, **kwargs):
+        start_time = time()
         close_old_connections()
         try:
             return super().thread_handler(loop, *args, **kwargs)
         finally:
             close_old_connections()
+            execution_time = time() - start_time
+
+            # Record execution time in Prometheus metric
+            DATABASE_SYNC_TO_ASYNC_TIME.labels(function_name=self.func.__name__).observe(execution_time)
+
+            logger.info(f"database_sync_to_async {self.func.__name__} took {execution_time} seconds")
 
 
 # Taken from https://github.com/django/asgiref/blob/main/asgiref/sync.py#L547
