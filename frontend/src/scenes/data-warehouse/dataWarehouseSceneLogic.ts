@@ -29,7 +29,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables', 'views'],
+            ['dataWarehouseTables', 'views', 'databaseLoading'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
@@ -190,6 +190,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                         last_run_at: dataWarehouseSavedQueryMapById[view.id]?.last_run_at,
                         status: dataWarehouseSavedQueryMapById[view.id]?.status,
                     }))
+            },
+        ],
+        tablesLoading: [
+            (s) => [s.databaseLoading, s.dataWarehouseSourcesLoading],
+            (databaseLoading: boolean, dataWarehouseSourcesLoading: boolean): boolean => {
+                return databaseLoading || dataWarehouseSourcesLoading
             },
         ],
     }),

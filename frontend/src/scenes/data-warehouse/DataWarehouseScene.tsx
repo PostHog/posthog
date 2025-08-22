@@ -18,13 +18,13 @@ import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, Pipeline
 
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
-export const scene: SceneExport = { component: DataWarehouseScene }
+export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
 const LIST_SIZE = 5
 
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats } =
+    const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats, tablesLoading } =
         useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage } = useActions(dataWarehouseSceneLogic)
 
@@ -256,6 +256,8 @@ export function DataWarehouseScene(): JSX.Element {
                             dataSource={sourcesPagination.dataSourcePage as DataWarehouseDashboardDataSource[]}
                             columns={sourceColumns}
                             rowKey="id"
+                            loading={tablesLoading}
+                            loadingSkeletonRows={3}
                         />
                         <PaginationControl {...sourcesPagination} nouns={['source', 'sources']} />
                     </LemonCard>
@@ -271,6 +273,8 @@ export function DataWarehouseScene(): JSX.Element {
                             dataSource={viewsPagination.dataSourcePage as any[]}
                             columns={viewColumns}
                             rowKey="id"
+                            loading={tablesLoading}
+                            loadingSkeletonRows={3}
                         />
                         <PaginationControl {...viewsPagination} nouns={['view', 'views']} />
                     </LemonCard>
@@ -283,6 +287,8 @@ export function DataWarehouseScene(): JSX.Element {
                             dataSource={activityPagination.dataSourcePage as DataWarehouseActivityRecord[]}
                             columns={activityColumns}
                             rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
+                            loading={tablesLoading}
+                            loadingSkeletonRows={3}
                         />
                         <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
                     </LemonCard>

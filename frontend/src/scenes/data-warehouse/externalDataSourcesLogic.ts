@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
@@ -62,7 +62,4 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadSources(null)
-    }),
 ])
