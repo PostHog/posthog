@@ -64,11 +64,12 @@ describe('CanvasReplayerPlugin', () => {
         }
 
         // Mock document.createElement to return our mock image
+        const originalCreateElement = document.createElement.bind(document)
         jest.spyOn(document, 'createElement').mockImplementation((tagName) => {
             if (tagName === 'img') {
                 return mockImage
             }
-            return document.createElement(tagName)
+            return originalCreateElement(tagName)
         })
     })
 
