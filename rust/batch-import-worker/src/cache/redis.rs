@@ -14,10 +14,6 @@ pub struct RedisIdentifyCache {
     ttl_seconds: u64,
 }
 
-/// Configuration for the memory cache layer
-const MEMORY_CACHE_MAX_SIZE: usize = 10_000;
-const MEMORY_CACHE_TTL_MINUTES: u64 = 30;
-
 impl std::fmt::Debug for RedisIdentifyCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RedisIdentifyCache")
@@ -51,13 +47,16 @@ impl super::IdentifyCache for RedisIdentifyCache {
 }
 
 impl RedisIdentifyCache {
-    pub async fn new(redis_url: &str, ttl_seconds: u64) -> Result<Self, Error> {
+    pub async fn new(
+        redis_url: &str,
+        ttl_seconds: u64,
+        memory_capacity: u64,
+        memory_ttl_seconds: u64,
+    ) -> Result<Self, Error> {
         let redis_client = RedisClient::new(redis_url.to_string()).await?;
         let client_arc = Arc::from(redis_client);
-        let memory_cache = MemoryIdentifyCache::new(
-            MEMORY_CACHE_MAX_SIZE as u64,
-            Duration::from_secs(MEMORY_CACHE_TTL_MINUTES * 60),
-        );
+        let memory_cache =
+            MemoryIdentifyCache::new(memory_capacity, Duration::from_secs(memory_ttl_seconds));
 
         Ok(Self {
             redis_client: client_arc,
@@ -450,12 +449,12 @@ mod tests {
     #[tokio::test]
     async fn test_cache_redis_url_validation() {
         // Test that empty Redis URL now fails at Redis client level (not our validation)
-        let result = RedisIdentifyCache::new("", 3600).await;
+        let result = RedisIdentifyCache::new("", 3600, 100, 300).await;
         assert!(result.is_err());
         // Should fail due to Redis client initialization, not our validation
 
         // Test with invalid Redis URL
-        let result2 = RedisIdentifyCache::new("invalid://url", 7200).await;
+        let result2 = RedisIdentifyCache::new("invalid://url", 7200, 100, 300).await;
         assert!(result2.is_err());
         // Should fail due to Redis client initialization
     }

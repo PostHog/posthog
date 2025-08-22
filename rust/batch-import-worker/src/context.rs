@@ -34,22 +34,39 @@ impl AppContext {
 
         // Initialize the identify cache - use Redis if configured, otherwise fall back to memory-only
         let identify_cache: Arc<dyn IdentifyCache> = if config.redis_url.is_empty() {
-            info!("Redis URL not configured, using in-memory cache for identify events");
-            Arc::new(MemoryIdentifyCache::with_defaults())
+            info!(
+                "Redis URL not configured, using in-memory cache for identify events (capacity: {}, TTL: {}s)",
+                config.identify_memory_cache_capacity,
+                config.identify_memory_cache_ttl_seconds
+            );
+            Arc::new(MemoryIdentifyCache::new(
+                config.identify_memory_cache_capacity,
+                Duration::from_secs(config.identify_memory_cache_ttl_seconds),
+            ))
         } else {
-            let redis_cache =
-                RedisIdentifyCache::new(&config.redis_url, config.identify_cache_ttl_seconds)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to initialize Redis cache with URL: {} and TTL: {}s",
-                            config.redis_url, config.identify_cache_ttl_seconds
-                        )
-                    })?;
+            let redis_cache = RedisIdentifyCache::new(
+                &config.redis_url,
+                config.identify_redis_cache_ttl_seconds,
+                config.identify_memory_cache_capacity,
+                config.identify_memory_cache_ttl_seconds,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to initialize Redis cache with URL: {} and TTL: {}s (memory: {} entries, {}s TTL)",
+                    config.redis_url,
+                    config.identify_redis_cache_ttl_seconds,
+                    config.identify_memory_cache_capacity,
+                    config.identify_memory_cache_ttl_seconds
+                )
+            })?;
 
             info!(
-                "Using Redis cache for identify events at: {} with TTL: {}s",
-                config.redis_url, config.identify_cache_ttl_seconds
+                "Using Redis cache for identify events at: {} with TTL: {}s (memory L1: {} entries, {}s TTL)",
+                config.redis_url,
+                config.identify_redis_cache_ttl_seconds,
+                config.identify_memory_cache_capacity,
+                config.identify_memory_cache_ttl_seconds
             );
             Arc::new(redis_cache)
         };
