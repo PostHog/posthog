@@ -209,7 +209,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         resetDashboardFilters: () => true,
         resetIntermittentFilters: () => true,
-        previewTemporaryFilters: true,
+        applyFilters: true,
         resetVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
@@ -428,7 +428,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setBreakdownFilter: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
-                previewTemporaryFilters: () => true,
+                applyFilters: () => true,
             },
         ],
         cancellingPreview: [
@@ -1541,7 +1541,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insights_fetched_cached: 0,
             })
         },
-        previewTemporaryFilters: () => {
+        applyFilters: () => {
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
@@ -1610,7 +1610,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        previewTemporaryFilters: () => {
+        applyFilters: () => {
             const { currentLocation } = router.values
 
             const urlFilters = parseURLFilters(currentLocation.searchParams)
