@@ -43,6 +43,7 @@ ActivityScope = Literal[
     "Dashboard",
     "Replay",
     "Experiment",
+    "ExperimentHoldout",
     "ExperimentSavedMetric",
     "Survey",
     "EarlyAccessFeature",
@@ -154,6 +155,11 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "media_location": obj.media_location,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+            }
 
         return json.JSONEncoder.default(self, obj)
 
@@ -233,6 +239,9 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
+    },
+    "BatchExport": {
+        "paused": "enabled",
     },
 }
 
@@ -379,12 +388,20 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "BatchExport": [
         "latest_runs",
+        "last_updated_at",
+        "last_paused_at",
+        "batchexportrun_set",
+        "batchexportbackfill_set",
     ],
     "BatchImport": [
+        "lease_id",
         "leased_until",
         "status_message",
         "state",
         "secrets",
+        "lease_id",
+        "backoff_attempt",
+        "backoff_until",
     ],
     "Integration": [
         "sensitive_config",

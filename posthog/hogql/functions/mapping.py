@@ -454,6 +454,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), IntegerType(), StringType()), DateTimeType()),
         ],
     ),
+    "toDateTime64": HogQLFunctionMeta(
+        "toDateTime64",
+        1,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(),), DateTimeType()),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((DateTimeType(), IntegerType(), StringType()), DateTimeType()),
+        ],
+    ),
     "toDateTimeUS": HogQLFunctionMeta(
         "parseDateTime64BestEffortUSOrNull",
         1,

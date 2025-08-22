@@ -6,12 +6,21 @@ import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonModal,
+    LemonTable,
+    LemonTableColumn,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -43,6 +52,20 @@ export interface DestinationsProps {
 export function Destinations({ types }: DestinationsProps): JSX.Element {
     const { destinations, loading } = useValues(pipelineDestinationsLogic({ types }))
 
+    const hasNewPricing = !!useFeatureFlag('CDP_NEW_PRICING')
+
+    const productIntro = (
+        <ProductIntroduction
+            productName="Pipeline destinations"
+            thingName="destination"
+            productKey={ProductKey.PIPELINE_DESTINATIONS}
+            description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
+            docsURL="https://posthog.com/docs/cdp"
+            actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
+            isEmpty={destinations.length === 0 && !loading}
+        />
+    )
+
     return (
         <>
             {types.includes('destination') ? (
@@ -51,17 +74,13 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                         caption="Send your data in real time or in batches to destinations outside of PostHog."
                         buttons={<NewButton stage={PipelineStage.Destination} />}
                     />
-                    <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
-                        <ProductIntroduction
-                            productName="Pipeline destinations"
-                            thingName="destination"
-                            productKey={ProductKey.PIPELINE_DESTINATIONS}
-                            description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
-                            docsURL="https://posthog.com/docs/cdp"
-                            actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                            isEmpty={destinations.length === 0 && !loading}
-                        />
-                    </PayGateMini>
+                    {hasNewPricing ? (
+                        productIntro
+                    ) : (
+                        <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
+                            {productIntro}
+                        </PayGateMini>
+                    )}
                 </>
             ) : types.includes('site_app') ? (
                 <PageHeader

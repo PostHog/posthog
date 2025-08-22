@@ -223,7 +223,7 @@ class Breakdown:
                     cast(list[BreakdownSchema], self._breakdown_filter.breakdowns), lookup_values
                 ):
                     actors_filter = self._get_actors_query_where_expr(
-                        breakdown_value=breakdown.property,
+                        breakdown_value=str(breakdown.property),
                         breakdown_type=breakdown.type,
                         normalize_url=breakdown.normalize_url,
                         lookup_value=str(

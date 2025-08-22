@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconApps, IconPlus } from '@posthog/icons'
+import { IconHandMoney, IconPlus } from '@posthog/icons'
 import { LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
@@ -11,7 +11,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
@@ -54,7 +56,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                 resourceType={{
                     type: 'revenue',
                     typePlural: 'revenue events',
-                    forceIcon: <IconApps />,
+                    forceIcon: <IconHandMoney />,
                 }}
             />
             <SceneDivider />

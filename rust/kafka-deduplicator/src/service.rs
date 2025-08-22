@@ -1,6 +1,8 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
+use health::{HealthHandle, HealthRegistry};
 use rdkafka::consumer::Consumer;
 use tokio::sync::oneshot;
 use tracing::{error, info};
@@ -19,18 +21,22 @@ pub struct KafkaDeduplicatorService {
     consumer: Option<StatefulKafkaConsumer<DeduplicationProcessor>>,
     processor: Arc<DeduplicationProcessor>,
     shutdown_tx: Option<oneshot::Sender<()>>,
+    liveness: HealthRegistry,
+    service_health: Option<HealthHandle>,
 }
 
 impl KafkaDeduplicatorService {
     /// Create a new service from configuration
-    pub fn new(config: Config) -> Result<Self> {
+    pub fn new(config: Config, liveness: HealthRegistry) -> Result<Self> {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
         // Create deduplication store config
         let store_config = DeduplicationStoreConfig {
             path: config.store_path_buf(),
-            max_capacity: config.max_store_capacity,
+            max_capacity: config
+                .parse_storage_capacity()
+                .context("Failed to parse max_store_capacity")?,
         };
 
         // Create deduplication processor
@@ -51,11 +57,17 @@ impl KafkaDeduplicatorService {
             consumer: None,
             processor,
             shutdown_tx: None,
+            liveness,
+            service_health: None,
         })
     }
 
     /// Create a service with a custom processor (useful for testing)
-    pub fn with_processor(config: Config, processor: Arc<DeduplicationProcessor>) -> Result<Self> {
+    pub fn with_processor(
+        config: Config,
+        processor: Arc<DeduplicationProcessor>,
+        liveness: HealthRegistry,
+    ) -> Result<Self> {
         config.validate().with_context(|| {
             "Configuration validation failed for service with custom processor".to_string()
         })?;
@@ -65,11 +77,13 @@ impl KafkaDeduplicatorService {
             consumer: None,
             processor,
             shutdown_tx: None,
+            liveness,
+            service_health: None,
         })
     }
 
     /// Initialize the Kafka consumer and prepare for running
-    pub fn initialize(&mut self) -> Result<()> {
+    pub async fn initialize(&mut self) -> Result<()> {
         if self.consumer.is_some() {
             return Err(anyhow::anyhow!("Service already initialized"));
         }
@@ -80,6 +94,7 @@ impl KafkaDeduplicatorService {
         // Create consumer config using the kafka module's builder
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
+                .with_tls(self.config.kafka_tls)
                 .offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 
@@ -119,6 +134,13 @@ impl KafkaDeduplicatorService {
             self.config.kafka_consumer_topic, self.config.output_topic
         );
 
+        // Register health check for the service
+        self.service_health = Some(
+            self.liveness
+                .register("kafka_deduplicator".to_string(), Duration::from_secs(30))
+                .await,
+        );
+
         self.consumer = Some(kafka_consumer);
         Ok(())
     }
@@ -127,7 +149,7 @@ impl KafkaDeduplicatorService {
     pub async fn run(mut self) -> Result<()> {
         // Initialize if not already done
         if self.consumer.is_none() {
-            self.initialize()?;
+            self.initialize().await?;
         }
 
         let consumer = self
@@ -136,6 +158,17 @@ impl KafkaDeduplicatorService {
             .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
 
         info!("Starting Kafka Deduplicator service");
+
+        // Start health reporting task
+        if let Some(health_handle) = self.service_health.clone() {
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                loop {
+                    interval.tick().await;
+                    health_handle.report_healthy().await;
+                }
+            });
+        }
 
         // Start consumption
         let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
@@ -174,7 +207,7 @@ impl KafkaDeduplicatorService {
     ) -> Result<()> {
         // Initialize if not already done
         if self.consumer.is_none() {
-            self.initialize()?;
+            self.initialize().await?;
         }
 
         let consumer = self
@@ -183,6 +216,17 @@ impl KafkaDeduplicatorService {
             .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
 
         info!("Starting Kafka Deduplicator service");
+
+        // Start health reporting task
+        if let Some(health_handle) = self.service_health.clone() {
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                loop {
+                    interval.tick().await;
+                    health_handle.report_healthy().await;
+                }
+            });
+        }
 
         // Start consumption
         let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
@@ -235,6 +279,7 @@ impl KafkaDeduplicatorService {
 pub struct ServiceBuilder {
     config: Config,
     processor: Option<Arc<DeduplicationProcessor>>,
+    liveness: HealthRegistry,
 }
 
 impl ServiceBuilder {
@@ -242,6 +287,7 @@ impl ServiceBuilder {
         Self {
             config,
             processor: None,
+            liveness: HealthRegistry::new("test_liveness"),
         }
     }
 
@@ -260,10 +306,17 @@ impl ServiceBuilder {
         self
     }
 
+    pub fn with_liveness(mut self, liveness: HealthRegistry) -> Self {
+        self.liveness = liveness;
+        self
+    }
+
     pub fn build(self) -> Result<KafkaDeduplicatorService> {
         match self.processor {
-            Some(processor) => KafkaDeduplicatorService::with_processor(self.config, processor),
-            None => KafkaDeduplicatorService::new(self.config),
+            Some(processor) => {
+                KafkaDeduplicatorService::with_processor(self.config, processor, self.liveness)
+            }
+            None => KafkaDeduplicatorService::new(self.config, self.liveness),
         }
     }
 }

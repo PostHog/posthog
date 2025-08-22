@@ -66,7 +66,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                     hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
                 }
             >
-                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
                 {isOptional ? <div className="ml-1 text-xs font-normal">(optional)</div> : null}
             </LemonRow>
             <LemonRow

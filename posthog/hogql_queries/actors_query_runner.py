@@ -26,9 +26,8 @@ from posthog.schema import (
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 
-class ActorsQueryRunner(AnalyticsQueryRunner):
+class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
     query: ActorsQuery
-    response: ActorsQueryResponse
     cached_response: CachedActorsQueryResponse
 
     def __init__(self, *args, **kwargs):

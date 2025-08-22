@@ -6,8 +6,8 @@ import dagster
 from dagster import DailyPartitionsDefinition, BackfillPolicy
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
-    CLICKHOUSE_SETTINGS,
-    DAGSTER_DAILY_JOB_TIMEOUT,
+    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
+    DAGSTER_WEB_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
     drop_partitions_for_date_range,
@@ -16,6 +16,7 @@ from dags.web_preaggregated_utils import (
     swap_partitions_from_staging,
     web_analytics_retry_policy_def,
     check_for_concurrent_runs,
+    clear_all_staging_partitions,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -41,7 +42,7 @@ def pre_aggregate_web_analytics_data(
     config = context.op_config
     team_ids = config.get("team_ids")
     extra_settings = config.get("extra_clickhouse_settings", "")
-    ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, extra_settings)
+    ch_settings = merge_clickhouse_settings(WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS, extra_settings)
 
     if not context.partition_time_window:
         raise dagster.Failure("This asset should only be run with a partition_time_window")
@@ -133,12 +134,37 @@ def web_pre_aggregated_stats(
     )
 
 
+@dagster.asset(
+    name="clear_web_staging_partitions",
+    group_name="web_analytics_v2",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def clear_web_staging_partitions(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """
+    Utility asset to clear all partitions from staging tables.
+    Use this to clean up accumulated historical data in staging tables.
+    Ideally, this should not be required, but can be useful for debugging the changes we're doing
+    """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+
+    staging_tables = ["web_pre_aggregated_stats_staging", "web_pre_aggregated_bounces_staging"]
+
+    for staging_table in staging_tables:
+        context.log.info(f"Clearing all partitions from {staging_table}")
+        clear_all_staging_partitions(context, cluster, staging_table)
+
+    context.log.info("Finished clearing all staging partitions")
+
+
 web_pre_aggregate_job = dagster.define_asset_job(
     name="web_pre_aggregate_job",
     selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
+        "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
     },
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )

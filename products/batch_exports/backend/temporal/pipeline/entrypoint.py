@@ -10,7 +10,7 @@ from posthog.batch_exports.service import (
     BatchExportInsertInputs,
 )
 from posthog.settings.base_variables import TEST
-from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     finish_batch_export_run,
@@ -25,7 +25,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
-LOGGER = get_logger(__name__)
+LOGGER = get_write_only_logger(__name__)
 
 BatchExportInsertActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
 
