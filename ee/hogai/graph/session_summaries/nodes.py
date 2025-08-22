@@ -195,7 +195,7 @@ class SessionSummarizationNode(AssistantNode):
             # Max "reasoning" text update message
             if update_type == SessionSummaryStreamUpdate.UI_STATUS:
                 if not isinstance(data, str):
-                    raise ValueError(
+                    raise TypeError(
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
@@ -206,7 +206,7 @@ class SessionSummarizationNode(AssistantNode):
             # Notebook intermediate data update messages
             elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
                 if not isinstance(data, dict):
-                    raise ValueError(
+                    raise TypeError(
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
                         f"(expected: dict)"
                     )
@@ -299,7 +299,6 @@ class SessionSummarizationNode(AssistantNode):
                     session_ids=session_ids, state=state, writer=writer
                 )
             return PartialAssistantState(
-                # TODO: Add final notebook update message here, before the tool call message, ensure to include the id
                 messages=[
                     AssistantToolCallMessage(
                         content=summaries_content,
