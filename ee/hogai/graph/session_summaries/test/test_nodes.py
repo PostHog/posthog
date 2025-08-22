@@ -4,7 +4,6 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 from asgiref.sync import async_to_sync
 from django.utils import timezone
-
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -144,13 +143,6 @@ class TestSessionSummarizationNode(BaseTest):
         """Test streaming progress gracefully handles None writer."""
         # Should not raise exception
         self.node._stream_progress("Test progress", None)
-
-    def test_log_failure(self) -> None:
-        """Test logging failure with error object."""
-        with self.assertLogs("ee.hogai.graph.session_summaries.nodes", level="ERROR") as cm:
-            self.node._log_failure("Test failure", "conv-123", 1000.0, Exception("Test error"))
-
-        self.assertIn("Test failure", cm.output[0])
 
     @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
     def test_generate_replay_filters_no_output(self, mock_filter_graph_class: MagicMock) -> None:

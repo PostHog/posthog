@@ -340,7 +340,7 @@ class SessionSummarizationNode(AssistantNode):
         )
 
     def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):
-        self.logger.exception(
+        self.logger.error(
             message,
             extra={
                 "team_id": getattr(self._team, "id", "unknown"),
@@ -348,6 +348,7 @@ class SessionSummarizationNode(AssistantNode):
                 "execution_time_ms": round(time.time() - start_time, 2) * 1000,
                 "error": str(error) if error else None,
             },
+            exc_info=error if error else None,
         )
 
     @property
