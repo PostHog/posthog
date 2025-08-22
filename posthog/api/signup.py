@@ -670,6 +670,12 @@ def social_login_notification(strategy: DjangoStrategy, backend, user: Optional[
         return
 
     request = strategy.request
+
+    # If the user is re-authenticating, we don't want to send a notification
+    reauth = strategy.session_get("reauth")
+    if reauth == "true":
+        return
+
     short_user_agent = get_short_user_agent(request)
     ip_address = get_ip_address(request)
     login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)

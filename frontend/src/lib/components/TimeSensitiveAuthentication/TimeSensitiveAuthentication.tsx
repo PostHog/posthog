@@ -24,6 +24,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const extraQueryParams = {
         next: encodeURI(location.href.replace(location.origin, '')),
         email: user?.email || '',
+        reauth: 'true',
     }
 
     return (
