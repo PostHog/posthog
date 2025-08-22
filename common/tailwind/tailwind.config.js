@@ -151,6 +151,16 @@ const deprecatedColors = {
     'lifecycle-resurrecting-hover': 'var(--lifecycle-resurrecting-hover)',
     'lifecycle-dormant-hover': 'var(--lifecycle-dormant-hover)',
 
+    // Revenue analytics MRR series (compiled)
+    'revenue-analytics-revenue-new': 'var(--revenue-analytics-revenue-new)',
+    'revenue-analytics-revenue-expansion': 'var(--revenue-analytics-revenue-expansion)',
+    'revenue-analytics-revenue-contraction': 'var(--revenue-analytics-revenue-contraction)',
+    'revenue-analytics-revenue-churn': 'var(--revenue-analytics-revenue-churn)',
+    'revenue-analytics-revenue-new-hover': 'var(--revenue-analytics-revenue-new-hover)',
+    'revenue-analytics-revenue-expansion-hover': 'var(--revenue-analytics-revenue-expansion-hover)',
+    'revenue-analytics-revenue-contraction-hover': 'var(--revenue-analytics-revenue-contraction-hover)',
+    'revenue-analytics-revenue-churn-hover': 'var(--revenue-analytics-revenue-churn-hover)',
+
     // Z-indexes
     'z-top': 'var(--z-top)',
     'z-bottom-notice': 'var(--z-bottom-notice)',
