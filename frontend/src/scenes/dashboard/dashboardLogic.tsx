@@ -304,7 +304,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.effectiveEditBarFilters,
-                                variables: values.urlVariables,
+                                variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: values.temporaryBreakdownColors,
                                 data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
@@ -789,6 +789,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
                 return effectiveEditBarFilters
             },
+        ],
+        effectiveDashboardVariableOverrides: [
+            (s) => [s.dashboard, s.urlVariables],
+            (dashboard, urlVariables) => ({ ...dashboard?.variables, ...urlVariables }),
         ],
         effectiveVariablesAndAssociatedInsights: [
             (s) => [s.dashboard, s.variables],

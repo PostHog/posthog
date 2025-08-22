@@ -43,7 +43,7 @@ export function DashboardItems(): JSX.Element {
         updateTileColor,
         removeTile,
         duplicateTile,
-        triggerDashboardItemRefresh,
+        refreshDashboardItem,
         moveToDashboard,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
@@ -156,7 +156,7 @@ export function DashboardItems(): JSX.Element {
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
-                                    refresh={() => triggerDashboardItemRefresh({ tile })}
+                                    refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
