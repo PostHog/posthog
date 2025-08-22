@@ -101,7 +101,8 @@ function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Sur
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-
+        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLc']],
+        actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
     actions({
         setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),

@@ -16,7 +16,7 @@ export function SurveyResponseLimitWidget(): JSX.Element | null {
 
     // Check if we have survey response usage data
     const surveyResponsesUsage = billing?.usage_summary?.survey_responses
-    if (!surveyResponsesUsage?.usage) {
+    if (!surveyResponsesUsage) {
         return null
     }
 
