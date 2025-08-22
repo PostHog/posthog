@@ -160,6 +160,7 @@ export class PersonMergeService {
             mergeFinalFailuresCounter.inc()
             logger.error('handleIdentifyOrAlias failed', {
                 error: e,
+                team_id: this.context.team.id,
                 distinctId: this.context.distinctId,
                 event_name: this.context.event.event,
                 anon_distinct_id: String(this.context.eventProperties['$anon_distinct_id']),
@@ -380,7 +381,9 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
+                team_id: this.context.team.id,
+            })
             return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
@@ -429,7 +432,9 @@ export class PersonMergeService {
                     },
                     { alwaysSend: true }
                 )
-                logger.warn('🤔', 'merge race condition detected, too many concurrent merges')
+                logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
+                    team_id: this.context.team.id,
+                })
                 return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
             }
             throw error
@@ -534,6 +539,10 @@ export class PersonMergeService {
                             if (remaining.length > 0) {
                                 personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
                                 // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
+                                logger.error('🤔', 'person merge move limit hit', {
+                                    team_id: this.context.team.id,
+                                    distinct_id: this.context.distinctId,
+                                })
                                 throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
                             }
                         }

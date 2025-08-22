@@ -9,7 +9,7 @@ import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import type { llmObservabilityPlaygroundLogicType } from './llmObservabilityPlaygroundLogicType'
+import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
 
 export interface ModelOption {
     id: string
@@ -50,8 +50,8 @@ export interface ComparisonItem {
     latencyMs?: number | null
 }
 
-export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLogicType>([
-    path(['products', 'llm_analytics', 'frontend', 'llmObservabilityPlaygroundLogic']),
+export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
+    path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
     actions({
         setModel: (model: string) => ({ model }),
@@ -219,7 +219,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 try {
                     const response = await api.get('/api/llm_proxy/models/')
                     if (!values.model && (response as ModelOption[])?.length > 0) {
-                        llmObservabilityPlaygroundLogic.actions.setModel((response as ModelOption[])[0].id)
+                        llmAnalyticsPlaygroundLogic.actions.setModel((response as ModelOption[])[0].id)
                     }
                     return response as ModelOption[]
                 } catch (error) {
@@ -448,7 +448,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             actions.setMessages(conversationMessages) // Set the extracted history (potentially including the initial prompt)
 
             // Navigate to the playground
-            router.actions.push(urls.llmObservabilityPlayground())
+            router.actions.push(urls.llmAnalyticsPlayground())
         },
     })),
     afterMount(({ actions }) => {

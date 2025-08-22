@@ -24,22 +24,22 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
-import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
-import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
-import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
-import { LLMObservabilityUsers } from './LLMObservabilityUsers'
-import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
+import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
+import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
+import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { CompatMessage } from './types'
 import { normalizeMessages } from './utils'
 
 export const scene: SceneExport = {
-    component: LLMObservabilityScene,
+    component: LLMAnalyticsScene,
 }
 
 const Filters = (): JSX.Element => {
     const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
-        useValues(llmObservabilityLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
+        useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
@@ -51,17 +51,17 @@ const Filters = (): JSX.Element => {
                 propertyFilters={propertyFilters}
                 taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
                 onChange={setPropertyFilters}
-                pageKey="llm-observability"
+                pageKey="llm-analytics"
             />
             <div className="flex-1" />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
-            <LLMObservabilityReloadAction />
+            <LLMAnalyticsReloadAction />
         </div>
     )
 }
 
 const Tiles = (): JSX.Element => {
-    const { tiles } = useValues(llmObservabilityLogic)
+    const { tiles } = useValues(llmAnalyticsLogic)
 
     return (
         <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
@@ -90,7 +90,7 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                 <strong>No LLM generation events have been detected!</strong>
             </p>
             <p>
-                To use the LLM Observability product, please{' '}
+                To use the LLM Analytics product, please{' '}
                 <Link to="https://posthog.com/docs/ai-engineering/observability">
                     instrument your LLM calls with the PostHog SDK
                 </Link>{' '}
@@ -100,7 +100,7 @@ const IngestionStatusCheck = (): JSX.Element | null => {
     )
 }
 
-function LLMObservabilityDashboard(): JSX.Element {
+function LLMAnalyticsDashboard(): JSX.Element {
     return (
         <div className="@container/dashboard">
             <Filters />
@@ -109,10 +109,10 @@ function LLMObservabilityDashboard(): JSX.Element {
     )
 }
 
-function LLMObservabilityGenerations(): JSX.Element {
+function LLMAnalyticsGenerations(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery, setGenerationsColumns } =
-        useActions(llmObservabilityLogic)
-    const { generationsQuery } = useValues(llmObservabilityLogic)
+        useActions(llmAnalyticsLogic)
+    const { generationsQuery } = useValues(llmAnalyticsLogic)
 
     return (
         <DataTable
@@ -153,7 +153,7 @@ function LLMObservabilityGenerations(): JSX.Element {
                             return (
                                 <strong>
                                     <Tooltip title={value as string}>
-                                        <Link to={`/llm-observability/traces/${traceId}?event=${value as string}`}>
+                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value as string}`}>
                                             {visualValue}
                                         </Link>
                                     </Tooltip>
@@ -218,26 +218,26 @@ function LLMObservabilityGenerations(): JSX.Element {
 
                             return (
                                 <Tooltip title={value as string}>
-                                    <Link to={`/llm-observability/traces/${value as string}`}>{visualValue}</Link>
+                                    <Link to={`/llm-analytics/traces/${value as string}`}>{visualValue}</Link>
                                 </Tooltip>
                             )
                         },
                     },
                 },
             }}
-            uniqueKey="llm-observability-generations"
+            uniqueKey="llm-analytics-generations"
         />
     )
 }
 
-function LLMObservabilityNoEvents(): JSX.Element {
+function LLMAnalyticsNoEvents(): JSX.Element {
     return (
         <div className="w-full flex flex-col items-center justify-center">
             <div className="flex flex-col items-center justify-center max-w-md w-full">
                 <IconArchive className="text-5xl mb-2 text-muted-alt" />
                 <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
                 <p className="text-sm text-center text-balance">
-                    To use the LLM Observability product, please{' '}
+                    To use the LLM Analytics product, please{' '}
                     <Link to="https://posthog.com/docs/ai-engineering/observability">
                         instrument your LLM calls with the PostHog SDK
                     </Link>{' '}
@@ -247,8 +247,8 @@ function LLMObservabilityNoEvents(): JSX.Element {
     )
 }
 
-export function LLMObservabilityScene(): JSX.Element {
-    const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmObservabilityLogic)
+export function LLMAnalyticsScene(): JSX.Element {
+    const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
@@ -256,26 +256,26 @@ export function LLMObservabilityScene(): JSX.Element {
         {
             key: 'dashboard',
             label: 'Dashboard',
-            content: <LLMObservabilityDashboard />,
-            link: combineUrl(urls.llmObservabilityDashboard(), searchParams).url,
+            content: <LLMAnalyticsDashboard />,
+            link: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
         },
         {
             key: 'traces',
             label: 'Traces',
-            content: hasSentAiGenerationEvent ? <LLMObservabilityTraces /> : <LLMObservabilityNoEvents />,
-            link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
+            content: hasSentAiGenerationEvent ? <LLMAnalyticsTraces /> : <LLMAnalyticsNoEvents />,
+            link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
         },
         {
             key: 'generations',
             label: 'Generations',
-            content: hasSentAiGenerationEvent ? <LLMObservabilityGenerations /> : <LLMObservabilityNoEvents />,
-            link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
+            content: hasSentAiGenerationEvent ? <LLMAnalyticsGenerations /> : <LLMAnalyticsNoEvents />,
+            link: combineUrl(urls.llmAnalyticsGenerations(), searchParams).url,
         },
         {
             key: 'users',
             label: 'Users',
-            content: hasSentAiGenerationEvent ? <LLMObservabilityUsers /> : <LLMObservabilityNoEvents />,
-            link: combineUrl(urls.llmObservabilityUsers(), searchParams).url,
+            content: hasSentAiGenerationEvent ? <LLMAnalyticsUsers /> : <LLMAnalyticsNoEvents />,
+            link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
         },
     ]
 
@@ -283,13 +283,13 @@ export function LLMObservabilityScene(): JSX.Element {
         tabs.push({
             key: 'playground',
             label: 'Playground',
-            content: <LLMObservabilityPlaygroundScene />,
-            link: combineUrl(urls.llmObservabilityPlayground(), searchParams).url,
+            content: <LLMAnalyticsPlaygroundScene />,
+            link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
         })
     }
 
     return (
-        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
+        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <PageHeader
                 buttons={
                     <div className="flex gap-2">
@@ -305,11 +305,11 @@ export function LLMObservabilityScene(): JSX.Element {
             />
 
             {hasSentAiGenerationEventLoading ? null : hasSentAiGenerationEvent ? (
-                <FeedbackNotice text="LLM observability is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+                <FeedbackNotice text="LLM analytics is currently in beta. Thanks for taking part! We'd love to hear what you think." />
             ) : (
                 <IngestionStatusCheck />
             )}
-            <LemonTabs activeKey={activeTab} data-attr="llm-observability-tabs" tabs={tabs} />
+            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} />
         </BindLogic>
     )
 }

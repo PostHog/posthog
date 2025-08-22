@@ -1,8 +1,8 @@
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { restoreTree } from './llmObservabilityTraceDataLogic'
+import { restoreTree } from './llmAnalyticsTraceDataLogic'
 
-describe('llmObservabilityTraceDataLogic: restoreTree', () => {
+describe('llmAnalyticsTraceDataLogic: restoreTree', () => {
     it('should group a basic trace into a tree', () => {
         const events: LLMTraceEvent[] = [
             {

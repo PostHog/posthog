@@ -11,8 +11,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
-import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'
-import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
+import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
+import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -46,12 +46,12 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
 
 const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
 
-export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogicType>([
-    path(['scenes', 'llm-observability', 'llmObservabilityTraceLogic']),
+export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
     props({} as TraceDataLogicProps),
     connect((props: TraceDataLogicProps) => ({
         values: [
-            llmObservabilityTraceLogic,
+            llmAnalyticsTraceLogic,
             ['eventId', 'searchQuery'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError'],
