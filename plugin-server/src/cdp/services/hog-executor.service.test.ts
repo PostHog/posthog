@@ -1104,7 +1104,6 @@ describe('Hog Executor', () => {
                       "X-Test": "actual_secret_token_12345",
                     },
                     "method": "POST",
-                    "timeoutMs": 3000,
                   },
                 ]
             `)
