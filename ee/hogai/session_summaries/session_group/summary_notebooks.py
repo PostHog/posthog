@@ -1,3 +1,4 @@
+from ee.hogai.session_summaries.utils import logging_session_ids
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
     TipTapContent,
@@ -158,7 +159,7 @@ class SummaryNotebookIntermediateState:
         content = []
 
         # Add main title
-        content.append(create_heading_with_text(f"Session Group Analysis - {self.team_name}", 1))
+        content.append(create_heading_with_text(_create_notebook_title(team_name=self.team_name), 1))
         content.append(create_empty_paragraph())
 
         # Add plan section
@@ -187,11 +188,15 @@ class SummaryNotebookIntermediateState:
         return {"type": "doc", "content": content}
 
 
+def _create_notebook_title(team_name: str) -> str:
+    return f"Session Summaries Report - {team_name} ({timezone.now().strftime('%Y-%m-%d')})"
+
+
 async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
     """Create an empty notebook for a summary."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=f"Session Summaries Report - {team.name} ({timezone.now().strftime('%Y-%m-%d')})",
+        title=_create_notebook_title(team_name=team.name),
         content="",
         created_by=user,
         last_modified_by=user,
@@ -203,12 +208,25 @@ async def create_notebook_from_summary_content(user: User, team: Team, summary_c
     """Create a notebook with session summary patterns."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=f"Session Summaries Report - {team.name} ({timezone.now().strftime('%Y-%m-%d')})",
+        title=_create_notebook_title(team_name=team.name),
         content=summary_content,
         created_by=user,
         last_modified_by=user,
     )
     return notebook
+
+
+async def update_notebook_from_summary_content(
+    notebook: Notebook | None, summary_content: TipTapNode, session_ids: list[str]
+) -> None:
+    """Update a notebook with session summary patterns."""
+    if not notebook:
+        logger.exception(
+            f"No notebook_id provided, skipping notebook update (session_ids: {logging_session_ids(session_ids)})"
+        )
+        return None
+    notebook.content = summary_content
+    await notebook.asave()
 
 
 def generate_notebook_content_from_summary(
@@ -221,7 +239,7 @@ def generate_notebook_content_from_summary(
         return {
             "type": "doc",
             "content": [
-                create_heading_with_text(f"Session Summaries Report - {project_name}", 1),
+                create_heading_with_text(_create_notebook_title(team_name=project_name), 1),
                 create_empty_paragraph(),
                 create_paragraph_with_text("No patterns found."),
                 create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
@@ -231,7 +249,7 @@ def generate_notebook_content_from_summary(
     # Sort patterns by severity: critical, high, medium, low
     content = []
     # Title
-    content.append(create_heading_with_text(f"Session Summaries Report - {project_name}", 1))
+    content.append(create_heading_with_text(_create_notebook_title(team_name=project_name), 1))
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
     content.append(create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
@@ -410,7 +428,7 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext, team
         ],
         [
             create_text_content("Where it happened: ", is_bold=True),
-            create_text_content(event_data.target_event.current_url),
+            create_text_content(event_data.target_event.current_url or "Unknown"),
         ],
     ]
     content.append(create_bullet_list(quick_summary_items))

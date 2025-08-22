@@ -14,10 +14,12 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     SummaryNotebookIntermediateState,
     generate_notebook_content_from_summary,
+    update_notebook_from_summary_content,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
+from posthog.models.notebook.notebook import Notebook
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
@@ -171,7 +173,7 @@ class SessionSummarizationNode(AssistantNode):
         return "\n".join(summaries)
 
     async def _summarize_sessions_as_group(
-        self, session_ids: list[str], state: AssistantState, writer: StreamWriter | None
+        self, session_ids: list[str], state: AssistantState, writer: StreamWriter | None, notebook: Notebook | None
     ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
@@ -228,6 +230,11 @@ class SessionSummarizationNode(AssistantNode):
                     summary=summary, session_ids=session_ids, project_name=self._team.name, team_id=self._team.id
                 )
                 self._stream_notebook_content(summary_content, state, writer, partial=False)
+                # Update the notebook through BE for cases where the chat was closed
+                await update_notebook_from_summary_content(
+                    notebook=notebook, summary_content=summary_content, session_ids=session_ids
+                )
+                # Return the summary to Max to generate inline summary of the full summary
                 return summary.model_dump_json(exclude_none=True)
             else:
                 raise ValueError(
@@ -285,6 +292,7 @@ class SessionSummarizationNode(AssistantNode):
                 summaries_content = await self._summarize_sessions_individually(session_ids=session_ids, writer=writer)
             else:
                 # Check if the notebook is provided, create a notebook to fill if not
+                notebook = None
                 if not state.notebook_id:
                     notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
                     # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
@@ -296,7 +304,7 @@ class SessionSummarizationNode(AssistantNode):
                     writer=writer,
                 )
                 summaries_content = await self._summarize_sessions_as_group(
-                    session_ids=session_ids, state=state, writer=writer
+                    session_ids=session_ids, state=state, writer=writer, notebook=notebook
                 )
             return PartialAssistantState(
                 messages=[
