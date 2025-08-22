@@ -34,7 +34,7 @@ def generate_assets(
         if resource.dashboard:
             tiles = [tile for tile in resource.dashboard.tiles.all() if tile.insight and not tile.insight.deleted]
             tiles.sort(key=lambda x: (x.layouts.get("sm", {}).get("y", 100), x.layouts.get("sm", {}).get("x", 100)))
-            insights = [tile.insight for tile in tiles]
+            insights = [tile.insight for tile in tiles if tile.insight]
         elif resource.insight:
             insights = [resource.insight]
         else:
@@ -82,7 +82,7 @@ async def generate_assets_async(
         if resource.dashboard:
             tiles = [tile for tile in resource.dashboard.tiles.all() if tile.insight and not tile.insight.deleted]
             tiles.sort(key=lambda x: (x.layouts.get("sm", {}).get("y", 100), x.layouts.get("sm", {}).get("x", 100)))
-            insights = [tile.insight for tile in tiles]
+            insights = [tile.insight for tile in tiles if tile.insight]
         elif resource.insight:
             insights = [resource.insight]
         else:

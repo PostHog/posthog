@@ -58,7 +58,7 @@ EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
     retry_backoff_max=3,
     max_retries=3,
 )
-@transaction
+@transaction.atomic
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
