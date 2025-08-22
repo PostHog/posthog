@@ -177,5 +177,5 @@ async def test_generate_assets_async_concurrent_asset_creation(team, user, dashb
 
     # All assets should be created in the database
     asset_ids = [asset.id for asset in assets]
-    saved_assets = await sync_to_async(list)(ExportedAsset.objects.filter(id__in=asset_ids))
+    saved_assets: list[ExportedAsset] = await sync_to_async(list)(ExportedAsset.objects.filter(id__in=asset_ids).all())
     assert len(saved_assets) == DEFAULT_MAX_ASSET_COUNT
