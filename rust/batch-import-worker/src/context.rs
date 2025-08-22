@@ -6,7 +6,7 @@ use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
 use tracing::info;
 
-use crate::cache::IdentifyCache;
+use crate::cache::{RedisIdentifyCache, IdentifyCache};
 use crate::config::Config;
 
 pub struct AppContext {
@@ -16,7 +16,7 @@ pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub running: AtomicBool, // Set to false on SIGTERM, etc.
     pub worker_liveness: Arc<HealthHandle>,
-    pub identify_cache: Arc<IdentifyCache>,
+    pub identify_cache: Arc<dyn IdentifyCache>,
 }
 
 impl AppContext {
@@ -34,7 +34,7 @@ impl AppContext {
 
         // Initialize the identify cache
         let identify_cache =
-            match IdentifyCache::with_ttl(&config.redis_url, config.identify_cache_ttl_seconds)
+            match RedisIdentifyCache::with_ttl(&config.redis_url, config.identify_cache_ttl_seconds)
                 .await
             {
                 Ok(cache) => {

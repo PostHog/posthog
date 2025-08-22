@@ -468,13 +468,13 @@ mod tests {
     use serde_json::json;
 
     fn create_test_context() -> TransformContext {
-        use crate::cache::IdentifyCache;
+        use crate::cache::MockIdentifyCache;
         use std::sync::Arc;
 
         TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            identify_cache: Arc::new(IdentifyCache::test_new()),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
             import_events: true,
             generate_identify_events: false,
         }
@@ -809,8 +809,7 @@ mod tests {
     async fn test_amplitude_identify_injection_first_time() {
         use std::collections::HashMap;
         use std::sync::Arc;
-        use common_redis::{CustomRedisError, MockRedisClient};
-        use crate::cache::IdentifyCache;
+        use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
 
         let amp_event = AmplitudeEvent {
@@ -829,20 +828,11 @@ mod tests {
             ..Default::default()
         };
 
-                // Create mock cache that simulates first-time encounter
-        let mut mock_client = MockRedisClient::new();
-        // First check should return NotFound (first time seeing this combination)
-        mock_client = mock_client.get_ret("identify:123:user123:device456", Err(CustomRedisError::NotFound));
-        // Mark operation should succeed
-        mock_client = mock_client.set_nx_ex_ret("identify:123:user123:device456", Ok(true));
-
-        let cache = IdentifyCache::test_new_with_mock(mock_client);
-
-        // Create context with identify injection enabled
+        // Create context with identify injection enabled and mock cache
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            identify_cache: Arc::new(cache),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
             import_events: true,
             generate_identify_events: true,
         };
@@ -877,8 +867,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_injection_duplicate() {
         use std::sync::Arc;
-        use common_redis::{CustomRedisError, MockRedisClient};
-        use crate::cache::IdentifyCache;
+        use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
 
         // First event with same user-device pair
@@ -899,47 +888,27 @@ mod tests {
             ..Default::default()
         };
 
-        // Create mock cache for first event (first time encounter)
-        let mut mock_client1 = MockRedisClient::new();
-        mock_client1 = mock_client1.get_ret("identify:123:user123:device456", Err(CustomRedisError::NotFound));
-        mock_client1 = mock_client1.set_nx_ex_ret("identify:123:user123:device456", Ok(true));
+        // Create shared mock cache to track state between calls
+        let cache = Arc::new(MockIdentifyCache::new());
 
-        let cache1 = IdentifyCache::test_new_with_mock(mock_client1);
-
-        let context1 = TransformContext {
+        let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            identify_cache: Arc::new(cache1),
+            identify_cache: cache.clone(),
             import_events: true,
             generate_identify_events: true,
         };
 
-        let parser1 = AmplitudeEvent::parse_fn(context1, identity_transform);
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
 
         // First event should generate identify event
-        let result1 = parser1(amp_event1).unwrap();
+        let result1 = parser(amp_event1).unwrap();
         assert_eq!(result1.len(), 2); // identify + original
         let identify_data: serde_json::Value = serde_json::from_str(&result1[0].inner.data).unwrap();
         assert_eq!(identify_data["event"], "$identify");
 
-                // Create mock cache for second event (already seen)
-        let mut mock_client2 = MockRedisClient::new();
-        mock_client2 = mock_client2.get_ret("identify:123:user123:device456", Ok("1".to_string()));
-
-        let cache2 = IdentifyCache::test_new_with_mock(mock_client2);
-
-        let context2 = TransformContext {
-            team_id: 123,
-            token: "test_token".to_string(),
-            identify_cache: Arc::new(cache2),
-            import_events: true,
-            generate_identify_events: true,
-        };
-
-        let parser2 = AmplitudeEvent::parse_fn(context2, identity_transform);
-
-        // Second event should NOT generate identify event (already seen)
-        let result2 = parser2(amp_event2).unwrap();
+        // Second event should NOT generate identify event (already seen in cache)
+        let result2 = parser(amp_event2).unwrap();
         assert_eq!(result2.len(), 1); // only original event
         let original_data: serde_json::Value = serde_json::from_str(&result2[0].inner.data).unwrap();
         assert_eq!(original_data["event"], "test_event2");
@@ -948,7 +917,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_injection_disabled() {
         use std::sync::Arc;
-        use crate::cache::IdentifyCache;
+        use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
 
         let amp_event = AmplitudeEvent {
@@ -963,7 +932,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            identify_cache: Arc::new(IdentifyCache::test_new()),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
             import_events: true,
             generate_identify_events: false, // Disabled
         };
@@ -985,7 +954,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_with_cache_failure() {
         use std::sync::Arc;
-        use crate::cache::IdentifyCache;
+        use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
 
         let amp_event = AmplitudeEvent {
@@ -1000,7 +969,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            identify_cache: Arc::new(IdentifyCache::test_new()),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
             import_events: true,
             generate_identify_events: true,
         };
@@ -1018,7 +987,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_mixed_events_with_identify() {
         use std::sync::Arc;
-        use crate::cache::IdentifyCache;
+        use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
 
         // Event with user_id and device_id (should generate identify)
@@ -1061,7 +1030,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            identify_cache: Arc::new(IdentifyCache::test_new()),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
             import_events: true,
             generate_identify_events: true,
         };
@@ -1098,7 +1067,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_import_events_disabled() {
         use std::sync::Arc;
-        use crate::cache::IdentifyCache;
+        use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
 
         let amp_event = AmplitudeEvent {
@@ -1113,7 +1082,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            identify_cache: Arc::new(IdentifyCache::test_new()),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
             import_events: false, // Disabled
             generate_identify_events: true,
         };
