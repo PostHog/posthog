@@ -101,7 +101,7 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions: keaActions }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
             errors: ({ name, trigger, actions }) => {
@@ -114,12 +114,12 @@ export const campaignLogic = kea<campaignLogicType>([
                                 ? 'At least one event or action is required'
                                 : undefined,
                     },
-                    actions: actions.some((action) => {
+                    actions: actions.map((action) => {
                         const validationResult = HogFlowActionSchema.safeParse(action)
                         return !['trigger', 'exit'].includes(action.type) && !validationResult.success
-                    })
-                        ? 'Some fields need work'
-                        : undefined,
+                            ? 'Some fields need work'
+                            : undefined
+                    }),
                 }
             },
             submit: async (values) => {
@@ -127,7 +127,7 @@ export const campaignLogic = kea<campaignLogicType>([
                     return
                 }
 
-                actions.saveCampaign(values)
+                keaActions.saveCampaign(values)
             },
         },
     })),
