@@ -3,6 +3,7 @@ from typing import Any, Union, TypeVar
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+from django.utils.timezone import now
 from pydantic import BaseModel, ConfigDict
 
 from posthog.cache_utils import cache_for
@@ -239,9 +240,9 @@ def extract_query_metadata(
         InsightQueryMetadata: An object containing the query metadata
     """
     if not query:
-        return InsightQueryMetadata(events=[], updated_at=datetime.now())
+        return InsightQueryMetadata(events=[], updated_at=now())
 
     events_extractor = QueryEventsExtractor(team=team)
     events = events_extractor.extract_events(query=query)
 
-    return InsightQueryMetadata(events=events, updated_at=datetime.now())
+    return InsightQueryMetadata(events=events, updated_at=now())
