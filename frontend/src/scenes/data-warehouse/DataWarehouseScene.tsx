@@ -262,7 +262,7 @@ export function DataWarehouseScene(): JSX.Element {
                             const bgClass = isCritical ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'
 
                             return (
-                                <div key={issue.id} className={`border rounded-lg p-4 ${bgClass} shadow-sm`}>
+                                <div key={issue.id} className={`border rounded-xl px-4 py-2 ${bgClass} shadow-sm`}>
                                     <div className="flex items-start gap-3">
                                         <div className="flex-shrink-0 pt-0.5">
                                             {isCritical ? (
