@@ -4,16 +4,16 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
 import {
+    AnyAssistantGeneratedQuery,
+    AnyAssistantSupportedQuery,
     AssistantMessage,
     AssistantMessageType,
-    AssistantQueryType,
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     NotebookUpdateMessage,
     ReasoningMessage,
     RootAssistantMessage,
-    SupportedAssistantQuery,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
@@ -57,7 +57,7 @@ export function isNotebookUpdateMessage(
 }
 
 export function castAssistantQuery(
-    query: AssistantQueryType | SupportedAssistantQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return query

@@ -88,7 +88,7 @@ export interface ReasoningMessage extends BaseAssistantMessage {
 /**
  * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
  */
-export type AssistantQueryType =
+export type AnyAssistantGeneratedQuery =
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
@@ -97,14 +97,14 @@ export type AssistantQueryType =
 /**
  * The union type with all supported base queries for the assistant.
  */
-export type SupportedAssistantQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+export type AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 
 export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
     /** @default '' */
     query: string
     plan?: string
-    answer: AssistantQueryType | SupportedAssistantQuery
+    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
     initiator?: string
 }
 

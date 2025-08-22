@@ -16,7 +16,7 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.scorers import PlanAndQueryOutput
 from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.hogai.utils.types.base import AssistantQueryType
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
 from ee.models.assistant import Conversation, CoreMemory
 
 # We want the PostHog django_db_setup fixture here
@@ -130,7 +130,7 @@ def call_root_for_insight_generation(demo_org_team_user):
         if (
             not final_state.messages
             or not isinstance(final_state.messages[-1], VisualizationMessage)
-            or not isinstance(final_state.messages[-1].answer, AssistantQueryType)
+            or not isinstance(final_state.messages[-1].answer, AnyAssistantGeneratedQuery)
         ):
             return {
                 "plan": None,

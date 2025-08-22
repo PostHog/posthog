@@ -46,8 +46,10 @@ AssistantOutput = (
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
 
-AssistantQueryType = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
-SupportedAssistantQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+AnyAssistantGeneratedQuery = (
+    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+)
+AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 
 
 def merge(_: Any | None, right: Any | None) -> Any | None:
