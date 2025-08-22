@@ -3,7 +3,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events LEFT JOIN (
+  FROM events GLOBAL LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
@@ -18,7 +18,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events LEFT JOIN (
+  FROM events GLOBAL LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
