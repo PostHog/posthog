@@ -587,10 +587,10 @@ class InsightSearchNode(AssistantNode):
 
             insight_name = insight.name or insight.derived_name or "Unnamed Insight"
 
-            visualization_message = VisualizationMessage.model_construct(
+            visualization_message = VisualizationMessage(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
-                answer=query_obj,  # type: ignore[arg-type]
+                answer=query_obj,
                 id=str(uuid4()),
             )
 
