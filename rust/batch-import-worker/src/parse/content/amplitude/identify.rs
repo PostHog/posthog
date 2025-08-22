@@ -16,11 +16,8 @@ pub fn create_identify_event(
     // Create properties for the identify event
     let mut properties = serde_json::Map::new();
 
-    // Set the user_id as the distinct_id (primary identifier)
-    properties.insert("$user_id".to_string(), Value::String(user_id.to_string()));
-
-    // Link the device_id
-    properties.insert("$device_id".to_string(), Value::String(device_id.to_string()));
+    // Merge the device_id into the user_id person
+    properties.insert("$anon_distinct_id".to_string(), Value::String(device_id.to_string()));
 
     // Add Amplitude-specific metadata
     properties.insert("$amplitude_user_id".to_string(), Value::String(user_id.to_string()));
@@ -89,12 +86,11 @@ mod tests {
 
         // Check properties
         let props = data.properties;
-        assert_eq!(props.get("$user_id"), Some(&Value::String(user_id.to_string())));
-        assert_eq!(props.get("$device_id"), Some(&Value::String(device_id.to_string())));
         assert_eq!(props.get("$amplitude_user_id"), Some(&Value::String(user_id.to_string())));
         assert_eq!(props.get("$amplitude_device_id"), Some(&Value::String(device_id.to_string())));
         assert_eq!(props.get("historical_migration"), Some(&Value::Bool(true)));
         assert_eq!(props.get("analytics_source"), Some(&Value::String("amplitude".to_string())));
+        assert_eq!(props.get("$anon_distinct_id"), Some(&Value::String(device_id.to_string())));
     }
 
     #[test]
@@ -117,7 +113,8 @@ mod tests {
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert!(data.timestamp.is_some());
         assert!(data.uuid.is_some());
-        assert!(data.properties.contains_key("$user_id"));
-        assert!(data.properties.contains_key("$device_id"));
+        assert!(data.properties.contains_key("$amplitude_user_id"));
+        assert!(data.properties.contains_key("$amplitude_device_id"));
+        assert!(data.properties.contains_key("$anon_distinct_id"));
     }
 }
