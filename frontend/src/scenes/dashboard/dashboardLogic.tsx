@@ -311,6 +311,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         )
                         actions.resetUrlFilters()
+                        actions.resetUrlVariables()
                         return getQueryBasedDashboard(dashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
