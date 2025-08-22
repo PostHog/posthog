@@ -223,8 +223,12 @@ class FastInsightSerializer:
             finally:
                 # Restore original query
                 insight.query = original_query
-            if "insight" not in filters and not query:
-                filters["insight"] = "TRENDS"
+            # Check if we need to add default "insight": "TRENDS"
+            # This matches original DRF serializer logic
+            if "insight" not in filters:
+                # For insights without explicit insight type, default to TRENDS
+                if not insight.query or (insight.filters and "insight" not in insight.filters):
+                    filters["insight"] = "TRENDS"
 
         # Upgrade query to latest version
         query = upgrade(query)
