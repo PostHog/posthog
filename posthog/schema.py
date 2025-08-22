@@ -11242,6 +11242,7 @@ class FunnelsFilter(BaseModel):
     funnelVizType: Optional[FunnelVizType] = FunnelVizType.STEPS
     funnelWindowInterval: Optional[int] = 14
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY
+    goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
