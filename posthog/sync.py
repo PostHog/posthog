@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
+from time import time
 from typing import (
     Any,
     Optional,
@@ -13,6 +14,19 @@ from typing import (
 
 from asgiref.sync import SyncToAsync
 from django.db import close_old_connections
+from prometheus_client import Histogram
+
+from structlog import get_logger
+
+logger = get_logger(__name__)
+
+# Prometheus metric to track database_sync_to_async execution time
+DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
+    "database_sync_to_async_thread_sensitive_execution_time_seconds",
+    "Time spent while executing database_sync_to_async operations in thread-sensitive mode",
+    labelnames=["function_name"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, float("inf")),
+)
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -22,6 +36,19 @@ class DatabaseSyncToAsync(SyncToAsync):
     """
     SyncToAsync version that cleans up old database connections when it exits.
     """
+
+    async def __call__(self, *args, **kwargs):
+        # Automatically captures Temporal logging context.
+        start_time = time()
+        try:
+            return await super().__call__(*args, **kwargs)
+        finally:
+            # Record the execution time metric
+            if self._thread_sensitive:
+                execution_time = time() - start_time
+                fun_name = getattr(self.func, "__name__", "unknown")
+                DATABASE_SYNC_TO_ASYNC_TIME.labels(function_name=fun_name).observe(execution_time)
+                logger.info(f"database_sync_to_async {fun_name} took {execution_time} seconds")
 
     def thread_handler(self, loop, *args, **kwargs):
         close_old_connections()

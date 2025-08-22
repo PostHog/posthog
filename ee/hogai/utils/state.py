@@ -5,11 +5,14 @@ from langchain_core.messages import AIMessageChunk
 
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from structlog import get_logger
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
 GraphValueUpdate = dict[MaxNodeName, dict[Any, Any] | Any]
 
 GraphValueUpdateTuple = tuple[Literal["values"], GraphValueUpdate]
+
+logger = get_logger(__name__)
 
 
 def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdateTuple]:
@@ -75,3 +78,19 @@ def is_task_started_update(
     Streaming of messages.
     """
     return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
+
+
+def prepare_reasoning_progress_message(content: str) -> AIMessageChunk:
+    """Display progress as a reasoning message"""
+    if not content:
+        logger.warning("Content is required to prepare a reasoning progress message")
+    elif len(content) > 200:
+        logger.warning("Content is too long to prepare a reasoning progress message", extra={"content": content})
+        content = content[:200] + "..."
+    # What we're doing here is emitting an AIMessageChunk that mimics the OpenAI reasoning format
+    # This gets rendered as a ReasoningMessage in the Assistant class
+    # It's a roundabout way of returning a ReasoningMessage, but otherwise we'd have to make larger changes to Assistant
+    return AIMessageChunk(
+        content="",
+        additional_kwargs={"reasoning": {"summary": [{"text": f"**{content}**"}]}},
+    )

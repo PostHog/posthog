@@ -29,7 +29,7 @@ import snappy from 'snappy'
 import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
-import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
+import { SessionBatchFileStorage, SessionBatchFileWriter, SessionData } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -56,7 +56,8 @@ describe('session recording integration', () => {
         batchBuffer = new Uint8Array()
 
         mockWriter = {
-            writeSession: jest.fn().mockImplementation(async (buffer: Buffer) => {
+            writeSession: jest.fn().mockImplementation(async (sessionData: SessionData) => {
+                const buffer = sessionData.buffer
                 const startOffset = currentOffset
                 const newBuffer = new Uint8Array(batchBuffer.length + buffer.length)
                 newBuffer.set(batchBuffer)
@@ -174,7 +175,9 @@ describe('session recording integration', () => {
         ]
 
         // Record all messages
-        messages.forEach((message) => recorder.record(message))
+        for (const message of messages) {
+            await recorder.record(message)
+        }
 
         // Flush and get metadata
         const metadata = await recorder.flush()

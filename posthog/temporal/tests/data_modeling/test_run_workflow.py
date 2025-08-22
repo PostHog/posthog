@@ -395,6 +395,51 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     await sync_to_async(execute_hogql_query)(f"SELECT * FROM {saved_query.name}", ateam)
 
 
+async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pageview_events):
+    query = """\
+    select toDateTime64(toDateTime('2025-01-01T00:00:00.000'), 3, 'Asia/Istanbul') as now_converted, toDateTime('2025-01-01T00:00:00.000') as now
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        _, delta_table, _ = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+    table = delta_table.to_pyarrow_table(columns=["now_converted", "now"])
+    assert table.num_rows == 1
+    assert table.num_columns == 2
+    assert table.column_names == ["now_converted", "now"]
+    assert table.column(0).type == pa.timestamp("us", tz="UTC")
+    assert table.column(1).type == pa.timestamp("us", tz="UTC")
+
+    # replace microsecond because they won't match exactly
+    row = table.to_pylist()[0]
+    now_converted = row["now_converted"]
+    now = row["now"]
+    assert now_converted == now
+
+
 async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, minio_client, pageview_events):
     query = """\
     select
@@ -1469,7 +1514,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
         timestamp_column = table.column("timestamp")
         assert pa.types.is_timestamp(timestamp_column.type)
 
-        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0)
+        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0, tzinfo=dt.UTC)
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED

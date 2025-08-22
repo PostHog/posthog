@@ -1332,6 +1332,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"
     INSIGHT_CALENDAR_HEATMAP = "insightCalendarHeatmap"
+    CODE = "code"
 
 
 class FileSystemImport(BaseModel):

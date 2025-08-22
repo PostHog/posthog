@@ -202,7 +202,7 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     return (
         <LemonCheckbox
             checked={selectedRecordingsIds.some((s) => s === recording.id)}
-            dataAttr="select-recording"
+            data-attr="select-recording"
             aria-label="Select recording"
             disabledReason={
                 selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS

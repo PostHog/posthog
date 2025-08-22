@@ -112,7 +112,6 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Filter issues',
         description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
-        flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_FILTERING_TOOL,
     },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',

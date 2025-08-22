@@ -233,7 +233,6 @@ export const FEATURE_FLAGS = {
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
-    ERROR_TRACKING_ISSUE_FILTERING_TOOL: 'error-tracking-scene-max-tool', // owner: @olly #team-error-tracking
     ERROR_TRACKING_IMPACT_MAX_TOOL: 'error-tracking-impact-max-tool', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay

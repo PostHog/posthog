@@ -2357,6 +2357,7 @@ export type FileSystemIconType =
     | 'insightStickiness'
     | 'insightHogQL'
     | 'insightCalendarHeatmap'
+    | 'code'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType

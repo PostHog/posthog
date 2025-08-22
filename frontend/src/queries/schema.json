@@ -12060,7 +12060,8 @@
                 "insightLifecycle",
                 "insightStickiness",
                 "insightHogQL",
-                "insightCalendarHeatmap"
+                "insightCalendarHeatmap",
+                "code"
             ],
             "type": "string"
         },

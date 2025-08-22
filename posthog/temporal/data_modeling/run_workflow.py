@@ -778,7 +778,6 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     query_typings.append((column_name, ch_type, call_tuple))
                 else:
                     query_typings.append((column_name, ch_type, None))
-
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
 
@@ -868,37 +867,33 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    types_to_transform = ["Date", "Date32", "DateTime"]
+    types_to_transform = ["Date", "Date32", "DateTime", "DateTime64"]
     for column_name, type in types:
         field = batch.schema.field(column_name)
         column = batch.column(column_name)
 
-        if (
-            not any(t.lower() in type.lower() for t in types_to_transform)
-            or pa.types.is_timestamp(field.type)
-            or pa.types.is_date(field.type)
-        ):
+        if not any(t.lower() in type.lower() for t in types_to_transform) or pa.types.is_date(field.type):
             new_columns.append(column)
             new_fields.append(field)
             continue
 
-        if "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us"))
+        if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
+            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
+            new_column = pc.cast(column, new_field.type)
+        elif "datetime" in type.lower():
+            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
             # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
             int64_col = pc.cast(column, pa.int64())
             seconds_col = pc.cast(int64_col, pa.timestamp("s"))
             new_column = pc.cast(seconds_col, new_field.type)
-
-            new_fields.append(new_field)
-            new_columns.append(new_column)
         else:
             new_field = field.with_type(pa.date32())
             # Gotta upcast from uint16 to int32 first
             int32_col = pc.cast(column, pa.int32())
             new_column = pc.cast(int32_col, new_field.type)
 
-            new_fields.append(new_field)
-            new_columns.append(new_column)
+        new_fields.append(new_field)
+        new_columns.append(new_column)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None

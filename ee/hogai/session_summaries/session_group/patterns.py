@@ -1,14 +1,17 @@
 import dataclasses
 import json
+from math import ceil
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from enum import Enum
 
 import yaml
 import structlog
 from ee.hogai.session_summaries import SummaryValidationError
+from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.utils import strip_raw_llm_content, unpack_full_event_id
+from ee.hogai.session_summaries.utils import logging_session_ids, strip_raw_llm_content, unpack_full_event_id
+from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
 
@@ -40,7 +43,7 @@ class EnrichedPatternAssignedEvent(PatternAssignedEvent):
     timestamp: str
     milliseconds_since_start: int
     window_id: str | None
-    current_url: str
+    current_url: str | None
     event: str
     event_type: str | None
     event_index: int
@@ -331,10 +334,12 @@ def combine_patterns_ids_with_events_context(
             # Find full session id and event uuid for the event id
             full_event_id = combined_event_ids_mappings.get(event_id)
             if not full_event_id:
-                raise ValueError(
+                logger.exception(
                     f"Full event ID not found for event_id {event_id} when combining patterns with event ids "
                     f"for pattern_id {pattern_id}:\n{combined_patterns_assignments}\n{combined_event_ids_mappings}"
                 )
+                # Skip the event
+                continue
             # Map them to the pattern id to be able to enrich summaries and calculate patterns stats
             session_id, event_uuid = unpack_full_event_id(full_event_id)
             full_id_event = PatternAssignedEvent(event_id=event_id, event_uuid=event_uuid, session_id=session_id)
@@ -375,7 +380,8 @@ def _calculate_pattern_stats(
 def combine_patterns_with_events_context(
     patterns: RawSessionGroupSummaryPatternsList,
     pattern_id_to_event_context_mapping: dict[int, list[PatternAssignedEventSegmentContext]],
-    total_sessions_count: int,
+    session_ids: list[str],
+    user_id: int,
 ) -> EnrichedSessionGroupSummaryPatternsList:
     """Attach event context and stats to each extracted pattern."""
     combined_patterns = []
@@ -383,15 +389,24 @@ def combine_patterns_with_events_context(
         pattern_id = pattern.pattern_id
         pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id), [])
         if not pattern_events:
-            logger.warning(
+            logger.exception(
                 f"No events found for pattern {pattern_id} when combining patterns with events context: {pattern_id_to_event_context_mapping}"
             )
+            continue
         enriched_pattern = EnrichedSessionGroupSummaryPattern(
             **pattern.model_dump(),
             events=pattern_events,
-            stats=_calculate_pattern_stats(pattern_events, total_sessions_count),
+            stats=_calculate_pattern_stats(pattern_events, len(session_ids)),
         )
         combined_patterns.append(enriched_pattern)
+    # If not enough patterns were properly enriched - fail the activity
+    if ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO) > len(combined_patterns):
+        exception_message = (
+            f"Too many patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
+            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}"
+        )
+        logger.exception(exception_message)
+        raise ApplicationError(exception_message)
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     combined_patterns.sort(key=lambda p: severity_order.get(p.severity.value, 3))
     return EnrichedSessionGroupSummaryPatternsList(patterns=combined_patterns)
