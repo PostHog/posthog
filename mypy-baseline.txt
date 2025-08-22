@@ -1395,6 +1395,7 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/warehouse/models/table.py:0: error: Subclass of "list[tuple[str, ...]]" and "int" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/warehouse/models/table.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/warehouse/models/table.py:0: error: Value of type "Any | None" is not indexable  [index]
+posthog/warehouse/test/utils.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 products/batch_exports/backend/temporal/destinations/snowflake_batch_export.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 products/batch_exports/backend/temporal/temporary_file.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 products/batch_exports/backend/tests/temporal/destinations/test_s3_batch_export_workflow.py:0: error: Cannot assign to a method  [method-assign]

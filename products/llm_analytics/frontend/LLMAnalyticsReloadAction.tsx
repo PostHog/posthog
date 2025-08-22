@@ -6,17 +6,17 @@ import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 
-import { llmObservabilityLogic } from './llmObservabilityLogic'
+import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 export const LastRefreshText = (): JSX.Element => {
-    const { newestRefreshed } = useValues(llmObservabilityLogic)
+    const { newestRefreshed } = useValues(llmAnalyticsLogic)
 
     return newestRefreshed ? <span>Last updated {dayjs(newestRefreshed).fromNow()}</span> : <span>Refresh</span>
 }
 
-export function LLMObservabilityReloadAction(): JSX.Element {
-    const { isRefreshing } = useValues(llmObservabilityLogic)
-    const { refreshAllDashboardItems } = useActions(llmObservabilityLogic)
+export function LLMAnalyticsReloadAction(): JSX.Element {
+    const { isRefreshing } = useValues(llmAnalyticsLogic)
+    const { refreshAllDashboardItems } = useActions(llmAnalyticsLogic)
 
     return (
         <div className="relative">

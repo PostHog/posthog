@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
@@ -9,14 +9,17 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
-import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'
+import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
+
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
 }
 
-export interface LLMObservabilityTraceDataNodeLogicParams {
+export interface LLMAnalyticsTraceDataNodeLogicParams {
     traceId: string
     query: DataTableNode
     cachedResults?: AnyResponseType | null
@@ -26,7 +29,7 @@ export function getDataNodeLogicProps({
     traceId,
     query,
     cachedResults,
-}: LLMObservabilityTraceDataNodeLogicParams): DataNodeLogicProps {
+}: LLMAnalyticsTraceDataNodeLogicParams): DataNodeLogicProps {
     const insightProps: InsightLogicProps<DataTableNode> = {
         dashboardItemId: `new-Trace.${traceId}`,
         dataNodeCollectionId: traceId,
@@ -41,8 +44,8 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
-    path(['scenes', 'llm-observability', 'llmObservabilityTraceLogic']),
+export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
@@ -70,6 +73,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
         isRenderingMarkdown: [
             true as boolean,
+            persistConfig,
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
@@ -77,6 +81,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         ],
         isRenderingXml: [
             false as boolean,
+            persistConfig,
             {
                 setIsRenderingXml: (_, { isRenderingXml }) => isRenderingXml,
                 toggleXmlRendering: (state) => !state,
@@ -130,6 +135,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         ],
         displayOption: [
             DisplayOption.CollapseExceptOutputAndLastInput as DisplayOption,
+            persistConfig,
             {
                 setDisplayOption: (_, { displayOption }) => displayOption,
             },
@@ -170,17 +176,17 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             (traceId): Breadcrumb[] => {
                 return [
                     {
-                        key: 'LLMObservability',
-                        name: 'LLM observability',
-                        path: urls.llmObservabilityDashboard(),
+                        key: 'LLMAnalytics',
+                        name: 'LLM analytics',
+                        path: urls.llmAnalyticsDashboard(),
                     },
                     {
-                        key: 'LLMObservabilityTraces',
+                        key: 'LLMAnalyticsTraces',
                         name: 'Traces',
-                        path: urls.llmObservabilityTraces(),
+                        path: urls.llmAnalyticsTraces(),
                     },
                     {
-                        key: ['LLMObservabilityTrace', traceId || ''],
+                        key: ['LLMAnalyticsTrace', traceId || ''],
                         name: traceId,
                     },
                 ]
@@ -189,21 +195,6 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setIsRenderingMarkdown: ({ isRenderingMarkdown }) => {
-            localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(isRenderingMarkdown))
-        },
-        toggleMarkdownRendering: () => {
-            localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
-        },
-        setIsRenderingXml: ({ isRenderingXml }) => {
-            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(isRenderingXml))
-        },
-        toggleXmlRendering: () => {
-            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(values.isRenderingXml))
-        },
-        setDisplayOption: ({ displayOption }) => {
-            localStorage.setItem('llm-observability-display-option', JSON.stringify(displayOption))
-        },
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
@@ -242,46 +233,14 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                     }
 
                     // Use router to update URL
-                    router.actions.replace(urls.llmObservabilityTrace(traceId, params))
+                    router.actions.replace(urls.llmAnalyticsTrace(traceId, params))
                 }
             }
         },
     })),
 
-    afterMount(({ actions }) => {
-        const savedMarkdownState = localStorage.getItem('llm-observability-markdown-rendering')
-        if (savedMarkdownState !== null) {
-            try {
-                const isRenderingMarkdown = JSON.parse(savedMarkdownState)
-                actions.setIsRenderingMarkdown(isRenderingMarkdown)
-            } catch {
-                // If parsing fails, keep the default value
-            }
-        }
-
-        const savedXmlState = localStorage.getItem('llm-observability-xml-rendering')
-        if (savedXmlState !== null) {
-            try {
-                const isRenderingXml = JSON.parse(savedXmlState)
-                actions.setIsRenderingXml(isRenderingXml)
-            } catch {
-                // If parsing fails, keep the default value
-            }
-        }
-
-        const savedDisplayOption = localStorage.getItem('llm-observability-display-option')
-        if (savedDisplayOption !== null) {
-            try {
-                const displayOption = JSON.parse(savedDisplayOption)
-                actions.setDisplayOption(displayOption)
-            } catch {
-                // If parsing fails, keep the default value
-            }
-        }
-    }),
-
     urlToAction(({ actions }) => ({
-        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, timestamp, search }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, search }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
             actions.setDateFrom(timestamp || null)

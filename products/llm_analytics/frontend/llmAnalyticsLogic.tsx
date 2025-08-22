@@ -29,9 +29,9 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
+import type { llmAnalyticsLogicType } from './llmAnalyticsLogicType'
 
-export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
+export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1d' as string | null
@@ -47,8 +47,8 @@ export interface QueryTile {
     }
 }
 
-export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
-    path(['products', 'llm_analytics', 'frontend', 'llmObservabilityLogic']),
+export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
+    path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
 
     connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
@@ -163,13 +163,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey) => {
-                if (sceneKey === 'llmObservabilityGenerations') {
+                if (sceneKey === 'llmAnalyticsGenerations') {
                     return 'generations'
-                } else if (sceneKey === 'llmObservabilityTraces') {
+                } else if (sceneKey === 'llmAnalyticsTraces') {
                     return 'traces'
-                } else if (sceneKey === 'llmObservabilityUsers') {
+                } else if (sceneKey === 'llmAnalyticsUsers') {
                     return 'users'
-                } else if (sceneKey === 'llmObservabilityPlayground') {
+                } else if (sceneKey === 'llmAnalyticsPlayground') {
                     return 'playground'
                 }
                 return 'dashboard'
@@ -204,7 +204,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             if (typeof series.day === 'string') {
                                 // NOTE: This assumes the chart is day-by-day
                                 const dayStart = dayjs(series.day).startOf('day')
-                                router.actions.push(urls.llmObservabilityTraces(), {
+                                router.actions.push(urls.llmAnalyticsTraces(), {
                                     ...router.values.searchParams,
                                     date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
                                     date_to: dayStart
@@ -244,7 +244,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             if (typeof series.day === 'string') {
                                 const dayStart = dayjs(series.day).startOf('day')
 
-                                router.actions.push(urls.llmObservabilityUsers(), {
+                                router.actions.push(urls.llmAnalyticsUsers(), {
                                     ...router.values.searchParams,
                                     date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
                                     date_to: dayStart
@@ -281,7 +281,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     context: {
                         groupTypeLabel: 'traces',
                         onDataPointClick: () => {
-                            router.actions.push(urls.llmObservabilityTraces(), {
+                            router.actions.push(urls.llmAnalyticsTraces(), {
                                 ...router.values.searchParams,
                                 // Use same date range as dashboard to ensure we'll see the same data after click
                                 date_from: dashboardDateFilter.dateFrom,
@@ -330,7 +330,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             if (typeof series.day === 'string') {
                                 const dayStart = dayjs(series.day).startOf('day')
 
-                                router.actions.push(urls.llmObservabilityUsers(), {
+                                router.actions.push(urls.llmAnalyticsUsers(), {
                                     ...router.values.searchParams,
                                     date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
                                     date_to: dayStart
@@ -372,7 +372,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     context: {
                         groupTypeLabel: 'traces',
                         onDataPointClick: ({ breakdown }) => {
-                            router.actions.push(urls.llmObservabilityTraces(), {
+                            router.actions.push(urls.llmAnalyticsTraces(), {
                                 ...router.values.searchParams,
                                 // Use same date range as dashboard to ensure we'll see the same data after click
                                 date_from: dashboardDateFilter.dateFrom,
@@ -413,7 +413,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
                                 const dayStart = dayjs(series.day).startOf('day')
-                                router.actions.push(urls.llmObservabilityGenerations(), {
+                                router.actions.push(urls.llmAnalyticsGenerations(), {
                                     ...router.values.searchParams,
                                     date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
                                     date_to: dayStart
@@ -457,7 +457,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
                                 const dayStart = dayjs(series.day).startOf('day')
-                                router.actions.push(urls.llmObservabilityGenerations(), {
+                                router.actions.push(urls.llmAnalyticsGenerations(), {
                                     ...router.values.searchParams,
                                     date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
                                     date_to: dayStart
@@ -502,7 +502,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     context: {
                         groupTypeLabel: 'generations',
                         onDataPointClick: (series) => {
-                            router.actions.push(urls.llmObservabilityGenerations(), {
+                            router.actions.push(urls.llmAnalyticsGenerations(), {
                                 ...router.values.searchParams,
                                 // Use same date range as dashboard to ensure we'll see the same data after click
                                 date_from: dashboardDateFilter.dateFrom,
@@ -728,11 +728,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         }
 
         return {
-            [urls.llmObservabilityDashboard()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmObservabilityUsers()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmObservabilityPlayground()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsDashboard()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 
