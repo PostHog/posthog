@@ -239,9 +239,9 @@ impl PropertyDefinitionsBatch {
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, batch: Vec<Update>) {
     // prep reshaped, isolated data batch bufffers and async join handles
-    let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
-    let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
-    let mut prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
+    let mut event_defs = EventDefinitionsBatch::new(config.write_batch_size);
+    let mut event_props = EventPropertiesBatch::new(config.write_batch_size);
+    let mut prop_defs = PropertyDefinitionsBatch::new(config.write_batch_size);
     let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
 
     // loop over Update batch, grouping by record type into single-target-table
@@ -254,7 +254,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let pool = pool.clone();
                     let cache = cache.clone();
                     let outbound = event_defs;
-                    event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
+                    event_defs = EventDefinitionsBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
                         write_event_definitions_batch(cache, outbound, &pool).await
                     }));
@@ -266,7 +266,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let pool = pool.clone();
                     let cache = cache.clone();
                     let outbound = event_props;
-                    event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
+                    event_props = EventPropertiesBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
                         write_event_properties_batch(cache, outbound, &pool).await
                     }));
@@ -278,7 +278,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let pool = pool.clone();
                     let cache = cache.clone();
                     let outbound = prop_defs;
-                    prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
+                    prop_defs = PropertyDefinitionsBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
                         write_property_definitions_batch(cache, outbound, &pool).await
                     }));

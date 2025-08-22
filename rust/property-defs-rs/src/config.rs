@@ -103,9 +103,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub enable_mirror: bool,
 
-    // TODO: rename to "write_batch_size" after updating deploy cfgs for cutover!
-    #[envconfig(default = "100")]
-    pub v2_ingest_batch_size: usize,
+    // TODO: rename deploy cfg var to "write_batch_size" and update this after to complete the cutover!
+    #[envconfig(alias = "V2_INGEST_BATCH_SIZE", default = "100")]
+    pub write_batch_size: usize,
 }
 
 #[derive(Clone)]

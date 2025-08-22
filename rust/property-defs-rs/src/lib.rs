@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use app_context::AppContext;
+use batch_ingestion::process_batch;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
@@ -10,7 +11,6 @@ use metrics_consts::{
     UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
-use batch_ingestion::process_batch;
 
 use ahash::AHashSet;
 use tokio::sync::mpsc::error::TrySendError;
@@ -24,12 +24,12 @@ use crate::{
 
 pub mod api;
 pub mod app_context;
+pub mod batch_ingestion;
 pub mod config;
 pub mod measuring_channel;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
-pub mod batch_ingestion;
 
 pub async fn update_consumer_loop(
     config: Config,
