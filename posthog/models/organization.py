@@ -48,6 +48,7 @@ class OrganizationUsageInfo(TypedDict):
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
+    ai_events: Optional[OrganizationUsageResource]
     period: Optional[list[str]]
 
 

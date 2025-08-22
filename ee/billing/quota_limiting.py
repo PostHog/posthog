@@ -25,6 +25,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_survey_responses_count_in_period,
+    get_teams_with_ai_event_count_in_period,
 )
 from posthog.utils import get_current_day
 
@@ -59,6 +60,7 @@ class QuotaResource(Enum):
     FEATURE_FLAG_REQUESTS = "feature_flag_requests"
     API_QUERIES = "api_queries_read_bytes"
     SURVEYS = "surveys"
+    AI_EVENTS = "ai_events"
 
 
 class QuotaLimitingCaches(Enum):
@@ -74,6 +76,7 @@ OVERAGE_BUFFER = {
     QuotaResource.FEATURE_FLAG_REQUESTS: 0,
     QuotaResource.API_QUERIES: 0,
     QuotaResource.SURVEYS: 0,
+    QuotaResource.AI_EVENTS: 0,
 }
 
 TRUST_SCORE_KEYS = {
@@ -84,6 +87,7 @@ TRUST_SCORE_KEYS = {
     QuotaResource.FEATURE_FLAG_REQUESTS: "feature_flags",
     QuotaResource.API_QUERIES: "api_queries",
     QuotaResource.SURVEYS: "surveys",
+    QuotaResource.AI_EVENTS: "ai_events",
 }
 
 
@@ -95,6 +99,7 @@ class UsageCounters(TypedDict):
     feature_flags: int
     api_queries_read_bytes: int
     surveys: int
+    ai_events: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -472,6 +477,7 @@ def update_org_billing_quotas(organization: Organization):
         QuotaResource.FEATURE_FLAG_REQUESTS,
         QuotaResource.API_QUERIES,
         QuotaResource.SURVEYS,
+        QuotaResource.AI_EVENTS,
     ]:
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
@@ -533,6 +539,7 @@ def set_org_usage_summary(
         "feature_flag_requests",
         "api_queries_read_bytes",
         "surveys",
+        "ai_events",
     ]:
         original_field_usage = original_usage.get(field, {}) if original_usage else {}
         resource_usage = cast(dict, new_usage.get(field, {"limit": None, "usage": 0, "todays_usage": 0}))
@@ -612,6 +619,9 @@ def update_all_orgs_billing_quotas(
         "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_survey_responses_count_in_period(period_start, period_end)
         ),
+        "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_ai_event_count_in_period(period_start, period_end)
+        ),
     }
 
     teams: Sequence[Team] = list(
@@ -643,6 +653,7 @@ def update_all_orgs_billing_quotas(
             feature_flags=decide_requests + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             surveys=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
+            ai_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
@@ -691,6 +702,7 @@ def update_all_orgs_billing_quotas(
                     "feature_flag_requests",
                     "api_queries_read_bytes",
                     "surveys",
+                    "ai_events",
                 ]:
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
                     result = org_quota_limited_until(
@@ -745,6 +757,7 @@ def update_all_orgs_billing_quotas(
             "quota_limited_feature_flags": quota_limited_orgs["feature_flag_requests"].get(org_id, None),
             "quota_limited_api_queries": quota_limited_orgs["api_queries_read_bytes"].get(org_id, None),
             "quota_limited_surveys": quota_limited_orgs["surveys"].get(org_id, None),
+            "quota_limited_ai_events": quota_limited_orgs["ai_events"].get(org_id, None),
         }
 
         report_organization_action(
