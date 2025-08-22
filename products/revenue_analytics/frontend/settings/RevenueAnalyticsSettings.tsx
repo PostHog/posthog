@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconHandMoney, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
@@ -50,15 +50,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
     return (
         <SceneContent forceNewSpacing>
-            <SceneTitleSection
-                name="Revenue"
-                description={introductionDescription}
-                resourceType={{
-                    type: 'revenue',
-                    typePlural: 'revenue events',
-                    forceIcon: <IconHandMoney />,
-                }}
-            />
+            <SceneTitleSection name="Revenue" description={introductionDescription} />
             <SceneDivider />
             <ProductIntroduction
                 productName="Revenue tracking"

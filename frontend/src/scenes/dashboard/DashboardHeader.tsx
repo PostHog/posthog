@@ -620,13 +620,14 @@ export function DashboardHeader(): JSX.Element | null {
                     type: 'dashboard',
                     typePlural: 'dashboards',
                 }}
-                onNameBlur={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                onDescriptionBlur={(value) =>
+                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionChange={(value) =>
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
+                forceEdit={dashboard?.name === 'New Dashboard'}
             />
             <SceneDivider />
         </>

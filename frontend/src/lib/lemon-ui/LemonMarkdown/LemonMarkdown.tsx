@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 
+import { IconPencil } from '@posthog/icons'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { Link } from '../Link'
@@ -45,6 +47,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     {value}
                 </CodeSnippet>
             ),
+            sub: (): JSX.Element => <IconPencil />,
             ...(lowKeyHeadings
                 ? {
                       heading: 'strong',

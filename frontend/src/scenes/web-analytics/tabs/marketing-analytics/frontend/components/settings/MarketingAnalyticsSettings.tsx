@@ -1,5 +1,3 @@
-import { IconApps } from '@posthog/icons'
-
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
@@ -18,17 +16,7 @@ export function MarketingAnalyticsSettings(): JSX.Element {
 
     return (
         <SceneContent className={cn(!newSceneLayout && 'gap-8 mb-10')}>
-            {newSceneLayout && (
-                <SceneTitleSection
-                    name="Marketing analytics"
-                    description={null}
-                    resourceType={{
-                        type: 'marketing',
-                        typePlural: 'marketing',
-                        forceIcon: <IconApps />,
-                    }}
-                />
-            )}
+            {newSceneLayout && <SceneTitleSection name="Marketing analytics" description={null} />}
             <SceneDivider />
             <BaseCurrency />
             <SceneDivider />

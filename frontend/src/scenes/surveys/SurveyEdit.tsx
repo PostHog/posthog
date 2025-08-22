@@ -29,6 +29,7 @@ import { PropertyValue } from 'lib/components/PropertyFilters/components/Propert
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -254,6 +255,7 @@ export default function SurveyEdit(): JSX.Element {
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -278,12 +280,16 @@ export default function SurveyEdit(): JSX.Element {
     return (
         <div className="flex flex-row gap-4">
             <div className="flex flex-col gap-2 flex-1 SurveyForm">
-                <LemonField name="name" label="Name">
-                    <LemonInput data-attr="survey-name" />
-                </LemonField>
-                <LemonField name="description" label="Description (optional)">
-                    <LemonTextArea data-attr="survey-description" minRows={2} />
-                </LemonField>
+                {!newSceneLayout && (
+                    <>
+                        <LemonField name="name" label="Name">
+                            <LemonInput data-attr="survey-name" />
+                        </LemonField>
+                        <LemonField name="description" label="Description (optional)">
+                            <LemonTextArea data-attr="survey-description" minRows={2} />
+                        </LemonField>
+                    </>
+                )}
                 <LemonCollapse
                     activeKey={selectedSection || undefined}
                     onChange={(section) => {
