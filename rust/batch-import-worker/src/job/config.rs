@@ -493,8 +493,8 @@ mod tests {
         "#;
 
         let config: JobConfig = serde_json::from_str(json_config).unwrap();
-        assert_eq!(config.import_events, true); // Should use default
-        assert_eq!(config.generate_identify_events, false); // Should use default
+        assert!(config.import_events); // Should use default
+        assert!(!config.generate_identify_events); // Should use default
     }
 
     #[test]
@@ -522,8 +522,8 @@ mod tests {
         "#;
 
         let config: JobConfig = serde_json::from_str(json_config).unwrap();
-        assert_eq!(config.import_events, false); // Should use explicit value
-        assert_eq!(config.generate_identify_events, true); // Should use explicit value
+        assert!(!config.import_events); // Should use explicit value
+        assert!(config.generate_identify_events); // Should use explicit value
     }
 
     #[test]
@@ -560,8 +560,8 @@ mod tests {
     #[test]
     fn test_job_config_default_functions() {
         // Test the default functions directly
-        assert_eq!(JobConfig::default_import_events(), true);
-        assert_eq!(JobConfig::default_generate_identify_events(), false);
+        assert!(JobConfig::default_import_events());
+        assert!(!JobConfig::default_generate_identify_events());
     }
 
     #[test]
@@ -711,7 +711,7 @@ mod tests {
             // Note: Can't use assert_eq! due to missing PartialEq derive
             // But serde round-trip should work correctly for all variants
             match (&sink_config, &deserialized) {
-                (SinkConfig::NoOp, SinkConfig::NoOp) => assert!(true),
+                (SinkConfig::NoOp, SinkConfig::NoOp) => (),
                 (SinkConfig::Stdout { as_json: orig }, SinkConfig::Stdout { as_json: deser }) => {
                     assert_eq!(orig, deser)
                 }

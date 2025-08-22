@@ -29,10 +29,7 @@ impl MemoryIdentifyCache {
         // URL encode user_id and device_id to prevent key format conflicts
         let encoded_user_id = urlencoding::encode(user_id);
         let encoded_device_id = urlencoding::encode(device_id);
-        format!(
-            "identify:{}:{}:{}",
-            team_id, encoded_user_id, encoded_device_id
-        )
+        format!("identify:{team_id}:{encoded_user_id}:{encoded_device_id}")
     }
 }
 
@@ -83,7 +80,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result1, false);
+        assert!(!result1);
 
         // Mark as seen
         cache
@@ -96,7 +93,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result2, true);
+        assert!(result2);
     }
 
     #[tokio::test]
@@ -114,14 +111,14 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result1, true);
+        assert!(result1);
 
         // Should not be seen for team 2 (different team)
         let result2 = cache
             .has_seen_user_device(2, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result2, false);
+        assert!(!result2);
     }
 
     #[tokio::test]
@@ -137,7 +134,7 @@ mod tests {
             .has_seen_user_device(1, "user:123", "device@456")
             .await
             .unwrap();
-        assert_eq!(result, true);
+        assert!(result);
 
         // Verify key encoding creates different keys for different combinations
         let key1 = MemoryIdentifyCache::make_key(1, "user:123", "device");
@@ -154,7 +151,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result1, false);
+        assert!(!result1);
 
         // Mark as seen
         cache
@@ -167,7 +164,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result2, true);
+        assert!(result2);
 
         // Wait for TTL expiry
         sleep(Duration::from_millis(150)).await;
@@ -177,7 +174,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result3, false);
+        assert!(!result3);
     }
 
     #[tokio::test]
@@ -198,7 +195,7 @@ mod tests {
                 .has_seen_user_device(team_id, user_id, device_id)
                 .await
                 .unwrap();
-            assert_eq!(result1, false);
+            assert!(!result1);
 
             // Mark as seen
             cache
@@ -211,7 +208,7 @@ mod tests {
                 .has_seen_user_device(team_id, user_id, device_id)
                 .await
                 .unwrap();
-            assert_eq!(result2, true);
+            assert!(result2);
         }
 
         // Verify all combinations are isolated from each other
@@ -261,14 +258,14 @@ mod tests {
             .has_seen_user_device(1, "foo:bar", ":baz")
             .await
             .unwrap();
-        assert_eq!(result1, true);
+        assert!(result1);
 
         // Second combination: "foo:" + "bar:baz" should NOT be seen
         let result2 = cache
             .has_seen_user_device(1, "foo:", "bar:baz")
             .await
             .unwrap();
-        assert_eq!(result2, false);
+        assert!(!result2);
 
         // Verify they produce different keys
         let key1 = MemoryIdentifyCache::make_key(1, "foo:bar", ":baz");
@@ -314,7 +311,7 @@ mod tests {
                 .has_seen_user_device(1, user_id, device_id)
                 .await
                 .unwrap();
-            assert_eq!(result1, false);
+            assert!(!result1);
 
             // Mark as seen
             cache
@@ -327,7 +324,7 @@ mod tests {
                 .has_seen_user_device(1, user_id, device_id)
                 .await
                 .unwrap();
-            assert_eq!(result2, true);
+            assert!(result2);
         }
     }
 }

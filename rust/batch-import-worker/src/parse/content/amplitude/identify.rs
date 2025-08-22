@@ -351,9 +351,7 @@ mod tests {
             let result = create_identify_event(team_id, token, user_id, device_id, event_uuid);
             assert!(
                 result.is_err(),
-                "Should reject invalid case: user_id='{}', device_id='{}'",
-                user_id,
-                device_id
+                "Should reject invalid case: user_id='{user_id}', device_id='{device_id}'"
             );
         }
 
@@ -371,9 +369,7 @@ mod tests {
             let result = create_identify_event(team_id, token, user_id, device_id, event_uuid);
             assert!(
                 result.is_ok(),
-                "Should accept valid case: user_id='{}', device_id='{}'",
-                user_id,
-                device_id
+                "Should accept valid case: user_id='{user_id}', device_id='{device_id}'"
             );
 
             let event = result.unwrap();

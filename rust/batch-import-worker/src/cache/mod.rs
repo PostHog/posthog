@@ -31,6 +31,12 @@ pub struct MockIdentifyCache {
     seen_combinations: Arc<Mutex<HashSet<String>>>,
 }
 
+impl Default for MockIdentifyCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockIdentifyCache {
     pub fn new() -> Self {
         Self {
@@ -39,7 +45,7 @@ impl MockIdentifyCache {
     }
 
     fn make_key(team_id: i32, user_id: &str, device_id: &str) -> String {
-        format!("{}:{}:{}", team_id, user_id, device_id)
+        format!("{team_id}:{user_id}:{device_id}")
     }
 }
 

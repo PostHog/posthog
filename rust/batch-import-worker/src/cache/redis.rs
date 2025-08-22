@@ -70,10 +70,7 @@ impl RedisIdentifyCache {
         // URL encode user_id and device_id to prevent key format conflicts
         let encoded_user_id = urlencoding::encode(user_id);
         let encoded_device_id = urlencoding::encode(device_id);
-        format!(
-            "identify:{}:{}:{}",
-            team_id, encoded_user_id, encoded_device_id
-        )
+        format!("identify:{team_id}:{encoded_user_id}:{encoded_device_id}")
     }
 
     /// Check if we've already seen this user_id + device_id combination
@@ -105,10 +102,7 @@ impl RedisIdentifyCache {
                 Ok(true)
             }
             Err(common_redis::CustomRedisError::NotFound) => Ok(false), // Key doesn't exist
-            Err(e) => Err(Error::msg(format!(
-                "Redis error checking user-device: {}",
-                e
-            ))),
+            Err(e) => Err(Error::msg(format!("Redis error checking user-device: {e}"))),
         }
     }
 
@@ -126,7 +120,7 @@ impl RedisIdentifyCache {
         self.redis_client
             .set_nx_ex(key.clone(), "1".to_string(), self.ttl_seconds)
             .await
-            .map_err(|e| Error::msg(format!("Redis error marking user-device: {}", e)))?;
+            .map_err(|e| Error::msg(format!("Redis error marking user-device: {e}")))?;
 
         // Also store in memory cache (L1) for future requests
         self.memory_cache
@@ -167,7 +161,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result1, false);
+        assert!(!result1);
 
         // Now setup mock for mark operation (set_nx_ex should succeed)
         let mut mock_client2 = MockRedisClient::new();
@@ -198,7 +192,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result2, true);
+        assert!(result2);
     }
 
     #[tokio::test]
@@ -233,8 +227,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result1, false); // Team 1 hasn't seen it
-        assert_eq!(result2, true); // Team 2 has seen it
+        assert!(!result1); // Team 1 hasn't seen it
+        assert!(result2); // Team 2 has seen it
     }
 
     #[tokio::test]
@@ -359,10 +353,7 @@ mod tests {
             // URL encode user_id and device_id for expected key
             let encoded_user_id = urlencoding::encode(user_id);
             let encoded_device_id = urlencoding::encode(device_id);
-            let expected_key = format!(
-                "identify:{}:{}:{}",
-                team_id, encoded_user_id, encoded_device_id
-            );
+            let expected_key = format!("identify:{team_id}:{encoded_user_id}:{encoded_device_id}");
             let actual_key = RedisIdentifyCache::make_key(team_id, user_id, device_id);
             assert_eq!(actual_key, expected_key);
         }
@@ -394,14 +385,14 @@ mod tests {
             .has_seen_user_device(1, "foo:bar", ":baz")
             .await
             .unwrap();
-        assert_eq!(result1, false); // Should not be seen
+        assert!(!result1); // Should not be seen
 
         // Test second combination: "foo:" + "bar:baz"
         let result2 = cache
             .has_seen_user_device(1, "foo:", "bar:baz")
             .await
             .unwrap();
-        assert_eq!(result2, false); // Should not be seen
+        assert!(!result2); // Should not be seen
 
         // Verify they produce different keys
         let key1 = RedisIdentifyCache::make_key(1, "foo:bar", ":baz");
@@ -443,7 +434,7 @@ mod tests {
             .has_seen_user_device(1, "foo:", "bar:baz")
             .await
             .unwrap();
-        assert_eq!(result3, false, "Second combination should still be unseen");
+        assert!(!result3, "Second combination should still be unseen");
     }
 
     #[tokio::test]
@@ -483,7 +474,7 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result1, false);
+        assert!(!result1);
 
         // Mark as seen - should store in both L1 and L2
         cache
@@ -496,6 +487,6 @@ mod tests {
             .has_seen_user_device(1, "user123", "device456")
             .await
             .unwrap();
-        assert_eq!(result2, true);
+        assert!(result2);
     }
 }
