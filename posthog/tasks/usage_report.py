@@ -152,7 +152,7 @@ class UsageReportCounters:
     symbol_sets_count: int
     resolved_symbol_sets_count: int
     exceptions_captured_in_period: int
-    # LLM Observability
+    # LLM Analytics
     ai_event_count_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int

@@ -30,7 +30,7 @@ from posthog.schema import (
 from posthog.types import InsightActorsQueryNode
 
 
-class InsightActorsQueryRunner(AnalyticsQueryRunner):
+class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: InsightActorsQueryNode
 
     def __init__(

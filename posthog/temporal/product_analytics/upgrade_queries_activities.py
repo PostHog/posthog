@@ -3,11 +3,14 @@ import textwrap
 from typing import Optional
 
 from django.db import connection
+from structlog import get_logger
 from temporalio import activity
+
 from posthog.models import Insight
-from posthog.schema_migrations.upgrade import upgrade
-from posthog.temporal.common.logger import get_internal_logger
 from posthog.schema_migrations import LATEST_VERSIONS
+from posthog.schema_migrations.upgrade import upgrade
+
+LOGGER = get_logger(__name__)
 
 
 def _clause(kind: str, version: int) -> str:
@@ -66,7 +69,7 @@ class MigrateInsightsBatchActivityInputs:
 @activity.defn
 def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> list[int]:
     """Migrate a batch of insights to the latest version."""
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
     failed: list[int] = []
 
     insights = Insight.objects_including_soft_deleted.filter(id__in=inputs.insight_ids)

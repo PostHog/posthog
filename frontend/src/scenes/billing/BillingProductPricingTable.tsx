@@ -31,7 +31,9 @@ export const BillingProductPricingTable = ({
     usageKey?: string
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
-    const { isSessionReplayWithAddons } = useValues(billingProductLogic({ product }))
+    const { isProductWithVariants, projectedAmountExcludingAddons, currentAmountTotalActual } = useValues(
+        billingProductLogic({ product })
+    )
 
     const showProjectedTotalWithLimitTooltip =
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
@@ -69,12 +71,17 @@ export const BillingProductPricingTable = ({
         'addons' in product
             ? product.addons?.filter(
                   (addon: BillingProductV2AddonType) =>
-                      addon.tiers && addon.tiers?.length > 0 && (addon.subscribed || addon.inclusion_only)
+                      addon.tiers &&
+                      addon.tiers?.length > 0 &&
+                      (addon.subscribed || addon.inclusion_only) &&
+                      // Exclude add-ons that are product variants since those are shown separately with their own table
+                      !isProductWithVariants
               )
             : []
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
+
     const tableTierData: BillingTableTierRow[] | undefined =
         product.tiers && product.tiers.length > 0
             ? product.tiers
@@ -176,14 +183,10 @@ export const BillingProductPricingTable = ({
                           volume: 'Total',
                           basePrice: '',
                           usage: '',
-                          total: isSessionReplayWithAddons
-                              ? `$${
-                                    ('current_amount_usd_before_addons' in product
-                                        ? product.current_amount_usd_before_addons
-                                        : '0.00') || '0.00'
-                                }`
-                              : `$${product.current_amount_usd || '0.00'}`,
-                          projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
+                          total: `$${currentAmountTotalActual}`,
+                          projectedTotal: isProductWithVariants
+                              ? `$${projectedAmountExcludingAddons || '0.00'}`
+                              : `$${product.projected_amount_usd || '0.00'}`,
                           subrows: { rows: [], columns: [] },
                       },
                   ])

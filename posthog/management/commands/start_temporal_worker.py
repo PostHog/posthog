@@ -19,12 +19,13 @@ from posthog.constants import (
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
     DATA_WAREHOUSE_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
+    TASKS_TASK_QUEUE,
     MAX_AI_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.common.logger import configure_logger_async, get_logger
+from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
@@ -56,6 +57,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.tasks.backend.temporal import (
+    ACTIVITIES as TASKS_ACTIVITIES,
+    WORKFLOWS as TASKS_WORKFLOWS,
+)
 
 # Workflow and activity index
 WORKFLOWS_DICT = {
@@ -72,6 +77,7 @@ WORKFLOWS_DICT = {
     + SALESFORCE_ENRICHMENT_WORKFLOWS
     + PRODUCT_ANALYTICS_WORKFLOWS
     + SUBSCRIPTION_WORKFLOWS,
+    TASKS_TASK_QUEUE: TASKS_WORKFLOWS,
     MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
     TEST_TASK_QUEUE: TEST_WORKFLOWS,
 }
@@ -89,6 +95,7 @@ ACTIVITIES_DICT = {
     + SALESFORCE_ENRICHMENT_ACTIVITIES
     + PRODUCT_ANALYTICS_ACTIVITIES
     + SUBSCRIPTION_ACTIVITIES,
+    TASKS_TASK_QUEUE: TASKS_ACTIVITIES,
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
@@ -206,9 +213,9 @@ class Command(BaseCommand):
             shutdown_task = loop.create_task(worker.shutdown())
 
         with asyncio.Runner() as runner:
-            if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
-                configure_logger_async(loop=runner.get_loop())
+            loop = runner.get_loop()
 
+            configure_logger(loop=loop)
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,
@@ -218,7 +225,6 @@ class Command(BaseCommand):
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
             )
-
             logger.info("Starting Temporal Worker")
 
             worker = runner.run(
@@ -242,7 +248,6 @@ class Command(BaseCommand):
                 )
             )
 
-            loop = runner.get_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,

@@ -674,28 +674,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 class GroupUsageMetricSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display")
-
-
-class GroupUsageMetricDetailCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = GroupUsageMetric
         fields = ("id", "name", "format", "interval", "display", "filters")
 
 
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "group"
     queryset = GroupUsageMetric.objects.all()
-    serializer_classes = {
-        "list": GroupUsageMetricSerializer,
-        "retrieve": GroupUsageMetricDetailCreateSerializer,
-        "create": GroupUsageMetricDetailCreateSerializer,
-        "update": GroupUsageMetricDetailCreateSerializer,
-        "default": GroupUsageMetricSerializer,
-    }
-
-    def get_serializer_class(self):
-        return self.serializer_classes.get(self.action, self.serializer_classes["default"])
+    serializer_class = GroupUsageMetricSerializer
 
     def perform_create(self, serializer):
         serializer.save(team=self.team, group_type_index=self.parents_query_dict["group_type_index"])
