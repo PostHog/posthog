@@ -320,7 +320,7 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (isTrendsQuery(query) || isStickinessQuery(query)) {
         newCache.commonFilterTrendsStickiness = {
             ...cache?.commonFilterTrendsStickiness,
-            resultCustomizations: resultCustomizations || undefined,
+            ...(resultCustomizations !== undefined ? { resultCustomizations } : {}),
         }
     }
 
