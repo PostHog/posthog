@@ -107,7 +107,7 @@ async def generate_assets_async(
         async def export_single_asset(asset: ExportedAsset) -> None:
             try:
                 logger.info("generate_assets_async.exporting_asset", asset_id=asset.id)
-                await database_sync_to_async(exporter.export_asset, thread_sensitive=False)(asset.id)
+                await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(asset)
                 logger.info("generate_assets_async.asset_exported", asset_id=asset.id)
             except Exception as e:
                 logger.error(

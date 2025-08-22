@@ -58,25 +58,17 @@ EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
     retry_backoff_max=3,
     max_retries=3,
 )
-@transaction.atomic
+@transaction
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
-    logger.info("export_asset.starting", asset_id=exported_asset_id)
-    from posthog.tasks.exports import csv_exporter, image_exporter
-
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
     # the TTL is for later cleanup.
-    logger.info("export_asset.loading_asset", asset_id=exported_asset_id)
-    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.select_for_update().get(
-        pk=exported_asset_id
-    )
-    logger.info(
-        "export_asset.asset_loaded",
-        asset_id=exported_asset_id,
-        has_insight=bool(exported_asset.insight_id),
-        has_dashboard=bool(exported_asset.dashboard_id),
-        has_team=bool(exported_asset.team_id),
-    )
+    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.get(pk=exported_asset_id)
+    export_asset_direct(exported_asset, limit)
+
+
+def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+    from posthog.tasks.exports import csv_exporter, image_exporter
 
     try:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
