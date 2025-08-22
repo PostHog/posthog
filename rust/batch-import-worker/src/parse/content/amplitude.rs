@@ -396,19 +396,21 @@ impl AmplitudeEvent {
                 }
             }
 
-            // Always add the original event
-            let inner = CapturedEvent {
-                uuid: event_uuid,
-                distinct_id,
-                ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
-                data: serde_json::to_string(&raw_event)?,
-                now: Utc::now().to_rfc3339(),
-                sent_at: None,
-                token,
-                is_cookieless_mode: false,
-            };
+            // Only add the original event if import_events is enabled
+            if context.import_events {
+                let inner = CapturedEvent {
+                    uuid: event_uuid,
+                    distinct_id,
+                    ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
+                    data: serde_json::to_string(&raw_event)?,
+                    now: Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token,
+                    is_cookieless_mode: false,
+                };
 
-            events.push(InternallyCapturedEvent { team_id, inner });
+                events.push(InternallyCapturedEvent { team_id, inner });
+            }
 
             Ok(events)
         }
