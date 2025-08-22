@@ -1,4 +1,3 @@
-
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
@@ -61,6 +60,10 @@ export interface ProjectTreeProps {
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
+
+export const isExternalLinkItem = (item: TreeDataItem): boolean => {
+    return item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
+}
 
 export function ProjectTree({
     logicKey,
@@ -519,10 +522,7 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                const isExternalLink =
-                    item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
-
-                if (item.id.startsWith('project-folder-empty/') || isExternalLink) {
+                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
                     return undefined
                 }
 
@@ -533,10 +533,7 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                const isExternalLink =
-                    item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
-
-                if (item.id.startsWith('project-folder-empty/') || isExternalLink) {
+                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
                     return undefined
                 }
 
@@ -742,8 +739,7 @@ export function ProjectTree({
             }}
             renderItem={(item) => {
                 const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
-                const isExternalLink =
-                    item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
+
                 return (
                     <span className="truncate">
                         <span
@@ -780,7 +776,7 @@ export function ProjectTree({
                             </>
                         )}
 
-                        {isExternalLink && <IconExternal className="size-4 text-tertiary relative" />}
+                        {isExternalLinkItem(item) && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}
