@@ -1,10 +1,14 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import json
 from rest_framework import status
 from ee.api.vercel.test.base import VercelTestBase
 
 
 class TestVercelInstallationAPI(VercelTestBase):
+    client_id_patcher: patch
+    jwks_patcher: patch
+    mock_get_jwks: MagicMock
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

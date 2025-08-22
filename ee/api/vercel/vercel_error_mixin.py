@@ -8,7 +8,7 @@ class VercelErrorResponseMixin:
     """Mixin to format DRF exceptions into Vercel's error schema"""
 
     def handle_exception(self, exc):
-        context = getattr(self, "get_exception_handler_context", lambda: {})()
+        context: dict[str, Any] = getattr(self, "get_exception_handler_context", lambda: {})()
         response = exception_handler(exc, context)
 
         if response is not None:
@@ -25,7 +25,7 @@ class VercelErrorResponseMixin:
         if isinstance(detail, list | dict):
             message = str(detail)
         else:
-            message = detail
+            message = str(detail)
 
         return {
             "error": {
