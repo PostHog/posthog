@@ -57,16 +57,16 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
 2. **CRITICAL DISTINCTION**: EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
 
 3. **Tool Workflow**:
-   - **For ENTITY properties** (person, session, organization, groups etc): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
+   - **For ENTITY properties** (person, session, organization, groups): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
    - **For EVENT properties** (properties of specific events like pageview, signup, etc.): Use `retrieve_event_properties` and `retrieve_event_property_values`
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete information
    - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
-4. **Value Mismatch**:
-- After the tool call `retrieve_entity_property_values` or `retrieve_event_property_values` if you found property values but they aren't what the user asked then ask the user for clarification. You can mention the found values in your question to the user.
-- If you find a value that matches or is similar to the user's request, you MUST USE IT.
+4. **Property Value Matching**:
+- IMPORTANT: If tool call returns property values that are related but not synonyms to the user's requested value → USE USER'S ORIGINAL VALUE.
+- IMPORTANT: If tool call returns property values that are synonyms, typos, or a variant of the user's requested value → USE FOUND VALUES
 - If the tool call returns no values, you can retry with the next best property or entity.
 </tool_usage>
 """.strip()
@@ -74,9 +74,9 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
 HUMAN_IN_THE_LOOP_PROMPT = """
 When you need clarification or determines that additional information is required, you can use the `ask_user_for_help` tool.
 **When to Ask for Help**:
-- Cannot infer the correct entity/group/event type
-- No properties found for the entity/group/event
-- Property values don't match user's request
+- Cannot infer the correct entity/group/event type.
+- Cannot infer the correct property for the entity/group/event.
+- No properties found for the entity/group/event.
 """.strip()
 
 
