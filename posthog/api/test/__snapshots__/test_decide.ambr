@@ -770,6 +770,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
@@ -1525,6 +1526,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
@@ -2004,6 +2006,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
@@ -3872,6 +3875,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime",
          T5."id",
          T5."key",
@@ -3892,6 +3896,7 @@
          T5."has_enriched_analytics",
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
+         T5."webhook_subscriptions",
          T5."evaluation_runtime",
          T6."id",
          T6."key",
@@ -3912,6 +3917,7 @@
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
+         T6."webhook_subscriptions",
          T6."evaluation_runtime"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
@@ -6869,6 +6875,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
@@ -8769,6 +8776,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
