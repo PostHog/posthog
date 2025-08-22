@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 from django.template import Engine, Context
 import tiktoken
 
+from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
+
 
 def get_column_index(columns: list[str], column_name: str) -> int:
     for i, c in enumerate(columns):
@@ -150,3 +152,9 @@ def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
         if string:
             total_tokens += len(encoding.encode(string))
     return total_tokens
+
+
+def logging_session_ids(session_ids: list[str]) -> str:
+    """Log a list of session ids in a readable format."""
+    # Having 150 chars (4 uuids) is enough to identify the sessions and stay readable
+    return f"Session IDs: {str(session_ids)[:MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH]}"

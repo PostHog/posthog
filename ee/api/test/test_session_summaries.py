@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional, Union, Any
 from collections.abc import AsyncIterator
 from unittest.mock import patch, Mock
 from rest_framework import exceptions
@@ -11,22 +11,36 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,
 )
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionSummaryStreamUpdate,
+    SessionSummaryStep,
+)
 
 
 class TestSessionSummariesAPI(APIBaseTest):
     url: str
     environment_patches: list[Any]
 
-    async def _create_async_generator(self, result: Any) -> AsyncIterator[Any]:
-        """Helper to create an async generator that yields a result."""
-        # Yield some progress updates (strings) and then the final result
-        yield "Starting session group summarization..."
-        yield "Processing sessions..."
-        yield result
+    async def _create_async_generator(
+        self, result: EnrichedSessionGroupSummaryPatternsList
+    ) -> AsyncIterator[
+        tuple[SessionSummaryStreamUpdate, SessionSummaryStep, Union[str, EnrichedSessionGroupSummaryPatternsList]]
+    ]:
+        """Helper to create an async generator that yields progress updates and final result."""
+        # Yield progress updates in the new tuple format
+        yield (
+            SessionSummaryStreamUpdate.UI_STATUS,
+            SessionSummaryStep.WATCHING_SESSIONS,
+            "Starting session group summarization...",
+        )
+        yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Processing sessions...")
+        yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.FINDING_PATTERNS, "Finding patterns...")
+        # Yield final result
+        yield (SessionSummaryStreamUpdate.FINAL_RESULT, SessionSummaryStep.GENERATING_REPORT, result)
 
     def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> HttpResponse:
         """Helper to make API requests with consistent formatting."""
-        payload: dict[str, Any] = {"session_ids": session_ids}
+        payload: dict[str, Union[list[str], str]] = {"session_ids": session_ids}
         if focus_area is not None:
             payload["focus_area"] = focus_area
         return self.client.post(self.url, payload, format="json")
@@ -48,7 +62,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         for p in self.environment_patches:
             p.stop()
 
-    def create_mock_result(self) -> Any:
+    def create_mock_result(self) -> EnrichedSessionGroupSummaryPatternsList:
         """Create a mock result that mimics the EnrichedSessionGroupSummaryPatternsList object"""
         return EnrichedSessionGroupSummaryPatternsList(
             patterns=[
@@ -72,9 +86,15 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
+    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_success(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
+        self,
+        mock_generate_content: Mock,
+        mock_create_notebook: Mock,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
     ) -> None:
         """Test successful creation of session summaries"""
         # Setup mocks
@@ -115,12 +135,32 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
 
+        # Verify generate_notebook_content_from_summary was called
+        mock_generate_content.assert_called_once_with(
+            summary=mock_result,
+            session_ids=["session1", "session2"],
+            project_name=self.team.name,
+            team_id=self.team.id,
+        )
+        # Verify create_notebook_from_summary_content was called
+        mock_create_notebook.assert_called_once_with(
+            user=self.user,
+            team=self.team,
+            summary_content=mock_generate_content.return_value,
+        )
+
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
+    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_without_focus_area(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
+        self,
+        mock_generate_content: Mock,
+        mock_create_notebook: Mock,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
     ) -> None:
         """Test successful creation without focus area"""
         # Setup mocks
@@ -147,6 +187,20 @@ class TestSessionSummariesAPI(APIBaseTest):
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=None,
+        )
+
+        # Verify generate_notebook_content_from_summary was called
+        mock_generate_content.assert_called_once_with(
+            summary=mock_result,
+            session_ids=["session1", "session2"],
+            project_name=self.team.name,
+            team_id=self.team.id,
+        )
+        # Verify create_notebook_from_summary_content was called
+        mock_create_notebook.assert_called_once_with(
+            user=self.user,
+            team=self.team,
+            summary_content=mock_generate_content.return_value,
         )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -277,9 +331,15 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
+    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_execution_failure(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
+        self,
+        mock_generate_content: Mock,
+        mock_create_notebook: Mock,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
     ) -> None:
         """Test handling of execution failures"""
         # Setup mocks
@@ -291,7 +351,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Mock execution failure - create async generator that raises exception
         async def failing_generator():
-            yield "Starting..."
+            yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Starting...")
             raise Exception("Workflow execution failed")
 
         mock_execute.return_value = failing_generator()
@@ -336,9 +396,15 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
+    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_single_session(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
+        self,
+        mock_generate_content: Mock,
+        mock_create_notebook: Mock,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
     ) -> None:
         """Test that single session works correctly"""
         # Setup mocks
@@ -357,3 +423,17 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Verify session validation was called once
         mock_find_sessions.assert_called_once_with(session_ids=["single_session"], team=self.team)
+
+        # Verify generate_notebook_content_from_summary was called
+        mock_generate_content.assert_called_once_with(
+            summary=mock_result,
+            session_ids=["single_session"],
+            project_name=self.team.name,
+            team_id=self.team.id,
+        )
+        # Verify create_notebook_from_summary_content was called
+        mock_create_notebook.assert_called_once_with(
+            user=self.user,
+            team=self.team,
+            summary_content=mock_generate_content.return_value,
+        )
