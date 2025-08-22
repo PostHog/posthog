@@ -129,7 +129,7 @@ async def test_generate_assets_async_excludes_deleted_insights(team, user, dashb
 
     assert len(insights) == 1  # Only one non-deleted insight
     assert len(assets) == 1
-    assert assets[0].insight == tiles[0].insight
+    assert assets[0].insight_id == tiles[0].insight_id
 
 
 async def test_generate_assets_async_raises_if_missing_resource(team, user):

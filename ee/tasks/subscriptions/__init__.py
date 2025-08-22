@@ -53,9 +53,7 @@ async def deliver_subscription_report_async(
     # Fetch subscription asynchronously
     logger.info("deliver_subscription_report_async.loading_subscription", subscription_id=subscription_id)
     subscription = await database_sync_to_async(
-        Subscription.objects.prefetch_related("dashboard__tiles__insight", "dashboard__tiles__text")
-        .select_related("created_by", "insight", "dashboard")
-        .get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 
@@ -192,11 +190,7 @@ def deliver_subscription_report_sync(
     invite_message: Optional[str] = None,
 ) -> None:
     """Sync function for delivering subscription reports."""
-    subscription = (
-        Subscription.objects.prefetch_related("dashboard__tiles__insight", "dashboard__tiles__text")
-        .select_related("created_by", "insight", "dashboard")
-        .get(pk=subscription_id)
-    )
+    subscription = Subscription.objects.select_related("created_by", "insight", "dashboard").get(pk=subscription_id)
 
     is_new_subscription_target = False
     if previous_value is not None:
