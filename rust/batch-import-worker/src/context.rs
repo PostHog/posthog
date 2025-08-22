@@ -6,7 +6,7 @@ use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
 use tracing::info;
 
-use crate::cache::{RedisIdentifyCache, IdentifyCache};
+use crate::cache::{IdentifyCache, RedisIdentifyCache};
 use crate::config::Config;
 
 pub struct AppContext {
@@ -33,24 +33,26 @@ impl AppContext {
         let liveness = Arc::new(liveness);
 
         // Initialize the identify cache
-        let identify_cache =
-            match RedisIdentifyCache::with_ttl(&config.redis_url, config.identify_cache_ttl_seconds)
-                .await
-            {
-                Ok(cache) => {
-                    info!(
-                        "Using Redis cache for identify events at: {} with TTL: {}s",
-                        config.redis_url, config.identify_cache_ttl_seconds
-                    );
-                    cache
-                }
-                Err(e) => {
-                    return Err(Error::msg(format!(
-                        "Failed to initialize Redis cache: {}",
-                        e
-                    )));
-                }
-            };
+        let identify_cache = match RedisIdentifyCache::with_ttl(
+            &config.redis_url,
+            config.identify_cache_ttl_seconds,
+        )
+        .await
+        {
+            Ok(cache) => {
+                info!(
+                    "Using Redis cache for identify events at: {} with TTL: {}s",
+                    config.redis_url, config.identify_cache_ttl_seconds
+                );
+                cache
+            }
+            Err(e) => {
+                return Err(Error::msg(format!(
+                    "Failed to initialize Redis cache: {}",
+                    e
+                )));
+            }
+        };
 
         let ctx = Self {
             config: config.clone(),

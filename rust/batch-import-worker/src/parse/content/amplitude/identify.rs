@@ -172,9 +172,18 @@ mod tests {
         assert_eq!(data.event, "$identify");
 
         let props = &data.properties;
-        assert_eq!(props.get("$amplitude_user_id"), Some(&Value::String(user_id.to_string())));
-        assert_eq!(props.get("$amplitude_device_id"), Some(&Value::String(device_id.to_string())));
-        assert_eq!(props.get("$anon_distinct_id"), Some(&Value::String(device_id.to_string())));
+        assert_eq!(
+            props.get("$amplitude_user_id"),
+            Some(&Value::String(user_id.to_string()))
+        );
+        assert_eq!(
+            props.get("$amplitude_device_id"),
+            Some(&Value::String(device_id.to_string()))
+        );
+        assert_eq!(
+            props.get("$anon_distinct_id"),
+            Some(&Value::String(device_id.to_string()))
+        );
     }
 
     #[test]
@@ -186,33 +195,55 @@ mod tests {
         // Test with empty strings (should fail)
         let result = create_identify_event(team_id, token, "", "", event_uuid);
         assert!(result.is_err(), "Should reject empty user_id");
-        assert!(result.unwrap_err().to_string().contains("user_id cannot be empty"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("user_id cannot be empty"));
 
         // Test with whitespace-only strings (should fail)
         let result = create_identify_event(team_id, token, "   ", "device123", event_uuid);
         assert!(result.is_err(), "Should reject whitespace-only user_id");
-        assert!(result.unwrap_err().to_string().contains("user_id cannot be empty"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("user_id cannot be empty"));
 
         let result = create_identify_event(team_id, token, "user123", "   ", event_uuid);
         assert!(result.is_err(), "Should reject whitespace-only device_id");
-        assert!(result.unwrap_err().to_string().contains("device_id cannot be empty"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("device_id cannot be empty"));
 
         // Test with very long strings (should succeed)
         let long_user_id = "a".repeat(1000);
         let long_device_id = "b".repeat(1000);
-        let result = create_identify_event(team_id, token, &long_user_id, &long_device_id, event_uuid);
+        let result =
+            create_identify_event(team_id, token, &long_user_id, &long_device_id, event_uuid);
         assert!(result.is_ok(), "Should handle very long strings");
 
         // Test with unicode characters (should succeed)
         let unicode_user_id = "用户123测试";
         let unicode_device_id = "设备测试456";
-        let result = create_identify_event(team_id, token, unicode_user_id, unicode_device_id, event_uuid);
+        let result = create_identify_event(
+            team_id,
+            token,
+            unicode_user_id,
+            unicode_device_id,
+            event_uuid,
+        );
         assert!(result.is_ok(), "Should handle unicode characters");
 
         let data: RawEvent = serde_json::from_str(&result.unwrap().inner.data).unwrap();
         let props = &data.properties;
-        assert_eq!(props.get("$amplitude_user_id"), Some(&Value::String(unicode_user_id.to_string())));
-        assert_eq!(props.get("$amplitude_device_id"), Some(&Value::String(unicode_device_id.to_string())));
+        assert_eq!(
+            props.get("$amplitude_user_id"),
+            Some(&Value::String(unicode_user_id.to_string()))
+        );
+        assert_eq!(
+            props.get("$amplitude_device_id"),
+            Some(&Value::String(unicode_device_id.to_string()))
+        );
     }
 
     #[test]
@@ -260,8 +291,10 @@ mod tests {
         let event_uuid1 = Uuid::now_v7();
         let event_uuid2 = Uuid::now_v7();
 
-        let result1 = create_identify_event(team_id, token, user_id, device_id, event_uuid1).unwrap();
-        let result2 = create_identify_event(team_id, token, user_id, device_id, event_uuid2).unwrap();
+        let result1 =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid1).unwrap();
+        let result2 =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid2).unwrap();
 
         // UUIDs should be preserved
         assert_eq!(result1.inner.uuid, event_uuid1);
@@ -308,30 +341,40 @@ mod tests {
 
         // Test with edge cases that should fail
         let failing_cases = vec![
-            ("", "device123"),              // Empty user_id
-            ("user123", ""),                // Empty device_id
-            (" ", "device123"),             // Whitespace-only user_id
-            ("user123", " "),               // Whitespace-only device_id
+            ("", "device123"),  // Empty user_id
+            ("user123", ""),    // Empty device_id
+            (" ", "device123"), // Whitespace-only user_id
+            ("user123", " "),   // Whitespace-only device_id
         ];
 
         for (user_id, device_id) in failing_cases {
             let result = create_identify_event(team_id, token, user_id, device_id, event_uuid);
-            assert!(result.is_err(), "Should reject invalid case: user_id='{}', device_id='{}'", user_id, device_id);
+            assert!(
+                result.is_err(),
+                "Should reject invalid case: user_id='{}', device_id='{}'",
+                user_id,
+                device_id
+            );
         }
 
         // Test with edge cases that should succeed
         let valid_cases = vec![
-            ("null", "device123"),          // "null" string is valid
-            ("user123", "undefined"),       // "undefined" string is valid
-            ("123", "456"),                 // Numeric strings are valid
+            ("null", "device123"),               // "null" string is valid
+            ("user123", "undefined"),            // "undefined" string is valid
+            ("123", "456"),                      // Numeric strings are valid
             ("user@domain.co.uk", "device#123"), // Multiple special chars are valid
-            ("\tuser123\t", "device456"),   // Leading/trailing whitespace is trimmed and valid
-            ("user456", "\tdevice789\t"),   // Leading/trailing whitespace is trimmed and valid
+            ("\tuser123\t", "device456"),        // Leading/trailing whitespace is trimmed and valid
+            ("user456", "\tdevice789\t"),        // Leading/trailing whitespace is trimmed and valid
         ];
 
         for (user_id, device_id) in valid_cases {
             let result = create_identify_event(team_id, token, user_id, device_id, event_uuid);
-            assert!(result.is_ok(), "Should accept valid case: user_id='{}', device_id='{}'", user_id, device_id);
+            assert!(
+                result.is_ok(),
+                "Should accept valid case: user_id='{}', device_id='{}'",
+                user_id,
+                device_id
+            );
 
             let event = result.unwrap();
             let data: RawEvent = serde_json::from_str(&event.inner.data).unwrap();
@@ -341,12 +384,24 @@ mod tests {
             let expected_device_id = device_id.trim();
 
             // Verify the trimmed values are preserved in properties
-            assert_eq!(data.properties.get("$amplitude_user_id"), Some(&Value::String(expected_user_id.to_string())));
-            assert_eq!(data.properties.get("$amplitude_device_id"), Some(&Value::String(expected_device_id.to_string())));
-            assert_eq!(data.properties.get("$anon_distinct_id"), Some(&Value::String(expected_device_id.to_string())));
+            assert_eq!(
+                data.properties.get("$amplitude_user_id"),
+                Some(&Value::String(expected_user_id.to_string()))
+            );
+            assert_eq!(
+                data.properties.get("$amplitude_device_id"),
+                Some(&Value::String(expected_device_id.to_string()))
+            );
+            assert_eq!(
+                data.properties.get("$anon_distinct_id"),
+                Some(&Value::String(expected_device_id.to_string()))
+            );
 
             // Also verify distinct_id is trimmed
-            assert_eq!(data.distinct_id, Some(Value::String(expected_user_id.to_string())));
+            assert_eq!(
+                data.distinct_id,
+                Some(Value::String(expected_user_id.to_string()))
+            );
             assert_eq!(event.inner.distinct_id, expected_user_id);
         }
     }

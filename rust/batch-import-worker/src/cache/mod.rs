@@ -9,8 +9,18 @@ pub use redis::RedisIdentifyCache;
 /// Trait for caching user_id -> device_id mappings to determine when to inject $identify events
 #[async_trait::async_trait]
 pub trait IdentifyCache: Send + Sync + std::fmt::Debug {
-    async fn has_seen_user_device(&self, team_id: i32, user_id: &str, device_id: &str) -> Result<bool, Error>;
-    async fn mark_seen_user_device(&self, team_id: i32, user_id: &str, device_id: &str) -> Result<(), Error>;
+    async fn has_seen_user_device(
+        &self,
+        team_id: i32,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<bool, Error>;
+    async fn mark_seen_user_device(
+        &self,
+        team_id: i32,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), Error>;
 }
 
 /// Mock implementation of IdentifyCache for testing
@@ -33,13 +43,23 @@ impl MockIdentifyCache {
 
 #[async_trait::async_trait]
 impl IdentifyCache for MockIdentifyCache {
-    async fn has_seen_user_device(&self, team_id: i32, user_id: &str, device_id: &str) -> Result<bool, Error> {
+    async fn has_seen_user_device(
+        &self,
+        team_id: i32,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<bool, Error> {
         let key = Self::make_key(team_id, user_id, device_id);
         let seen = self.seen_combinations.lock().unwrap();
         Ok(seen.contains(&key))
     }
 
-    async fn mark_seen_user_device(&self, team_id: i32, user_id: &str, device_id: &str) -> Result<(), Error> {
+    async fn mark_seen_user_device(
+        &self,
+        team_id: i32,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), Error> {
         let key = Self::make_key(team_id, user_id, device_id);
         let mut seen = self.seen_combinations.lock().unwrap();
         seen.insert(key);

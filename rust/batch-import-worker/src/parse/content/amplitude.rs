@@ -807,10 +807,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_injection_first_time() {
-        use std::collections::HashMap;
-        use std::sync::Arc;
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
+        use std::collections::HashMap;
+        use std::sync::Arc;
 
         let amp_event = AmplitudeEvent {
             event_type: Some("test_event".to_string()),
@@ -846,29 +846,37 @@ mod tests {
         // First event should be identify event
         let identify_event = &result[0];
         assert_eq!(identify_event.team_id, 123);
-        let identify_data: serde_json::Value = serde_json::from_str(&identify_event.inner.data).unwrap();
+        let identify_data: serde_json::Value =
+            serde_json::from_str(&identify_event.inner.data).unwrap();
         assert_eq!(identify_data["event"], "$identify");
         assert_eq!(identify_data["distinct_id"], "user123");
-        assert_eq!(identify_data["properties"]["$anon_distinct_id"], "device456");
+        assert_eq!(
+            identify_data["properties"]["$anon_distinct_id"],
+            "device456"
+        );
         // Verify identify event has the required properties
         assert_eq!(identify_data["properties"]["$amplitude_user_id"], "user123");
-        assert_eq!(identify_data["properties"]["$amplitude_device_id"], "device456");
+        assert_eq!(
+            identify_data["properties"]["$amplitude_device_id"],
+            "device456"
+        );
         assert_eq!(identify_data["properties"]["historical_migration"], true);
         assert_eq!(identify_data["properties"]["analytics_source"], "amplitude");
 
         // Second event should be original event
         let original_event = &result[1];
         assert_eq!(original_event.team_id, 123);
-        let original_data: serde_json::Value = serde_json::from_str(&original_event.inner.data).unwrap();
+        let original_data: serde_json::Value =
+            serde_json::from_str(&original_event.inner.data).unwrap();
         assert_eq!(original_data["event"], "test_event");
         assert_eq!(original_data["distinct_id"], "user123");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_injection_duplicate() {
-        use std::sync::Arc;
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
+        use std::sync::Arc;
 
         // First event with same user-device pair
         let amp_event1 = AmplitudeEvent {
@@ -904,21 +912,23 @@ mod tests {
         // First event should generate identify event
         let result1 = parser(amp_event1).unwrap();
         assert_eq!(result1.len(), 2); // identify + original
-        let identify_data: serde_json::Value = serde_json::from_str(&result1[0].inner.data).unwrap();
+        let identify_data: serde_json::Value =
+            serde_json::from_str(&result1[0].inner.data).unwrap();
         assert_eq!(identify_data["event"], "$identify");
 
         // Second event should NOT generate identify event (already seen in cache)
         let result2 = parser(amp_event2).unwrap();
         assert_eq!(result2.len(), 1); // only original event
-        let original_data: serde_json::Value = serde_json::from_str(&result2[0].inner.data).unwrap();
+        let original_data: serde_json::Value =
+            serde_json::from_str(&result2[0].inner.data).unwrap();
         assert_eq!(original_data["event"], "test_event2");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_injection_disabled() {
-        use std::sync::Arc;
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
+        use std::sync::Arc;
 
         let amp_event = AmplitudeEvent {
             event_type: Some("test_event".to_string()),
@@ -953,9 +963,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_with_cache_failure() {
-        use std::sync::Arc;
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
+        use std::sync::Arc;
 
         let amp_event = AmplitudeEvent {
             event_type: Some("test_event".to_string()),
@@ -986,9 +996,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_mixed_events_with_identify() {
-        use std::sync::Arc;
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
+        use std::sync::Arc;
 
         // Event with user_id and device_id (should generate identify)
         let amp_event_with_both = AmplitudeEvent {
@@ -1040,9 +1050,11 @@ mod tests {
         // Test event with both user_id and device_id
         let result1 = parser(amp_event_with_both).unwrap();
         assert_eq!(result1.len(), 2); // identify + original
-        let identify_data: serde_json::Value = serde_json::from_str(&result1[0].inner.data).unwrap();
+        let identify_data: serde_json::Value =
+            serde_json::from_str(&result1[0].inner.data).unwrap();
         assert_eq!(identify_data["event"], "$identify");
-        let original_data: serde_json::Value = serde_json::from_str(&result1[1].inner.data).unwrap();
+        let original_data: serde_json::Value =
+            serde_json::from_str(&result1[1].inner.data).unwrap();
         assert_eq!(original_data["event"], "event_with_both");
 
         // Test event with only user_id
@@ -1066,9 +1078,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_amplitude_identify_import_events_disabled() {
-        use std::sync::Arc;
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
+        use std::sync::Arc;
 
         let amp_event = AmplitudeEvent {
             event_type: Some("test_event".to_string()),
