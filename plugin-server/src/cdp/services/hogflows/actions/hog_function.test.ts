@@ -138,7 +138,7 @@ describe('HogFunctionHandler', () => {
               [
                 "http://localhost/test",
                 {
-                  "body": "{"name":"John Doe","slack":{"team":"foobar","access_token":"token","not_encrypted":"not-encrypted"}}",
+                  "body": "{"name":"John Doe","slack":{"team":"foobar","access_token":"$$_access_token_placeholder_1","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
                   "headers": {
                     "Content-Type": "application/json",
                   },
