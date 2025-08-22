@@ -383,8 +383,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
-                filters_override=None,
-                variables_override=None,
+                filters_override={},
+                variables_override={},
             )
 
         with patch(
@@ -397,8 +397,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
-                filters_override=None,
-                variables_override=None,
+                filters_override={},
+                variables_override={},
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -869,7 +869,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 ],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -894,7 +894,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 "after": [{"id": dashboard_one_id, "name": "dash 1"}],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -1591,7 +1591,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
+
             self.assertEqual(spy_execute_hogql_query.call_count, 1)
+
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -1601,9 +1603,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
 
         with freeze_time("2012-01-17T06:01:34.000Z"):
+            call_count_before = spy_execute_hogql_query.call_count
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
             self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(spy_execute_hogql_query.call_count, call_count_before)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
             self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -3544,3 +3547,241 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         variable_data = response_data["query"]["source"]["variables"][variable_id]
         self.assertEqual(variable_data["code_name"], "test_var")
         self.assertEqual(variable_data["variableId"], variable_id)
+
+    def test_list_insights_with_short_id_includes_all_if_admin(self) -> None:
+        """
+        Test that when listing insights with short_id parameter, organization admins can see all insights
+        regardless of access controls, but regular users are still filtered by access controls.
+        """
+        from ee.models.rbac.access_control import AccessControl
+        from posthog.models.organization import OrganizationMembership
+
+        # Create insights with different access levels
+        filter_dict = {"events": [{"id": "$pageview"}]}
+
+        # Create an insight that will be blocked for regular users
+        blocked_insight_short_id = "block123"
+        blocked_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=blocked_insight_short_id,
+            name="Blocked Insight",
+        )
+
+        # Create an insight that will be accessible
+        accessible_insight_short_id = "access_456"
+        accessible_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=accessible_insight_short_id,
+            name="Accessible Insight",
+        )
+
+        # Create access control that blocks the first insight for regular users
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(blocked_insight.id),
+            access_level="none",
+        )
+
+        # Test 1: Regular user should not see blocked insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Test 2: Regular user should not see blocked insight even with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 0)  # Should be filtered out
+
+        # Test 3: Regular user should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+
+        # Test 4: Organization admin should see all insights regardless of access controls
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Admin should see only accessible insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Admin should see blocked insight with short_id (include_all_if_admin=True)
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], blocked_insight.id)
+        self.assertEqual(results[0]["short_id"], blocked_insight_short_id)
+
+        # Admin should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+        self.assertEqual(results[0]["short_id"], accessible_insight_short_id)
+
+    def test_dashboard_breakdown_filter_migration(self):
+        """Test that dashboard breakdown filters work with retention queries and single breakdowns"""
+
+        retention_query = {
+            "kind": "RetentionQuery",
+            "dateRange": {"date_from": "-30d", "date_to": None},
+            "retentionFilter": {
+                "targetEntity": {"id": "$pageview", "type": "events"},
+                "returningEntity": {"id": "$pageview", "type": "events"},
+                "totalIntervals": 7,
+            },
+        }
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Retention Insight",
+            created_by=self.user,
+            query=retention_query,
+        )
+
+        # Create dashboard with legacy breakdown filter to test single breakdown support
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={
+                "breakdown_filter": {
+                    "breakdown": "browser",
+                    "breakdown_type": "person",
+                }
+            },
+        )
+
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # Test that retention query doesn't error when breakdown is applied
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+
+        self.assertEqual(response_data["id"], insight.id)
+        self.assertEqual(response_data["name"], "Test Retention Insight")
+
+        self.assertIn("query", response_data)
+        query_data = response_data["query"]
+        self.assertEqual(query_data["kind"], "RetentionQuery")
+
+        # Verify breakdown filter is applied correctly
+        self.assertIn("breakdownFilter", query_data)
+        breakdown_filter = query_data["breakdownFilter"]
+
+        # Should have the single breakdown applied
+        self.assertEqual(breakdown_filter.get("breakdown"), "browser")
+        self.assertEqual(breakdown_filter.get("breakdown_type"), "person")
+
+    def test_updating_query_updates_query_metadata(self):
+        """
+        Test that updating the query of an insight also updates the query metadata.
+        """
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "filterTestAccounts": False,
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        }
+                    ],
+                    "interval": "day",
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Initial query metadata should not be empty
+        self.assertIsNotNone(insight.query_metadata)
+        initial_metadata = insight.query_metadata.copy()
+
+        # update the query for the insight
+        new_query = {
+            "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+            "source": {
+                "filterTestAccounts": False,
+                "kind": InsightNodeKind.TRENDS_QUERY.value,
+                "series": [
+                    {
+                        "kind": NodeKind.EVENTS_NODE.value,
+                        "event": "$exception",
+                        "name": "$exception",
+                        "math": "total",
+                    }
+                ],
+                "interval": "day",
+            },
+        }
+        insight.query = new_query
+        insight.save()
+        insight.refresh_from_db()
+
+        # Query metadata should be updated
+        updated_metadata = insight.query_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertNotEqual(initial_metadata, updated_metadata)
+
+    def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
+        """
+        Test that updating an insight without changing the query does not update the query metadata.
+        """
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "filterTestAccounts": False,
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        }
+                    ],
+                    "interval": "day",
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Initial query metadata should not be empty
+        self.assertIsNotNone(insight.query_metadata)
+        initial_metadata = insight.query_metadata.copy()
+
+        # update the name for the insight without changing the query
+        insight.name = "Updated Insight Name"
+        insight.save()
+        insight.refresh_from_db()
+
+        # Query metadata should remain unchanged
+        updated_metadata = insight.query_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertEqual(initial_metadata, updated_metadata)

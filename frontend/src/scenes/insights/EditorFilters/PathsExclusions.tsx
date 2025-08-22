@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'

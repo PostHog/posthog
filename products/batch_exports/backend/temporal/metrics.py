@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import time
 import typing
@@ -14,9 +15,9 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.logger import get_write_only_logger
 
-LOGGER = get_logger(__name__)
+LOGGER = get_write_only_logger(__name__)
 
 
 def get_rows_exported_metric() -> MetricCounter:
@@ -44,6 +45,7 @@ def get_export_finished_metric(status: str) -> MetricCounter:
 BATCH_EXPORT_ACTIVITY_TYPES = {
     "insert_into_s3_activity_from_stage",
     "insert_into_snowflake_activity",
+    "insert_into_snowflake_activity_from_stage",
     "insert_into_bigquery_activity",
     "insert_into_redshift_activity",
     "insert_into_postgres_activity",
@@ -94,21 +96,30 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
             "interval": interval,
         }
 
-        activity_attempt = activity_info.attempt
         meter = get_metric_meter(histogram_attributes)
-        hist = meter.create_histogram(
-            name="batch_exports_activity_attempt",
-            description="Histogram tracking attempts made by critical batch export activities",
-        )
-        hist.record(activity_attempt)
 
-        with ExecutionTimeRecorder(
-            "batch_exports_activity_interval_execution_latency",
-            description="Histogram tracking execution latency for critical batch export activities by interval",
-            histogram_attributes=histogram_attributes,
-            log=False,
-        ):
-            return await super().execute_activity(input)
+        try:
+            with ExecutionTimeRecorder(
+                "batch_exports_activity_interval_execution_latency",
+                description="Histogram tracking execution latency for critical batch export activities by interval",
+                histogram_attributes=histogram_attributes,
+                log=False,
+            ):
+                result = await super().execute_activity(input)
+        finally:
+            attempts_total_counter = meter.create_counter(
+                name="batch_exports_activity_attempts",
+                description="Counter tracking every attempt at running an activity",
+            )
+            attempts_total_counter.add(1)
+
+        attempts_success_counter = meter.create_counter(
+            name="batch_exports_activity_success_attempts",
+            description="Counter tracking the attempts it took to complete activities",
+        )
+        attempts_success_counter.add(activity_info.attempt)
+
+        return result
 
 
 class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
@@ -124,13 +135,14 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         interval = input.args[0].interval.replace(" ", "_")
         histogram_attributes: Attributes = {"interval": interval}
 
-        with ExecutionTimeRecorder(
-            "batch_exports_workflow_interval_execution_latency",
-            description="Histogram tracking execution latency for batch export workflows by interval",
-            histogram_attributes=histogram_attributes,
-            log=False,
-        ):
-            return await super().execute_workflow(input)
+        async with SLAWaiter(batch_export_id=workflow_info.workflow_id, sla=get_sla_from_interval(interval)):
+            with ExecutionTimeRecorder(
+                "batch_exports_workflow_interval_execution_latency",
+                description="Histogram tracking execution latency for batch export workflows by interval",
+                histogram_attributes=histogram_attributes,
+                log=False,
+            ):
+                return await super().execute_workflow(input)
 
 
 class ExecutionTimeRecorder:
@@ -240,8 +252,6 @@ class ExecutionTimeRecorder:
 
 def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
     """Return a meter depending on in which context we are."""
-    attributes = get_attributes(additional_attributes)
-
     if activity.in_activity():
         meter = activity.metric_meter()
     elif workflow.in_workflow():
@@ -249,45 +259,10 @@ def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricM
     else:
         raise RuntimeError("Not within workflow or activity context")
 
-    meter = meter.with_additional_attributes(attributes)
+    if additional_attributes:
+        meter = meter.with_additional_attributes(additional_attributes)
 
     return meter
-
-
-def get_attributes(additional_attributes: Attributes | None = None) -> Attributes:
-    """Return attributes depending on in which context we are."""
-    if activity.in_activity():
-        attributes = get_activity_attributes()
-    elif workflow.in_workflow():
-        attributes = get_workflow_attributes()
-    else:
-        attributes = {}
-
-    if additional_attributes:
-        attributes = {**attributes, **additional_attributes}
-
-    return attributes
-
-
-def get_activity_attributes() -> Attributes:
-    """Return basic Temporal activity attributes."""
-    info = activity.info()
-
-    return {
-        "workflow_namespace": info.workflow_namespace,
-        "workflow_type": info.workflow_type,
-        "activity_type": info.activity_type,
-    }
-
-
-def get_workflow_attributes() -> Attributes:
-    """Return basic Temporal workflow attributes."""
-    info = workflow.info()
-
-    return {
-        "workflow_namespace": info.namespace,
-        "workflow_type": info.workflow_type,
-    }
 
 
 def log_execution_time(
@@ -340,6 +315,7 @@ def log_execution_time(
 def get_interval_from_bounds(
     data_interval_start: dt.datetime | None | str, data_interval_end: dt.datetime | str
 ) -> str | None:
+    """Calculate the interval for a batch export based on its bounds."""
     if isinstance(data_interval_start, str):
         try:
             data_interval_start = dt.datetime.fromisoformat(data_interval_start)
@@ -366,3 +342,82 @@ def get_interval_from_bounds(
                 interval = f"every_{int(s / 60)}_minutes"
 
     return interval
+
+
+def get_sla_from_interval(
+    interval: str,
+) -> dt.timedelta:
+    """Get the SLA for a batch export based on its interval string."""
+    match interval:
+        case "hour":
+            return dt.timedelta(hours=1)
+        case "day":
+            return dt.timedelta(days=1)
+        case "week":
+            return dt.timedelta(days=7)
+        case interval:
+            _, value, unit = interval.split("_")
+            kwargs = {unit: int(value)}
+            return dt.timedelta(**kwargs)
+
+
+class SLAWaiter:
+    """Wait until a batch export has exceeded SLA and log a warning.
+
+    Attributes:
+        batch_export_id: The batch export we are waiting for. Will be included in the
+            log context if SLA is exceeded.
+        sla: The SLA we are waiting for.
+
+    Examples:
+        Nothing happens when no SLA is exceeded.
+
+        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.timedelta(seconds=10)) as waiter:
+        ...     await asyncio.sleep(1)
+        ...     waiter.is_over_sla()
+        False
+
+        A log will be printed if SLA is exceeded.
+
+        >>> async with SLAWaiter(batch_export_id="batch-export-id", sla=dt.timedelta(seconds=1)) as waiter:
+        ...     await asyncio.sleep(10)
+        ...     waiter.is_over_sla()
+        True
+    """
+
+    def __init__(self, batch_export_id: str, sla: dt.timedelta):
+        self.batch_export_id = batch_export_id
+        self.sla = sla
+        self._over_sla = asyncio.Event()
+        self._waiter: asyncio.Task[None] | None = None
+
+    def is_over_sla(self) -> bool:
+        return self._over_sla.is_set()
+
+    async def __aenter__(self) -> typing.Self:
+        self._waiter = asyncio.create_task(self.wait_for_sla())
+        return self
+
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback) -> None:
+        """Reset internal state and cancel waiter."""
+
+        if self._waiter:
+            is_running = self._waiter.cancel()
+
+            if is_running:
+                _ = await asyncio.wait([self._waiter])
+
+            self._waiter = None
+
+        self._over_sla.clear()
+
+    async def wait_for_sla(self) -> None:
+        """Coroutine used to wait for SLA seconds."""
+        await asyncio.sleep(self.sla.total_seconds())
+
+        self._over_sla.set()
+        LOGGER.warning(
+            "SLA breached",
+            batch_export_id=self.batch_export_id,
+            sla_seconds=self.sla.total_seconds(),
+        )

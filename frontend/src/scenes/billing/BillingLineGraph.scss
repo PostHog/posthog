@@ -1,0 +1,34 @@
+.BillingMarkersOverlay {
+    position: absolute;
+    top: var(--billing-markers-chart-area-top);
+    left: var(--billing-markers-chart-area-left);
+    pointer-events: none;
+}
+
+.BillingMarker {
+    position: absolute;
+    top: -20px;
+    left: var(--billing-marker-left);
+    pointer-events: auto;
+    cursor: default;
+    transform: translateX(-50%);
+
+    .BillingMarkerLabel {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        padding: 4px 8px;
+        font-size: 12px;
+        font-weight: normal;
+        color: var(--billing-marker-text-color);
+        white-space: nowrap;
+        background-color: var(--billing-marker-bg-color);
+        border: 1px solid var(--billing-marker-border-color);
+        border-radius: 4px;
+
+        .anticon {
+            width: 12px;
+            height: 12px;
+        }
+    }
+}

@@ -6,7 +6,8 @@ from langchain_core.agents import AgentAction
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
-from ee.hogai.graph.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
+from ee.hogai.graph.schema_generator.nodes import RETRIES_ALLOWED, SchemaGeneratorNode, SchemaGeneratorToolsNode
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
@@ -39,12 +40,14 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
 class TestSchemaGeneratorNode(BaseTest):
     def setUp(self):
         super().setUp()
-        self.schema = AssistantTrendsQuery(series=[])
+        self.basic_trends = AssistantTrendsQuery(series=[])
 
     async def test_node_runs(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            generator_model_mock.return_value = RunnableLambda(lambda _: DummySchema(query=self.schema).model_dump())
+            generator_model_mock.return_value = RunnableLambda(
+                lambda _: DummySchema(query=self.basic_trends).model_dump()
+            )
             new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
@@ -57,7 +60,7 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(new_state.plan, None)
             self.assertEqual(len(new_state.messages), 1)
             self.assertEqual(new_state.messages[0].type, "ai/viz")
-            self.assertEqual(new_state.messages[0].answer, self.schema)
+            self.assertEqual(new_state.messages[0].answer, self.basic_trends)
 
     async def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -99,7 +102,9 @@ class TestSchemaGeneratorNode(BaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Multiple questions", id="0"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0", query="Query"),
+                    VisualizationMessage(
+                        answer=self.basic_trends, plan="randomplan", id="1", initiator="0", query="Query"
+                    ),
                     HumanMessage(content="Follow Up", id="2"),
                 ],
                 plan="newrandomplan",
@@ -119,7 +124,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Query", history[2].content)
         self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, self.schema.model_dump_json())
+        self.assertEqual(history[3].content, self.basic_trends.model_dump_json())
         self.assertEqual(history[4].type, "human")
         self.assertIn("the new plan", history[4].content)
         self.assertNotIn("{{plan}}", history[4].content)
@@ -201,13 +206,12 @@ class TestSchemaGeneratorNode(BaseTest):
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
             await node.arun(state, {})
 
-    async def test_failover_with_incorrect_schema(self):
+    async def test_failover_with_malformed_query(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = DummySchema(query=None).model_dump()
-            # Emulate an incorrect JSON. It should be an object.
-            schema["query"] = []
-            generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
+            # Emulate an incorrect JSON - it should be an object, but let's make it a list here
+            output = DummySchema.model_construct(query=[]).model_dump()
+            generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(output))
 
             new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Text")]), {})
             self.assertEqual(len(new_state.intermediate_steps), 1)
@@ -221,12 +225,71 @@ class TestSchemaGeneratorNode(BaseTest):
             )
             self.assertEqual(len(new_state.intermediate_steps), 2)
 
+    async def test_quality_check_failure_with_retries_available(self):
+        """Test quality check failure triggering retry when retries are available."""
+        node = DummyGeneratorNode(self.team, self.user)
+        with (
+            patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
+            patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
+        ):
+            valid_output = DummySchema(query=self.basic_trends).model_dump()
+            generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
+
+            quality_check_mock.side_effect = PydanticOutputParserException(
+                llm_output="SELECT x FROM events", validation_message="Field validation failed"
+            )
+
+            new_state = await node.arun(
+                AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0"), {}
+            )
+
+            # Should trigger retry
+            self.assertEqual(len(new_state.intermediate_steps), 1)
+            action, _ = new_state.intermediate_steps[0]
+            self.assertEqual(action.tool, "handle_incorrect_response")
+            self.assertEqual(action.tool_input, "SELECT x FROM events")
+            self.assertEqual(action.log, "Field validation failed")
+
+    async def test_quality_check_failure_with_retries_exhausted(self):
+        """Test quality check failure with retries exhausted still returns VisualizationMessage."""
+        node = DummyGeneratorNode(self.team, self.user)
+        with (
+            patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
+            patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
+        ):
+            valid_output = DummySchema(query=self.basic_trends).model_dump()
+            generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
+
+            # Quality check always fails
+            quality_check_mock.side_effect = PydanticOutputParserException(
+                llm_output='{"query": "test"}', validation_message="Quality check failed"
+            )
+
+            # Start with RETRIES_ALLOWED intermediate steps (so no more allowed)
+            new_state = await node.arun(
+                AssistantState(
+                    messages=[HumanMessage(content="Text", id="0")],
+                    start_id="0",
+                    intermediate_steps=[
+                        (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), "retry"),
+                    ]
+                    * RETRIES_ALLOWED,
+                ),
+                {},
+            )
+
+            # Should return VisualizationMessage despite quality check failure
+            self.assertEqual(new_state.intermediate_steps, None)
+            self.assertEqual(len(new_state.messages), 1)
+            self.assertEqual(new_state.messages[0].type, "ai/viz")
+            self.assertEqual(new_state.messages[0].answer, self.basic_trends)
+
     async def test_node_leaves_failover(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(
             DummyGeneratorNode,
             "_model",
-            return_value=RunnableLambda(lambda _: DummySchema(query=self.schema).model_dump()),
+            return_value=RunnableLambda(lambda _: DummySchema(query=self.basic_trends).model_dump()),
         ):
             new_state = await node.arun(
                 AssistantState(
@@ -252,9 +315,8 @@ class TestSchemaGeneratorNode(BaseTest):
     async def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = DummySchema(query=None).model_dump()
-            # Emulate an incorrect JSON. It should be an object.
-            schema["query"] = []
+            # Emulate an incorrect JSON - it should be an object, but let's make it a list here
+            schema = DummySchema.model_construct(query=[]).model_dump()
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
             new_state = await node.arun(

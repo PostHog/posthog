@@ -1,11 +1,14 @@
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
-import { Chart, ChartType, defaults, LegendOptions } from 'lib/Chart'
+
+import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, isMultiSeriesFormula, hexToRGBA } from 'lib/utils'
+import { ciRanges, movingAverage } from 'lib/statistics'
+import { capitalizeFirstLetter, hexToRGBA, isMultiSeriesFormula } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
@@ -14,8 +17,6 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { ciRanges } from 'lib/statistics'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -39,7 +40,6 @@ export function ActionsLineGraph({
         isStickiness,
         hasDataWarehouseSeries,
         showLegend,
-        hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
         showMultipleYAxes,
@@ -47,6 +47,9 @@ export function ActionsLineGraph({
         insightData,
         showConfidenceIntervals,
         confidenceLevel,
+        showTrendLines,
+        showMovingAverage,
+        movingAverageIntervals,
         getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
@@ -90,17 +93,18 @@ export function ActionsLineGraph({
     const finalDatasets = indexedResults.flatMap((originalDataset, index) => {
         const yAxisID = showMultipleYAxes && index > 0 ? `y${index}` : 'y'
         const mainSeries = { ...originalDataset, yAxisID }
+        const datasets = [mainSeries]
+        const color = getTrendsColor(originalDataset)
 
-        if (showConfidenceIntervals && yAxisScaleType !== 'log10') {
-            const color = getTrendsColor(originalDataset)
+        if (showConfidenceIntervals) {
             const [lower, upper] = ciRanges(originalDataset.data, confidenceLevel / 100)
 
             const lowerCIBound = {
                 ...originalDataset,
-                label: `${originalDataset.label} (CI Lower)`,
+                label: `${originalDataset.label} (CI lower)`,
                 action: {
                     ...originalDataset.action,
-                    name: `${originalDataset.label} (CI Lower)`,
+                    name: `${originalDataset.label} (CI lower)`,
                 },
                 data: lower,
                 borderColor: color,
@@ -112,10 +116,10 @@ export function ActionsLineGraph({
             }
             const upperCIBound = {
                 ...originalDataset,
-                label: `${originalDataset.label} (CI Upper)`,
+                label: `${originalDataset.label} (CI upper)`,
                 action: {
                     ...originalDataset.action,
-                    name: `${originalDataset.label} (CI Upper)`,
+                    name: `${originalDataset.label} (CI upper)`,
                 },
                 data: upper,
                 borderColor: color,
@@ -126,17 +130,36 @@ export function ActionsLineGraph({
                 hideTooltip: true,
                 yAxisID,
             }
-
-            return [lowerCIBound, upperCIBound, mainSeries]
+            datasets.push(lowerCIBound, upperCIBound)
         }
-        return [mainSeries]
+
+        if (showMovingAverage) {
+            const movingAverageData = movingAverage(originalDataset.data, movingAverageIntervals)
+            const movingAverageDataset = {
+                ...originalDataset,
+                label: `${originalDataset.label} (Moving avg)`,
+                action: {
+                    ...originalDataset.action,
+                    name: `${originalDataset.label} (Moving avg)`,
+                },
+                data: movingAverageData,
+                borderColor: color,
+                backgroundColor: 'transparent',
+                pointRadius: 0,
+                borderWidth: 2,
+                borderDash: [10, 3],
+                hideTooltip: true,
+                yAxisID,
+            }
+            datasets.push(movingAverageDataset)
+        }
+        return datasets
     })
 
     return (
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
-            hiddenLegendIndexes={hiddenLegendIndexes}
             datasets={finalDatasets}
             labels={labels}
             inSharedMode={inSharedMode}
@@ -150,6 +173,7 @@ export function ActionsLineGraph({
             supportsPercentStackView={supportsPercentStackView}
             yAxisScaleType={yAxisScaleType}
             showMultipleYAxes={showMultipleYAxes}
+            showTrendLines={showTrendLines}
             tooltip={
                 isLifecycle
                     ? {
@@ -190,7 +214,7 @@ export function ActionsLineGraph({
                               context.onDataPointClick(
                                   {
                                       breakdown: dataset.breakdownValues?.[index],
-                                      compare: dataset.compareLabels?.[index],
+                                      compare: dataset.compareLabels?.[index] || undefined,
                                       day,
                                   },
                                   indexedResults[0]
@@ -200,7 +224,8 @@ export function ActionsLineGraph({
 
                           const title = isStickiness ? (
                               <>
-                                  <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                  <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on{' '}
+                                  {interval || 'day'} {day}
                               </>
                           ) : (
                               (label: string) => (

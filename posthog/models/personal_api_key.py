@@ -62,3 +62,20 @@ class PersonalAPIKey(models.Model):
         null=True,
         blank=True,
     )
+
+
+def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
+    for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+        secure_value = hash_key_value(token, mode=mode, iterations=iterations)
+        try:
+            obj = (
+                PersonalAPIKey.objects.select_related("user")
+                .filter(user__is_active=True)
+                .get(secure_value=secure_value)
+            )
+            return obj, mode
+
+        except PersonalAPIKey.DoesNotExist:
+            pass
+
+    return None

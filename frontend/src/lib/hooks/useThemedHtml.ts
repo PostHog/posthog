@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -41,7 +42,7 @@ export function useThemedHtml(overflowHidden = true): void {
             const style = getComputedStyle(root)
             const backgroundColor = sceneConfig?.projectBased
                 ? style.getPropertyValue('--surface-secondary')
-                : style.getPropertyValue('--bg-bridge')
+                : style.getPropertyValue('--color-bg-bridge')
 
             document.head.querySelector('meta[name="theme-color"]')?.remove()
             document.head.insertAdjacentHTML('beforeend', `<meta name="theme-color" content="${backgroundColor}">`)

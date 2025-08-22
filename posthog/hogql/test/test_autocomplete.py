@@ -19,6 +19,7 @@ from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
@@ -461,7 +462,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
     def test_autocomplete_warehouse_table_with_source_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSource.Type.STRIPE)
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
         DataWarehouseTable.objects.create(
             team=self.team,
             name="some_table",
@@ -478,7 +479,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSource.Type.STRIPE, prefix="prefix"
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, prefix="prefix"
         )
         DataWarehouseTable.objects.create(
             team=self.team,

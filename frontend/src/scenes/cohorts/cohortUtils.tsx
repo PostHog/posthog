@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
@@ -114,7 +115,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
                                               ...('value_property' in c ? { value: c.value_property } : {}),
                                               value_property: undefined,
                                               sort_key: undefined,
-                                          } as AnyCohortCriteriaType)
+                                          }) as AnyCohortCriteriaType
                                   )
                               ),
                               (groupList) =>
@@ -447,7 +448,7 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
         }
     })
     fields.forEach(({ fieldKey, defaultValue }) => {
-        const nextValue = fieldKey ? getCriteriaValue(criteria, fieldKey) ?? defaultValue : null
+        const nextValue = fieldKey ? (getCriteriaValue(criteria, fieldKey) ?? defaultValue) : null
         if (fieldKey && shouldPurge) {
             populatedCriteria[fieldKey] = defaultValue
         } else if (fieldKey && nextValue !== undefined && nextValue !== null) {
@@ -497,6 +498,10 @@ export function criteriaToHumanSentence(
         }
     })
     return <>{words}</>
+}
+
+export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
+    return `cohort_${cohortId}_persons`
 }
 
 export const COHORT_MATCHING_DAYS = {

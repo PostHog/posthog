@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { userLogic } from 'scenes/userLogic'
 
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'

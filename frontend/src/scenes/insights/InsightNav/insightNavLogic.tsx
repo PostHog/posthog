@@ -1,6 +1,8 @@
-import { IconExternal } from '@posthog/icons'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+
+import { IconExternal } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -330,8 +332,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                      ? MathAvailability.ActorsOnly
+                      : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }

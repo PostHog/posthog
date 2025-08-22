@@ -41,6 +41,13 @@ def lookup_field_by_name(
         return None
 
 
+def lookup_table_by_name(scope: ast.SelectQueryType, node: ast.Field) -> Optional[ast.TableOrSelectType]:
+    if len(node.chain) > 1 and str(node.chain[0]) in scope.tables:
+        return scope.tables[str(node.chain[0])]
+
+    return None
+
+
 def lookup_cte_by_name(scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
     for scope in reversed(scopes):
         if scope and scope.ctes and name in scope.ctes:

@@ -3,6 +3,7 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from posthog.api.insight_variable import map_stale_to_latest
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
@@ -88,7 +89,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.models.insight_variable import InsightVariable
-from posthog.api.insight_variable import InsightVariableMappingMixin
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -302,7 +302,7 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
-class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -626,7 +626,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             and query.get("kind") == "DataVisualizationNode"
             and query.get("source", {}).get("variables")
         ):
-            query["source"]["variables"] = self.map_stale_to_latest(
+            query["source"]["variables"] = map_stale_to_latest(
                 query["source"]["variables"], list(self.context["insight_variables"])
             )
 
@@ -664,8 +664,10 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request) if request else None
-        dashboard_variables_override = variables_override_requested_by_client(request) if request else None
+        dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
+        dashboard_variables_override = variables_override_requested_by_client(
+            request, dashboard, list(self.context["insight_variables"])
+        )
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -710,6 +712,13 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
+        # Hide PII fields when hideExtraDetails from SharingConfiguration is enabled
+        if self.context.get("hide_extra_details", False):
+            representation.pop("created_by", None)
+            representation.pop("last_modified_by", None)
+            representation.pop("created_at", None)
+            representation.pop("last_modified_at", None)
+
         return representation
 
     @lru_cache(maxsize=1)
@@ -722,8 +731,10 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
-                filters_override = filters_override_requested_by_client(self.context["request"])
-                variables_override = variables_override_requested_by_client(self.context["request"])
+                filters_override = filters_override_requested_by_client(self.context["request"], dashboard)
+                variables_override = variables_override_requested_by_client(
+                    self.context["request"], dashboard, list(self.context["insight_variables"])
+                )
 
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
@@ -924,6 +935,11 @@ class InsightViewSet(
                     Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
                     | Q(filters__properties__icontains=feature_flag)
                 )
+            elif key == "events":
+                events_filter = request.GET["events"]
+                events = json.loads(events_filter) if events_filter else []
+                for event in events:
+                    queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
@@ -1202,12 +1218,22 @@ When set, the specified dashboard's filters and date range override will be appl
     # ******************************************
     @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
+
+        insight = self.get_object()
         InsightViewed.objects.update_or_create(
             team=self.team,
             user=request.user,
-            insight=self.get_object(),
+            insight=insight,
             defaults={"last_viewed_at": now()},
         )
+
+        log_event_usage_from_insight(
+            insight,
+            team_id=self.team_id,
+            user_id=self.request.user.pk,
+        )
+
         return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

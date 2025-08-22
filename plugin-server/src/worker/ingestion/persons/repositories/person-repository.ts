@@ -1,11 +1,24 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { CreatePersonResult } from '../../../../utils/db/db'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
+
+export class PersonPropertiesSizeViolationError extends Error {
+    constructor(
+        message: string,
+        public teamId: number,
+        public personId?: string,
+        public distinctId?: string
+    ) {
+        super(message)
+        this.name = 'PersonPropertiesSizeViolationError'
+    }
+}
 
 export interface PersonRepository {
     fetchPerson(
@@ -38,12 +51,10 @@ export interface PersonRepository {
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
 
-    moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult>
-
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 
-    personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number>
+    personPropertiesSize(personId: string): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],

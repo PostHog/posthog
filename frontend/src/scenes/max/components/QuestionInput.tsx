@@ -1,20 +1,26 @@
+import './QuestionInput.scss'
+
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
-import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useState, useEffect } from 'react'
+import posthog from 'posthog-js'
+import { ReactNode, useEffect, useState } from 'react'
 import React from 'react'
+
+import { IconArrowRight, IconStopFilled } from '@posthog/icons'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { ContextDisplay } from '../Context'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { ContextDisplay } from '../Context'
+import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
-import posthog from 'posthog-js'
+import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -46,7 +52,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { tools, dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
@@ -77,7 +83,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 className={clsx(
                     'flex flex-col items-center',
                     isSticky &&
-                        'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <div className="relative w-full flex flex-col">
@@ -85,8 +91,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--border-primary)] rounded-[var(--radius)]',
-                            'bg-[var(--bg-fill-input)]',
+                            'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
+                            'bg-[var(--color-bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
                             isFloating && 'border-primary m-1'
                         )}
@@ -106,16 +112,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <ContextDisplay size={contextDisplaySize} />
                         )}
 
-                        <SlashCommandAutocomplete
-                            onActivate={(command) => {
-                                setShowAutocomplete(false)
-                                askMax(command.name)
-                            }}
-                            onSelect={(command) => setQuestion(command.name)}
-                            visible={showAutocomplete}
-                            onClose={() => setShowAutocomplete(false)}
-                            searchText={question}
-                        >
+                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 ref={textAreaRef}
                                 value={question}
@@ -124,8 +121,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     threadLoading
                                         ? 'Thinking…'
                                         : isFloating
-                                        ? placeholder || 'Ask follow-up (/ for commands)'
-                                        : 'Ask away (/ for commands)'
+                                          ? placeholder || 'Ask follow-up (/ for commands)'
+                                          : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -183,34 +180,19 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         : submissionDisabledReason
                                 }
                                 size="small"
-                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
+                                icon={
+                                    threadLoading ? (
+                                        <IconStopFilled />
+                                    ) : (
+                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            ?.icon || <IconArrowRight />
+                                    )
+                                }
                             />
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <div className="flex items-center w-full gap-1 justify-center">
-                    {tools.length > 0 && (
-                        <div
-                            className={clsx(
-                                'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
-                                !isFloating
-                                    ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                                    : `w-full pb-1`
-                            )}
-                        >
-                            <span>Tools here:</span>
-                            {tools.map((tool) => (
-                                <Tooltip key={tool.name} title={tool.description}>
-                                    <i className="flex items-center gap-1 cursor-help">
-                                        {tool.icon || <IconWrench />}
-                                        {tool.displayName}
-                                    </i>
-                                </Tooltip>
-                            ))}
-                        </div>
-                    )}
-                    {bottomActions && <div className="ml-auto">{bottomActions}</div>}
-                </div>
+                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
             </div>
         </div>
     )

@@ -1,4 +1,6 @@
 import abc
+
+import posthoganalytics
 import structlog
 from boto3 import client as boto3_client
 from botocore.client import Config
@@ -14,6 +16,10 @@ class BlockFetchError(Exception):
     pass
 
 
+class FileFetchError(Exception):
+    pass
+
+
 class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
@@ -25,6 +31,11 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def is_enabled(self) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def fetch_file(self, blob_key: str) -> str:
+        """Returns the decompressed file or raises Error"""
         pass
 
     @abc.abstractmethod
@@ -51,6 +62,9 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
 
     def is_enabled(self) -> bool:
         return False
+
+    def fetch_file(self, blob_key: str) -> str:
+        raise FileFetchError("Storage not available")
 
     def fetch_block(self, block_url: str) -> str:
         raise BlockFetchError("Storage not available")
@@ -107,6 +121,22 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
 
     def is_enabled(self) -> bool:
         return True
+
+    def fetch_file(self, blob_key: str) -> str:
+        try:
+            kwargs = {
+                "Bucket": self.bucket,
+                "Key": blob_key,
+            }
+            s3_response = self.aws_client.get_object(**kwargs)
+            file_body = s3_response["Body"].read()
+
+            return snappy.decompress(file_body).decode("utf-8")
+
+        except Exception as e:
+            posthoganalytics.tag("bucket", self.bucket)
+            logger.exception("Failed to read and decompress file", error=e)
+            raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 
     def fetch_block(self, block_url: str) -> str:
         try:

@@ -1,6 +1,6 @@
 import datetime
 from abc import ABC
-from typing import Any
+from typing import Any, get_args, get_origin
 from uuid import UUID
 
 from django.utils import timezone
@@ -115,3 +115,24 @@ class AssistantContextMixin(ABC):
         Extracts the thread ID from the runnable config.
         """
         return (config.get("configurable") or {}).get("thread_id") or None
+
+
+class StateClassMixin:
+    """Mixin to extract state types from generic class parameters."""
+
+    def _get_state_class(self, target_class: type) -> tuple[type, type]:
+        """Extract the State type from the class's generic parameters."""
+        # Check if this class has generic arguments
+        if hasattr(self.__class__, "__orig_bases__"):
+            for base in self.__class__.__orig_bases__:
+                if get_origin(base) is target_class:
+                    args = get_args(base)
+                    if args:
+                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
+
+        # No generic type found - this shouldn't happen in proper usage
+        raise ValueError(
+            f"Could not determine state type for {self.__class__.__name__}. "
+            f"Make sure to inherit from {target_class.__name__} with a specific state type, "
+            f"e.g., {target_class.__name__}[StateType, PartialStateType]"
+        )

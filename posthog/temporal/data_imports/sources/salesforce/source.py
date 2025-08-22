@@ -1,6 +1,6 @@
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
 )
@@ -16,14 +16,14 @@ from posthog.temporal.data_imports.sources.salesforce.salesforce import (
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.SALESFORCE
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SALESFORCE
 
     def get_schemas(self, config: SalesforceSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
@@ -39,7 +39,7 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.SALESFORCE,
+            name=SchemaExternalDataSourceType.SALESFORCE,
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",
             fields=cast(
                 list[FieldType],

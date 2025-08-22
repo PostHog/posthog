@@ -18,6 +18,7 @@ This module holds common labels, metrics and helpers for Prometheus instrumentat
 
 # Common metric labels
 LABEL_PATH = "path"
+LABEL_ROUTE = "route"
 LABEL_RESOURCE_TYPE = "resource_type"
 LABEL_TEAM_ID = "team_id"
 

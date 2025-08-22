@@ -1,7 +1,9 @@
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { UserBasicType } from '~/types'
-import { TZLabel } from '../TZLabel'
+
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { UserBasicType } from '~/types'
+
+import { TZLabel } from '../TZLabel'
 
 interface SceneActivityIndicatorProps {
     prefix?: string
@@ -16,7 +18,7 @@ export function SceneActivityIndicator({
 }: SceneActivityIndicatorProps): JSX.Element | null {
     return at || by ? (
         <ScenePanelLabel title={prefix}>
-            <span className="flex items-center gap-1 whitespace-normal flex-wrap mx-button-padding-x">
+            <span className="flex items-center gap-1 whitespace-normal flex-wrap">
                 {at && <TZLabel time={at} className="w-fit" />}
                 {by && (
                     <>

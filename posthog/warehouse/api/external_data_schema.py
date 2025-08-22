@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -29,6 +30,7 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -305,11 +307,26 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         if not source.source_type:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
 
-        source_type_enum = ExternalDataSource.Type(source.source_type)
+        source_type_enum = ExternalDataSourceType(source.source_type)
 
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
-        schemas = new_source.get_schemas(config, self.team_id)
+
+        credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
+        try:
+            schemas = new_source.get_schemas(config, self.team_id)
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": str(e)},
+            )
 
         schema: SourceSchema | None = None
 

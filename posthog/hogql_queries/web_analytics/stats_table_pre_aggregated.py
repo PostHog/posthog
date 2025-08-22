@@ -101,11 +101,12 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {visitors_tuple} AS `context.columns.visitors`,
                 {views_tuple} as `context.columns.views`,
                 {bounce_rate_tuple} as `context.columns.bounce_rate`
-            FROM web_bounces_combined
+            FROM {bounce_table}
             WHERE and({filters}, {breakdown_value} IS NOT NULL)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
+                    "bounce_table": ast.Field(chain=[self.bounces_table]),
                     "breakdown_value": ast.Call(
                         name="nullIf",
                         args=[self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])), ast.Constant(value="")],
@@ -127,10 +128,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         return query
 
     def _get_bounce_rate_filters(self) -> ast.Expr:
-        return self._get_filters(table_name="web_bounces_combined", exclude_pathname=True)
+        return self._get_filters(
+            table_name=self.bounces_table,
+            exclude_pathname=True,
+        )
 
     def _path_query(self) -> ast.SelectQuery:
-        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_combined")
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name=self.stats_table)
 
         query = cast(
             ast.SelectQuery,
@@ -142,13 +146,14 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
             FROM
-                web_stats_combined
+                {stats_table}
             LEFT JOIN ({bounce_subquery}) bounces
                 ON {join_condition}
             WHERE and({filters}, {breakdown_value} IS NOT NULL)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
+                    "stats_table": ast.Field(chain=[self.stats_table]),
                     "breakdown_value": ast.Call(
                         name="nullIf",
                         args=[self._apply_path_cleaning(ast.Field(chain=["pathname"])), ast.Constant(value="")],
@@ -158,22 +163,29 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         "uniqMergeIf",
                         current_period_filter,
                         previous_period_filter,
-                        table_prefix="web_stats_combined",
+                        table_prefix=self.stats_table,
                     ),
                     "views_tuple": self._period_comparison_tuple(
                         "pageviews_count_state",
                         "sumMergeIf",
                         current_period_filter,
                         previous_period_filter,
-                        table_prefix="web_stats_combined",
+                        table_prefix=self.stats_table,
                     ),
                     "bounce_subquery": self._bounce_rate_query(),
                     "join_condition": ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
+                        left=self._apply_path_cleaning(
+                            ast.Field(
+                                chain=[
+                                    self.stats_table,
+                                    "pathname",
+                                ]
+                            )
+                        ),
                         right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
                     ),
-                    "filters": self._get_filters(table_name="web_stats_combined"),
+                    "filters": self._get_filters(table_name=self.stats_table),
                 },
             ),
         )
@@ -191,11 +203,12 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {breakdown_field} as `context.columns.breakdown_value`,
                 {visitors_tuple} AS `context.columns.visitors`,
                 {views_tuple} as `context.columns.views`
-            FROM web_stats_combined
+            FROM {stats_table}
             WHERE {filters}
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
+                    "stats_table": ast.Field(chain=[self.stats_table]),
                     "breakdown_field": self._get_breakdown_field(),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
@@ -203,7 +216,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "views_tuple": self._period_comparison_tuple(
                         "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
                     ),
-                    "filters": self._get_filters(table_name="web_stats_combined"),
+                    "filters": self._get_filters(table_name=self.stats_table),
                 },
             ),
         )

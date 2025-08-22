@@ -1,24 +1,26 @@
+import { useAsyncActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useState } from 'react'
+
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
-import { useAsyncActions, useValues } from 'kea'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget/LemonWidget'
-import posthog from 'posthog-js'
-import { useState } from 'react'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { UserInterviewType } from '~/types'
 
-import { userInterviewLogic } from './userInterviewLogic'
+import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<UserInterviewLogicProps> = {
     component: UserInterview,
     logic: userInterviewLogic,
-    paramsToProps: ({ params: { id } }): (typeof userInterviewLogic)['props'] => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
 export function UserInterview(): JSX.Element {

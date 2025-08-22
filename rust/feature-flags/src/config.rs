@@ -18,7 +18,7 @@ impl FromStr for FlexBool {
         match s.trim().to_lowercase().as_str() {
             "true" | "1" | "yes" | "on" => Ok(FlexBool(true)),
             "false" | "0" | "no" | "off" | "" => Ok(FlexBool(false)),
-            _ => Err(format!("Invalid boolean value: {}", s)),
+            _ => Err(format!("Invalid boolean value: {s}")),
         }
     }
 }
@@ -53,8 +53,8 @@ pub enum ParseTeamIdsError {
 impl std::fmt::Display for ParseTeamIdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseTeamIdsError::InvalidRange(r) => write!(f, "Invalid range: {}", r),
-            ParseTeamIdsError::InvalidNumber(e) => write!(f, "Invalid number: {}", e),
+            ParseTeamIdsError::InvalidRange(r) => write!(f, "Invalid range: {r}"),
+            ParseTeamIdsError::InvalidNumber(e) => write!(f, "Invalid number: {e}"),
         }
     }
 }
@@ -159,6 +159,12 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
 
+    #[envconfig(from = "COOKIELESS_REDIS_HOST", default = "localhost")]
+    pub cookieless_redis_host: String,
+
+    #[envconfig(from = "COOKIELESS_REDIS_PORT", default = "6379")]
+    pub cookieless_redis_port: u64,
+
     #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "/i/v0/e/")]
     pub new_analytics_capture_endpoint: String,
 
@@ -216,6 +222,8 @@ impl Config {
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
+            cookieless_redis_host: "localhost".to_string(),
+            cookieless_redis_port: 6379,
             new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
@@ -258,6 +266,13 @@ impl Config {
         } else {
             &self.redis_writer_url
         }
+    }
+
+    pub fn get_redis_cookieless_url(&self) -> String {
+        format!(
+            "redis://{}:{}",
+            self.cookieless_redis_host, self.cookieless_redis_port
+        )
     }
 
     pub fn get_cookieless_config(&self) -> CookielessConfig {

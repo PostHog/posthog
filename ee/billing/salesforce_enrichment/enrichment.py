@@ -5,20 +5,22 @@ from urllib.parse import urlparse
 
 import posthoganalytics
 from django.utils import timezone
+from structlog import get_logger
 
-from posthog.temporal.common.logger import get_internal_logger
 from posthog.exceptions_capture import capture_exception
 
 from .constants import (
-    HARMONIC_BATCH_SIZE,
-    SALESFORCE_UPDATE_BATCH_SIZE,
     DEFAULT_CHUNK_SIZE,
-    PERSONAL_EMAIL_DOMAINS,
+    HARMONIC_BATCH_SIZE,
     METRIC_PERIODS,
+    PERSONAL_EMAIL_DOMAINS,
+    SALESFORCE_UPDATE_BATCH_SIZE,
 )
 from .harmonic_client import AsyncHarmonicClient
 from .redis_cache import get_accounts_from_redis
 from .salesforce_client import get_salesforce_client
+
+LOGGER = get_logger(__name__)
 
 
 def is_excluded_domain(domain: str | None) -> bool:
@@ -223,7 +225,7 @@ def bulk_update_salesforce_accounts(sf, update_records):
         sf: simple_salesforce.Salesforce client
         update_records: List of dicts with Id + field updates
     """
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
 
     if not update_records:
         return
@@ -299,7 +301,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         offset: Starting index for pagination
         limit: Number of accounts to retrieve
     """
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
 
     # Try Redis cache first
     cache_start = time.time()
@@ -389,7 +391,7 @@ async def enrich_accounts_chunked_async(
         Dict with total_accounts_in_chunk (critical for workflow control), records_processed,
         records_enriched, records_updated, success_rate, errors
     """
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
     start_time = time.time()
     offset = chunk_number * chunk_size
 

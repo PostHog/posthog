@@ -26,7 +26,7 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
 )
 from posthog.temporal.ai.session_summary.summarize_session import (
-    SummarizeSingleSessionWorkflow,
+    SummarizeSingleSessionStreamWorkflow,
     execute_summarize_session_stream,
     stream_llm_single_session_summary_activity,
     fetch_session_data_activity,
@@ -220,7 +220,7 @@ class TestStreamLlmSummaryActivity:
             assert spy_setex.call_count == 1 + 8
 
 
-class TestSummarizeSingleSessionWorkflow:
+class TestSummarizeSingleSessionStreamWorkflow:
     @asynccontextmanager
     async def workflow_test_environment(
         self,
@@ -231,7 +231,25 @@ class TestSummarizeSingleSessionWorkflow:
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
     ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        # Add retry logic for starting test server
+        max_retries = 3
+        retry_delay = 1
+        activity_environment = None
+        # Start with retry to avoid flaky `Failed starting test server`
+        for attempt in range(max_retries):
+            try:
+                activity_environment = await WorkflowEnvironment.start_time_skipping()
+                break
+            except RuntimeError as e:
+                if "Failed starting test server" in str(e) and attempt < max_retries - 1:
+                    # Wait before retrying to avoid network issues
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                raise
+        if activity_environment is None:
+            raise RuntimeError("Failed to start test server after multiple attempts")
+        try:
             async with Worker(
                 activity_environment.client,
                 task_queue=constants.MAX_AI_TASK_QUEUE,
@@ -258,6 +276,10 @@ class TestSummarizeSingleSessionWorkflow:
                     ),
                 ):
                     yield activity_environment, worker
+        finally:
+            # Ensure proper cleanup
+            await activity_environment.shutdown()
+            await asyncio.sleep(0.1)  # Small delay to ensure cleanup completes
 
     async def setup_workflow_test(
         self,
@@ -369,7 +391,7 @@ class TestSummarizeSingleSessionWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
@@ -447,7 +469,7 @@ class TestSummarizeSingleSessionWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
@@ -536,7 +558,7 @@ class TestSummarizeSingleSessionWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
@@ -599,7 +621,7 @@ class TestSummarizeSingleSessionWorkflow:
         ) as (activity_environment, worker):
             # Wait for workflow to complete and get result
             result = await activity_environment.client.execute_workflow(
-                SummarizeSingleSessionWorkflow.run,
+                SummarizeSingleSessionStreamWorkflow.run,
                 workflow_input,
                 id=workflow_id,
                 task_queue=worker.task_queue,
@@ -660,7 +682,7 @@ class TestSummarizeSingleSessionWorkflow:
             with patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure):
                 # Wait for workflow to complete and get result
                 result = await activity_environment.client.execute_workflow(
-                    SummarizeSingleSessionWorkflow.run,
+                    SummarizeSingleSessionStreamWorkflow.run,
                     workflow_input,
                     id=workflow_id,
                     task_queue=worker.task_queue,
@@ -720,7 +742,7 @@ class TestSummarizeSingleSessionWorkflow:
                 # Wait for workflow to complete and get result
                 with pytest.raises(WorkflowFailureError):
                     await activity_environment.client.execute_workflow(
-                        SummarizeSingleSessionWorkflow.run,
+                        SummarizeSingleSessionStreamWorkflow.run,
                         workflow_input,
                         id=workflow_id,
                         task_queue=worker.task_queue,
@@ -771,7 +793,7 @@ class TestSummarizeSingleSessionWorkflow:
             with pytest.raises((WorkflowFailureError, asyncio.TimeoutError)) as exc_info:
                 await asyncio.wait_for(
                     activity_environment.client.execute_workflow(
-                        SummarizeSingleSessionWorkflow.run,
+                        SummarizeSingleSessionStreamWorkflow.run,
                         # Wrong: passing incorrect type instead of string
                         invalid_arg,  # type: ignore[misc]
                         id=workflow_id,

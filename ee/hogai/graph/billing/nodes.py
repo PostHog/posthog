@@ -14,10 +14,10 @@ USAGE_TYPES = [
     {"label": "Events", "value": "event_count_in_period"},
     {"label": "Recordings", "value": "recording_count_in_period"},
     {"label": "Mobile Recordings", "value": "mobile_recording_count_in_period"},
-    {"label": "Feature Flags", "value": "billable_feature_flag_requests_count_in_period"},
+    {"label": "Feature Flag Requests", "value": "billable_feature_flag_requests_count_in_period"},
     {"label": "Exceptions", "value": "exceptions_captured_in_period"},
-    {"label": "Rows Synced", "value": "rows_synced_in_period"},
-    {"label": "Persons", "value": "enhanced_persons_event_count_in_period"},
+    {"label": "Synced Rows", "value": "rows_synced_in_period"},
+    {"label": "Identified Events", "value": "enhanced_persons_event_count_in_period"},
     {"label": "Survey Responses", "value": "survey_responses_count_in_period"},
     {"label": "Data Pipelines", "value": "data_pipelines"},
     {"label": "Group Analytics", "value": "group_analytics"},
@@ -49,9 +49,9 @@ class BillingNode(AssistantNode):
         """Format billing context into a readable prompt section."""
         # Convert billing context to a format suitable for the mustache template
         template_data: dict[str, Any] = {
-            "subscription_level": billing_context.subscription_level.value
-            if billing_context.subscription_level
-            else "free",
+            "subscription_level": (
+                billing_context.subscription_level.value if billing_context.subscription_level else "free"
+            ),
             "billing_plan": billing_context.billing_plan,
             "has_active_subscription": billing_context.has_active_subscription,
             "is_deactivated": billing_context.is_deactivated,

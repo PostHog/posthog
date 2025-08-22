@@ -1,15 +1,17 @@
 import './Billing.scss'
 
-import { LemonTabs } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { LemonTabs } from '@posthog/lemon-ui'
+
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Billing } from './Billing'
-import { billingLogic } from './billingLogic'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
+import { billingLogic } from './billingLogic'
 import { BillingSectionId } from './types'
 
 export const scene: SceneExport = {
@@ -29,8 +31,8 @@ export function BillingSection(): JSX.Element {
     const section = location.pathname.includes('spend')
         ? 'spend'
         : location.pathname.includes('usage')
-        ? 'usage'
-        : 'overview'
+          ? 'usage'
+          : 'overview'
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)

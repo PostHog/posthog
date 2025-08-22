@@ -1,36 +1,32 @@
-import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
-import { LemonSegmentedButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
+
+import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
+import { LemonSegmentedButton, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { UnexpectedNeverError, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
-    countryCodeToFlag,
     LANGUAGE_CODE_TO_NAME,
+    countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { useCallback, useMemo } from 'react'
-import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import {
-    GeographyTab,
-    ProductTab,
-    TileId,
-    webAnalyticsLogic,
-    webStatsBreakdownToPropertyName,
-} from 'scenes/web-analytics/webAnalyticsLogic'
+import { GeographyTab, ProductTab, TileId, webStatsBreakdownToPropertyName } from 'scenes/web-analytics/common'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
@@ -46,6 +42,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+
+import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
@@ -77,7 +75,7 @@ const VariationCell = (
     { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
 ): QueryContextColumnComponent => {
     const formatNumber = (value: number): string =>
-        isPercentage ? `${(value * 100).toFixed(1)}%` : value?.toLocaleString() ?? '(empty)'
+        isPercentage ? `${(value * 100).toFixed(1)}%` : (value?.toLocaleString() ?? '(empty)')
 
     return function Cell({ value }) {
         const { compareFilter } = useValues(webAnalyticsLogic)
@@ -96,25 +94,25 @@ const VariationCell = (
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
                 : current === null || !compareFilter || compareFilter.compare === false
-                ? null
-                : previous === null || previous === 0
-                ? Infinity
-                : current / previous - 1
+                  ? null
+                  : previous === null || previous === 0
+                    ? Infinity
+                    : current / previous - 1
 
         const trend =
             pctChangeFromPrevious === null
                 ? null
                 : pctChangeFromPrevious === 0
-                ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
-                : pctChangeFromPrevious > 0
-                ? {
-                      Icon: IconTrending,
-                      color: reverseColors ? getColorVar('danger') : getColorVar('success'),
-                  }
-                : {
-                      Icon: IconTrendingDown,
-                      color: reverseColors ? getColorVar('success') : getColorVar('danger'),
-                  }
+                  ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+                  : pctChangeFromPrevious > 0
+                    ? {
+                          Icon: IconTrending,
+                          color: reverseColors ? getColorVar('danger') : getColorVar('success'),
+                      }
+                    : {
+                          Icon: IconTrendingDown,
+                          color: reverseColors ? getColorVar('success') : getColorVar('danger'),
+                      }
 
         // If current === previous, say "increased by 0%"
         const tooltip =
@@ -157,6 +155,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Initial Path</>
         case WebStatsBreakdown.ExitPage:
             return <>End Path</>
+        case WebStatsBreakdown.PreviousPage:
+            return <>Previous Page</>
         case WebStatsBreakdown.ExitClick:
             return <>Exit Click</>
         case WebStatsBreakdown.ScreenName:

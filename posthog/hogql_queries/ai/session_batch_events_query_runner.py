@@ -15,7 +15,7 @@ from posthog.session_recordings.constants import (
     EXTRA_SUMMARY_EVENT_FIELDS,
     MAX_TOTAL_EVENTS_PER_QUERY,
 )
-from posthog.session_recordings.queries_to_replace.session_replay_events import DEFAULT_EVENT_FIELDS
+from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
 
 # Type alias for convenience
 SessionEventsResults = dict[str, list[list[Any]]]  # session_id -> events mapping
@@ -25,7 +25,6 @@ class SessionBatchEventsQueryRunner(QueryRunner):
     """Query runner for batch session event queries using composition with EventsQueryRunner."""
 
     query: SessionBatchEventsQuery
-    response: SessionBatchEventsQueryResponse
     cached_response: CachedSessionBatchEventsQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -77,7 +76,7 @@ class SessionBatchEventsQueryRunner(QueryRunner):
         """Delegate to EventsQueryRunner."""
         return self._events_runner.columns(result_columns)
 
-    def calculate(self) -> SessionBatchEventsQueryResponse:
+    def _calculate(self) -> SessionBatchEventsQueryResponse:
         """
         Execute the session batch query and organize results by session.
 

@@ -18,7 +18,7 @@ from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
@@ -292,9 +292,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
         return "continue"
@@ -323,9 +321,7 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         # Compress the question/answer memory before saving it
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -353,9 +349,6 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
         if state.root_tool_insight_plan:
             return "insights"
         return "continue"
@@ -391,6 +384,11 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         if self.should_run_onboarding_at_start(state) != "continue":
             return None
+
+        # Check if the last message is a /remember command
+        remember_command_result = self._handle_remember_command(state)
+        if remember_command_result:
+            return PartialAssistantState(memory_collection_messages=[remember_command_result])
 
         node_messages = state.memory_collection_messages or []
 
@@ -448,6 +446,29 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         # Trim messages to keep only last 10 messages.
         messages = [*conversation[-10:], *node_messages]
         return messages
+
+    def _handle_remember_command(self, state: AssistantState) -> LangchainAIMessage | None:
+        last_message = state.messages[-1] if state.messages else None
+        if (
+            not isinstance(last_message, HumanMessage)
+            or not last_message.content.split(" ", 1)[0] == SLASH_COMMAND_REMEMBER
+        ):
+            # Not a /remember command, skip!
+            return None
+
+        # Extract the content to remember (everything after "/remember ")
+        remember_content = last_message.content[len(SLASH_COMMAND_REMEMBER) :].strip()
+        if remember_content:
+            # Create a direct memory append tool call
+            return LangchainAIMessage(
+                content="I'll remember that for you.",
+                tool_calls=[
+                    {"id": str(uuid4()), "name": "core_memory_append", "args": {"memory_content": remember_content}}
+                ],
+                id=str(uuid4()),
+            )
+        else:
+            return LangchainAIMessage(content="There's nothing to remember!", id=str(uuid4()))
 
 
 class MemoryCollectorToolsNode(AssistantNode):

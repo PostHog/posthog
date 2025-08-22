@@ -19,6 +19,7 @@ if typing.TYPE_CHECKING:
     )
 
 from django.conf import settings
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -30,9 +31,8 @@ from posthog.batch_exports.service import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
+    get_produce_only_logger,
+    get_write_only_logger,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -42,7 +42,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 )
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import (
-    Consumer as ConsumerFromStage,
+    Consumer,
     run_consumer_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import (
@@ -93,8 +93,8 @@ SUPPORTED_COMPRESSIONS = {
     "JSONLines": ["gzip", "brotli"],
 }
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 
 class UnsupportedFileFormatError(Exception):
@@ -374,10 +374,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         # NOTE: we don't support resuming from heartbeats for this activity for 2 reasons:
         # - resuming from old heartbeats doesn't play nicely with S3 multipart uploads
         # - we don't order the events in the query to ClickHouse
-        data_interval_start = (
-            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-        )
-        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
@@ -410,8 +406,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         )
 
         consumer = ConcurrentS3Consumer(
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
             s3_inputs=inputs,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
@@ -430,7 +424,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         )
 
 
-class ConcurrentS3Consumer(ConsumerFromStage):
+class ConcurrentS3Consumer(Consumer):
     """A consumer that uploads chunks of data to S3 concurrently.
 
     It uses a memory buffer to store the data and upload it in parts. It uses 2 semaphores to limit the number of
@@ -444,13 +438,11 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
     def __init__(
         self,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
     ):
-        super().__init__(data_interval_start, data_interval_end)
+        super().__init__()
 
         self.s3_inputs = s3_inputs
         self.part_size = part_size

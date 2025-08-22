@@ -1,10 +1,15 @@
 from unittest import TestCase
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
-from products.experiments.stats.shared.statistics import (
-    ProportionStatistic,
-    SampleMeanStatistic,
+
+from products.experiments.stats.frequentist.method import (
+    FrequentistConfig,
+    FrequentistMethod,
 )
 from products.experiments.stats.shared.enums import DifferenceType
+from products.experiments.stats.shared.statistics import (
+    ProportionStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+)
 
 
 def create_test_result_dict(result):
@@ -75,6 +80,50 @@ class TestTwoSidedTTest(TestCase):
             "p_value": 0.030960,
             "error_message": None,
             "uplift": {"dist": "normal", "mean": -0.25925, "stddev": 0.030650},
+        }
+
+        # Compare the key values
+        self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
+        self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
+        self.assertAlmostEqual(result_dict["ci"][0], expected_dict["ci"][0], places=4)
+        self.assertAlmostEqual(result_dict["ci"][1], expected_dict["ci"][1], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["mean"], expected_dict["uplift"]["mean"], places=4)
+        self.assertAlmostEqual(result_dict["uplift"]["stddev"], expected_dict["uplift"]["stddev"], places=4)
+
+    def test_two_sided_ttest_with_ratio_statistic(self):
+        """Test basic two-sided t-test with ratio statistics."""
+
+        # imported here so that pytest doesn't try to discover tests inside it
+        from products.experiments.stats.frequentist.method import TestType
+
+        # treatment
+        stat_a_n = 2034
+        stat_a = RatioStatistic(
+            n=stat_a_n,
+            m_statistic=SampleMeanStatistic(n=stat_a_n, sum=99673.9364269569, sum_squares=11298745.182728939),
+            d_statistic=SampleMeanStatistic(n=stat_a_n, sum=947, sum_squares=947),
+            m_d_sum_of_products=99673.9364269569,
+        )
+        # control
+        stat_b_n = 1966
+        stat_b = RatioStatistic(
+            n=stat_b_n,
+            m_statistic=SampleMeanStatistic(n=stat_b_n, sum=94605.79858780127, sum_squares=10463129.505392816),
+            d_statistic=SampleMeanStatistic(n=stat_b_n, sum=936, sum_squares=936),
+            m_d_sum_of_products=94605.79858780127,
+        )
+
+        config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
+        method = FrequentistMethod(config)
+        result = method.run_test(stat_a, stat_b)
+
+        result_dict = create_test_result_dict(result)
+        expected_dict = {
+            "expected": 0.041333,
+            "ci": [0.01378609, 0.0689],
+            "p_value": 0.0032826,
+            "error_message": None,
+            "uplift": {"dist": "normal", "mean": 0.0413, "stddev": 0.00358537},
         }
 
         # Compare the key values

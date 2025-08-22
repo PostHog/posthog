@@ -1,5 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -7,9 +10,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { ReactNode, useEffect, useRef, useState } from 'react'
 
-import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -67,9 +69,9 @@ export function FolderSelect({
         } else {
             expandProjectFolder(value || '')
         }
-    }, [value])
+    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const timeout = setTimeout(() => {
             if (inputRef.current) {
                 inputRef.current?.focus()
@@ -78,7 +80,7 @@ export function FolderSelect({
         return () => {
             clearTimeout(timeout)
         }
-    }, [])
+    })
 
     function getItemContextMenu(type: 'context' | 'dropdown'): (item: TreeDataItem) => ReactNode | undefined {
         const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
@@ -183,7 +185,7 @@ export function FolderSelect({
                     checkedItemCount={0}
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
-                            const folderPath = includeProtocol ? folder.id : folder.record?.path ?? ''
+                            const folderPath = includeProtocol ? folder.id : (folder.record?.path ?? '')
 
                             if (includeProtocol) {
                                 toggleFolderOpen(folder.id, isExpanded)

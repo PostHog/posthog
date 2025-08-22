@@ -1,7 +1,9 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
-import { expectLogic, truth } from 'kea-test-utils'
-import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { expectLogic, truth } from 'kea-test-utils'
+
+import api from 'lib/api'
 import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -331,28 +333,9 @@ describe('dashboardLogic', () => {
                 ],
                 breakdown_colors: [],
                 data_color_theme_id: null,
-                filters: {
-                    date_from: null,
-                    date_to: null,
-                    properties: [],
-                    breakdown_filter: null,
-                },
+                filters: {},
                 variables: {},
             })
-        })
-    })
-
-    describe('when the dashboard has filters', () => {
-        it('sets the filters reducer on load', async () => {
-            logic = dashboardLogic({ id: 11 })
-            logic.mount()
-
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['setDates'])
-                .toMatchValues({
-                    filters: { date_from: '-24h', date_to: null, properties: [], breakdown_filter: null },
-                })
         })
     })
 

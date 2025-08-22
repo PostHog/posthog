@@ -1,6 +1,10 @@
-import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
+
+import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -14,22 +18,24 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
+import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
+import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneName } from 'lib/components/Scenes/SceneName'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import {
     TEMPLATE_LINK_HEADING,
     TEMPLATE_LINK_PII_WARNING,
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
-import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -43,23 +49,25 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-import { useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -67,10 +75,8 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
-
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -83,10 +89,6 @@ import {
     ItemMode,
     QueryBasedInsightModel,
 } from '~/types'
-import { NotebookNodeType } from 'scenes/notebooks/types'
-import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
-import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -97,10 +99,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } = useValues(
+    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId, insightLoading } =
+        useValues(insightLogic(insightLogicProps))
+    const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
         insightLogic(insightLogicProps)
     )
-    const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
 
     // insightAlertsLogic
     const { loadAlerts } = useActions(
@@ -109,9 +112,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             insightId: insight.id as number,
         })
     )
-
-    // savedInsightsLogic
-    const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
     const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
@@ -180,6 +180,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
+                        userAccessLevel={insight.user_access_level}
                     />
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
@@ -514,7 +515,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             object: insight as QueryBasedInsightModel,
                                                             endpoint: `projects/${currentProjectId}/insights`,
                                                             callback: () => {
-                                                                loadInsights()
+                                                                reloadSavedInsights()
                                                                 push(urls.savedInsights())
                                                             },
                                                         })
@@ -606,21 +607,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     </ScenePanelCommonActions>
                     <ScenePanelMetaInfo>
-                        <SceneName
-                            defaultValue={defaultInsightName || ''}
-                            onSave={(value) => setInsightMetadata({ name: value })}
-                            dataAttrKey={RESOURCE_TYPE}
-                            canEdit={canEditInsight}
-                        />
-
-                        <SceneDescription
-                            defaultValue={insight.description || ''}
-                            onSave={(value) => setInsightMetadata({ description: value })}
-                            dataAttrKey={RESOURCE_TYPE}
-                            optional
-                            canEdit={canEditInsight}
-                        />
-
                         <SceneTags
                             onSave={(tags) => {
                                 setInsightMetadata({ tags })
@@ -645,8 +631,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <ScenePanelActions>
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
-                        <SceneAddToDropdownMenu
-                            notebook={hasDashboardItemId}
+                        <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        <SceneAddToDashboardButton
                             dashboard={
                                 hasDashboardItemId
                                     ? {
@@ -656,7 +642,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                       }
                                     : undefined
                             }
-                            shortId={insight.short_id}
                             dataAttrKey={RESOURCE_TYPE}
                         />
 
@@ -678,10 +663,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         insight.short_id ? push(urls.insightSharing(insight.short_id)) : null,
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
-                            >
-                                <IconShare />
-                                Share or embed
-                            </SceneShareButton>
+                            />
                         )}
 
                         {!insight.short_id && (
@@ -720,7 +702,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 menuItem
                             >
                                 <IconShare />
-                                Share as template
+                                Share as template...
                             </ButtonPrimitive>
                         )}
 
@@ -857,7 +839,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     object: insight as QueryBasedInsightModel,
                                                     endpoint: `projects/${currentProjectId}/insights`,
                                                     callback: () => {
-                                                        loadInsights()
+                                                        reloadSavedInsights()
                                                         push(urls.savedInsights())
                                                     },
                                                 })
@@ -873,6 +855,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     </ScenePanelActions>
                 </>
             </ScenePanel>
+
+            <SceneTitleSection
+                name={defaultInsightName || ''}
+                description={insight?.description || ''}
+                resourceType={{
+                    type: 'insight',
+                    typePlural: 'insights',
+                }}
+                onNameBlur={(name) => setInsightMetadata({ name })}
+                onDescriptionBlur={(description) => setInsightMetadata({ description })}
+                canEdit={canEditInsight}
+                isLoading={insightLoading}
+            />
+            <SceneDivider />
         </>
     )
 }

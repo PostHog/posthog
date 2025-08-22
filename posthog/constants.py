@@ -16,7 +16,8 @@ class AvailableFeature(StrEnum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    ADVANCED_PERMISSIONS = "advanced_permissions"
+    ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
+    ACCESS_CONTROL = "access_control"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
@@ -42,6 +43,7 @@ class AvailableFeature(StrEnum):
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -307,6 +309,7 @@ class FlagRequestType(StrEnum):
 
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
@@ -316,6 +319,7 @@ BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
 DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
+TASKS_TASK_QUEUE = "tasks-task-queue"
 TEST_TASK_QUEUE = "test-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
