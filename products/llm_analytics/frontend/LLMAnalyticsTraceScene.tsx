@@ -41,9 +41,9 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
-import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
-import { EnrichedTraceTreeNode, llmObservabilityTraceDataLogic } from './llmObservabilityTraceDataLogic'
-import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
+import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
+import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
+import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { exportTraceToClipboard } from './traceExportUtils'
 import {
     formatLLMCost,
@@ -58,24 +58,24 @@ import {
 } from './utils'
 
 export const scene: SceneExport = {
-    component: LLMObservabilityTraceScene,
-    logic: llmObservabilityTraceLogic,
+    component: LLMAnalyticsTraceScene,
+    logic: llmAnalyticsTraceLogic,
 }
 
-export function LLMObservabilityTraceScene(): JSX.Element {
-    const { traceId, query } = useValues(llmObservabilityTraceLogic)
+export function LLMAnalyticsTraceScene(): JSX.Element {
+    const { traceId, query } = useValues(llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={llmObservabilityTraceDataLogic} props={{ traceId, query }}>
+        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query }}>
             <TraceSceneWrapper />
         </BindLogic>
     )
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId } = useValues(llmObservabilityTraceLogic)
+    const { eventId } = useValues(llmAnalyticsTraceLogic)
     const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, searchQuery } =
-        useValues(llmObservabilityTraceDataLogic)
+        useValues(llmAnalyticsTraceDataLogic)
 
     return (
         <>
@@ -188,9 +188,9 @@ function TraceSidebar({
     tree: EnrichedTraceTreeNode[]
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { mostRelevantEvent, searchOccurrences } = useValues(llmObservabilityTraceDataLogic)
-    const { searchQuery } = useValues(llmObservabilityTraceLogic)
-    const { setSearchQuery, setEventId } = useActions(llmObservabilityTraceLogic)
+    const { mostRelevantEvent, searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
+    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const { setSearchQuery, setEventId } = useActions(llmAnalyticsTraceLogic)
 
     const [searchValue, setSearchValue] = useState(searchQuery)
 
@@ -337,7 +337,7 @@ const TreeNode = React.memo(function TraceNode({
     return (
         <li key={item.id} className="mt-0.5" aria-current={isSelected /* aria-current used for auto-focus */}>
             <Link
-                to={urls.llmObservabilityTrace(topLevelTrace.id, {
+                to={urls.llmAnalyticsTrace(topLevelTrace.id, {
                     event: item.id,
                     timestamp: removeMilliseconds(topLevelTrace.createdAt),
                     ...(searchQuery?.trim() && { search: searchQuery }),
@@ -507,7 +507,7 @@ const EventContent = React.memo(
         tree: EnrichedTraceTreeNode[]
         searchQuery?: string
     }): JSX.Element => {
-        const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+        const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
 
@@ -610,7 +610,7 @@ const EventContent = React.memo(
                                             inModal
                                             type="secondary"
                                             size="xsmall"
-                                            data-attr="llm-observability"
+                                            data-attr="llm-analytics"
                                             sessionId={getSessionID(event) || undefined}
                                             timestamp={removeMilliseconds(event.createdAt)}
                                         />
@@ -739,7 +739,7 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
 }
 
 function DisplayOptionsButton(): JSX.Element {
-    const { showDisplayOptionsModal } = useActions(llmObservabilityTraceLogic)
+    const { showDisplayOptionsModal } = useActions(llmAnalyticsTraceLogic)
 
     return (
         <LemonButton
@@ -755,7 +755,7 @@ function DisplayOptionsButton(): JSX.Element {
 }
 
 function TraceMetricsTable(): JSX.Element | null {
-    const { metricsAndFeedbackEvents } = useValues(llmObservabilityTraceDataLogic)
+    const { metricsAndFeedbackEvents } = useValues(llmAnalyticsTraceDataLogic)
 
     if (!metricsAndFeedbackEvents?.length) {
         return null

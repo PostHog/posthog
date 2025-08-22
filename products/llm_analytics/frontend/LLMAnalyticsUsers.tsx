@@ -8,7 +8,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
-import { llmObservabilityLogic } from './llmObservabilityLogic'
+import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 const mapPerson = (person: any): { distinct_id: string; created_at: string; properties: Record<string, any> } => {
     // The person data comes as a tuple [distinct_id, created_at, properties_json]
@@ -26,16 +26,16 @@ const mapPerson = (person: any): { distinct_id: string; created_at: string; prop
     return { distinct_id: distinctId, created_at: createdAt, properties }
 }
 
-export function LLMObservabilityUsers(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
-    const { usersQuery } = useValues(llmObservabilityLogic)
+export function LLMAnalyticsUsers(): JSX.Element {
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { usersQuery } = useValues(llmAnalyticsLogic)
 
     return (
         <DataTable
             query={usersQuery}
             setQuery={(query) => {
                 if (!isHogQLQuery(query.source)) {
-                    console.warn('LLMObservabilityUsers received a non-events query:', query.source)
+                    console.warn('LLMAnalyticsUsers received a non-events query:', query.source)
                     return
                 }
                 const { filters = {} } = query.source
@@ -56,7 +56,7 @@ export function LLMObservabilityUsers(): JSX.Element {
                                     withIcon
                                     noPopover
                                     href={
-                                        combineUrl(urls.llmObservabilityTraces(), {
+                                        combineUrl(urls.llmAnalyticsTraces(), {
                                             filters: [
                                                 {
                                                     type: PropertyFilterType.HogQL,
@@ -93,7 +93,7 @@ export function LLMObservabilityUsers(): JSX.Element {
                     },
                 },
             }}
-            uniqueKey="llm-observability-users"
+            uniqueKey="llm-analytics-users"
         />
     )
 }
