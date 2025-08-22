@@ -5,6 +5,7 @@ These provide 1:1 compatibility with the original DRF serializers but with bette
 
 import orjson
 from typing import Any, Optional
+from datetime import datetime
 from django.utils.timezone import now
 from rest_framework.request import Request
 
@@ -23,6 +24,14 @@ from posthog.utils import refresh_requested_by_client
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.insight_variable import map_stale_to_latest
+
+
+def format_datetime_like_drf(dt: Optional[datetime]) -> Optional[str]:
+    """Format datetime to match DRF DateTimeField output (ISO format with Z timezone)"""
+    if not dt:
+        return None
+    # Convert +00:00 to Z to match DRF format
+    return dt.isoformat().replace("+00:00", "Z")
 
 
 def serialize_user_basic(user: Optional[User]) -> Optional[dict[str, Any]]:
@@ -55,7 +64,7 @@ def serialize_text(text: Text) -> dict[str, Any]:
         "id": text.id,
         "body": text.body,
         "created_by": serialize_user_basic(text.created_by),
-        "last_modified_at": text.last_modified_at.isoformat() if text.last_modified_at else None,
+        "last_modified_at": format_datetime_like_drf(text.last_modified_at),
         "last_modified_by": serialize_user_basic(text.last_modified_by),
         "team": text.team_id,
     }
@@ -272,21 +281,21 @@ class FastInsightSerializer:
             "dashboards": dashboards,
             "dashboard_tiles": dashboard_tiles,
             "description": insight.description,
-            "last_refresh": insight_result.last_refresh.isoformat() if insight_result.last_refresh else None,
+            "last_refresh": format_datetime_like_drf(insight_result.last_refresh),
             "refreshing": insight.refreshing,
             "saved": insight.saved,
             "tags": tags,
-            "updated_at": insight.updated_at.isoformat() if insight.updated_at else None,
+            "updated_at": format_datetime_like_drf(insight.updated_at),
             "created_by": serialize_user_basic(insight.created_by),
-            "created_at": insight.created_at.isoformat() if insight.created_at else None,
-            "last_modified_at": insight.last_modified_at.isoformat() if insight.last_modified_at else None,
+            "created_at": format_datetime_like_drf(insight.created_at),
+            "last_modified_at": format_datetime_like_drf(insight.last_modified_at),
             "favorited": insight.favorited,
             "user_access_level": self._get_user_access_level(insight),
             # Additional fields from InsightSerializer.Meta.fields
             "order": insight.order,
             "deleted": insight.deleted,
             "cache_target_age": insight_result.cache_target_age,
-            "next_allowed_client_refresh": insight_result.next_allowed_client_refresh.isoformat()
+            "next_allowed_client_refresh": format_datetime_like_drf(insight_result.next_allowed_client_refresh)
             if insight_result.next_allowed_client_refresh
             else None,
             "result": insight_result.result,

@@ -38,7 +38,11 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from contextlib import nullcontext
 import posthoganalytics
 from opentelemetry import trace
-from posthog.api.dashboards.fast_serializers import fast_serialize_tile_with_context
+from posthog.api.dashboards.fast_serializers import (
+    fast_serialize_tile_with_context,
+    serialize_text,
+    serialize_dashboard_tile,
+)
 
 
 logger = structlog.get_logger(__name__)
@@ -72,6 +76,9 @@ class TextSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
+    def to_representation(self, instance: Text):
+        return serialize_text(instance)
+
 
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
@@ -93,15 +100,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("DashboardTileSerializer.to_representation")
     def to_representation(self, instance: DashboardTile):
-        representation = super().to_representation(instance)
-
-        representation["order"] = self.context.get("order", None)
-
-        insight_representation = representation["insight"] or {}  # May be missing for text tiles
-        representation["last_refresh"] = insight_representation.get("last_refresh", None)
-        representation["is_cached"] = insight_representation.get("is_cached", False)
-
-        return representation
+        return serialize_dashboard_tile(instance, self.context)
 
 
 class DashboardBasicSerializer(
