@@ -2,8 +2,8 @@ use anyhow::Error;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-pub mod redis;
 pub mod memory;
+pub mod redis;
 
 pub use redis::RedisIdentifyCache;
 

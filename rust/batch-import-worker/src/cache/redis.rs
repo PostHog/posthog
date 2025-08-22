@@ -156,7 +156,7 @@ mod tests {
         let cache = RedisIdentifyCache {
             redis_client: Arc::new(mock_client),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         // First call should return false (not seen)
@@ -172,7 +172,7 @@ mod tests {
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         // Mark as seen
@@ -187,7 +187,7 @@ mod tests {
         let cache3 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client3),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         // Second call should return true (seen)
@@ -209,7 +209,7 @@ mod tests {
         let cache1 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client1),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         let mut mock_client2 = MockRedisClient::new();
@@ -217,7 +217,7 @@ mod tests {
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         // Same user and device, different teams should be isolated
@@ -279,7 +279,7 @@ mod tests {
         let cache = RedisIdentifyCache {
             redis_client: Arc::new(mock_client),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         let result = cache.has_seen_user_device(1, "user123", "device456").await;
@@ -298,7 +298,7 @@ mod tests {
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         let result2 = cache2
@@ -319,7 +319,7 @@ mod tests {
         let cache1 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client1),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         let result1 = cache1
@@ -333,7 +333,7 @@ mod tests {
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         let result2 = cache2
@@ -383,7 +383,7 @@ mod tests {
         let cache = RedisIdentifyCache {
             redis_client: Arc::new(mock_client),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         // Test first combination: "foo:bar" + ":baz"
@@ -414,7 +414,7 @@ mod tests {
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         // Mark first combination as seen (this should succeed)
@@ -433,7 +433,7 @@ mod tests {
         let cache3 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client3),
             memory_cache: MemoryCache::new(100, Duration::from_secs(300)), // 5 min TTL for test
-            ttl_seconds: 86400, // 24 hours for test
+            ttl_seconds: 86400,                                            // 24 hours for test
         };
 
         let result3 = cache3
@@ -468,7 +468,10 @@ mod tests {
         let mut mock_client = MockRedisClient::new();
 
         // Setup Redis to return NotFound initially
-        mock_client = mock_client.get_ret("identify:1:user123:device456", Err(CustomRedisError::NotFound));
+        mock_client = mock_client.get_ret(
+            "identify:1:user123:device456",
+            Err(CustomRedisError::NotFound),
+        );
         // Setup Redis to succeed on set
         mock_client = mock_client.set_nx_ex_ret("identify:1:user123:device456", Ok(true));
 
@@ -479,14 +482,23 @@ mod tests {
         };
 
         // First check - should hit Redis (L2) and return false
-        let result1 = cache.has_seen_user_device(1, "user123", "device456").await.unwrap();
+        let result1 = cache
+            .has_seen_user_device(1, "user123", "device456")
+            .await
+            .unwrap();
         assert_eq!(result1, false);
 
         // Mark as seen - should store in both L1 and L2
-        cache.mark_seen_user_device(1, "user123", "device456").await.unwrap();
+        cache
+            .mark_seen_user_device(1, "user123", "device456")
+            .await
+            .unwrap();
 
         // Second check - should hit memory cache (L1) and return true without touching Redis
-        let result2 = cache.has_seen_user_device(1, "user123", "device456").await.unwrap();
+        let result2 = cache
+            .has_seen_user_device(1, "user123", "device456")
+            .await
+            .unwrap();
         assert_eq!(result2, true);
     }
 }
