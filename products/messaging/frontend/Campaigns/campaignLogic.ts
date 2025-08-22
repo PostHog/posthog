@@ -107,12 +107,13 @@ export const campaignLogic = kea<campaignLogicType>([
             errors: ({ name, trigger, actions }) => {
                 return {
                     name: !name ? 'Name is required' : undefined,
-                    trigger:
-                        trigger.type === 'event'
-                            ? trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
+                    trigger: {
+                        type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
+                        filters:
+                            trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
                                 ? 'At least one event or action is required'
-                                : undefined
-                            : 'Invalid trigger type',
+                                : undefined,
+                    },
                     actions: actions.some((action) => {
                         const validationResult = HogFlowActionSchema.safeParse(action)
                         return !['trigger', 'exit'].includes(action.type) && !validationResult.success
