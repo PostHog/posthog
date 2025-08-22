@@ -506,6 +506,78 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertIn("Environments not found", response.json()["detail"])
         mock_task_delay.assert_not_called()
 
+    def test_organization_api_includes_default_role_id(self):
+        """Test that the organization API includes the default_role_id field"""
+        from ee.models import Role
+
+        # Create a role and set it as default
+        role = Role.objects.create(name="Default Role", organization=self.organization)
+        self.organization.default_role_id = role.id
+        self.organization.save()
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("default_role_id", data)
+        self.assertEqual(data["default_role_id"], str(role.id))
+
+    def test_set_default_role_via_api(self):
+        """Test that the default role can be set via the organization API"""
+        from ee.models import Role
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create a role
+        role = Role.objects.create(name="API Default Role", organization=self.organization)
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"default_role_id": str(role.id)})
+
+        self.assertEqual(response.status_code, 200)
+
+        # Check that it was set
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.default_role_id, role.id)
+
+    def test_clear_default_role_via_api(self):
+        """Test that the default role can be cleared via the organization API"""
+        from ee.models import Role
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create a role and set it as default
+        role = Role.objects.create(name="To Be Cleared", organization=self.organization)
+        self.organization.default_role_id = role.id
+        self.organization.save()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"default_role_id": None})
+
+        self.assertEqual(response.status_code, 200)
+
+        # Check that it was cleared
+        self.organization.refresh_from_db()
+        self.assertIsNone(self.organization.default_role_id)
+
+    def test_role_serializer_includes_is_default_field(self):
+        """Test that the role serializer includes is_default field"""
+        from ee.models import Role
+
+        # Create a role and set it as default
+        role = Role.objects.create(name="Default Role", organization=self.organization)
+        self.organization.default_role_id = role.id
+        self.organization.save()
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/roles/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        # Find our role in the results
+        default_role = next(r for r in data["results"] if r["id"] == str(role.id))
+        self.assertTrue(default_role["is_default"])
+
     @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
     def test_environments_rollback_validates_environments_belong_to_organization(self, mock_task_delay):
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
