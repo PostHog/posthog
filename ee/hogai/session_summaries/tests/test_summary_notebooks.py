@@ -819,7 +819,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
         # Check main title
         assert content[0]["type"] == "heading"
-        assert "Session Group Analysis - Test Team" in content[0]["content"][0]["text"]
+        assert "Session Summaries Report - Test Team" in content[0]["content"][0]["text"]
 
         # Check plan section
         assert content[2]["type"] == "heading"
@@ -901,7 +901,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         # Initial state - just the plan
         initial_formatted: dict[str, Any] = state.format_intermediate_state()
         initial_str: str = json.dumps(initial_formatted)
-        assert "Session Group Analysis - PostHog" in initial_str
+        assert "Session Summaries Report - PostHog" in initial_str
         assert "[ ] Watch sessions" in initial_str
         assert "[ ] Find initial patterns" in initial_str
         assert "[ ] Generate final report" in initial_str
