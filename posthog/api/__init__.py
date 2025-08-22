@@ -1,6 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+from ee.api.vercel import vercel_installation, vercel_product
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 import products.links.backend.api as link
@@ -550,6 +551,17 @@ if EE_AVAILABLE:
         r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
     )
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
+    router.register(
+        r"vercel/v1/installations",
+        vercel_installation.VercelInstallationViewSet,
+        "vercel_installations",
+    )
+    router.register(
+        r"vercel/v1/products",
+        vercel_product.VercelProductViewSet,
+        "vercel_products",
+    )
+
 else:
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
         r"insights", InsightViewSet, "environment_insights", ["team_id"]
