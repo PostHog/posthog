@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
+import { SURVEY_FORM_INPUT_IDS } from 'scenes/surveys/constants'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -29,8 +30,24 @@ function AlwaysScheduleBanner({
 }: {
     survey: Pick<Survey, 'type' | 'schedule' | 'conditions'>
 }): JSX.Element | null {
-    const { setSelectedSection } = useActions(surveyLogic)
+    const { setSelectedSection, setSurveyValue } = useActions(surveyLogic)
+    const { hasTargetingSet } = useValues(surveyLogic)
     const doesSurveyHaveWaitPeriod = (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0
+
+    const handleWaitPeriodClick = (): void => {
+        setSelectedSection(SurveyEditSection.DisplayConditions)
+        // if the survey has no targeting set, set the url to an empty string so the full section is rendered
+        if (!hasTargetingSet) {
+            setSurveyValue('conditions', {
+                ...survey.conditions,
+                url: '',
+            })
+        }
+        // timeout necessary so the section is rendered
+        setTimeout(() => {
+            document.getElementById(SURVEY_FORM_INPUT_IDS.WAIT_PERIOD_INPUT)?.focus()
+        }, 200)
+    }
 
     if (doesSurveyHaveWaitPeriod) {
         return (
@@ -50,10 +67,7 @@ function AlwaysScheduleBanner({
                 </p>
                 <p className="font-normal">
                     If this isn't intended, consider&nbsp;
-                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                        adding a wait period
-                    </Link>
-                    .
+                    <Link onClick={handleWaitPeriodClick}>adding a wait period</Link>.
                 </p>
             </LemonBanner>
         )
@@ -67,10 +81,8 @@ function AlwaysScheduleBanner({
             </p>
             <p className="font-normal">
                 If not, consider&nbsp;
-                <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                    adding a wait period
-                </Link>
-                &nbsp; or changing its frequency.
+                <Link onClick={handleWaitPeriodClick}>adding a wait period</Link>
+                &nbsp;or changing its frequency.
             </p>
         </LemonBanner>
     )

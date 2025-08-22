@@ -116,7 +116,8 @@ def find_last_ui_context(messages: Sequence[AssistantMessageUnion]) -> MaxUICont
     return None
 
 
-def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -> str:
+def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:
+    """Common logic for processing events and building event data."""
     response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
     )
@@ -135,6 +136,7 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
             if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
                 continue  # Skip system or ignored events
         events.append(item.event)
+
     event_to_description: dict[str, str] = {}
     for event in events_in_context:
         if event.name and event.name not in events:
@@ -145,11 +147,10 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
     # Create a set of event names from context for efficient lookup
     context_event_names = {event.name for event in events_in_context if event.name}
 
-    root = ET.Element("defined_events")
+    processed_events = []
     for event_name in events:
-        event_tag = ET.SubElement(root, "event")
-        name_tag = ET.SubElement(event_tag, "name")
-        name_tag.text = event_name
+        event_data = {"name": event_name}
+
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
             if event_name not in context_event_names and (
@@ -157,17 +158,44 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
             ):
                 continue  # Skip irrelevant events but keep events the user has added to the context
             if description := event_core_definition.get("description"):
-                desc_tag = ET.SubElement(event_tag, "description")
                 if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
-                    desc_tag.text = f"{label}. {description}"
+                    event_data["description"] = f"{label}. {description}"
                 else:
-                    desc_tag.text = description
-                desc_tag.text = remove_line_breaks(desc_tag.text)
+                    event_data["description"] = description
+                event_data["description"] = remove_line_breaks(event_data["description"])
         elif event_name in event_to_description:
+            event_data["description"] = remove_line_breaks(event_to_description[event_name])
+
+        processed_events.append(event_data)
+
+    return processed_events, event_to_description
+
+
+def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> str:
+    processed_events, _ = _process_events_data(events_in_context, team)
+
+    root = ET.Element("defined_events")
+    for event_data in processed_events:
+        event_tag = ET.SubElement(root, "event")
+        name_tag = ET.SubElement(event_tag, "name")
+        name_tag.text = event_data["name"]
+        if "description" in event_data:
             desc_tag = ET.SubElement(event_tag, "description")
-            desc_tag.text = event_to_description[event_name]
-            desc_tag.text = remove_line_breaks(desc_tag.text)
+            desc_tag.text = event_data["description"]
+
     return ET.tostring(root, encoding="unicode")
+
+
+def format_events_yaml(events_in_context: list[MaxEventContext], team: Team) -> str:
+    processed_events, _ = _process_events_data(events_in_context, team)
+
+    formatted_events = ["events:"]
+    for event_data in processed_events:
+        name = event_data["name"]
+        description = event_data.get("description", "")
+        formatted_events.append(f"- `{name}` - {description}" if description else f"- `{name}`")
+
+    return "\n".join(formatted_events)
 
 
 def extract_content_from_ai_message(response: LangchainAIMessage) -> str:
