@@ -12070,7 +12070,8 @@
                 "insightLifecycle",
                 "insightStickiness",
                 "insightHogQL",
-                "insightCalendarHeatmap"
+                "insightCalendarHeatmap",
+                "code"
             ],
             "type": "string"
         },
@@ -15354,16 +15355,7 @@
                     "$ref": "#/definitions/MarketingAnalyticsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -24918,6 +24910,18 @@
             },
             "type": "array"
         },
+        "WebAnalyticsSampling": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "forceSamplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                }
+            },
+            "type": "object"
+        },
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
@@ -24967,16 +24971,7 @@
                     "$ref": "#/definitions/WebExternalClicksTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "stripQueryParams": {
                     "type": "boolean"
@@ -25103,16 +25098,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25261,16 +25247,7 @@
                     "$ref": "#/definitions/WebOverviewQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25388,16 +25365,7 @@
                     "$ref": "#/definitions/WebPageURLSearchQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "searchTerm": {
                     "type": "string"
@@ -25472,6 +25440,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "PreviousPage",
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
@@ -25555,16 +25524,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25737,16 +25697,7 @@
                     "$ref": "#/definitions/WebVitalsPathBreakdownQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25901,16 +25852,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"

@@ -76,3 +76,6 @@
 # name: TestPrinter.test_s3_tables_global_join_with_cte_nested
   "SELECT some_remote_table.event AS event FROM events GLOBAL JOIN (SELECT e.event AS event, t.id AS id FROM events AS e GLOBAL JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s)) AS t ON equals(toString(t.id), e.event) WHERE equals(e.team_id, 99999)) AS some_remote_table ON equals(events.event, toString(some_remote_table.id)) WHERE equals(events.team_id, 99999) LIMIT 50000"
 # ---
+# name: TestPrinter.test_s3_tables_global_join_with_multiple_joins
+  "SELECT e.event, s.event AS event, t.id AS id FROM events AS e GLOBAL JOIN (SELECT events.event AS event FROM events WHERE equals(events.team_id, 99999)) AS s ON equals(e.event, s.event) GLOBAL LEFT JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s)) AS t ON equals(e.event, toString(t.id)) WHERE equals(e.team_id, 99999) LIMIT 50000"
+# ---
