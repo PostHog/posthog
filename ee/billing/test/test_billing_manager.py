@@ -151,6 +151,7 @@ class TestBillingManager(BaseTest):
             "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
+            "ai_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "surveys": {
                 "usage": 10,
@@ -176,6 +177,7 @@ class TestBillingManager(BaseTest):
                     "rows_synced": {"usage": 45, "limit": 500},
                     "feature_flag_requests": {"usage": 25, "limit": 300},
                     "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
+                    "ai_events": {"usage": 50, "limit": 1000},
                     "surveys": {"usage": 10, "limit": 100},
                 },
                 "billing_period": {
@@ -209,6 +211,7 @@ class TestBillingManager(BaseTest):
             },
             "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
+            "ai_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "surveys": {
