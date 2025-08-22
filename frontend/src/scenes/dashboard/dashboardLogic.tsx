@@ -299,7 +299,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                saveEditModeChanges: async ({ filters: { date_from, date_to }} , breakpoint) => {
+                saveEditModeChanges: async ({ filters: { date_from, date_to } }, breakpoint) => {
                     eventUsageLogic.actions.reportDashboardDateRangeChanged(date_from, date_to)
                     eventUsageLogic.actions.reportDashboardPropertiesChanged()
 
@@ -859,10 +859,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 // try to convert url variables to variables
-                const urlVariables = parseURLVariables(searchParams)
+                const urlVariablesRaw = parseURLVariables(searchParams)
                 const urlVariables: Record<string, HogQLVariable> = {}
 
-                for (const [key, value] of Object.entries(urlVariables)) {
+                for (const [key, value] of Object.entries(urlVariablesRaw)) {
                     const variable = variables.find((variable: Variable) => variable.code_name === key)
                     if (variable) {
                         urlVariables[variable.id] = {
@@ -1398,8 +1398,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
             }
         },
-        saveEditModeChanges: ({ filters: { date_from, date_to } }) => {
-        },
+        saveEditModeChanges: ({ filters: { date_from, date_to } }) => {},
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // Note: handled in subscriptions
