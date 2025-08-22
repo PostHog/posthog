@@ -57,10 +57,6 @@ pub struct Config {
     #[envconfig(from = "BACKOFF_MAX_ATTEMPTS", default = "0")]
     pub backoff_max_attempts: u32,
 
-    // Enable/disable identify event injection
-    #[envconfig(from = "IDENTIFY_INJECTION", default = "false")]
-    pub identify_injection: bool,
-
     // Redis URL for caching
     #[envconfig(from = "REDIS_URL", default = "")]
     pub redis_url: String,
@@ -119,7 +115,6 @@ mod tests {
             backoff_max_seconds: 3600,
             backoff_multiplier: 2.0,
             backoff_max_attempts: 0,
-            identify_injection: false,
             redis_url: "".to_string(),
             identify_cache_ttl_seconds: 86400,
         }

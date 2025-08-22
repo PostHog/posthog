@@ -344,7 +344,7 @@ impl AmplitudeEvent {
             let mut events = Vec::new();
 
             // Check if we need to inject an $identify event
-            if context.identify_injection {
+            if context.generate_identify_events {
                 if let (Some(user_id), Some(device_id)) = (&amp.user_id, &amp.device_id) {
                 // Check cache to see if we've seen this user-device combination
                 let cache_result = tokio::task::block_in_place(|| {
@@ -468,7 +468,8 @@ mod tests {
             team_id: 123,
             token: "test_token".to_string(),
             identify_cache: Arc::new(IdentifyCache::test_new()),
-            identify_injection: false,
+            import_events: true,
+            generate_identify_events: false,
         }
     }
 

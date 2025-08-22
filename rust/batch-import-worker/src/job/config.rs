@@ -31,6 +31,10 @@ pub struct JobConfig {
     // What format is the data in, e.g. Mixpanel events stored in json-lines
     pub data_format: FormatConfig,
     pub sink: SinkConfig,
+    #[serde(default = "JobConfig::default_import_events")]
+    pub import_events: bool,
+    #[serde(default = "JobConfig::default_generate_identify_events")]
+    pub generate_identify_events: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -434,5 +438,15 @@ impl DateRangeExportSourceConfig {
 
     fn default_date_format() -> String {
         "%Y-%m-%d %H:%M:%S".to_string()
+    }
+}
+
+impl JobConfig {
+    fn default_import_events() -> bool {
+        true
+    }
+
+    fn default_generate_identify_events() -> bool {
+        false
     }
 }

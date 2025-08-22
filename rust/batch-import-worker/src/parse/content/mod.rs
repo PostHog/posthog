@@ -24,5 +24,6 @@ pub struct TransformContext {
     pub team_id: i32,
     pub token: String,
     pub identify_cache: Arc<IdentifyCache>,
-    pub identify_injection: bool,
+    pub import_events: bool,
+    pub generate_identify_events: bool,
 }
