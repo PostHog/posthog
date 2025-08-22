@@ -373,7 +373,6 @@ class Resolver(CloningVisitor):
             node.next_join = self.visit(node.next_join)
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-            is_global = False
             global_table: ast.TableType | None = None
 
             if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
@@ -382,16 +381,27 @@ class Resolver(CloningVisitor):
                 global_table = node.type
 
             if global_table and isinstance(global_table.table, EventsTable):
-                if self._is_next_s3(node.next_join):
-                    is_global = True
-                # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
-                elif node.next_join and isinstance(node.next_join.type, ast.SelectQueryAliasType):
-                    select_query_type = node.next_join.type.select_query_type
-                    tables = self._extract_tables_from_query_type(select_query_type)
-                    is_global = any(self._is_s3_table(table) for table in tables)
+                next_join = node.next_join
+                is_global = False
 
-            if is_global and node.next_join is not None:
-                node.next_join.join_type = f"GLOBAL {node.next_join.join_type}"
+                while next_join:
+                    if self._is_next_s3(next_join):
+                        is_global = True
+                    # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
+                    elif isinstance(next_join.type, ast.SelectQueryAliasType):
+                        select_query_type = next_join.type.select_query_type
+                        tables = self._extract_tables_from_query_type(select_query_type)
+                        if any(self._is_s3_table(table) for table in tables):
+                            is_global = True
+
+                    next_join = next_join.next_join
+
+                # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                if is_global:
+                    next_join = node.next_join
+                    while next_join:
+                        next_join.join_type = f"GLOBAL {next_join.join_type}"
+                        next_join = next_join.next_join
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
