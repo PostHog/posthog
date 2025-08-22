@@ -1,9 +1,9 @@
 """
-Fast orjson-based serializers for dashboard tiles to replace slow DRF serializers.
+Fast serializers for dashboard tiles to replace slow DRF serializers.
 These provide 1:1 compatibility with the original DRF serializers but with better performance.
 """
 
-import json
+import orjson
 from typing import Any, Optional
 from django.utils.timezone import now
 from rest_framework.request import Request
@@ -26,7 +26,6 @@ from posthog.api.insight_variable import map_stale_to_latest
 
 
 def serialize_user_basic(user: Optional[User]) -> Optional[dict[str, Any]]:
-    """Fast orjson replacement for UserBasicSerializer"""
     if not user:
         return None
 
@@ -52,7 +51,6 @@ def serialize_user_basic(user: Optional[User]) -> Optional[dict[str, Any]]:
 
 
 def serialize_text(text: Text) -> dict[str, Any]:
-    """Fast orjson replacement for TextSerializer"""
     return {
         "id": text.id,
         "body": text.body,
@@ -64,8 +62,6 @@ def serialize_text(text: Text) -> dict[str, Any]:
 
 
 class FastInsightSerializer:
-    """Fast orjson replacement for InsightSerializer with insight result caching"""
-
     def __init__(self, context: dict[str, Any]):
         self.context = context
         self._insight_result_cache: Optional[InsightResult] = None
@@ -315,12 +311,10 @@ class FastInsightSerializer:
 
 
 def serialize_dashboard_tile(tile: DashboardTile, context: dict[str, Any]) -> dict[str, Any]:
-    """Fast orjson replacement for DashboardTileSerializer.to_representation"""
-
     # Handle layouts parsing (matches original logic)
     layouts = tile.layouts
     if isinstance(layouts, str):
-        layouts = json.loads(layouts)
+        layouts = orjson.loads(layouts)
 
     # Base tile data
     representation = {
@@ -353,7 +347,6 @@ def serialize_dashboard_tile(tile: DashboardTile, context: dict[str, Any]) -> di
 
 def fast_serialize_tile_with_context(tile: DashboardTile, order: int, context: dict) -> tuple[int, dict]:
     """
-    Fast orjson replacement for serialize_tile_with_context.
     Returns (order, tile_data) tuple matching the original function signature.
     """
     # Create a copy of context to avoid thread conflicts (matches original)
