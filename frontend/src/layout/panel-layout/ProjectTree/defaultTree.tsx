@@ -332,7 +332,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             category: 'Tools',
             iconType: 'code',
             href: 'https://posthog.com/docs/model-context-protocol',
-        },
+        } as FileSystemImport,
         {
             path: `Data pipelines`,
             category: 'Tools',
