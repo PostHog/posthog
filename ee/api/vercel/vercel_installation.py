@@ -10,7 +10,6 @@ from ee.api.vercel.vercel_permission import VercelPermission
 from ee.vercel.integration import VercelIntegration
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from posthog.models.organization_integration import OrganizationIntegration
-from posthog.models.integration import Integration
 
 
 class VercelCredentialsSerializer(serializers.Serializer):
@@ -72,7 +71,7 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
 
         try:
             installation = OrganizationIntegration.objects.get(
-                kind=Integration.IntegrationKind.VERCEL, integration_id=installation_id
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation_id
             )
             return installation
         except OrganizationIntegration.DoesNotExist:

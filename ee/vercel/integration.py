@@ -5,7 +5,6 @@ from rest_framework import exceptions
 import structlog
 from posthog.exceptions_capture import capture_exception
 
-from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
 from posthog.models.organization import Organization, OrganizationMembership
@@ -20,7 +19,7 @@ class VercelIntegration:
     def _get_installation(installation_id: str) -> OrganizationIntegration:
         try:
             return OrganizationIntegration.objects.get(
-                kind=Integration.IntegrationKind.VERCEL, integration_id=installation_id
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation_id
             )
         except OrganizationIntegration.DoesNotExist:
             raise exceptions.NotFound("Installation not found")
@@ -78,7 +77,7 @@ class VercelIntegration:
         # Check if there's already an OrganizationIntegration for this installation_id
         # If there is, we don't need to do update anything besides OrganizationIntegration's config.
         organization_integration_exists = OrganizationIntegration.objects.filter(
-            integration_type=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id=installation_id,
         ).exists()
 
@@ -114,7 +113,7 @@ class VercelIntegration:
 
                 OrganizationIntegration.objects.update_or_create(
                     organization=organization,
-                    kind=Integration.IntegrationKind.VERCEL,
+                    kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=installation_id,
                     defaults={
                         "config": payload,

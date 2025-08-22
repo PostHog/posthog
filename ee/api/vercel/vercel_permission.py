@@ -40,12 +40,11 @@ class VercelPermission(BasePermission):
         if not auth_type:
             raise exceptions.AuthenticationFailed("Missing X-Vercel-Auth header")
 
-        auth_type_title = auth_type.title()
         supported_types = self._get_supported_auth_types(view)
 
-        if auth_type_title not in supported_types:
+        if auth_type not in supported_types:
             raise exceptions.PermissionDenied(
-                f"Auth type '{auth_type_title}' not allowed for this endpoint. "
+                f"Auth type '{auth_type}' not allowed for this endpoint. "
                 f"Supported types: {', '.join(supported_types)}"
             )
 

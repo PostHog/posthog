@@ -5,8 +5,9 @@ from ee.api.vercel.test.base import VercelTestBase
 from posthog.models.organization_integration import OrganizationIntegration
 
 
-@patch("ee.api.authentication.get_vercel_jwks")
 class TestVercelInstallationAPI(VercelTestBase):
+    @patch("ee.api.authentication.get_vercel_jwks")
+    @patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
     def test_retrieve_installation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
 
@@ -19,6 +20,8 @@ class TestVercelInstallationAPI(VercelTestBase):
         self.assertIn("billingplan", data)
         self.assertEqual(data["billingplan"]["id"], "free")
 
+    @patch("ee.api.authentication.get_vercel_jwks")
+    @patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
     def test_update_installation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
 
@@ -41,6 +44,8 @@ class TestVercelInstallationAPI(VercelTestBase):
         self.assertNotEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("ee.api.authentication.get_vercel_jwks")
+    @patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
     def test_partial_update_installation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
 
@@ -60,6 +65,8 @@ class TestVercelInstallationAPI(VercelTestBase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("ee.api.authentication.get_vercel_jwks")
+    @patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
     def test_delete_installation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
 
@@ -77,6 +84,8 @@ class TestVercelInstallationAPI(VercelTestBase):
             ).exists()
         )
 
+    @patch("ee.api.authentication.get_vercel_jwks")
+    @patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
     def test_system_auth_retrieve_installation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
 

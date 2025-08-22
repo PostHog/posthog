@@ -3,7 +3,6 @@ import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.utils import timezone
-from ee import settings
 from ee.api.authentication import VercelAuthentication
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.test.base import APIBaseTest
@@ -62,7 +61,7 @@ class VercelTestBase(APIBaseTest):
         return {
             "iss": VercelAuthentication.VERCEL_ISSUER,
             "sub": f"account:{account_id or self.account_id}:user:{user_id or self.user_id}",
-            "aud": settings.VERCEL_CLIENT_INTEGRATION_ID,
+            "aud": "test_audience",
             "account_id": account_id or self.account_id,
             "installation_id": installation_id or self.installation_id,
             "user_id": user_id or self.user_id,
@@ -75,7 +74,7 @@ class VercelTestBase(APIBaseTest):
         return {
             "iss": VercelAuthentication.VERCEL_ISSUER,
             "sub": f"account:{account[3:] if account.startswith('acc') else account}",
-            "aud": settings.VERCEL_CLIENT_INTEGRATION_ID,
+            "aud": "test_audience",
             "account_id": account,
             "installation_id": installation_id or self.installation_id,
             "exp": timezone.now().timestamp() + 3600,
