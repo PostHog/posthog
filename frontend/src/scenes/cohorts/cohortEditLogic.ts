@@ -210,7 +210,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             (cohort: CohortType, savedCohort: CohortType): boolean => {
                 return (
                     (cohort.name || '') !== (savedCohort.name || '') ||
-                    (cohort.description || '') !== (savedCohort.description || '')
+                    (cohort.description || '') !== (savedCohort.description || '') ||
+                    JSON.stringify(cohort.filters) !== JSON.stringify(savedCohort.filters)
                 )
             },
         ],
