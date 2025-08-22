@@ -40,8 +40,16 @@ impl IdentifyCache {
     /// Create a test instance with mock Redis client (for testing only)
     #[cfg(test)]
     pub fn test_new() -> Self {
-        use common_redis::MockRedisClient;
-        let mock_client = MockRedisClient::new();
+        use common_redis::{CustomRedisError, MockRedisClient};
+
+        let mut mock_client = MockRedisClient::new();
+
+        // Set up default behavior for get operations - return NotFound (first-time encounters)
+        mock_client = mock_client.get_ret("*", Err(CustomRedisError::NotFound));
+
+        // Set up default behavior for set_nx_ex operations - return success
+        mock_client = mock_client.set_nx_ex_ret("*", Ok(true));
+
         let client_arc = Arc::new(mock_client);
 
         Self {
@@ -49,6 +57,16 @@ impl IdentifyCache {
             ttl_seconds: 86400,
         }
     }
+
+    #[cfg(test)]
+    pub fn test_new_with_mock(mock_client: common_redis::MockRedisClient) -> Self {
+        Self {
+            redis_client: Arc::new(mock_client),
+            ttl_seconds: 86400,
+        }
+    }
+
+
 
     /// Generate Redis key for user-device combination
     fn make_key(team_id: i32, user_id: &str, device_id: &str) -> String {
