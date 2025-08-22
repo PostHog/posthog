@@ -232,6 +232,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
+    MCP_SERVER = 'mcp_server',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -443,6 +444,7 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
+    default_role_id?: string | null
 }
 
 export interface OrganizationDomainType {

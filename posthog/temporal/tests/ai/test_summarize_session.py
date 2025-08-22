@@ -128,6 +128,7 @@ class TestFetchSessionDataActivity:
                 label=StateActivitiesEnum.SESSION_DB_DATA,
                 target_class=SingleSessionSummaryLlmInputs,
             )
+            assert decompressed_data
             assert decompressed_data.session_id == mock_session_id
             assert decompressed_data.user_id == input_data.user_id
 

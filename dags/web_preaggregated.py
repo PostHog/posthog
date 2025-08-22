@@ -16,6 +16,7 @@ from dags.web_preaggregated_utils import (
     swap_partitions_from_staging,
     web_analytics_retry_policy_def,
     check_for_concurrent_runs,
+    clear_all_staging_partitions,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -131,6 +132,31 @@ def web_pre_aggregated_stats(
         sql_generator=WEB_STATS_INSERT_SQL,
         cluster=cluster,
     )
+
+
+@dagster.asset(
+    name="clear_web_staging_partitions",
+    group_name="web_analytics_v2",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def clear_web_staging_partitions(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """
+    Utility asset to clear all partitions from staging tables.
+    Use this to clean up accumulated historical data in staging tables.
+    Ideally, this should not be required, but can be useful for debugging the changes we're doing
+    """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+
+    staging_tables = ["web_pre_aggregated_stats_staging", "web_pre_aggregated_bounces_staging"]
+
+    for staging_table in staging_tables:
+        context.log.info(f"Clearing all partitions from {staging_table}")
+        clear_all_staging_partitions(context, cluster, staging_table)
+
+    context.log.info("Finished clearing all staging partitions")
 
 
 web_pre_aggregate_job = dagster.define_asset_job(

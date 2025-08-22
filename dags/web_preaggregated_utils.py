@@ -56,8 +56,20 @@ def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Opt
     return format_clickhouse_settings(settings)
 
 
-def get_partitions(context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, table_name: str) -> list[str]:
+def get_partitions(
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    table_name: str,
+    filter_by_partition_window: bool = False,
+) -> list[str]:
     partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE table = '{table_name}' AND active = 1"
+
+    if filter_by_partition_window and context.partition_time_window:
+        start_datetime, end_datetime = context.partition_time_window
+        start_partition = start_datetime.strftime("%Y%m%d")
+        end_partition = end_datetime.strftime("%Y%m%d")
+        partition_query += f" AND partition >= '{start_partition}' AND partition < '{end_partition}'"
+
     partitions_result = cluster.any_host(lambda client: client.execute(partition_query)).result()
     context.log.info(f"Found {len(partitions_result)} partitions for {table_name}: {partitions_result}")
     return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
@@ -87,7 +99,7 @@ def drop_partitions_for_date_range(
 def swap_partitions_from_staging(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
 ) -> None:
-    staging_partitions = get_partitions(context, cluster, staging_table)
+    staging_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=True)
     context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
 
     def replace_partition(client, pid):
@@ -95,6 +107,28 @@ def swap_partitions_from_staging(
 
     for partition_id in staging_partitions:
         cluster.any_host(partial(replace_partition, pid=partition_id)).result()
+
+
+def clear_all_staging_partitions(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, staging_table: str
+) -> None:
+    all_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=False)
+
+    if not all_partitions:
+        context.log.info(f"No partitions found in {staging_table}")
+        return
+
+    context.log.info(f"Clearing {len(all_partitions)} partitions from {staging_table}: {all_partitions}")
+
+    def drop_partition(client, pid):
+        return client.execute(f"ALTER TABLE {staging_table} DROP PARTITION '{pid}'")
+
+    for partition_id in all_partitions:
+        try:
+            cluster.any_host(partial(drop_partition, pid=partition_id)).result()
+            context.log.info(f"Dropped partition {partition_id} from {staging_table}")
+        except Exception as e:
+            context.log.warning(f"Failed to drop partition {partition_id} from {staging_table}: {e}")
 
 
 # Shared config schema for daily processing

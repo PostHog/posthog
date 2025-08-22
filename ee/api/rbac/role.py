@@ -35,6 +35,7 @@ class RolePermissions(BasePermission):
 class RoleSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     members = serializers.SerializerMethodField()
+    is_default = serializers.SerializerMethodField()
 
     class Meta:
         model = Role
@@ -45,8 +46,9 @@ class RoleSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "members",
+            "is_default",
         ]
-        read_only_fields = ["id", "created_at", "created_by"]
+        read_only_fields = ["id", "created_at", "created_by", "is_default"]
 
     def validate_name(self, name):
         if Role.objects.filter(name__iexact=name, organization=self.context["request"].user.organization).exists():
@@ -61,6 +63,16 @@ class RoleSerializer(serializers.ModelSerializer):
     def get_members(self, role: Role):
         members = RoleMembership.objects.filter(role=role)
         return RoleMembershipSerializer(members, many=True).data
+
+    def get_is_default(self, role: Role):
+        """Check if this role is the default role for the organization"""
+        request = self.context.get("request")
+        if not request or not hasattr(request, "user") or not request.user.is_authenticated:
+            return False
+        organization = getattr(request.user, "organization", None)
+        if not organization:
+            return False
+        return organization.default_role_id == role.id
 
 
 class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
