@@ -70,6 +70,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
 )
 
 BUCKET_NAME = "test-pipeline"
@@ -493,6 +494,19 @@ async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_credit_note["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_customer_balance_transaction(team, stripe_customer_balance_transaction, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+        table_name="stripe_customerbalancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer_balance_transaction["data"],
     )
 
 

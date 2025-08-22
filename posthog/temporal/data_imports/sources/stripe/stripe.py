@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
@@ -66,6 +67,9 @@ def stripe_source(
             REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
             SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
             CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+            CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(
+                method=client.customers.balance_transactions.list
+            ),
         }
 
         resource = resources.get(endpoint, None)
@@ -177,6 +181,11 @@ def validate_credentials(api_key: str) -> bool:
         {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
         {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
         {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
+        {
+            "name": CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+            "method": client.customers.balance_transactions.list,
+            "params": {"limit": 1},
+        },
     ]
 
     missing_permissions = {}
