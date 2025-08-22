@@ -133,7 +133,9 @@ async def get_patterns_from_redis_outside_workflow(
     redis_client: aioredis.Redis,
 ) -> list[RawSessionGroupSummaryPattern]:
     """Sync function to get patterns from Redis outside of the workflow."""
-    extracted_patterns = []
+    extracted_patterns: list[RawSessionGroupSummaryPattern] = []
+    if not redis_output_keys:
+        return extracted_patterns
     for redis_output_key in redis_output_keys:
         patterns_list = await get_data_class_from_redis(
             redis_client=redis_client,
