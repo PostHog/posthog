@@ -63,6 +63,7 @@ export enum TileId {
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
+    PAGE_REPORTS_PREVIOUS_PAGE = 'PR_PREVIOUS_PAGE',
 
     // Marketing Tiles
     MARKETING = 'MARKETING',
@@ -112,15 +113,16 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: 4,
     [TileId.PAGE_REPORTS_CHANNELS]: 5,
     [TileId.PAGE_REPORTS_REFERRERS]: 6,
-    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 7,
-    [TileId.PAGE_REPORTS_BROWSERS]: 8,
-    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 9,
-    [TileId.PAGE_REPORTS_COUNTRIES]: 10,
-    [TileId.PAGE_REPORTS_REGIONS]: 11,
-    [TileId.PAGE_REPORTS_CITIES]: 12,
-    [TileId.PAGE_REPORTS_TIMEZONES]: 13,
-    [TileId.PAGE_REPORTS_LANGUAGES]: 14,
-    [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
+    [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 7,
+    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 8,
+    [TileId.PAGE_REPORTS_BROWSERS]: 9,
+    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 10,
+    [TileId.PAGE_REPORTS_COUNTRIES]: 11,
+    [TileId.PAGE_REPORTS_REGIONS]: 12,
+    [TileId.PAGE_REPORTS_CITIES]: 13,
+    [TileId.PAGE_REPORTS_TIMEZONES]: 14,
+    [TileId.PAGE_REPORTS_LANGUAGES]: 15,
+    [TileId.PAGE_REPORTS_TOP_EVENTS]: 16,
 
     // Marketing Tiles
     [TileId.MARKETING]: 1,
@@ -238,6 +240,8 @@ export enum PathTab {
     END_PATH = 'END_PATH',
     EXIT_CLICK = 'EXIT_CLICK',
     SCREEN_NAME = 'SCREEN_NAME',
+    PREVIOUS_PATH = 'PREVIOUS_PATH',
+    NEXT_PATH = 'NEXT_PATH',
 }
 
 export enum GeographyTab {
@@ -281,6 +285,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$entry_pathname', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ExitPage:
             return { key: '$end_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.PreviousPage:
+            return undefined // could be $prev_pageview_pathname or $referrer
         case WebStatsBreakdown.ExitClick:
             return { key: '$last_external_click_url', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ScreenName:
