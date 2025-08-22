@@ -2,26 +2,31 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { PRODUCT_ANALYTICS_PRODUCT_TREE_NAME } from '~/../../products/product_analytics/manifest'
-import { WEB_ANALYTICS_PRODUCT_TREE_NAME } from '~/../../products/web_analytics/manifest'
+const EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS: Record<string, string[]> = {
+    prioritized: ['Product analytics', 'Web analytics'],
+    prioritized_web_first: ['Web analytics', 'Product analytics'],
+}
 
-const EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS: string[] = [
-    PRODUCT_ANALYTICS_PRODUCT_TREE_NAME,
-    WEB_ANALYTICS_PRODUCT_TREE_NAME,
-] as const
+export const getSortOverride = (
+    featureFlags: FeatureFlagsSet
+): ((a: TreeDataItem, b: TreeDataItem) => number | null) | undefined => {
+    const flagValue = featureFlags[FEATURE_FLAGS.SIDEBAR_ANALYTICS_PRIORITIZATION]
 
-export const getSortOverride = (featureFlags: FeatureFlagsSet) => {
+    // Early return if experiment is not enabled
+    if (!flagValue || typeof flagValue !== 'string' || !(flagValue in EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS)) {
+        return undefined
+    }
+
+    const prioritizedItems = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS[flagValue]
+
     return (a: TreeDataItem, b: TreeDataItem): number | null => {
-        if (
-            a.record?.category !== 'Analytics' ||
-            b.record?.category !== 'Analytics' ||
-            featureFlags[FEATURE_FLAGS.SIDEBAR_ANALYTICS_PRIORITIZATION] !== 'prioritized'
-        ) {
+        // Only apply custom sorting to Analytics category items
+        if (a.record?.category !== 'Analytics' || b.record?.category !== 'Analytics') {
             return null
         }
 
-        const aIndex = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS.indexOf(a.name)
-        const bIndex = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS.indexOf(b.name)
+        const aIndex = prioritizedItems.indexOf(a.name)
+        const bIndex = prioritizedItems.indexOf(b.name)
 
         // If both are in prioritized list, sort by their position on our priority list
         if (aIndex !== -1 && bIndex !== -1) {

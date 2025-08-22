@@ -2,8 +2,6 @@ import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
 
-export const WEB_ANALYTICS_PRODUCT_TREE_NAME = 'Web analytics'
-
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
     urls: {
@@ -15,7 +13,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {},
     treeItemsProducts: [
         {
-            path: 'Web analytics', // Keep in sync with WEB_ANALYTICS_PRODUCT_TREE_NAME
+            path: 'Web analytics',
             category: 'Analytics',
             iconType: 'pieChart',
             href: urls.webAnalytics(),

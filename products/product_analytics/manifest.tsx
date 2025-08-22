@@ -11,8 +11,6 @@ import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/querie
 
 import { DashboardType, InsightShortId, InsightType, ProductManifest } from '../../frontend/src/types'
 
-export const PRODUCT_ANALYTICS_PRODUCT_TREE_NAME = 'Product analytics'
-
 export const manifest: ProductManifest = {
     name: 'Product Analytics',
     urls: {
@@ -139,7 +137,7 @@ export const manifest: ProductManifest = {
     ],
     treeItemsProducts: [
         {
-            path: 'Product analytics', // Keep in sync with PRODUCT_ANALYTICS_PRODUCT_TREE_NAME
+            path: 'Product analytics',
             category: 'Analytics',
             type: 'insight',
             href: urls.insights(),
