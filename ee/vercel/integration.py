@@ -82,7 +82,10 @@ class VercelIntegration:
         ).exists()
 
         if organization_integration_exists:
-            OrganizationIntegration.objects.update(config=payload)  # maybe merge here instead.
+            OrganizationIntegration.objects.filter(
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                integration_id=installation_id,
+            ).update(config=payload)
             logger.info("Vercel installation updated", installation_id=installation_id)
             return
 
@@ -159,12 +162,10 @@ class VercelIntegration:
         }
 
     @staticmethod
-    def update_installation(installation_id: str, payload: dict[str, Any]) -> None:
+    def update_installation(installation_id: str, billing_plan_id: str) -> None:
         logger.info("Starting Vercel installation update", installation_id=installation_id)
 
-        installation = VercelIntegration._get_installation(installation_id)
-        installation.config.update(payload)
-        installation.save(update_fields=["config"])
+        # TODO: Implement billing plan update logic here
 
         logger.info("Successfully updated Vercel installation", installation_id=installation_id)
 

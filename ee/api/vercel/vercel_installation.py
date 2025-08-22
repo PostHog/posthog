@@ -44,6 +44,10 @@ class UpsertInstallationPayloadSerializer(serializers.Serializer):
     )
 
 
+class UpdateInstallationPayloadSerializer(serializers.Serializer):
+    billingPlanId = serializers.CharField(help_text='Partner-provided billing plan. Example: "pro200"')
+
+
 INSTALLATION_ID_PATTERN = re.compile(r"^inst_[A-Za-z0-9]{9,}$")
 
 
@@ -81,13 +85,13 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#upsert-installation
         """
-        serializer = UpsertInstallationPayloadSerializer(data=request.data)
+        serializer = UpdateInstallationPayloadSerializer(data=request.data)
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
-        installation_id = self.kwargs["installation_id"]
-
-        VercelIntegration.upsert_installation(installation_id, serializer.validated_data)
+        VercelIntegration.upsert_installation(
+            self.kwargs["installation_id"], serializer.validated_data.get("billingPlanId")
+        )
         return Response(status=204)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -103,13 +107,13 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#update-installation
         """
-        serializer = UpsertInstallationPayloadSerializer(data=request.data)
+        serializer = UpdateInstallationPayloadSerializer(data=request.data)
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
         installation_id = self.kwargs["installation_id"]
 
-        VercelIntegration.update_installation(installation_id, serializer.validated_data)
+        VercelIntegration.update_installation(installation_id, serializer.validated_data.get("billingPlanId"))
         return Response(status=204)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
