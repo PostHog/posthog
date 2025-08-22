@@ -249,7 +249,7 @@ class TestSessionSummarizationNode(BaseTest):
 
         state = self._create_test_state()
         with self.assertRaises(ValueError) as context:
-            async_to_sync(self.node._summarize_sessions_as_group)(session_ids, state, None)
+            async_to_sync(self.node._summarize_sessions_as_group)(session_ids, state, None, None)
 
         self.assertIn("No summary was generated", str(context.exception))
 
