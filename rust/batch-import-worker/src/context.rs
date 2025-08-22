@@ -4,9 +4,9 @@ use std::{sync::atomic::AtomicBool, time::Duration};
 use anyhow::Error;
 use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
-use tracing::{info, warn};
+use tracing::info;
 
-use crate::cache::{AmplitudeIdentifyCache, MemoryAmplitudeIdentifyCache, RedisAmplitudeIdentifyCache};
+use crate::cache::IdentifyCache;
 use crate::config::Config;
 
 pub struct AppContext {
@@ -16,7 +16,7 @@ pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub running: AtomicBool, // Set to false on SIGTERM, etc.
     pub worker_liveness: Arc<HealthHandle>,
-    pub amplitude_identify_cache: Arc<dyn AmplitudeIdentifyCache>,
+    pub identify_cache: Arc<IdentifyCache>,
 }
 
 impl AppContext {
@@ -32,21 +32,15 @@ impl AppContext {
 
         let liveness = Arc::new(liveness);
 
-        // Initialize the amplitude identify cache - use Redis if configured, otherwise in-memory
-        let amplitude_identify_cache: Arc<dyn AmplitudeIdentifyCache> = if !config.redis_url.is_empty() {
-            match RedisAmplitudeIdentifyCache::with_ttl(&config.redis_url, config.amplitude_identify_cache_ttl_seconds).await {
-                Ok(redis_cache) => {
-                    info!("Using Redis cache for amplitude identify events at: {} with TTL: {}s", config.redis_url, config.amplitude_identify_cache_ttl_seconds);
-                    Arc::new(redis_cache)
-                }
-                Err(e) => {
-                    warn!("Failed to initialize Redis cache, falling back to in-memory: {}", e);
-                    Arc::new(MemoryAmplitudeIdentifyCache::with_ttl(config.amplitude_identify_cache_ttl_seconds))
-                }
+        // Initialize the identify cache
+        let identify_cache = match IdentifyCache::with_ttl(&config.redis_url, config.identify_cache_ttl_seconds).await {
+            Ok(cache) => {
+                info!("Using Redis cache for identify events at: {} with TTL: {}s", config.redis_url, config.identify_cache_ttl_seconds);
+                cache
             }
-        } else {
-            info!("Using in-memory cache for amplitude identify events with TTL: {}s (no Redis URL configured)", config.amplitude_identify_cache_ttl_seconds);
-            Arc::new(MemoryAmplitudeIdentifyCache::with_ttl(config.amplitude_identify_cache_ttl_seconds))
+            Err(e) => {
+                return Err(Error::msg(format!("Failed to initialize Redis cache: {}", e)));
+            }
         };
 
         let ctx = Self {
@@ -60,7 +54,7 @@ impl AppContext {
             health_registry,
             running: AtomicBool::new(true),
             worker_liveness: liveness,
-            amplitude_identify_cache,
+            identify_cache: Arc::new(identify_cache),
         };
 
         Ok(ctx)

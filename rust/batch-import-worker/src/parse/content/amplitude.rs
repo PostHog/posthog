@@ -344,12 +344,12 @@ impl AmplitudeEvent {
             let mut events = Vec::new();
 
             // Check if we need to inject an $identify event
-            if context.amplitude_identify_injection {
+            if context.identify_injection {
                 if let (Some(user_id), Some(device_id)) = (&amp.user_id, &amp.device_id) {
                 // Check cache to see if we've seen this user-device combination
                 let cache_result = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
-                        context.amplitude_identify_cache
+                        context.identify_cache
                             .has_seen_user_device(team_id, user_id, device_id)
                             .await
                     })
@@ -373,7 +373,7 @@ impl AmplitudeEvent {
                             // Mark as seen in cache
                             let mark_result = tokio::task::block_in_place(|| {
                                 tokio::runtime::Handle::current().block_on(async {
-                                    context.amplitude_identify_cache
+                                    context.identify_cache
                                         .mark_seen_user_device(team_id, user_id, device_id)
                                         .await
                                 })
@@ -461,14 +461,14 @@ mod tests {
     use serde_json::json;
 
     fn create_test_context() -> TransformContext {
-        use crate::cache::MemoryAmplitudeIdentifyCache;
+        use crate::cache::IdentifyCache;
         use std::sync::Arc;
 
         TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
-            amplitude_identify_cache: Arc::new(MemoryAmplitudeIdentifyCache::new()),
-            amplitude_identify_injection: false,
+            identify_cache: Arc::new(IdentifyCache::test_new()),
+            identify_injection: false,
         }
     }
 

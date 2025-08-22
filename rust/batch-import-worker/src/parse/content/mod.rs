@@ -3,7 +3,7 @@ use std::sync::Arc;
 use mixpanel::MixpanelContentConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::cache::AmplitudeIdentifyCache;
+use crate::cache::IdentifyCache;
 
 pub mod amplitude;
 pub mod captured;
@@ -23,6 +23,6 @@ pub enum ContentType {
 pub struct TransformContext {
     pub team_id: i32,
     pub token: String,
-    pub amplitude_identify_cache: Arc<dyn AmplitudeIdentifyCache>,
-    pub amplitude_identify_injection: bool,
+    pub identify_cache: Arc<IdentifyCache>,
+    pub identify_injection: bool,
 }

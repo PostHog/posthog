@@ -44,8 +44,8 @@ impl FormatConfig {
         let transform_context = TransformContext {
             team_id: model.team_id,
             token: context.get_token_for_team_id(model.team_id).await?,
-            amplitude_identify_cache: context.amplitude_identify_cache.clone(),
-            amplitude_identify_injection: context.config.amplitude_identify_injection,
+            identify_cache: context.identify_cache.clone(),
+            identify_injection: context.config.identify_injection,
         };
 
         match content {
