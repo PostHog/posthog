@@ -505,110 +505,26 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
             # Test time-based filtering
             EvalCase(
                 input="Show recordings from yesterday",
-                expected=MaxRecordingUniversalFilters(
-                    date_from="-1d",
-                    date_to="-1d",
-                    duration=[
-                        RecordingDurationFilter(
-                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
-                        )
-                    ],
-                    filter_group=MaxOuterUniversalFiltersGroup(
-                        type=FilterLogicalOperator.AND_,
-                        values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
-                    ),
-                    filter_test_accounts=True,
-                    order=RecordingOrder.START_TIME,
-                ),
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "-1d", "date_to": "-1d"}),
             ),
             EvalCase(
                 input="Show me recordings since the 1st of August",
-                expected=MaxRecordingUniversalFilters(
-                    date_from="2025-08-01T00:00:00",
-                    date_to=None,
-                    duration=[
-                        RecordingDurationFilter(
-                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
-                        )
-                    ],
-                    filter_group=MaxOuterUniversalFiltersGroup(
-                        type=FilterLogicalOperator.AND_,
-                        values=[
-                            MaxInnerUniversalFiltersGroup(
-                                type=FilterLogicalOperator.AND_,
-                                values=[
-                                    EventPropertyFilter(
-                                        key="$browser",
-                                        type="event",
-                                        value=["Chrome"],
-                                        operator=PropertyOperator.EXACT,
-                                    )
-                                ],
-                            )
-                        ],
-                    ),
-                    filter_test_accounts=True,
-                    order=RecordingOrder.START_TIME,
-                ),
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2025-08-01T00:00:00"}),
             ),
             EvalCase(
-                input="Show me recordings from the 1st of August to the 31st of August",
-                expected=MaxRecordingUniversalFilters(
-                    date_from="2025-08-01T00:00:00",
-                    date_to="2025-08-31T23:59:59",
-                    duration=[
-                        RecordingDurationFilter(
-                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
-                        )
-                    ],
-                    filter_group=MaxOuterUniversalFiltersGroup(
-                        type=FilterLogicalOperator.AND_,
-                        values=[
-                            MaxInnerUniversalFiltersGroup(
-                                type=FilterLogicalOperator.AND_,
-                                values=[
-                                    EventPropertyFilter(
-                                        key="$browser",
-                                        type="event",
-                                        value=["Chrome"],
-                                        operator=PropertyOperator.EXACT,
-                                    )
-                                ],
-                            )
-                        ],
-                    ),
-                    filter_test_accounts=True,
-                    order=RecordingOrder.START_TIME,
+                input="Show me recordings until the 31st of August",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_to": "2025-08-31T23:59:59"}),
+            ),
+            EvalCase(
+                input="Show me recordings from the 1st of September to the 31st of September",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(
+                    update={"date_from": "2025-09-01T00:00:00", "date_to": "2025-09-30T23:59:59"}
                 ),
             ),
             EvalCase(
                 input="Show me recordings from the 1st of September to the 1st of September",
-                expected=MaxRecordingUniversalFilters(
-                    date_from="2025-09-01T00:00:00",
-                    date_to="2025-09-01T23:59:59",
-                    duration=[
-                        RecordingDurationFilter(
-                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
-                        )
-                    ],
-                    filter_group=MaxOuterUniversalFiltersGroup(
-                        type=FilterLogicalOperator.AND_,
-                        values=[
-                            MaxInnerUniversalFiltersGroup(
-                                type=FilterLogicalOperator.AND_,
-                                values=[
-                                    EventPropertyFilter(
-                                        key="$browser",
-                                        type="event",
-                                        value=["Chrome"],
-                                        operator=PropertyOperator.EXACT,
-                                    )
-                                ],
-                            )
-                        ],
-                    ),
-                    filter_test_accounts=True,
-                    order=RecordingOrder.START_TIME,
+                expected=DUMMY_CURRENT_FILTERS.model_copy(
+                    update={"date_from": "2025-09-01T00:00:00", "date_to": "2025-09-01T23:59:59"}
                 ),
             ),
             EvalCase(
