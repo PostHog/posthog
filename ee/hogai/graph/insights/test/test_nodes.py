@@ -764,7 +764,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn(self.insight2.id, result["selected_insights"])
         self.assertIn("Found 2 relevant insights", result["explanation"])
 
-    def test_returns_visualization_messag_with_trends_query(self):
+    def test_returns_visualization_message_with_trends_query(self):
         """Test that VisualizationMessage answer field contains TrendsQuery."""
 
         # Load insights first
@@ -782,7 +782,7 @@ class TestInsightSearchNode(BaseTest):
 
         # Verify the answer contains the correct query type
         answer1 = viz_message1.answer
-        self.assertIsInstance(answer1, TrendsQuery, "Answer should be a dictionary")
+        self.assertIsInstance(answer1, TrendsQuery)
 
     def test_returns_visualization_message_with_funnels_query(self):
         """Test that VisualizationMessage answer field contains FunnelsQuery."""
@@ -801,7 +801,7 @@ class TestInsightSearchNode(BaseTest):
 
         # Verify the answer contains the correct query type
         answer2 = viz_message2.answer
-        self.assertIsInstance(answer2, FunnelsQuery, "Answer should be a dictionary")
+        self.assertIsInstance(answer2, FunnelsQuery)
 
     def test_returns_visualization_message_with_retention_query(self):
         """Test that VisualizationMessage answer field contains RetentionQuery."""
@@ -841,7 +841,7 @@ class TestInsightSearchNode(BaseTest):
 
         # Verify the answer contains the correct query type
         answer = viz_message.answer
-        self.assertIsInstance(answer, RetentionQuery, "Answer should be a dictionary")
+        self.assertIsInstance(answer, RetentionQuery)
 
     def test_returns_visualization_message_with_hogql_query(self):
         """Test that VisualizationMessage answer field contains HogQLQuery."""
@@ -874,4 +874,4 @@ class TestInsightSearchNode(BaseTest):
 
         # Verify the answer contains the correct query type
         answer = viz_message.answer
-        self.assertIsInstance(answer, HogQLQuery, "Answer should be a dictionary")
+        self.assertIsInstance(answer, HogQLQuery)
