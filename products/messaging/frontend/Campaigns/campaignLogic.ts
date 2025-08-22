@@ -1,5 +1,5 @@
 import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -101,7 +101,7 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         ],
     })),
-    forms(({ actions: keaActions }) => ({
+    forms(({ actions }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
             errors: ({ name, trigger, actions }) => {
@@ -114,25 +114,20 @@ export const campaignLogic = kea<campaignLogicType>([
                                 ? 'At least one event or action is required'
                                 : undefined,
                     },
-                    actions: actions
-                        .map((action) => {
-                            const validationResult = HogFlowActionSchema.safeParse(action)
-                            return !['trigger', 'exit'].includes(action.type) && !validationResult.success
-                                ? {
-                                      [validationResult.error.path[validationResult.error.path.length - 1]]:
-                                          'Some fields need work',
-                                  }
-                                : undefined
-                        })
-                        .filter(Boolean),
-                }
+                    actions: actions.some((action) => {
+                        const validationResult = HogFlowActionSchema.safeParse(action)
+                        return !['trigger', 'exit'].includes(action.type) && !validationResult.success
+                    })
+                        ? 'Some fields need work'
+                        : undefined,
+                } as DeepPartialMap<HogFlow, ValidationErrorType>
             },
             submit: async (values) => {
                 if (!values) {
                     return
                 }
 
-                keaActions.saveCampaign(values)
+                actions.saveCampaign(values)
             },
         },
     })),
