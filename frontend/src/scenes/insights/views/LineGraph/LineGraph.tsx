@@ -82,9 +82,8 @@ export function ensureTooltip(): [Root, HTMLElement] {
                 () => {
                     isMouseOverTooltip = false
                     hideTooltipTimeout = setTimeout(() => {
-                        const tooltipElement = document.getElementById('InsightTooltipWrapper')
-                        if (tooltipElement && !isMouseOverTooltip) {
-                            tooltipElement.classList.add('opacity-0', 'invisible')
+                        if (tooltipEl && !isMouseOverTooltip) {
+                            tooltipEl.classList.add('opacity-0', 'invisible')
                         }
                     }, 100)
                 },
