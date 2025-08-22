@@ -37,19 +37,24 @@ class DatabaseSyncToAsync(SyncToAsync):
     SyncToAsync version that cleans up old database connections when it exits.
     """
 
-    def thread_handler(self, loop, *args, **kwargs):
+    async def __call__(self, *args, **kwargs):
+        # Automatically captures Temporal logging context.
         start_time = time()
+        try:
+            return await super().__call__(*args, **kwargs)
+        finally:
+            # Record the execution time metric
+            if self._thread_sensitive:
+                execution_time = time() - start_time
+                DATABASE_SYNC_TO_ASYNC_TIME.labels(function_name=self.func.__name__).observe(execution_time)
+                logger.info(f"database_sync_to_async {self.func.__name__} took {execution_time} seconds")
+
+    def thread_handler(self, loop, *args, **kwargs):
         close_old_connections()
         try:
             return super().thread_handler(loop, *args, **kwargs)
         finally:
             close_old_connections()
-            execution_time = time() - start_time
-
-            # Record execution time in Prometheus metric
-            DATABASE_SYNC_TO_ASYNC_TIME.labels(function_name=self.func.__name__).observe(execution_time)
-
-            logger.info(f"database_sync_to_async {self.func.__name__} took {execution_time} seconds")
 
 
 # Taken from https://github.com/django/asgiref/blob/main/asgiref/sync.py#L547
