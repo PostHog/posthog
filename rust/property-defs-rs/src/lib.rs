@@ -10,7 +10,7 @@ use metrics_consts::{
     UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
-use v2_batch_ingestion::process_batch;
+use batch_ingestion::process_batch;
 
 use ahash::AHashSet;
 use tokio::sync::mpsc::error::TrySendError;
@@ -29,7 +29,7 @@ pub mod measuring_channel;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
-pub mod v2_batch_ingestion;
+pub mod batch_ingestion;
 
 pub async fn update_consumer_loop(
     config: Config,

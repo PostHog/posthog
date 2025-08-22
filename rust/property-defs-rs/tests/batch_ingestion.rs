@@ -10,7 +10,7 @@ use property_defs_rs::{
     config::Config,
     types::{Event, GroupType, PropertyParentType, Update},
     update_cache::Cache,
-    v2_batch_ingestion::process_batch,
+    batch_ingestion::process_batch,
 };
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
