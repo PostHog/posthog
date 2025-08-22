@@ -76,7 +76,10 @@ class FastInsightSerializer:
         self._insight_result_cache: Optional[InsightResult] = None
 
     def insight_result(self, insight: Insight) -> InsightResult:
-        """Cached insight result calculation - matches original InsightSerializer logic"""
+        """
+        Cached insight result calculation - matches original InsightSerializer logic.
+        Note: each serializer instance should only deal with one insight/tile combo.
+        """
         if self._insight_result_cache is not None:
             return self._insight_result_cache
 
@@ -155,8 +158,6 @@ class FastInsightSerializer:
         return query
 
     def serialize(self, insight: Insight) -> dict[str, Any]:
-        """Fast orjson replacement for InsightSerializer.to_representation"""
-
         # Get dashboard tiles representation
         dashboard_tiles = [
             {"id": tile.id, "dashboard_id": tile.dashboard_id, "deleted": tile.deleted}
@@ -312,13 +313,6 @@ class FastInsightSerializer:
             "types": insight_result.types,
             "filters_hash": insight_result.cache_key,
         }
-
-        # Hide PII fields when hideExtraDetails from SharingConfiguration is enabled
-        if self.context.get("hide_extra_details", False):
-            representation.pop("created_by", None)
-            representation.pop("last_modified_by", None)
-            representation.pop("created_at", None)
-            representation.pop("last_modified_at", None)
 
         return representation
 
