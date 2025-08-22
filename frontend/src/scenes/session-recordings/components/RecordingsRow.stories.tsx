@@ -1,4 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
+
 import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
 
 import { SessionRecordingType } from '~/types'

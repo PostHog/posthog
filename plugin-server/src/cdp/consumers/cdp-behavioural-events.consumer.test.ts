@@ -1,14 +1,14 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { createHash } from 'crypto'
+
+import { resetKafka } from '~/tests/helpers/kafka'
 
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { CdpBehaviouralEventsConsumer, ProducedEvent } from './cdp-behavioural-events.consumer'
-import { resetKafka } from '~/tests/helpers/kafka'
 
 jest.setTimeout(20_000)
 

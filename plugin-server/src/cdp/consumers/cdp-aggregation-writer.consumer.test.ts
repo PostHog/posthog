@@ -431,7 +431,7 @@ describe('CdpAggregationWriterConsumer', () => {
                     type: 'behavioural-filter-match-event',
                     teamId: team.id,
                     personId: validPersonId2,
-                    filterHash: "hash'); DELETE FROM behavioural_filter_matched_events; --",
+                    filterHash: "hash'); DELETE FROM behavioural_filter_matched_events_partitioned; --",
                     date: '2023-12-01',
                     counter: 1,
                 },
@@ -468,7 +468,7 @@ describe('CdpAggregationWriterConsumer', () => {
             expect(behavioralResult.rows[0].filter_hash).toBe(problematicFilterHash)
             expect(behavioralResult.rows[1].person_id).toBe(validPersonId2)
             expect(behavioralResult.rows[1].filter_hash).toBe(
-                "hash'); DELETE FROM behavioural_filter_matched_events; --"
+                "hash'); DELETE FROM behavioural_filter_matched_events_partitioned; --"
             )
 
             // Verify tables still exist (SQL injection attempt failed)

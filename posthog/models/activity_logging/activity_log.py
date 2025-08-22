@@ -10,14 +10,14 @@ from django.dispatch.dispatcher import receiver
 from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, FieldDoesNotExist
 from django.db import transaction
 
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
-from posthog.models.utils import UUIDT, UUIDModel
+from posthog.models.utils import UUIDT, UUIDTModel
 
 from typing import TYPE_CHECKING
 
@@ -43,6 +43,7 @@ ActivityScope = Literal[
     "Dashboard",
     "Replay",
     "Experiment",
+    "ExperimentHoldout",
     "ExperimentSavedMetric",
     "Survey",
     "EarlyAccessFeature",
@@ -63,17 +64,19 @@ ActivityScope = Literal[
     "Tag",
     "TaggedItem",
     "Subscription",
-    "AlertConfiguration",
     "PersonalAPIKey",
     "User",
     "Action",
+    "AlertConfiguration",
+    "Threshold",
+    "AlertSubscription",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: ActivityScope
+    type: ActivityScope | str
     action: ChangeAction
     field: Optional[str] = None
     before: Optional[Any] = None
@@ -88,6 +91,15 @@ class Trigger:
 
 
 @dataclasses.dataclass(frozen=True)
+class ActivityContextBase:
+    """
+    Extend this class in specific implementations to add context-specific fields.
+    """
+
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     # The display name of the item in question
     name: Optional[str] = None
@@ -96,15 +108,18 @@ class Detail:
     type: Optional[str] = None
     changes: Optional[list[Change]] = None
     trigger: Optional[Trigger] = None
+    context: Optional[ActivityContextBase] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger):
+        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
+            return str(obj)
+        if isinstance(obj, UUID):
             return str(obj)
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
             return {"first_name": obj.first_name, "email": obj.email}
@@ -124,11 +139,32 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "deleted": obj.deleted,
                 "active": obj.active,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
+            return {
+                "id": obj.id,
+                "short_id": obj.short_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+                "team_id": obj.team_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
+            return {
+                "id": obj.id,
+                "media_location": obj.media_location,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+            }
 
         return json.JSONEncoder.default(self, obj)
 
 
-class ActivityLog(UUIDModel):
+class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
@@ -194,12 +230,32 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
+    "Organization": {
+        "name": "organization name",
+        "enforce_2fa": "two-factor authentication requirement",
+        "members_can_invite": "member invitation permissions",
+        "members_can_use_personal_api_keys": "personal API key permissions",
+        "allow_publicly_shared_resources": "public sharing permissions",
+        "is_member_join_email_enabled": "member join email notifications",
+        "session_cookie_age": "session cookie age",
+        "default_experiment_stats_method": "default experiment stats method",
+    },
+    "BatchExport": {
+        "paused": "enabled",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "last_used_at",
+    ],
+    "AlertConfiguration": [
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
     ],
 }
 
@@ -320,15 +376,32 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "customer_id",
         "customer_trust_scores",
         "personalization",
+        "members",
+        "memberships",
+        "available_product_features",
+        "domain_whitelist",
+        "setup_section_2_completed",
+        "plugins_access_level",
+        "is_hipaa",
+        "is_ai_data_processing_approved",
+        "never_drop_data",
     ],
     "BatchExport": [
         "latest_runs",
+        "last_updated_at",
+        "last_paused_at",
+        "batchexportrun_set",
+        "batchexportbackfill_set",
     ],
     "BatchImport": [
+        "lease_id",
         "leased_until",
         "status_message",
         "state",
         "secrets",
+        "lease_id",
+        "backoff_attempt",
+        "backoff_until",
     ],
     "Integration": [
         "sensitive_config",
@@ -352,7 +425,11 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "strapi_id",
     ],
     "AlertConfiguration": [
-        "state",
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
     ],
     "Action": [
         "bytecode",
@@ -394,16 +471,37 @@ def safely_get_field_value(instance: models.Model | None, field: str):
     """Helper function to get the value of a field, handling related objects and exceptions."""
     if instance is None:
         return None
+
     try:
+        field_obj = instance._meta.get_field(field)
+
+        # For ForeignKey/OneToOneField, always access the ID first to avoid lazy loading
+        # throwing malformed UUID validation errors
+        if isinstance(field_obj, models.ForeignKey | models.OneToOneField):
+            field_id = getattr(instance, f"{field}_id", None)
+            if field_id is None:
+                return None
+            # Ensure field_id is actually an ID, not the object itself
+            if hasattr(field_id, "pk"):
+                field_id = field_id.pk
+            # Only fetch the actual object if we have a valid ID
+            related_model = field_obj.related_model
+            if isinstance(related_model, type) and issubclass(related_model, models.Model):
+                return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
+            else:
+                return field_id
+
+        # For other fields, use normal access
         value = getattr(instance, field, None)
         if isinstance(value, models.Manager):
             value = _read_through_relation(value)
+        return value
+
     # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
     # exception. We catch this exception and return None, since the related object has been deleted, and we
     # don't need any additional information about it other than the fact that it was deleted.
-    except ObjectDoesNotExist:
-        value = None
-    return value
+    except (ObjectDoesNotExist, FieldDoesNotExist):
+        return None
 
 
 def changes_between(
@@ -527,7 +625,7 @@ def dict_changes_between(
 def log_activity(
     *,
     organization_id: Optional[UUID],
-    team_id: int,
+    team_id: Optional[int],
     user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,

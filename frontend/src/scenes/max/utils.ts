@@ -1,4 +1,5 @@
 import { decodeParams, encodeParams } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -8,6 +9,7 @@ import {
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    NotebookUpdateMessage,
     ReasoningMessage,
     RootAssistantMessage,
     VisualizationMessage,
@@ -21,6 +23,7 @@ import {
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
+
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
@@ -49,6 +52,12 @@ export function isAssistantToolCallMessage(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
+}
+
+export function isNotebookUpdateMessage(
+    message: RootAssistantMessage | undefined | null
+): message is NotebookUpdateMessage {
+    return message?.type === AssistantMessageType.Notebook
 }
 
 export function castAssistantQuery(

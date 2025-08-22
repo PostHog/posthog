@@ -2,16 +2,17 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
-import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import React, { useMemo, useState } from 'react'
+
+import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { fullName, inStorybookTestRunner } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { MinimalHedgehogConfig, UserBasicType } from '~/types'
 
-import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
+import { IconRobot } from '../icons'
 
 export interface ProfilePictureProps {
     user?:

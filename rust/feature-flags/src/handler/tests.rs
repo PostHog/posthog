@@ -435,7 +435,7 @@ fn test_decode_form_data_kludges() {
         let result = decoding::decode_form_data(body, None);
 
         if should_succeed {
-            assert!(result.is_ok(), "Failed to decode: {}", input);
+            assert!(result.is_ok(), "Failed to decode: {input}");
             let request = result.unwrap();
             if input.contains("bio") {
                 // Verify we can handle newlines in the decoded JSON
@@ -448,7 +448,7 @@ fn test_decode_form_data_kludges() {
                 assert_eq!(request.token, Some("test".to_string()));
             }
         } else {
-            assert!(result.is_err(), "Expected error for input: {}", input);
+            assert!(result.is_err(), "Expected error for input: {input}");
         }
     }
 }
@@ -464,7 +464,7 @@ fn test_handle_unencoded_form_data_with_emojis() {
     });
 
     let base64 = general_purpose::STANDARD.encode(json.to_string());
-    let body = Bytes::from(format!("data={}", base64));
+    let body = Bytes::from(format!("data={base64}"));
 
     let result = decoding::decode_form_data(body, None);
     assert!(result.is_ok(), "Failed to decode emoji content");
@@ -491,7 +491,7 @@ fn test_decode_base64_encoded_form_data_with_emojis() {
     });
 
     let base64 = general_purpose::STANDARD.encode(json.to_string());
-    let body = Bytes::from(format!("data={}", base64));
+    let body = Bytes::from(format!("data={base64}"));
 
     let result = decoding::decode_form_data(body, Some(Compression::Base64));
     assert!(result.is_ok(), "Failed to decode emoji content");
@@ -551,8 +551,7 @@ fn test_decode_form_data_malformed_input() {
         let result = decoding::decode_form_data(body, None);
         assert!(
             result.is_err(),
-            "Expected error for malformed input: {}",
-            input
+            "Expected error for malformed input: {input}",
         );
     }
 }
@@ -1186,9 +1185,15 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(true),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(result.flags.len(), 2);
     assert!(result
         .flags
@@ -1201,17 +1206,29 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(false),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(result.flags.len(), 4);
     assert!(!had_errors);
 
     // Test 3: only_evaluate_survey_feature_flags not set
     let query_params = FlagsQueryParams::default();
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(result.flags.len(), 4);
     assert!(!had_errors);
     assert!(result
@@ -1225,9 +1242,15 @@ async fn test_fetch_and_filter_flags() {
         ..Default::default()
     };
 
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
 
     // Should return all survey flags since flag_keys filtering now happens in evaluation logic
     // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation
@@ -1237,4 +1260,56 @@ async fn test_fetch_and_filter_flags() {
         .flags
         .iter()
         .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+}
+
+#[test]
+fn test_disable_flags_request_parsing() {
+    // Test that disable_flags=true is properly parsed and detected
+
+    // Test case 1: disable_flags=true should be detected
+    let payload_with_disable = json!({
+        "token": "test_token",
+        "distinct_id": "test_user",
+        "disable_flags": true
+    });
+
+    let bytes = Bytes::from(payload_with_disable.to_string());
+    let request = crate::flags::flag_request::FlagRequest::from_bytes(bytes)
+        .expect("Failed to parse request with disable_flags=true");
+
+    assert!(
+        request.is_flags_disabled(),
+        "disable_flags=true should be detected"
+    );
+
+    // Test case 2: disable_flags=false should NOT be detected as disabled
+    let payload_with_enable = json!({
+        "token": "test_token",
+        "distinct_id": "test_user",
+        "disable_flags": false
+    });
+
+    let bytes = Bytes::from(payload_with_enable.to_string());
+    let request = crate::flags::flag_request::FlagRequest::from_bytes(bytes)
+        .expect("Failed to parse request with disable_flags=false");
+
+    assert!(
+        !request.is_flags_disabled(),
+        "disable_flags=false should not be detected as disabled"
+    );
+
+    // Test case 3: No disable_flags field should default to enabled
+    let payload_default = json!({
+        "token": "test_token",
+        "distinct_id": "test_user"
+    });
+
+    let bytes = Bytes::from(payload_default.to_string());
+    let request = crate::flags::flag_request::FlagRequest::from_bytes(bytes)
+        .expect("Failed to parse request without disable_flags");
+
+    assert!(
+        !request.is_flags_disabled(),
+        "Default should be flags enabled"
+    );
 }

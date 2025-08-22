@@ -114,3 +114,9 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+
+# Ignore local mprocs configs
+bin/mprocs*.local.yaml
+
+# Debug output of our session summaries product
+.session-summaries

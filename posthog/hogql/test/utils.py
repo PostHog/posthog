@@ -5,7 +5,16 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from posthog.hogql.query import execute_hogql_query
+from posthog.schema import HogQLQueryModifiers
 from posthog.test.base import clean_varying_query_parts
+
+
+def execute_hogql_query_with_timings(*args, **kwargs):
+    modifiers = kwargs.get("modifiers") or HogQLQueryModifiers()
+    modifiers.timings = True
+    kwargs["modifiers"] = modifiers
+    return execute_hogql_query(*args, **kwargs)
 
 
 def pretty_print_in_tests(query: str | None, team_id: int) -> str:

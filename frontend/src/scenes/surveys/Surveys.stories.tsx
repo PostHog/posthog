@@ -1,4 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -18,7 +20,6 @@ import {
 } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',

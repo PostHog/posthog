@@ -47,7 +47,7 @@ jobs:
                   echo "Skipping storybook checks - no frontend changes detected"
                   exit 0
 
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
@@ -61,7 +61,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -72,7 +72,7 @@ jobs:
 
             - name: Cache webpack build
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              uses: actions/cache@v4
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
@@ -88,7 +88,7 @@ jobs:
 
             - name: Upload Storybook build artifact
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: storybook-build
                   path: common/storybook/dist
@@ -109,7 +109,7 @@ jobs:
               run: |
                   echo "Skipping storybook checks - no frontend changes detected"
                   exit 0
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
@@ -124,7 +124,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -344,7 +344,7 @@ jobs:
                   echo "Skipping storybook checks - no frontend changes detected"
                   exit 0
 
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
@@ -358,7 +358,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -368,7 +368,7 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+            - uses: actions/cache@v4
               if: needs.changes.outputs.frontend == 'true'
               id: pnpm-cache
               with:
@@ -386,7 +386,7 @@ jobs:
 
             - name: Download Storybook build artifact
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   name: storybook-build
                   path: common/storybook/dist
@@ -453,7 +453,7 @@ jobs:
 
             - name: Archive failure screenshots
               if: needs.changes.outputs.frontend == 'true' && ${{ failure() }}
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
@@ -552,7 +552,7 @@ jobs:
         steps:
             - name: Post comment about updated snapshots
               if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              uses: actions/github-script@v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
                   script: |

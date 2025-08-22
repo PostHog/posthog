@@ -1,28 +1,30 @@
 import {
     DndContext,
-    closestCenter,
+    DragEndEvent,
     KeyboardSensor,
     PointerSensor,
+    closestCenter,
     useSensor,
     useSensors,
-    DragEndEvent,
 } from '@dnd-kit/core'
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import clsx from 'clsx'
+import { useEffect, useState } from 'react'
+
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { isValidRegexp } from 'lib/utils/regexp'
-import { useState, useEffect } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 
+import { parseAliasToReadable } from './PathCleanFilterItem'
 import { PathRegexModal } from './PathRegexModal'
 import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
-import { parseAliasToReadable } from './PathCleanFilterItem'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
 export interface PathCleanFiltersTableProps {
     filters?: PathCleaningFilter[]

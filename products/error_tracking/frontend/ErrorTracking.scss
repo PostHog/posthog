@@ -1,3 +1,10 @@
+.ErrorTracking {
+    // Needed for the NotFound state inside SessionRecordingPlayer
+    .NotFoundComponent {
+        margin: 0 auto;
+    }
+}
+
 body[theme='light'] .ErrorTracking {
     --gray-1: var(--color-neutral-50);
     --gray-2: var(--color-neutral-100);

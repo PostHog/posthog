@@ -1,24 +1,24 @@
-// eslint-disable-next-line simple-import-sort/imports
 import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
-import express from 'ultimate-express'
+import { Server } from 'http'
 import supertest from 'supertest'
+import express from 'ultimate-express'
+
+import { setupExpressApp } from '~/api/router'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
-import { createHogFunction, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
+import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
+import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
-import { Server } from 'http'
-import { setupExpressApp } from '~/api/router'
 import { createCdpRedisPool } from './redis'
-import { deleteKeysWithPrefix } from './_tests/redis'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 describe('CDP API', () => {
     let hub: Hub

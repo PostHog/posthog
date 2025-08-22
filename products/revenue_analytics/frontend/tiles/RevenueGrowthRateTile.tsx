@@ -1,12 +1,14 @@
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { IconInfo, IconLineGraph } from '@posthog/icons'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { IconTableChart } from 'lib/lemon-ui/icons'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { useMemo } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -15,10 +17,10 @@ import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
 import {
-    buildDashboardItemId,
     REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
+    buildDashboardItemId,
+    revenueAnalyticsLogic,
 } from '../revenueAnalyticsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.GROWTH_RATE
