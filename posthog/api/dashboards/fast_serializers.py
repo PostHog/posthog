@@ -175,16 +175,30 @@ class FastInsightSerializer:
                     insight.team,
                 )
             filters = {}
-            query = self._query_variables_mapping(query)
         else:
             filters = insight.dashboard_filters(
                 dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
             )
-            query = insight.get_effective_query(
-                dashboard=dashboard,
-                dashboard_filters_override=dashboard_filters_override,
-                dashboard_variables_override=dashboard_variables_override,
-            )
+
+            # For the second branch, we need to map the insight query variables to match
+            # the dashboard_variables_override IDs before calling get_effective_query
+            base_query = insight.query or insight.query_from_filters or {}
+            if base_query:
+                base_query = self._query_variables_mapping(base_query)
+
+            # Store the mapped query temporarily for get_effective_query to use
+            original_query = insight.query
+            insight.query = base_query if base_query else original_query
+
+            try:
+                query = insight.get_effective_query(
+                    dashboard=dashboard,
+                    dashboard_filters_override=dashboard_filters_override,
+                    dashboard_variables_override=dashboard_variables_override,
+                )
+            finally:
+                # Restore original query
+                insight.query = original_query
             if "insight" not in filters and not query:
                 filters["insight"] = "TRENDS"
 
