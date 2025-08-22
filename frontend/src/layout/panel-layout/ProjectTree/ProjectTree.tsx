@@ -425,7 +425,7 @@ export function ProjectTree({
                     const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
                     // Check if it's an external link
-                    if (typeof href === 'string' && (href.startsWith('http://') || href.startsWith('https://'))) {
+                    if (typeof href === 'string' && href.startsWith('https://')) {
                         window.open(href, '_blank')
                     } else {
                         router.actions.push(href)
@@ -516,7 +516,10 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || item.name === 'MCP Server') {
+                const isExternalLink =
+                    item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
+
+                if (item.id.startsWith('project-folder-empty/') || isExternalLink) {
                     return undefined
                 }
 
@@ -527,7 +530,10 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || item.name === 'MCP Server') {
+                const isExternalLink =
+                    item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
+
+                if (item.id.startsWith('project-folder-empty/') || isExternalLink) {
                     return undefined
                 }
 
@@ -733,6 +739,8 @@ export function ProjectTree({
             }}
             renderItem={(item) => {
                 const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
+                const isExternalLink =
+                    item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
                 return (
                     <span className="truncate">
                         <span
@@ -769,7 +777,7 @@ export function ProjectTree({
                             </>
                         )}
 
-                        {item.name === 'MCP Server' && <IconExternal className="size-4 text-tertiary relative" />}
+                        {isExternalLink && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}
