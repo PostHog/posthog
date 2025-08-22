@@ -647,8 +647,6 @@ async def _start_session_group_summary_workflow(
                     redis_output_keys=patterns_keys,
                     redis_client=get_async_client(),
                 )
-                if not patterns:
-                    raise ValueError(f"Extracted patterns not found in Redis for keys {patterns_keys}")
                 formatted_patterns = format_extracted_patterns_status(patterns)
                 # As I query progress (where `step` comes from) more often that intermediate updates happen - it's safe to reuse it
                 yield (
