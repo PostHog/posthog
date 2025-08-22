@@ -317,31 +317,25 @@ class FastInsightSerializer:
         return representation
 
 
-def serialize_dashboard_tile(tile: DashboardTile, context: dict[str, Any]) -> dict[str, Any]:
-    # Handle layouts parsing (matches original logic)
+def serialize_dashboard_tile(tile: DashboardTile, context: dict[str, Any], order: int) -> dict[str, Any]:
     layouts = tile.layouts
     if isinstance(layouts, str):
         layouts = orjson.loads(layouts)
 
-    # Base tile data
     representation = {
         "id": tile.id,
         "layouts": layouts,
         "color": tile.color,
         "insight": None,
         "text": None,
+        "order": order,
     }
 
-    # Add order from context (matches original DashboardTileSerializer.to_representation)
-    representation["order"] = context.get("order", None)
-
-    # Serialize insight or text
     if tile.insight:
         fast_serializer = FastInsightSerializer(context)
         insight_data = fast_serializer.serialize(tile.insight)
         representation["insight"] = insight_data
 
-        # Add last_refresh and is_cached from insight (matches original logic)
         representation["last_refresh"] = insight_data.get("last_refresh", None)
         representation["is_cached"] = insight_data.get("is_cached", False)
     elif tile.text:
@@ -353,20 +347,8 @@ def serialize_dashboard_tile(tile: DashboardTile, context: dict[str, Any]) -> di
 
 
 def fast_serialize_tile_with_context(tile: DashboardTile, order: int, context: dict) -> tuple[int, dict]:
-    """
-    Returns (order, tile_data) tuple matching the original function signature.
-    """
-    # Create a copy of context to avoid thread conflicts (matches original)
-    tile_context = context.copy()
-    tile_context.update(
-        {
-            "dashboard_tile": tile,
-            "order": order,
-        }
-    )
-
     try:
-        tile_data = serialize_dashboard_tile(tile, tile_context)
+        tile_data = serialize_dashboard_tile(tile, context, order)
         return order, tile_data
     except Exception as e:
         # Handle validation errors similar to original
@@ -376,7 +358,7 @@ def fast_serialize_tile_with_context(tile: DashboardTile, order: int, context: d
         # Fallback handling for query validation errors
         query = tile.insight.query
         tile.insight.query = None
-        tile_data = serialize_dashboard_tile(tile, tile_context)
+        tile_data = serialize_dashboard_tile(tile, context)
         tile_data["insight"]["query"] = query
         tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
         return order, tile_data
