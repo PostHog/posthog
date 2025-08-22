@@ -23,9 +23,24 @@ export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
 
+const getActionButtonText = (actionType: string): string => {
+    switch (actionType) {
+        case 'update_credentials':
+            return 'Update Credentials'
+        case 'adjust_frequency':
+            return 'Adjust Frequency'
+        case 'retry_sync':
+            return 'Retry Sync'
+        case 'view_query':
+            return 'View Query'
+        default:
+            return 'View Details'
+    }
+}
+
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats } =
+    const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats, actionableIssues } =
         useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage } = useActions(dataWarehouseSceneLogic)
 
@@ -235,6 +250,72 @@ export function DataWarehouseScene(): JSX.Element {
             </div>
 
             <DataWarehouseRowsSyncedGraph />
+
+            {actionableIssues && actionableIssues.length > 0 && (
+                <div className="bg-transparent">
+                    <div className="flex items-center gap-2 mb-4">
+                        <IconExclamation className="text-warning" />
+                        <h3 className="font-semibold text-xl">Actionable Issues ({actionableIssues.length})</h3>
+                    </div>
+                    <div className="space-y-3">
+                        {actionableIssues.map((issue) => {
+                            const isCritical = issue.severity === 'critical'
+                            const bgClass = isCritical ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'
+
+                            return (
+                                <div key={issue.id} className={`border rounded-lg p-4 ${bgClass} shadow-sm`}>
+                                    <div className="flex items-start gap-3">
+                                        <div className="flex-shrink-0 pt-0.5">
+                                            {isCritical ? (
+                                                <IconCancel className="text-red-600 w-5 h-5" />
+                                            ) : (
+                                                <IconExclamation className="text-yellow-600 w-5 h-5" />
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="font-semibold text-gray-900">{issue.title}</span>
+                                                <LemonTag
+                                                    type={isCritical ? 'danger' : 'warning'}
+                                                    size="small"
+                                                    className="px-2 py-0.5 font-medium uppercase"
+                                                >
+                                                    {issue.severity}
+                                                </LemonTag>
+                                                <span className="text-xs text-gray-500">
+                                                    <TZLabel
+                                                        time={issue.timestamp}
+                                                        formatDate="MMM DD"
+                                                        formatTime="HH:mm"
+                                                    />
+                                                </span>
+                                            </div>
+                                            <div className="text-sm text-gray-700">
+                                                {issue.description}
+                                                {issue.count && issue.count > 1 && (
+                                                    <span className="ml-1 text-gray-500 font-medium">
+                                                        ({issue.count} recent failures)
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="ml-4 flex-shrink-0">
+                                            <LemonButton
+                                                type={isCritical ? 'primary' : 'secondary'}
+                                                size="small"
+                                                to={issue.actionUrl}
+                                                className="font-medium"
+                                            >
+                                                {getActionButtonText(issue.actionType)}
+                                            </LemonButton>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div className="lg:col-span-2 space-y-2">

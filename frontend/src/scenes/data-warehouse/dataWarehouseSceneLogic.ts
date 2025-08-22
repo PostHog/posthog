@@ -25,6 +25,59 @@ import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic
 
 const REFRESH_INTERVAL = 10000
 
+const CRITICAL_ERROR_PATTERNS = [
+    /auth|credential|permission|unauthorized|forbidden|invalid.*token|expired.*token|access.*denied/i,
+    /connection.*failed|timeout|network.*error|dns.*error|ssl.*error|certificate.*error/i,
+    /schema.*error|column.*not.*found|table.*not.*found|syntax.*error|sql.*error/i,
+]
+
+const WARNING_ERROR_PATTERNS = [
+    /rate.*limit|429|quota.*exceeded|too.*many.*requests|throttle/i,
+    /slow|performance|timeout.*warning|retry.*limit/i,
+]
+
+const AUTH_ERROR_PATTERNS = /auth|credential|permission|unauthorized|forbidden/i
+const RATE_LIMIT_PATTERNS = /rate|limit|429|quota|too many requests/i
+
+const extractErrorMessage = (error: string | null): string => {
+    if (!error) {
+        return 'Sync failed'
+    }
+
+    const cleanError = error
+        .replace(/^(Error:|Exception:|Traceback.*?:|.*?Error:\s*)/i, '')
+        .replace(/\n.*$/s, '')
+        .trim()
+
+    const firstSentence = cleanError.split(/[.!?]/)[0]
+    return firstSentence.length > 100 ? firstSentence.substring(0, 97) + '...' : firstSentence || 'Sync failed'
+}
+
+const determineSeverity = (error: string | null): 'critical' | 'warning' => {
+    if (!error) {
+        return 'critical'
+    }
+
+    const isCritical = CRITICAL_ERROR_PATTERNS.some((pattern) => pattern.test(error))
+    const isWarning = WARNING_ERROR_PATTERNS.some((pattern) => pattern.test(error))
+
+    return isCritical ? 'critical' : isWarning ? 'warning' : 'critical'
+}
+
+const getActionType = (error: string | null): 'update_credentials' | 'adjust_frequency' | 'retry_sync' => {
+    if (!error) {
+        return 'retry_sync'
+    }
+
+    if (AUTH_ERROR_PATTERNS.test(error)) {
+        return 'update_credentials'
+    }
+    if (RATE_LIMIT_PATTERNS.test(error)) {
+        return 'adjust_frequency'
+    }
+    return 'retry_sync'
+}
+
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
@@ -313,6 +366,115 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                         runs: data.runs.sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()),
                     }))
                     .sort((a, b) => b.rows - a.rows)
+            },
+        ],
+        actionableIssues: [
+            (s) => [s.recentActivity, s.materializedViews, s.dataWarehouseSources],
+            (recentActivity, materializedViews, dataWarehouseSources) => {
+                const issues: Array<{
+                    id: string
+                    type: 'data_source' | 'materialization'
+                    severity: 'critical' | 'warning'
+                    title: string
+                    description: string
+                    timestamp: string
+                    actionType: 'update_credentials' | 'adjust_frequency' | 'retry_sync' | 'view_query'
+                    actionUrl: string
+                    count?: number
+                }> = []
+
+                // 1. Data source issues from recent activity (sync failures)
+                // Filter out materialized view activities by checking if activity.type is NOT 'Materialized view'
+                const failedActivities = recentActivity.filter(
+                    (activity) =>
+                        (activity.status === 'Failed' || activity.latest_error) && activity.type !== 'Materialized view'
+                )
+
+                const activitySourceIssues: Record<string, Array<(typeof failedActivities)[0]>> = {}
+                failedActivities.forEach((activity) => {
+                    const sourceKey = activity.name || 'Unknown Source'
+                    if (!activitySourceIssues[sourceKey]) {
+                        activitySourceIssues[sourceKey] = []
+                    }
+                    activitySourceIssues[sourceKey].push(activity)
+                })
+
+                // Create issues from recent activity failures
+                Object.entries(activitySourceIssues).forEach(([sourceName, activities]) => {
+                    const latestActivity = activities.sort(
+                        (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
+                    )[0]
+                    const rawError = latestActivity.latest_error
+                    const severity = determineSeverity(rawError)
+                    const cleanedError = extractErrorMessage(rawError)
+                    const actionType = getActionType(rawError)
+
+                    const sourceId = dataWarehouseSources?.results?.find((s) => s.source_type === sourceName)?.id
+                    const actionUrl = sourceId ? urls.dataWarehouseSource(`managed-${sourceId}`) : '#'
+
+                    issues.push({
+                        id: `source-activity-${sourceName}`,
+                        type: 'data_source',
+                        severity,
+                        title: sourceName,
+                        description: cleanedError,
+                        timestamp: latestActivity.created_at,
+                        actionType,
+                        actionUrl,
+                        count: activities.length,
+                    })
+                })
+
+                // 2. Data source issues from source status (external data source errors)
+                const sourcesWithErrors =
+                    dataWarehouseSources?.results?.filter(
+                        (source) => source.latest_error && source.status === 'Error'
+                    ) || []
+
+                sourcesWithErrors.forEach((source) => {
+                    // Skip if we already have an issue for this source from recent activity
+                    if (activitySourceIssues[source.source_type]) {
+                        return
+                    }
+
+                    const severity = determineSeverity(source.latest_error)
+                    const cleanedError = extractErrorMessage(source.latest_error)
+                    const actionType = getActionType(source.latest_error)
+
+                    issues.push({
+                        id: `source-status-${source.id}`,
+                        type: 'data_source',
+                        severity,
+                        title: source.source_type,
+                        description: cleanedError,
+                        timestamp:
+                            (typeof source.last_run_at === 'string'
+                                ? source.last_run_at
+                                : source.last_run_at?.toISOString()) || new Date().toISOString(),
+                        actionType,
+                        actionUrl: urls.dataWarehouseSource(`managed-${source.id}`),
+                    })
+                })
+
+                // 3. Materialized view issues (always from materializedViews, never from recentActivity)
+                const failedMaterializedViews = materializedViews.filter(
+                    (view) => view.status && ['failed', 'error'].includes(view.status.toLowerCase())
+                )
+
+                failedMaterializedViews.forEach((view) => {
+                    issues.push({
+                        id: `materialization-${view.id}`,
+                        type: 'materialization',
+                        severity: 'critical', // Materialization failures are always critical
+                        title: `${view.name} (Materialized View)`,
+                        description: 'Query execution failed during materialization',
+                        timestamp: view.last_run_at || new Date().toISOString(),
+                        actionType: 'view_query',
+                        actionUrl: urls.sqlEditor(undefined, view.id),
+                    })
+                })
+
+                return issues.sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())
             },
         ],
     }),
