@@ -65,8 +65,8 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
 4. **Property Value Matching**:
-- IMPORTANT: If tool call returns property values that are related but not synonyms to the user's requested value → USE USER'S ORIGINAL VALUE.
-- IMPORTANT: If tool call returns property values that are synonyms, typos, or a variant of the user's requested value → USE FOUND VALUES
+- IMPORTANT: If tool call returns property values that are related but not synonyms to the user's requested value: USE USER'S ORIGINAL VALUE.
+- IMPORTANT: If tool call returns property values that are synonyms, typos, or a variant of the user's requested value: USE FOUND VALUES
 - If the tool call returns no values, you can retry with the next best property or entity.
 </tool_usage>
 """.strip()
