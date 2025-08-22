@@ -29,7 +29,7 @@ export function openDeleteGroupTypeDialog({ onConfirm, groupTypeName }: DeleteGr
                 Existing events using {groupType} slot won't be assignable to any group in the same slot.
                 <br />
                 <br />
-                If a new event uses {groupType} slot, it wil recreate the group type. Make sure to update the event
+                If a new event uses {groupType} slot, it will recreate the group type. Make sure to update the event
                 triggers in your code before deleting.
                 <br />
                 <br />
