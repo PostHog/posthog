@@ -2157,7 +2157,7 @@
       lc_dagster__job_name String,
       lc_dagster__run_id String,
       lc_dagster__owner String
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/f137b856-0379-4d74-9574-4124adf1b902_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/06b05434-00e1-4faf-b46f-01511cdef0ff_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
   PRIMARY KEY (team_id, event_date, event_time, query_id)
@@ -4733,7 +4733,7 @@
       lc_dagster__job_name String,
       lc_dagster__run_id String,
       lc_dagster__owner String
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/f137b856-0379-4d74-9574-4124adf1b902_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/06b05434-00e1-4faf-b46f-01511cdef0ff_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
   PRIMARY KEY (team_id, event_date, event_time, query_id)
