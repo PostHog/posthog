@@ -68,6 +68,19 @@ class TestVercelInstallationAPI(VercelTestBase):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         mock_update.assert_called_once_with(self.installation_id, "pro200")
 
+    @patch("ee.vercel.integration.VercelIntegration.upsert_installation")
+    def test_create_calls_upsert_installation(self, mock_upsert):
+        response = self._request("post", data=self.upsert_payload)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_upsert.assert_called_once_with(
+            self.installation_id,
+            self.upsert_payload["scopes"],
+            self.upsert_payload["acceptedPolicies"],
+            self.upsert_payload["credentials"],
+            self.upsert_payload["account"],
+        )
+
     @patch("ee.vercel.integration.VercelIntegration.delete_installation")
     def test_destroy_calls_delete_installation(self, mock_delete):
         mock_delete.return_value = {"finalized": True}
