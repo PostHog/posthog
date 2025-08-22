@@ -503,7 +503,7 @@ async def test_stripe_customer_balance_transaction(team, stripe_customer_balance
     await _run(
         team=team,
         schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-        table_name="stripe_customerbalancetransaction",
+        table_name="stripe_customer_balance_transaction",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_customer_balance_transaction["data"],

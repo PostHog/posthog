@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
@@ -20,7 +21,6 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
-    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
@@ -34,6 +34,16 @@ DEFAULT_LIMIT = 100
 @dataclasses.dataclass
 class StripeResource:
     method: Callable[..., ListObject[Any]]
+    params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    nested_resources: dict[str, "StripeResource"] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
+class StripeNestedResource:
+    method: Callable[..., ListObject[Any]]
+    nested_parent_param: str
+    parent_id: str
+    parent: StripeResource
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
@@ -67,8 +77,11 @@ def stripe_source(
             REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
             SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
             CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
-            CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(
-                method=client.customers.balance_transactions.list
+            CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+                method=client.customers.balance_transactions.list,
+                nested_parent_param="customer",
+                parent_id="id",
+                parent=StripeResource(method=client.customers.list),
             ),
         }
 
@@ -82,13 +95,25 @@ def stripe_source(
         incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
         incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
-        if not should_use_incremental_field or (
-            db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
+        if (
+            not should_use_incremental_field
+            or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
+            or isinstance(resource, StripeNestedResource)
         ):
             logger.debug(f"Stripe: iterating all objects from resource")
 
-            stripe_objects = resource.method(params={**default_params, **resource.params})
-            yield from stripe_objects.auto_paging_iter()
+            if isinstance(resource, StripeNestedResource):
+                stripe_parent_objects = resource.parent.method(params={**default_params, **resource.params})
+                for obj in stripe_parent_objects.auto_paging_iter():
+                    stripe_nested_objects = resource.method(
+                        **{resource.nested_parent_param: obj[resource.parent_id]}, params={**default_params}
+                    )
+                    for nested_obj in stripe_nested_objects.auto_paging_iter():  # noqa: UP028
+                        yield nested_obj
+            else:
+                stripe_objects = resource.method(params={**default_params, **resource.params})
+
+                yield from stripe_objects.auto_paging_iter()
             return
 
         # check for any objects less than the minimum object we already have
@@ -181,11 +206,6 @@ def validate_credentials(api_key: str) -> bool:
         {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
         {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
         {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
-        {
-            "name": CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-            "method": client.customers.balance_transactions.list,
-            "params": {"limit": 1},
-        },
     ]
 
     missing_permissions = {}

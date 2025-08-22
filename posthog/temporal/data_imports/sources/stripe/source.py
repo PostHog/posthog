@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
 from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
+    EXPERIMENTAL_ENDPOINTS as STRIPE_EXPERIMENTAL_ENDPOINTS,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
@@ -71,7 +72,7 @@ Currently, **read permissions are required** for the following resources:
                 supports_append=True,
                 incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in STRIPE_ENDPOINTS
+            for endpoint in STRIPE_ENDPOINTS + STRIPE_EXPERIMENTAL_ENDPOINTS
         ]
 
     def validate_credentials(self, config: StripeSourceConfig, team_id: int) -> tuple[bool, str | None]:
