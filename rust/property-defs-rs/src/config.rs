@@ -5,10 +5,17 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
-    // this maps to the original, shared CLOUD PG DB instance in production for
-    // both the property-defs-rs and new property-defs-rs-v2 deployments
+    // this maps to the original, shared CLOUD PG DB instance in production. When
+    // we migrate to the new persons DB, this won't change.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
+
+    // when true, the service will point group type mappings resolution to the new persons DB
+    #[envconfig(default = "false")]
+    pub read_groups_from_persons_db: bool,
+
+    // if populated, we set up a connection pool to the new persons DB for reading group type mappings
+    pub database_persons_url: Option<String>,
 
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
@@ -90,25 +97,15 @@ pub struct Config {
     pub filter_mode: TeamFilterMode,
 
     // this enables codepaths used by the new mirror deployment
-    // property-defs-rs-v2 in ArgoCD. The main thing we're gating
-    // at first is use of the DB client for the new isolated Postgres
-    // on all write paths."
+    // property-defs-rs-v2 in ArgoCD. NOTE: this is likely to be
+    // removed in the future since the v2 deployment is no longer
+    // part of the future plan for propdefs service.
     #[envconfig(default = "false")]
     pub enable_mirror: bool,
 
-    #[envconfig(default = "100")]
-    pub v2_ingest_batch_size: usize,
-
-    // For use in the new property-defs-rs-v2 mirror deploy, and (for now)
-    // behind `enable_mirror` flag during the refactor/transition. Maps to the new
-    // isolated propdefs DB instances in production. If unset, defaults to use
-    // database_url and std pool
-    pub database_propdefs_url: Option<String>,
-
-    // RO creds for the new isolated persons DB is required to access
-    // the posthog_grouptypemappings for the team -> group_meta cache.
-    // if unset, defaults to use database_url and std pool
-    pub database_persons_url: Option<String>,
+    // TODO: rename deploy cfg var to "write_batch_size" and update this after to complete the cutover!
+    #[envconfig(from = "V2_INGEST_BATCH_SIZE", default = "100")]
+    pub write_batch_size: usize,
 }
 
 #[derive(Clone)]
