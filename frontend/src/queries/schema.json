@@ -901,8 +901,10 @@
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
+                "create_message_template",
                 "navigate",
-                "search_error_tracking_issues",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
                 "search_docs",
@@ -3655,22 +3657,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -9695,6 +9682,7 @@
                     "type": "string"
                 },
                 "last_seen": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "library": {
@@ -10030,6 +10018,58 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "ErrorTrackingIssueFilteringToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "newFilters": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "orderBy": {
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "removedFilterIndexes": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ErrorTrackingIssueImpactToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10203,45 +10243,6 @@
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
-            "type": "object"
-        },
-        "ErrorTrackingSceneToolOutput": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "newFilters": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
-                },
-                "orderDirection": {
-                    "enum": ["ASC", "DESC"],
-                    "type": "string"
-                },
-                "removedFilterIndexes": {
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "searchQuery": {
-                    "type": "string"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-                    "type": "string"
-                }
-            },
             "type": "object"
         },
         "EventDefinition": {
@@ -11307,6 +11308,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetric"
                 }
             ]
         },
@@ -11370,7 +11374,7 @@
             ]
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean"],
+            "enum": ["funnel", "mean", "ratio"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -11380,6 +11384,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetricTypeProps"
                 }
             ]
         },
@@ -11500,6 +11507,63 @@
             },
             "type": "object"
         },
+        "ExperimentRatioMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["denominator", "kind", "metric_type", "numerator"],
+            "type": "object"
+        },
+        "ExperimentRatioMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                }
+            },
+            "required": ["metric_type", "numerator", "denominator"],
+            "type": "object"
+        },
         "ExperimentSignificanceCode": {
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
             "type": "string"
@@ -11507,11 +11571,20 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -11526,11 +11599,20 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -11689,6 +11771,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11698,6 +11786,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "significant": {
                     "type": "boolean"
@@ -11729,6 +11820,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11738,6 +11835,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "p_value": {
                     "type": "number"
@@ -11960,7 +12060,8 @@
                 "insightLifecycle",
                 "insightStickiness",
                 "insightHogQL",
-                "insightCalendarHeatmap"
+                "insightCalendarHeatmap",
+                "code"
             ],
             "type": "string"
         },
@@ -12822,22 +12923,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -15227,16 +15313,7 @@
                     "$ref": "#/definitions/MarketingAnalyticsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -19691,22 +19768,7 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/FunnelStepsResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTimeToConvertResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTrendsResults"
-                                }
-                            ]
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -20611,6 +20673,10 @@
                         {
                             "const": "visited_page",
                             "type": "string"
+                        },
+                        {
+                            "const": "comment_text",
+                            "type": "string"
                         }
                     ]
                 },
@@ -20639,6 +20705,9 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "comment_text": {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 "console_log_filters": {
                     "items": {
@@ -21735,11 +21804,25 @@
                     "type": "array"
                 },
                 "mrr": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResultItem"
+                    },
                     "type": "array"
                 }
             },
             "required": ["gross", "mrr"],
+            "type": "object"
+        },
+        "RevenueAnalyticsRevenueQueryResultItem": {
+            "additionalProperties": false,
+            "properties": {
+                "churn": {},
+                "contraction": {},
+                "expansion": {},
+                "new": {},
+                "total": {}
+            },
+            "required": ["total", "new", "expansion", "contraction", "churn"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersGroupBy": {
@@ -24716,6 +24799,18 @@
             },
             "type": "array"
         },
+        "WebAnalyticsSampling": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "forceSamplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                }
+            },
+            "type": "object"
+        },
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
@@ -24765,16 +24860,7 @@
                     "$ref": "#/definitions/WebExternalClicksTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "stripQueryParams": {
                     "type": "boolean"
@@ -24901,16 +24987,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25063,16 +25140,7 @@
                     "$ref": "#/definitions/WebOverviewQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25190,16 +25258,7 @@
                     "$ref": "#/definitions/WebPageURLSearchQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "searchTerm": {
                     "type": "string"
@@ -25274,6 +25333,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "PreviousPage",
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
@@ -25357,16 +25417,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25539,16 +25590,7 @@
                     "$ref": "#/definitions/WebVitalsPathBreakdownQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25703,16 +25745,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
@@ -25807,6 +25840,22 @@
         },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentRatioMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentRatioMetric",
             "properties": {
                 "namedArgs": {
                     "additionalProperties": false,

@@ -2,8 +2,8 @@ use crate::{
     api::{
         errors::FlagError,
         types::{
-            FlagsOptionsResponse, FlagsQueryParams, FlagsResponseCode, LegacyFlagsResponse,
-            ServiceResponse,
+            ConfigResponse, FlagsOptionsResponse, FlagsQueryParams, FlagsResponse,
+            FlagsResponseCode, LegacyFlagsResponse, ServiceResponse,
         },
     },
     handler::{process_request, RequestContext},
@@ -15,6 +15,7 @@ use axum::http::{HeaderMap, Method};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use std::collections::HashMap;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -46,6 +47,37 @@ fn map_decide_version(query_version: Option<i32>, is_from_decide: bool) -> Optio
     }
 }
 
+fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceResponse>, FlagError> {
+    let request_id = Uuid::new_v4();
+
+    // Parse version string to determine response format
+    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
+
+    // Create minimal config response
+    let config = ConfigResponse {
+        supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+        ..Default::default()
+    };
+
+    // Create empty flags response with minimal config
+    let response = FlagsResponse {
+        errors_while_computing_flags: false,
+        flags: HashMap::new(),
+        quota_limited: None,
+        request_id,
+        config,
+    };
+
+    // Return versioned response
+    let service_response = if version_num >= 2 {
+        ServiceResponse::V2(response)
+    } else {
+        ServiceResponse::Default(LegacyFlagsResponse::from_response(response))
+    };
+
+    Ok(Json(service_response))
+}
+
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
@@ -59,6 +91,10 @@ pub async fn flags(
     body: Bytes,
 ) -> Result<Json<ServiceResponse>, FlagError> {
     let request_id = Uuid::new_v4();
+
+    if method != Method::POST {
+        return get_minimal_flags_response(query_params.version.as_deref());
+    }
 
     // Check if this request came through the decide proxy
     let is_from_decide = headers

@@ -13,7 +13,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr, action_to_expr, apply_path_cleaning
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, AnalyticsQueryResponseProtocol
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -46,8 +46,10 @@ WebQueryNode = Union[
     WebPageURLSearchQuery,
 ]
 
+WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
 
-class WebAnalyticsQueryRunner(AnalyticsQueryRunner, ABC):
+
+class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
 

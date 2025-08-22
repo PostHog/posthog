@@ -10,6 +10,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
@@ -71,7 +72,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <div className="Insight">
+            <SceneContent className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
                 {dashboardOverridesExist && (
@@ -109,7 +110,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
                     filtersOverride={filtersOverride}
                     variablesOverride={variablesOverride}
                 />
-            </div>
+            </SceneContent>
         </BindLogic>
     )
 }

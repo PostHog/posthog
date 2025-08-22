@@ -108,11 +108,16 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Manage function variables in Hog functions',
         product: Scene.DataPipelines,
     },
-    search_error_tracking_issues: {
+    filter_error_tracking_issues: {
         name: 'Filter issues',
         description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
-        flag: 'error-tracking-scene-max-tool',
+    },
+    find_error_tracking_impactful_issue_event_list: {
+        name: 'Find impactful issues',
+        description: 'Find impactful issues affecting your conversion, activation, or any other events',
+        product: Scene.ErrorTracking,
+        flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
     },
     experiment_results_summary: {
         name: 'Summarize experiment results',
@@ -124,6 +129,11 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Create surveys',
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
+    },
+    create_message_template: {
+        name: 'Create email templates',
+        description: 'Create email templates from scratch or using a URL for inspiration',
+        product: Scene.Messaging,
     },
 }
 
