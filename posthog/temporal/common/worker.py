@@ -3,15 +3,16 @@ import datetime as dt
 import itertools
 from concurrent.futures import ThreadPoolExecutor
 
-import structlog
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.client import connect
+from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 
-logger = structlog.get_logger(__name__)
+logger = get_write_only_logger()
+
 
 BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_execution_latency",
