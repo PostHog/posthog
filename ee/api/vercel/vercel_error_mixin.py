@@ -18,14 +18,9 @@ class VercelErrorResponseMixin:
 
     def _format_vercel_error(self, exc: Exception, response: Response) -> dict[str, Any]:
         if isinstance(exc, APIException):
-            detail = exc.detail
+            message = str(exc.detail)
         else:
-            detail = str(exc)
-
-        if isinstance(detail, list | dict):
-            message = str(detail)
-        else:
-            message = str(detail)
+            message = str(exc)
 
         return {
             "error": {

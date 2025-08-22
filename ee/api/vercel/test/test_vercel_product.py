@@ -1,11 +1,11 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, _patch
 from rest_framework import status
 from ee.api.vercel.test.base import VercelTestBase
 
 
 class TestVercelProductAPI(VercelTestBase):
-    client_id_patcher: patch
-    jwks_patcher: patch
+    client_id_patcher: _patch
+    jwks_patcher: _patch
     mock_get_jwks: MagicMock
 
     @classmethod
