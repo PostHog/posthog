@@ -13,7 +13,7 @@ class VercelProductViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
     permission_classes = [VercelPermission]
     lookup_field = "product_slug"
 
-    supported_auth_types = {
+    vercel_supported_auth_types = {
         "plans": ["user", "system"],
     }
 
