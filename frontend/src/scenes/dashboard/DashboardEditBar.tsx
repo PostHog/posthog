@@ -26,7 +26,7 @@ export function DashboardEditBar(): JSX.Element {
         showEditBarApplyPopover,
         loadingPreview,
         cancellingPreview,
-        hasTemporaryFilters,
+        hasUrlFilters,
     } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode, previewTemporaryFilters } =
         useActions(dashboardLogic)
@@ -54,7 +54,7 @@ export function DashboardEditBar(): JSX.Element {
                     <LemonButton
                         onClick={() =>
                             setDashboardMode(
-                                hasTemporaryFilters ? dashboardMode : null,
+                                hasUrlFilters ? dashboardMode : null,
                                 DashboardEventSource.DashboardHeaderDiscardChanges
                             )
                         }

@@ -283,7 +283,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.temporaryFilters, values.temporaryVariables)
+                        const apiUrl = values.apiUrl('force_cache', values.urlFilters, values.temporaryVariables)
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -775,33 +775,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         hasIntermittentFilters: [
             (s) => [s.intermittentFilters],
-            (intermittentFilters) => {
-                return Object.values(intermittentFilters).some((filter) => filter !== undefined)
-            },
+            (intermittentFilters) => Object.values(intermittentFilters).some((filter) => filter !== undefined),
         ],
-        hasTemporaryFilters: [
-            (s) => [s.temporaryFilters],
-            (temporaryFilters) => {
-                return Object.values(temporaryFilters).some((filter) => filter !== undefined)
-            },
+        hasUrlFilters: [
+            (s) => [s.urlFilters],
+            (urlFilters) => Object.values(urlFilters).some((filter) => filter !== undefined),
         ],
         showEditBarApplyPopover: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
             (canAutoPreview, hasIntermittentFilters) => !canAutoPreview && hasIntermittentFilters,
         ],
-        temporaryFilters: [
-            () => [router.selectors.searchParams],
-            (searchParams) => {
-                const urlFilters = parseURLFilters(searchParams)
-                return urlFilters
-            },
-        ],
+        urlFilters: [() => [router.selectors.searchParams], (searchParams) => parseURLFilters(searchParams)],
         effectiveEditBarFilters: [
-            (s) => [s.dashboard, s.temporaryFilters, s.intermittentFilters],
-            (dashboard, temporaryFilters, intermittentFilters) => {
+            (s) => [s.dashboard, s.urlFilters, s.intermittentFilters],
+            (dashboard, urlFilters, intermittentFilters) => {
                 const effectiveEditBarFilters = combineDashboardFilters(
                     dashboard?.filters || {},
-                    temporaryFilters,
+                    urlFilters,
                     intermittentFilters
                 )
                 return effectiveEditBarFilters
@@ -1286,7 +1276,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     uuid(),
                     'force_blocking',
                     undefined,
-                    values.temporaryFilters,
+                    values.urlFilters,
                     values.temporaryVariables
                 )
 
@@ -1351,7 +1341,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             queryId,
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
-                            values.temporaryFilters,
+                            values.urlFilters,
                             values.temporaryVariables
                         )
 
@@ -1444,7 +1434,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                 // save edit mode changes
                 actions.setFiltersAndLayoutsAndVariables(
-                    values.temporaryFilters,
+                    values.urlFilters,
                     values.temporaryVariables,
                     values.temporaryBreakdownColors,
                     values.dataColorThemeId
