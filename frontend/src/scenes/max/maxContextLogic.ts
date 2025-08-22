@@ -5,7 +5,7 @@ import { IconDashboard, IconGraph } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
-import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { InitialDashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -205,7 +205,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 dashboardLogicInstance.mount()
 
                 try {
-                    dashboardLogicInstance.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                    dashboardLogicInstance.actions.loadDashboard({ action: InitialDashboardLoadAction.InitialLoad })
 
                     await breakpoint(50)
                     while (!dashboardLogicInstance.values.dashboard) {

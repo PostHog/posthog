@@ -6,7 +6,7 @@ import { expectLogic, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { InitialDashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -591,7 +591,7 @@ describe('dashboardLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.loadDashboard({
-                        action: DashboardLoadAction.InitialLoad,
+                        action: InitialDashboardLoadAction.InitialLoad,
                     })
                 })
                     .toDispatchActions([
