@@ -253,8 +253,7 @@ export function DataWarehouseScene(): JSX.Element {
 
             {actionableIssues && actionableIssues.length > 0 && (
                 <div className="bg-transparent">
-                    <div className="flex items-center gap-2 mb-4">
-                        <IconExclamation className="text-warning" />
+                    <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-xl">Actionable Issues ({actionableIssues.length})</h3>
                     </div>
                     <div className="space-y-3">

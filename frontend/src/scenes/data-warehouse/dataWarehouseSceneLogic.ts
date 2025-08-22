@@ -470,7 +470,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                         description: 'Query execution failed during materialization',
                         timestamp: view.last_run_at || new Date().toISOString(),
                         actionType: 'view_query',
-                        actionUrl: urls.sqlEditor(undefined, view.id),
+                        actionUrl: urls.sqlEditor(undefined, view.id, undefined, undefined, 'materialization'),
                     })
                 })
 
