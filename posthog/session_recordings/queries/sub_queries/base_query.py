@@ -13,21 +13,18 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
     """Custom QueryDateRange that only applies start/end of day logic when dates don't specify time components."""
 
     def _has_time_component(self, date_str: str) -> bool:
-        """Check if a date string contains a time component."""
         return "T" in date_str or " " in date_str or ":" in date_str
 
     def _is_relative_date(self, date_str: str) -> bool:
-        """Check if a date string is a relative date."""
         return date_str.startswith("-") or date_str.startswith("+")
 
     def date_from(self) -> datetime:
         if self._date_range and self._date_range.date_from:
             if self._is_relative_date(self._date_range.date_from):
                 return super().date_from()
-
-            has_time = self._has_time_component(self._date_range.date_from)
-            if not has_time:
-                # For dates without time components, parse and set to start of day
+            if not self._has_time_component(
+                self._date_range.date_from
+            ):  # date_from that is only a date is treated as implicitly the start of the day
                 parsed = relative_date_parse(
                     self._date_range.date_from,
                     self._timezone_info,
@@ -36,7 +33,6 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
                 )
                 return parsed.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Use parent implementation for all other cases
         return super().date_from()
 
     def date_to(self) -> datetime:
@@ -44,9 +40,9 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
             if self._is_relative_date(self._date_range.date_to):
                 return super().date_to()
 
-            has_time = self._has_time_component(self._date_range.date_to)
-            if not has_time:
-                # For dates without time components, parse and set to end of day
+            if not self._has_time_component(
+                self._date_range.date_to
+            ):  # date_to that is only a date is treated as implicitly the end of the day
                 parsed = relative_date_parse(
                     self._date_range.date_to,
                     self._timezone_info,
@@ -55,7 +51,6 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
                 )
                 return parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        # Use parent implementation for all other cases
         return super().date_to()
 
 
