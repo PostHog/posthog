@@ -9,10 +9,10 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DisplayOption, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
+import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 
-describe('llmObservabilityTraceLogic', () => {
-    let logic: ReturnType<typeof llmObservabilityTraceLogic.build>
+describe('llmAnalyticsTraceLogic', () => {
+    let logic: ReturnType<typeof llmAnalyticsTraceLogic.build>
 
     beforeEach(async () => {
         useMocks({
@@ -21,13 +21,13 @@ describe('llmObservabilityTraceLogic', () => {
             },
         })
         initKeaTests()
-        logic = llmObservabilityTraceLogic()
+        logic = llmAnalyticsTraceLogic()
         logic.mount()
     })
 
     it('properly loads trace scene when trace ID contains a colon', async () => {
         const traceIdWithColon = 'session-summary:group:16-16:81008d53ff0a708b:da6c0390-409f-485c-aab3-5e910bcf8b33'
-        const traceUrl = combineUrl(urls.llmObservabilityTrace(traceIdWithColon))
+        const traceUrl = combineUrl(urls.llmAnalyticsTrace(traceIdWithColon))
         const finalUrl = addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID)
 
         router.actions.push(finalUrl)
@@ -38,7 +38,7 @@ describe('llmObservabilityTraceLogic', () => {
 
     it('properly loads trace scene when trace ID contains multiple colons', async () => {
         const traceIdWithMultipleColons = 'namespace:trace:12345:abcdef:xyz'
-        const traceUrl = combineUrl(urls.llmObservabilityTrace(traceIdWithMultipleColons))
+        const traceUrl = combineUrl(urls.llmAnalyticsTrace(traceIdWithMultipleColons))
 
         router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
         await expectLogic(logic).toMatchValues({
@@ -50,7 +50,7 @@ describe('llmObservabilityTraceLogic', () => {
         const traceIdWithColon = 'session-summary:group:16-16:81008d53ff0a708b:da6c0390-409f-485c-aab3-5e910bcf8b33'
         const eventId = 'event123'
         const timestamp = '2024-01-01T00:00:00Z'
-        const traceUrl = combineUrl(urls.llmObservabilityTrace(traceIdWithColon, { event: eventId, timestamp }))
+        const traceUrl = combineUrl(urls.llmAnalyticsTrace(traceIdWithColon, { event: eventId, timestamp }))
 
         router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
         await expectLogic(logic).toMatchValues({
@@ -335,7 +335,7 @@ describe('llmObservabilityTraceLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(routerSpy).toHaveBeenCalledWith(
-                urls.llmObservabilityTrace('test-trace-123', {
+                urls.llmAnalyticsTrace('test-trace-123', {
                     event: 'event-456',
                     timestamp: '2024-01-01T00:00:00Z',
                     search: 'search with params',
@@ -351,7 +351,7 @@ describe('llmObservabilityTraceLogic', () => {
             logic.actions.setSearchQuery('')
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(routerSpy).toHaveBeenCalledWith(urls.llmObservabilityTrace('test-trace-123', {}))
+            expect(routerSpy).toHaveBeenCalledWith(urls.llmAnalyticsTrace('test-trace-123', {}))
         })
 
         it('does not update URL when search query matches URL param', async () => {

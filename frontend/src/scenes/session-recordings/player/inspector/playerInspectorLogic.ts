@@ -337,7 +337,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (!matchingEventsMatchType?.eventUUIDs) {
                             console.error('UUID matching events type must include its event ids')
                         }
-                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
+                        return matchingEventsMatchType.eventUUIDs.map(
+                            (x) =>
+                                ({
+                                    uuid: x,
+                                }) as MatchedRecordingEvent
+                        )
                     }
 
                     const filters = matchingEventsMatchType?.filters
@@ -351,7 +356,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-                    return response.results.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
+                    return response.results.map(
+                        (x) =>
+                            ({
+                                uuid: x,
+                            }) as MatchedRecordingEvent
+                    )
                 },
             },
         ],
