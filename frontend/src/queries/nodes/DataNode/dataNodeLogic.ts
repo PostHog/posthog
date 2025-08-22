@@ -644,7 +644,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 s.responseError,
                 s.dataLoading,
                 s.isShowingCachedResults,
-                p.maxPaginationLimit ?? (() => LOAD_MORE_ROWS_LIMIT),
+                (_, props) => props.maxPaginationLimit,
             ],
             (
                 query,
