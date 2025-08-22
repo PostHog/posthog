@@ -63,13 +63,19 @@ def to_dict(query: BaseModel) -> dict:
             # Keep this in sync with the frontend side "cleanInsightQuery" function.
             if name == "series":
                 # remove frontend-only props from series
-                new_series_list = []
-                for dumped_series, series in zip(dumped[name], query.series):
-                    new_series = {key: value for key, value in dumped_series.items() if key != "custom_name"}
-                    if isinstance(query, TrendsQuery) and series_should_be_set_to_dau(query.interval, series):
-                        new_series["math"] = BaseMathType.DAU
-                    new_series_list.append(new_series)
-                dumped["series"] = new_series_list
+                # Only TrendsQuery, FunnelsQuery, StickinessQuery, and LifecycleQuery have series
+                if hasattr(query, "series"):
+                    new_series_list = []
+                    for dumped_series, series in zip(dumped[name], query.series):
+                        new_series = {key: value for key, value in dumped_series.items() if key != "custom_name"}
+                        if (
+                            isinstance(query, TrendsQuery)
+                            and query.interval is not None
+                            and series_should_be_set_to_dau(query.interval, series)
+                        ):
+                            new_series["math"] = BaseMathType.DAU
+                        new_series_list.append(new_series)
+                    dumped["series"] = new_series_list
             elif name == insightFilterKey:
                 # Remove frontend-only props from insight filters
                 # Keep this in sync with frontend/src/scenes/insights/utils/queryUtils.ts `cleanInsightQuery` method
