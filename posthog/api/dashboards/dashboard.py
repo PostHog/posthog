@@ -1,7 +1,5 @@
-import json
 from typing import Any, Optional, cast
 
-import pydantic_core
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -40,6 +38,7 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from contextlib import nullcontext
 import posthoganalytics
 from opentelemetry import trace
+from posthog.api.dashboards.fast_serializers import fast_serialize_tile_with_context
 
 
 logger = structlog.get_logger(__name__)
@@ -50,31 +49,9 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
     """
     Serialize a single tile with error handling. Returns (order, tile_data) tuple.
     This function is designed to be thread-safe and used with ThreadPoolExecutor.
+    Uses fast orjson-based serialization instead of DRF serializers for performance.
     """
-    # Create a copy of context to avoid thread conflicts
-    tile_context = context.copy()
-    tile_context.update(
-        {
-            "dashboard_tile": tile,
-            "order": order,
-        }
-    )
-
-    if isinstance(tile.layouts, str):
-        tile.layouts = json.loads(tile.layouts)
-
-    try:
-        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
-        return order, tile_data
-    except pydantic_core.ValidationError as e:
-        if not tile.insight:
-            raise
-        query = tile.insight.query
-        tile.insight.query = None
-        tile_data = DashboardTileSerializer(tile, context=tile_context).data
-        tile_data["insight"]["query"] = query
-        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
-        return order, tile_data
+    return fast_serialize_tile_with_context(tile, order, context)
 
 
 class CanEditDashboard(BasePermission):
