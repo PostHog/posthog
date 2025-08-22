@@ -283,7 +283,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.urlFilters, values.temporaryVariables)
+                        const apiUrl = values.apiUrl('force_cache', values.urlFilters, values.urlVariables)
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -315,7 +315,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.effectiveEditBarFilters,
-                                variables: values.temporaryVariables,
+                                variables: values.urlVariables,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -848,7 +848,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return effectiveVariables
             },
         ],
-        temporaryVariables: [
+        urlVariables: [
             (s) => [router.selectors.searchParams, s.variables, s.initialVariablesLoaded],
             (searchParams, variables, initialVariablesLoaded): Record<string, HogQLVariable> => {
                 if (!initialVariablesLoaded) {
@@ -858,12 +858,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // try to convert url variables to variables
                 const urlVariables = parseURLVariables(searchParams)
-                const temporaryVariables: Record<string, HogQLVariable> = {}
+                const urlVariables: Record<string, HogQLVariable> = {}
 
                 for (const [key, value] of Object.entries(urlVariables)) {
                     const variable = variables.find((variable: Variable) => variable.code_name === key)
                     if (variable) {
-                        temporaryVariables[variable.id] = {
+                        urlVariables[variable.id] = {
                             code_name: variable.code_name,
                             variableId: variable.id,
                             value,
@@ -872,7 +872,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
 
-                return temporaryVariables
+                return urlVariables
             },
         ],
         hasVariables: [
@@ -1277,7 +1277,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     'force_blocking',
                     undefined,
                     values.urlFilters,
-                    values.temporaryVariables
+                    values.urlVariables
                 )
 
                 if (refreshedInsight) {
@@ -1342,7 +1342,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
                             values.urlFilters,
-                            values.temporaryVariables
+                            values.urlVariables
                         )
 
                         if (refreshedInsight) {
@@ -1435,7 +1435,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // save edit mode changes
                 actions.setFiltersAndLayoutsAndVariables(
                     values.urlFilters,
-                    values.temporaryVariables,
+                    values.urlVariables,
                     values.temporaryBreakdownColors,
                     values.dataColorThemeId
                 )
