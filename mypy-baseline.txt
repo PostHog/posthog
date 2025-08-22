@@ -1199,7 +1199,6 @@ posthog/temporal/data_imports/sources/common/rest_source/config_setup.py:0: erro
 posthog/temporal/data_imports/sources/common/rest_source/config_setup.py:0: error: Value of type "dict[str, ResolveParamConfig | IncrementalParamConfig | Any] | None" is not indexable  [index]
 posthog/temporal/data_imports/sources/common/rest_source/config_setup.py:0: error: Value of type "dict[str, ResolveParamConfig | IncrementalParamConfig | Any] | None" is not indexable  [index]
 posthog/temporal/data_imports/sources/common/rest_source/config_setup.py:0: error: Value of type variable "StrOrLiteralStr" of "parse" of "Formatter" cannot be "str | None"  [type-var]
-posthog/temporal/data_modeling/run_workflow.py:0: error: Argument 1 to "with_type" of "Field" has incompatible type "Date32Type"; expected "TimestampType[Literal['us'], None]"  [arg-type]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Incompatible types in assignment (expression has type "tuple[str, tuple[Constant, ...]] | None", variable has type "tuple[str, tuple[Constant, ...]]")  [assignment]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Need type annotation for "matching_paths" (hint: "matching_paths: list[<type>] = ...")  [var-annotated]
 posthog/temporal/data_modeling/run_workflow.py:0: error: No overload variant of "utf8_slice_codeunits" matches argument types "Array[Scalar[StringType]]", "int", "int"  [call-overload]
