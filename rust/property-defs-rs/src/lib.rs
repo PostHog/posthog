@@ -5,15 +5,14 @@ use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, DUPLICATES_IN_BATCH, EMPTY_EVENTS,
-    EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISOLATED_PROPDEFS_DB_SELECTED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
-    UPDATES_SEEN, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, RECV_DEQUEUED,
+    SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
+    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 use v2_batch_ingestion::process_batch;
 
 use ahash::AHashSet;
-use sqlx::PgPool;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{error, warn};
 use update_cache::Cache;

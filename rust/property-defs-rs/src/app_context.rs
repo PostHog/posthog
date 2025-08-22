@@ -121,7 +121,7 @@ impl AppContext {
             } else {
                 "cloud"
             };
-            metrics::counter!(GROUP_TYPE_READS, [("src_db", &tag_value)])
+            metrics::counter!(GROUP_TYPE_READS, &[("src_db", tag_value)])
                 .increment(to_resolve.len() as u64);
 
             let (group_names, team_ids): (Vec<String>, Vec<i32>) = to_resolve
