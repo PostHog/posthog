@@ -112,6 +112,30 @@ class FastInsightSerializer:
                 )
                 return self._insight_result_cache
 
+    def _get_user_access_level(self, obj) -> Optional[str]:
+        """Replicate UserAccessControlSerializerMixin.get_user_access_level logic"""
+        # Follow the same logic as UserAccessControlSerializerMixin.user_access_control property
+        user_access_control = None
+        if "user_access_control" in self.context:
+            user_access_control = self.context["user_access_control"]
+        elif hasattr(self.context.get("view", None), "user_access_control"):
+            user_access_control = self.context["view"].user_access_control
+        elif "request" in self.context:
+            from posthog.rbac.user_access_control import UserAccessControl
+            from django.contrib.auth.models import AnonymousUser
+            from typing import cast
+
+            user = cast(User | AnonymousUser, self.context["request"].user)
+            if user.is_anonymous:
+                return None
+            user = cast(User, user)
+            user_access_control = UserAccessControl(user, organization_id=str(user.current_organization_id))
+
+        if not user_access_control:
+            return None
+
+        return user_access_control.get_user_access_level(obj)
+
     def _query_variables_mapping(self, query: dict) -> dict:
         """Apply query variable mapping - matches original logic"""
         if (
@@ -208,18 +232,22 @@ class FastInsightSerializer:
         # Get insight result for performance fields
         insight_result = self.insight_result(insight)
 
-        # Get user permissions (simplified - you may need to adjust based on your permission system)
+        # Get user permissions (matches UserPermissionsSerializerMixin logic)
         user_permissions = self.context.get("user_permissions")
-        effective_restriction_level = (
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-            if self.context.get("is_shared")
-            else (user_permissions.insight(insight).effective_restriction_level if user_permissions else 21)
-        )
-        effective_privilege_level = (
-            Dashboard.PrivilegeLevel.CAN_VIEW
-            if self.context.get("is_shared")
-            else (user_permissions.insight(insight).effective_privilege_level if user_permissions else 21)
-        )
+        if not user_permissions and "view" in self.context:
+            user_permissions = getattr(self.context["view"], "user_permissions", None)
+
+        # Calculate effective permission levels (matches original DRF serializer methods)
+        if self.context.get("is_shared"):
+            effective_restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            effective_privilege_level = Dashboard.PrivilegeLevel.CAN_VIEW
+        else:
+            effective_restriction_level = (
+                user_permissions.insight(insight).effective_restriction_level if user_permissions else 21
+            )
+            effective_privilege_level = (
+                user_permissions.insight(insight).effective_privilege_level if user_permissions else 37
+            )
 
         # Get tags
         tags = []
@@ -249,7 +277,7 @@ class FastInsightSerializer:
             "created_at": insight.created_at.isoformat() if insight.created_at else None,
             "last_modified_at": insight.last_modified_at.isoformat() if insight.last_modified_at else None,
             "favorited": insight.favorited,
-            "user_access_level": user_permissions.insight(insight).user_access_level if user_permissions else 21,
+            "user_access_level": self._get_user_access_level(insight),
             # Additional fields from InsightSerializer.Meta.fields
             "order": insight.order,
             "deleted": insight.deleted,
