@@ -45,6 +45,7 @@ flate2.workspace = true
 httpdate = "1"
 metrics = { workspace = true }
 urlencoding = "2.1"
+moka = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }

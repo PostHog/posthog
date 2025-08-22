@@ -1092,6 +1092,7 @@ dependencies = [
  "httpdate",
  "httpmock",
  "metrics",
+ "moka",
  "natord",
  "rayon",
  "rdkafka",
