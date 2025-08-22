@@ -6,7 +6,7 @@ import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InitialDashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -157,7 +157,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     actions.updateInsight(response)
                     const logic = dashboardLogic({ id: dashboardId })
                     logic.mount()
-                    logic.actions.loadDashboard({ action: InitialDashboardLoadAction.Update })
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
                     logic.unmount()
                     lemonToast.success('Insight added to dashboard')
                 }
@@ -177,7 +177,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     actions.updateInsight(response)
                     const logic = dashboardLogic({ id: dashboardId })
                     logic.mount()
-                    logic.actions.loadDashboard({ action: InitialDashboardLoadAction.Update })
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
                     logic.unmount()
                     lemonToast.success('Insight removed from dashboard')
                 }

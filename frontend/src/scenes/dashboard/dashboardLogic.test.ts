@@ -6,7 +6,7 @@ import { expectLogic, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InitialDashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -522,7 +522,7 @@ describe('dashboardLogic', () => {
                         // starts loading
                         'triggerDashboardRefresh',
                         'loadDashboard',
-                        'updateDashboardItems',
+                        'refreshDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
                     ])
@@ -591,13 +591,13 @@ describe('dashboardLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.loadDashboard({
-                        action: InitialDashboardLoadAction.InitialLoad,
+                        action: DashboardLoadAction.InitialLoad,
                     })
                 })
                     .toDispatchActions([
                         // starts loading
                         'loadDashboard',
-                        'updateDashboardItems',
+                        'refreshDashboardItems',
                         // sets the "reloading" status for the stale insight
                         logic.actionCreators.setRefreshStatuses([staleInsight.short_id], false, true),
                     ])
