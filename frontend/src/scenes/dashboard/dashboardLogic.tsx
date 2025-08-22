@@ -196,7 +196,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
-        setFiltersAndLayoutsAndVariables: (
+        saveEditModeChanges: (
             filters: DashboardFilter,
             variables: Record<string, HogQLVariable>,
             breakdownColors: BreakdownColorConfig[],
@@ -213,7 +213,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         resetVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
-        updateFiltersAndLayoutsAndVariables: true,
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
             value,
@@ -300,7 +299,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                updateFiltersAndLayoutsAndVariables: async (_, breakpoint) => {
+                saveEditModeChanges: async ({ filters: { date_from, date_to }} , breakpoint) => {
+                    eventUsageLogic.actions.reportDashboardDateRangeChanged(date_from, date_to)
+                    eventUsageLogic.actions.reportDashboardPropertiesChanged()
+
                     actions.abortAnyRunningQuery()
 
                     try {
@@ -1396,10 +1398,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
             }
         },
-        setFiltersAndLayoutsAndVariables: ({ filters: { date_from, date_to } }) => {
-            actions.updateFiltersAndLayoutsAndVariables()
-            eventUsageLogic.actions.reportDashboardDateRangeChanged(date_from, date_to)
-            eventUsageLogic.actions.reportDashboardPropertiesChanged()
+        saveEditModeChanges: ({ filters: { date_from, date_to } }) => {
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
@@ -1433,7 +1432,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                 // save edit mode changes
-                actions.setFiltersAndLayoutsAndVariables(
+                actions.saveEditModeChanges(
                     values.urlFilters,
                     values.urlVariables,
                     values.temporaryBreakdownColors,
