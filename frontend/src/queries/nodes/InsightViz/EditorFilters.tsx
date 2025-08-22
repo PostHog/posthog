@@ -185,7 +185,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
-                    label: isTrends ? TrendsSeriesLabel : undefined,
+                    label: isTrends && display !== ChartDisplayType.CalendarHeatmap ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
                 },
                 isTrends && hasFormula
