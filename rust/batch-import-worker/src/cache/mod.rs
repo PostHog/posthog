@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 pub mod memory;
 pub mod redis;
 
+pub use memory::MemoryIdentifyCache;
 pub use redis::RedisIdentifyCache;
 
 /// Trait for caching user_id -> device_id mappings to determine when to inject $identify events

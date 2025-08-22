@@ -52,10 +52,6 @@ impl super::IdentifyCache for RedisIdentifyCache {
 
 impl RedisIdentifyCache {
     pub async fn new(redis_url: &str, ttl_seconds: u64) -> Result<Self, Error> {
-        if redis_url.is_empty() {
-            return Err(Error::msg("Redis URL is required for cache"));
-        }
-
         let redis_client = RedisClient::new(redis_url.to_string()).await?;
         let client_arc = Arc::from(redis_client);
         let memory_cache = MemoryCache::new(
@@ -445,21 +441,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_redis_url_validation() {
-        // Test that empty Redis URL fails
+        // Test that empty Redis URL now fails at Redis client level (not our validation)
         let result = RedisIdentifyCache::new("", 3600).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Redis URL is required"));
+        // Should fail due to Redis client initialization, not our validation
 
-        // Test with different TTL
-        let result2 = RedisIdentifyCache::new("", 7200).await;
+        // Test with invalid Redis URL
+        let result2 = RedisIdentifyCache::new("invalid://url", 7200).await;
         assert!(result2.is_err());
-        assert!(result2
-            .unwrap_err()
-            .to_string()
-            .contains("Redis URL is required"));
+        // Should fail due to Redis client initialization
     }
 
     #[tokio::test]

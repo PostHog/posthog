@@ -6,7 +6,7 @@ use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
 use tracing::info;
 
-use crate::cache::{IdentifyCache, RedisIdentifyCache};
+use crate::cache::{IdentifyCache, MemoryIdentifyCache, RedisIdentifyCache};
 use crate::config::Config;
 
 pub struct AppContext {
@@ -32,21 +32,27 @@ impl AppContext {
 
         let liveness = Arc::new(liveness);
 
-        // Initialize the identify cache
-        let identify_cache =
-            RedisIdentifyCache::new(&config.redis_url, config.identify_cache_ttl_seconds)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to initialize Redis cache with URL: {} and TTL: {}s",
-                        config.redis_url, config.identify_cache_ttl_seconds
-                    )
-                })?;
+        // Initialize the identify cache - use Redis if configured, otherwise fall back to memory-only
+        let identify_cache: Arc<dyn IdentifyCache> = if config.redis_url.is_empty() {
+            info!("Redis URL not configured, using in-memory cache for identify events");
+            Arc::new(MemoryIdentifyCache::with_defaults())
+        } else {
+            let redis_cache =
+                RedisIdentifyCache::new(&config.redis_url, config.identify_cache_ttl_seconds)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to initialize Redis cache with URL: {} and TTL: {}s",
+                            config.redis_url, config.identify_cache_ttl_seconds
+                        )
+                    })?;
 
-        info!(
-            "Using Redis cache for identify events at: {} with TTL: {}s",
-            config.redis_url, config.identify_cache_ttl_seconds
-        );
+            info!(
+                "Using Redis cache for identify events at: {} with TTL: {}s",
+                config.redis_url, config.identify_cache_ttl_seconds
+            );
+            Arc::new(redis_cache)
+        };
 
         let ctx = Self {
             config: config.clone(),
@@ -59,7 +65,7 @@ impl AppContext {
             health_registry,
             running: AtomicBool::new(true),
             worker_liveness: liveness,
-            identify_cache: Arc::new(identify_cache),
+            identify_cache,
         };
 
         Ok(ctx)
