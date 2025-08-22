@@ -271,9 +271,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 8
+            baseline = 7
 
-            with self.assertNumQueries(baseline + 12):
+            with self.assertNumQueries(baseline + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
