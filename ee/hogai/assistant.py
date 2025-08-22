@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
 import posthoganalytics
@@ -56,6 +56,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -75,19 +76,19 @@ from posthog.schema import (
 )
 from posthog.sync import database_sync_to_async
 
-VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
+VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
     AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
     AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
-VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]] = {
+VISUALIZATION_NODES_TOOL_CALL_MODE: dict[MaxNodeName, type[AssistantNode]] = {
     **VISUALIZATION_NODES,
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
-STREAMING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
+STREAMING_NODES: set[MaxNodeName] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
@@ -96,18 +97,19 @@ STREAMING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
+    AssistantNodeName.INSIGHTS_SEARCH,
 }
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES: set[AssistantNodeName | TaxonomyNodeName] = STREAMING_NODES | {
+VERBOSE_NODES: set[MaxNodeName] = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
     TaxonomyNodeName.TOOLS_NODE,
 }
 """Nodes that can send messages to the client."""
 
-THINKING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
+THINKING_NODES: set[MaxNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
@@ -164,8 +166,6 @@ class Assistant:
                 self._graph = AssistantGraph(team, user).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
                 self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
-            case _:
-                raise ValueError(f"Invalid assistant mode: {mode}")
         self._chunks = AIMessageChunk(content="")
         self._tool_call_partial_state = tool_call_partial_state
         self._state = None
@@ -363,7 +363,7 @@ class Assistant:
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: AssistantNodeName | TaxonomyNodeName, input: AssistantState
+        self, node_name: MaxNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
             case AssistantNodeName.QUERY_PLANNER | TaxonomyNodeName.LOOP_NODE:
@@ -373,6 +373,8 @@ class Assistant:
                         for action, _ in intermediate_steps:
                             assert isinstance(action.tool_input, dict)
                             match action.tool:
+                                case "lookup_feature_flag":
+                                    substeps.append(f"Exploring feature flag `{action.tool_input['flag_key']}`")
                                 case "retrieve_event_properties":
                                     substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
                                 case "retrieve_entity_properties":
@@ -401,8 +403,13 @@ class Assistant:
 
                 # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools,
                 # so we reuse the last reasoning headline when going back to QueryPlanner
+                if node_name == AssistantNodeName.QUERY_PLANNER:
+                    content = self._last_reasoning_headline or "Picking relevant events and properties"
+                else:
+                    content = self._last_reasoning_headline or "Picking the relevant information"
                 return ReasoningMessage(
-                    content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
+                    content=content,
+                    substeps=substeps,
                 )
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -425,6 +432,8 @@ class Assistant:
                     return ReasoningMessage(content="Checking PostHog docs")
                 if tool_call.name == "retrieve_billing_information":
                     return ReasoningMessage(content="Checking your billing data")
+                if tool_call.name == "search_insights":
+                    return ReasoningMessage(content="Searching for insights")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
@@ -463,14 +472,14 @@ class Assistant:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
         # this needs full type annotation otherwise mypy complains
-        visualization_nodes: (
-            dict[AssistantNodeName, type[AssistantNode]] | dict[AssistantNodeName, type[SchemaGeneratorNode]]
-        ) = VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
+        visualization_nodes: dict[MaxNodeName, type[AssistantNode]] | dict[MaxNodeName, type[SchemaGeneratorNode]] = (
+            VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
+        )
         if intersected_nodes := state_update.keys() & visualization_nodes.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
-            node_name: AssistantNodeName | TaxonomyNodeName = intersected_nodes.pop()
+            node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if not isinstance(node_val, PartialAssistantState):
                 return None
@@ -498,32 +507,34 @@ class Assistant:
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
-        if not isinstance(langchain_message, AIMessageChunk):
-            return None
+        # Process message chunks
+        if isinstance(langchain_message, AIMessageChunk):
+            node_name: MaxNodeName = langgraph_state["langgraph_node"]
+            # Check for reasoning content first (for all nodes that support it)
+            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                    return ReasoningMessage(content=reasoning_headline)
 
-        node_name: AssistantNodeName | TaxonomyNodeName = langgraph_state["langgraph_node"]
+            # Only process streaming nodes
+            if node_name not in STREAMING_NODES:
+                return None
 
-        # Check for reasoning content first (for all nodes that support it)
-        if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-            if reasoning_headline := self._chunk_reasoning_headline(reasoning):
-                return ReasoningMessage(content=reasoning_headline)
+            # Merge message chunks
+            self._merge_message_chunk(langchain_message)
 
-        # Only process streaming nodes
-        if node_name not in STREAMING_NODES:
-            return None
+            if node_name == AssistantNodeName.MEMORY_INITIALIZER:
+                return self._process_memory_initializer_chunk(langchain_message)
 
-        # Merge message chunks
-        self._merge_message_chunk(langchain_message)
+            # Extract and process content
+            message_content = extract_content_from_ai_message(self._chunks)
+            if not message_content:
+                return None
 
-        if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-            return self._process_memory_initializer_chunk(langchain_message)
-
-        # Extract and process content
-        message_content = extract_content_from_ai_message(self._chunks)
-        if not message_content:
-            return None
-
-        return AssistantMessage(content=message_content)
+            return AssistantMessage(content=message_content)
+        # Return ready messages as is
+        elif isinstance(langchain_message, get_args(AssistantMessageUnion)):
+            return langchain_message
+        return None
 
     def _merge_message_chunk(self, langchain_message: AIMessageChunk) -> None:
         """Merge a new message chunk with existing chunks, handling content format compatibility.

@@ -1,28 +1,31 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import {
-    applyEdgeChanges,
-    applyNodeChanges,
     EdgeChange,
-    getOutgoers,
     MarkerType,
     NodeChange,
     Position,
     ReactFlowInstance,
+    applyEdgeChanges,
+    applyNodeChanges,
+    getOutgoers,
 } from '@xyflow/react'
 import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import type { DragEvent } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { uuid } from 'lib/utils'
 
-import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
+import { getSmartStepPath } from './steps/SmartEdge'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
-import type { DragEvent } from 'react'
-import { getSmartStepPath } from './steps/SmartEdge'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
@@ -33,10 +36,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'edgesByActionId'],
+            optOutCategoriesLogic(),
+            ['categories', 'categoriesLoading'],
+        ],
         actions: [
             campaignLogic(props),
             ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            optOutCategoriesLogic(),
+            ['loadCategories'],
         ],
     })),
     actions({

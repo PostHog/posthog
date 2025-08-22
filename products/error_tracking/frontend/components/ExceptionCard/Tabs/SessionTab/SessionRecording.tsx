@@ -1,13 +1,15 @@
-import { Spinner } from '@posthog/lemon-ui'
+import { SessionTabProps } from '.'
 import { useActions, useValues } from 'kea'
-import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { useEffect } from 'react'
+import { match } from 'ts-pattern'
+
+import { Spinner } from '@posthog/lemon-ui'
+
+import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
-import { match } from 'ts-pattern'
-import { SessionTabProps } from '.'
 import { sessionTabLogic } from './sessionTabLogic'
 
 export function SessionRecording({ ...props }: SessionTabProps): JSX.Element {

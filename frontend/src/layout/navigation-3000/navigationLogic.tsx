@@ -1,3 +1,9 @@
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+import React from 'react'
+
 import {
     IconAI,
     IconChat,
@@ -22,17 +28,13 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import { Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -162,7 +164,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
-                setScene: (state, { scene }) => scene || state,
+                setScene: (state, { sceneId }) => sceneId || state,
             },
         ],
         isSearchShown: [
@@ -422,7 +424,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data/persons',
                         },
                         {
-                            identifier: Scene.Activity,
+                            identifier: Scene.ExploreEvents,
                             label: 'Activity',
                             icon: <IconLive />,
                             to: urls.activity(),
@@ -551,10 +553,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             : null,
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
+                                  identifier: 'LLMAnalytics',
+                                  label: 'LLM analytics',
                                   icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
+                                  to: urls.llmAnalyticsDashboard(),
                                   tag: 'beta' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/ai-engineering/dashboard',
                               }

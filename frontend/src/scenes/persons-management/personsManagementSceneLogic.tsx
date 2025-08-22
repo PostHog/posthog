@@ -1,6 +1,9 @@
 import { connect, kea, path, selectors } from 'kea'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { groupsSceneLogic } from 'scenes/groups/groupsSceneLogic'
 import { urls } from 'scenes/urls'
@@ -8,8 +11,6 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 
 import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonsManagementTab = {
     key: string

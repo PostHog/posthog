@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import {
     IconEllipsis,
     IconHourglass,
@@ -6,11 +8,11 @@ import {
     IconSearch,
     IconTortoise,
 } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,

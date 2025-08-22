@@ -1,26 +1,31 @@
 from typing import TypeVar
+
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentStatsValidationFailure,
-    ExperimentVariantResultBayesian,
     ExperimentQueryResponse,
+    ExperimentRatioMetric,
     ExperimentStatsBase,
     ExperimentStatsBaseValidated,
+    ExperimentStatsValidationFailure,
     ExperimentVariantFunnelsBaseStats,
+    ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
 )
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
+from products.experiments.stats.frequentist.method import (
+    FrequentistConfig,
+    FrequentistMethod,
+    TestType,
+)
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
-    SampleMeanStatistic,
     ProportionStatistic,
-    StatisticError,
+    RatioStatistic,
+    SampleMeanStatistic,
 )
-from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.errors import ExposedCHQueryError
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
@@ -49,20 +54,42 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def get_new_variant_results(sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
-    return [
-        ExperimentStatsBase(
-            key=result[0],
-            number_of_samples=result[1],
-            sum=result[2],
-            sum_squares=result[3],
-        )
-        for result in sorted_results
-    ]
+def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
+    # Handle both regular metrics (4 values) and ratio metrics (7 values)
+    variant_results = []
+    for result in sorted_results:
+        if len(result) == 4:
+            # Regular metric
+            variant_results.append(
+                ExperimentStatsBase(
+                    key=result[0],
+                    number_of_samples=result[1],
+                    sum=result[2],
+                    sum_squares=result[3],
+                )
+            )
+        elif len(result) == 7:
+            # Ratio metric
+            variant_results.append(
+                ExperimentStatsBase(
+                    key=result[0],
+                    number_of_samples=result[1],
+                    sum=result[2],
+                    sum_squares=result[3],
+                    denominator_sum=result[4],
+                    denominator_sum_squares=result[5],
+                    numerator_denominator_sum_product=result[6],
+                )
+            )
+        else:
+            raise ValueError(f"Unexpected result format with {len(result)} values")
+    return variant_results
 
 
 def validate_variant_result(
-    variant_result: ExperimentStatsBase, metric: ExperimentFunnelMetric | ExperimentMeanMetric, is_baseline=False
+    variant_result: ExperimentStatsBase,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    is_baseline=False,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
 
@@ -75,19 +102,53 @@ def validate_variant_result(
     if is_baseline and variant_result.sum == 0:
         validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
-    return ExperimentStatsBaseValidated(**variant_result.model_dump(), validation_failures=validation_failures)
+    validated_result = ExperimentStatsBaseValidated(
+        key=variant_result.key,
+        number_of_samples=variant_result.number_of_samples,
+        sum=variant_result.sum,
+        sum_squares=variant_result.sum_squares,
+        validation_failures=validation_failures,
+    )
+
+    # Include ratio-specific fields if present
+    if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
+        validated_result.denominator_sum = variant_result.denominator_sum
+        validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
+        validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
+
+    return validated_result
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric, variant: ExperimentStatsBaseValidated
-) -> SampleMeanStatistic | ProportionStatistic:
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric, variant: ExperimentStatsBaseValidated
+) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
+    elif isinstance(metric, ExperimentRatioMetric):
+        # For ratio metrics, create statistics for both numerator and denominator
+        # and combine them using RatioStatistic
+        numerator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.sum,
+            sum_squares=variant.sum_squares,
+        )
+        denominator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.denominator_sum or 0.0,
+            sum_squares=variant.denominator_sum_squares or 0.0,
+        )
+        return RatioStatistic(
+            n=variant.number_of_samples,
+            m_statistic=numerator_stat,
+            d_statistic=denominator_stat,
+            m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
     else:
+        # ExperimentFunnelMetric case
         return ProportionStatistic(
             n=variant.number_of_samples,
             sum=int(variant.sum),
@@ -95,7 +156,7 @@ def metric_variant_to_statistic(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -105,14 +166,11 @@ def get_frequentist_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    try:
-        control_stat = (
-            metric_variant_to_statistic(metric, control_variant_validated)
-            if not control_variant_validated.validation_failures
-            else None
-        )
-    except StatisticError as e:
-        raise ExposedCHQueryError(str(e), code=None) from e
+    control_stat = (
+        metric_variant_to_statistic(metric, control_variant_validated)
+        if not control_variant_validated.validation_failures
+        else None
+    )
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
@@ -126,13 +184,18 @@ def get_frequentist_experiment_result(
             validation_failures=test_variant_validated.validation_failures,
         )
 
+        # Include ratio-specific fields if present
+        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
+            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
+            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
+            experiment_variant_result.numerator_denominator_sum_product = (
+                test_variant_validated.numerator_denominator_sum_product
+            )
+
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            try:
-                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
-            except StatisticError as e:
-                raise ExposedCHQueryError(str(e), code=None) from e
+            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+            result = method.run_test(test_stat, control_stat)
 
             confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
@@ -150,7 +213,7 @@ def get_frequentist_experiment_result(
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -170,14 +233,11 @@ def get_bayesian_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    try:
-        control_stat = (
-            metric_variant_to_statistic(metric, control_variant_validated)
-            if not control_variant_validated.validation_failures
-            else None
-        )
-    except StatisticError as e:
-        raise ExposedCHQueryError(str(e), code=None) from e
+    control_stat = (
+        metric_variant_to_statistic(metric, control_variant_validated)
+        if not control_variant_validated.validation_failures
+        else None
+    )
 
     variants: list[ExperimentVariantResultBayesian] = []
 
@@ -191,13 +251,18 @@ def get_bayesian_experiment_result(
             validation_failures=test_variant_validated.validation_failures,
         )
 
+        # Include ratio-specific fields if present
+        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
+            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
+            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
+            experiment_variant_result.numerator_denominator_sum_product = (
+                test_variant_validated.numerator_denominator_sum_product
+            )
+
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            try:
-                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
-            except StatisticError as e:
-                raise ExposedCHQueryError(str(e), code=None) from e
+            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+            result = method.run_test(test_stat, control_stat)
 
             # Convert credible interval to percentage
             credible_interval = [result.credible_interval[0], result.credible_interval[1]]

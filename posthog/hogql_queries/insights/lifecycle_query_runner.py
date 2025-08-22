@@ -12,7 +12,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
@@ -31,9 +31,8 @@ from posthog.schema import (
 )
 
 
-class LifecycleQueryRunner(QueryRunner):
+class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     query: LifecycleQuery
-    response: LifecycleQueryResponse
     cached_response: CachedLifecycleQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -142,7 +141,7 @@ class LifecycleQueryRunner(QueryRunner):
             ],
         )
 
-    def calculate(self) -> LifecycleQueryResponse:
+    def _calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

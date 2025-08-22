@@ -48,7 +48,7 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_22.17.1 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS plugin-server-build
 
 # Compile and install system dependencies
 RUN apt-get update && \

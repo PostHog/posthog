@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { Redis } from 'ioredis'
+import { CODES, Message, TopicPartition, features, librdkafkaVersion } from 'node-rdkafka'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { buildIntegerMatcher } from '../../../config/config'
@@ -207,7 +207,7 @@ export class SessionRecordingIngester {
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
                 logger.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
-                return await fetchTeamTokensWithRecordings(this.postgres)
+                return (await fetchTeamTokensWithRecordings(this.postgres))[0]
             } catch (e) {
                 logger.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
                 captureException(e)

@@ -1,11 +1,13 @@
-import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 import { PluginKey } from '@tiptap/pm/state'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+
+import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
+
+import { Popover } from 'lib/lemon-ui/Popover'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'

@@ -5,22 +5,20 @@ import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+
+import { ErrorTrackingIssueScenePanel } from './ErrorTrackingIssueScenePanel'
 import { ErrorFilters } from './components/ErrorFilters'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { ExceptionCard } from './components/ExceptionCard'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { Metadata } from './issue/Metadata'
-import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
-import { ErrorTrackingIssueScenePanel } from './ErrorTrackingIssueScenePanel'
 import { EventsTable } from './components/EventsTable/EventsTable'
+import { ExceptionCard } from './components/ExceptionCard'
+import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
+import { Metadata } from './issue/Metadata'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({
-        params: { id },
-        searchParams: { fingerprint, timestamp },
-    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint, timestamp }),
+    paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
 }
 
 export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {

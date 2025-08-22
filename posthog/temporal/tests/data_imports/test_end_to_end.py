@@ -56,6 +56,7 @@ from posthog.warehouse.models import (
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -201,7 +202,7 @@ async def _run(
         team=team,
         status="running",
         source_type=source_type,
-        revenue_analytics_enabled=source_type == ExternalDataSource.Type.STRIPE,
+        revenue_analytics_enabled=source_type == ExternalDataSourceType.STRIPE,
         job_inputs=job_inputs,
     )
 

@@ -1,5 +1,7 @@
-import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+
 import { NewButton } from 'scenes/pipeline/NewButton'
 
 import { HogFunctionTypeType, PipelineStage } from '~/types'

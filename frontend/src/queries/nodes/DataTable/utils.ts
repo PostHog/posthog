@@ -1,6 +1,6 @@
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 
-import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
 import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema/schema-general'
 
 export const defaultDataTableEventColumns: HogQLExpression[] = [

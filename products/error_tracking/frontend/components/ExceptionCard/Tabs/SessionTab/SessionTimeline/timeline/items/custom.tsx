@@ -1,10 +1,14 @@
-import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 import { ItemCategory, ItemLoaderFactory, ItemRenderer, TimelineItem } from '..'
-import { BasePreview, EventLoader } from './base'
-import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
+
 import { IconGraph } from '@posthog/icons'
-import { dayjs, Dayjs } from 'lib/dayjs'
+
+import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { Dayjs, dayjs } from 'lib/dayjs'
+
+import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
+
+import { BasePreview, EventLoader } from './base'
 
 export interface CustomItem extends TimelineItem {
     payload: {

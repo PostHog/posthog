@@ -31,16 +31,16 @@ from posthog.schema import (
 BREAKDOWN_NULL_DISPLAY = "(none)"
 
 
-class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
+class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryResponse]):
     query: WebStatsTableQuery
-    response: WebStatsTableQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
     preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder
     used_preaggregated_tables: bool
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.use_v2_tables = use_v2_tables
         self.used_preaggregated_tables = False
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
@@ -611,7 +611,7 @@ GROUP BY session_id, breakdown_value
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
@@ -693,6 +693,33 @@ GROUP BY session_id, breakdown_value
                 return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
+            case WebStatsBreakdown.PREVIOUS_PAGE:
+                return ast.Call(
+                    name="multiIf",
+                    args=[
+                        # if it's internal navigation within a SPA, use the previous pageview's pathname
+                        ast.Call(
+                            name="isNotNull",
+                            args=[ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])],
+                        ),
+                        self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])),
+                        # if it's internal navigation but not within a SPA, the referrer will be on the same domain, and path cleaning should still be applied
+                        ast.Call(
+                            name="equals",
+                            args=[
+                                ast.Call(
+                                    name="domain", args=[ast.Field(chain=["events", "properties", "$current_url"])]
+                                ),
+                                ast.Call(name="domain", args=[ast.Field(chain=["events", "properties", "$referrer"])]),
+                            ],
+                        ),
+                        self._apply_path_cleaning(
+                            ast.Call(name="path", args=[ast.Field(chain=["events", "properties", "$referrer"])])
+                        ),
+                        # a visit from an external domain
+                        ast.Field(chain=["events", "properties", "$referrer"]),
+                    ],
+                )
             case WebStatsBreakdown.SCREEN_NAME:
                 return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:

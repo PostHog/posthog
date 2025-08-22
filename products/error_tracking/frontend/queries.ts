@@ -203,8 +203,6 @@ export const errorTrackingIssueCorrelationQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
         events,
-        tags: {
-            productKey: ProductKey.ERROR_TRACKING,
-        },
+        tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }

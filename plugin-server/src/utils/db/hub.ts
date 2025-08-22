@@ -5,6 +5,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
@@ -86,9 +87,13 @@ export async function createHub(
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     logger.info('👍', `Postgres Router ready`)
 
-    logger.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to ingestion Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    logger.info('👍', `Redis ready`)
+    logger.info('👍', `Ingestion Redis ready`)
+
+    logger.info('🤔', `Connecting to cookieless Redis...`)
+    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    logger.info('👍', `Cookieless Redis ready`)
 
     logger.info('🤔', `Connecting to object storage...`)
 
@@ -102,6 +107,7 @@ export async function createHub(
     const db = new DB(
         postgres,
         redisPool,
+        cookielessRedisPool,
         kafkaProducer,
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
@@ -118,11 +124,12 @@ export async function createHub(
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
     const groupRepository = new PostgresGroupRepository(postgres)
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
-    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
 
     const hub: Hub = {
         ...serverConfig,
@@ -131,6 +138,7 @@ export async function createHub(
         db,
         postgres,
         redisPool,
+        cookielessRedisPool,
         kafka,
         kafkaProducer,
         objectStorage: objectStorage,
@@ -165,6 +173,7 @@ export async function createHub(
         cookielessManager,
         pubSub,
         integrationManager,
+        quotaLimiting,
     }
 
     return hub
@@ -179,6 +188,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     await hub.pubSub.stop()
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 

@@ -19,10 +19,11 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
 from posthog.models.utils import (
     LowercaseSlugField,
-    UUIDModel,
+    UUIDTModel,
     create_with_slug,
     sane_repr,
 )
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -95,7 +96,7 @@ class OrganizationManager(models.Manager):
         return organization, organization_membership, team
 
 
-class Organization(UUIDModel):
+class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -148,6 +149,14 @@ class Organization(UUIDModel):
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    default_role = models.ForeignKey(
+        "ee.Role",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="default_for_organizations",
+        help_text="Role automatically assigned to new members joining the organization",
+    )
 
     # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
@@ -282,7 +291,7 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
-class OrganizationMembership(UUIDModel):
+class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
@@ -384,6 +393,22 @@ class OrganizationMembership(UUIDModel):
             "keys": keys_data,
             "team_ids": team_ids,
         }
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.signals import model_activity_signal
+        from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+        model_activity_signal.send(
+            sender=self.__class__,
+            scope=self.__class__.__name__,
+            before_update=self,
+            after_update=None,
+            activity="deleted",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+
+        return super().delete(*args, **kwargs)
 
     __repr__ = sane_repr("organization", "user", "level")
 
