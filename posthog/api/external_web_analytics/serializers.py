@@ -29,7 +29,9 @@ class WebAnalyticsRequestSerializer(serializers.Serializer):
 
 
 class WebAnalyticsOverviewRequestSerializer(WebAnalyticsRequestSerializer):
-    pass
+    compare = serializers.BooleanField(
+        default=False, help_text="Include previous period for comparison data", required=False
+    )
 
 
 class WebAnalyticsTrendRequestSerializer(WebAnalyticsRequestSerializer):
@@ -69,12 +71,25 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
 
 
 # Response serializers
+class WebAnalyticsMetricItemSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Metric key identifier")
+    kind = serializers.ChoiceField(choices=["unit", "percentage", "duration_s", "currency"], help_text="Type of metric")
+    value = serializers.FloatField(help_text="Current period value")
+    previous = serializers.FloatField(required=False, allow_null=True, help_text="Previous period value for comparison")
+    changeFromPreviousPct = serializers.FloatField(
+        required=False, allow_null=True, help_text="Percentage change from previous period"
+    )
+    isIncreaseBad = serializers.BooleanField(
+        required=False, allow_null=True, help_text="Whether increases in this metric are considered negative"
+    )
+
+
 class WebAnalyticsOverviewResponseSerializer(serializers.Serializer):
-    visitors = serializers.IntegerField(help_text="Unique visitors")
-    views = serializers.IntegerField(help_text="Total page views")
-    sessions = serializers.IntegerField(help_text="Total sessions")
-    bounce_rate = serializers.FloatField(help_text="Bounce rate", min_value=0, max_value=1)
-    session_duration = serializers.FloatField(help_text="Average session duration in seconds")
+    visitors = WebAnalyticsMetricItemSerializer(help_text="Unique visitors data")
+    views = WebAnalyticsMetricItemSerializer(help_text="Total page views data")
+    sessions = WebAnalyticsMetricItemSerializer(help_text="Total sessions data")
+    bounce_rate = WebAnalyticsMetricItemSerializer(help_text="Bounce rate data")
+    session_duration = WebAnalyticsMetricItemSerializer(help_text="Average session duration data")
 
 
 class WebAnalyticsTrendPointSerializer(serializers.Serializer):

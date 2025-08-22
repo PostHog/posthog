@@ -129,6 +129,13 @@ class ExternalWebAnalyticsQueryAdapter:
     def get_overview_data(self, serializer: WebAnalyticsOverviewRequestSerializer) -> dict[str, Any]:
         data = serializer.validated_data
 
+        # Add comparison period support for previous period data
+        compare_filter = None
+        if data.get("compare", False):
+            from posthog.schema import CompareFilter
+
+            compare_filter = CompareFilter(compare=True)
+
         query = WebOverviewQuery(
             kind="WebOverviewQuery",
             dateRange=DateRange(
@@ -139,6 +146,7 @@ class ExternalWebAnalyticsQueryAdapter:
             filterTestAccounts=data.get("filter_test_accounts", True),
             doPathCleaning=data.get("apply_path_cleaning", True),
             includeRevenue=False,
+            compareFilter=compare_filter,
         )
 
         runner = WebOverviewQueryRunner(
@@ -261,46 +269,104 @@ class ExternalWebAnalyticsQueryAdapter:
 
     def _transform_overview_response(self, response: WebOverviewQueryResponse) -> dict[str, Any]:
         """
-        Transform the internal WebOverviewQueryResponse to external API format.
+        Transform the internal WebOverviewQueryResponse to structured external API format.
 
-        Internal format has results as list of dicts with keys like:
+        Internal format has results as list of WebOverviewItem objects:
         [
-            {"key": "visitors", "value": 1234, ...},
-            {"key": "views", "value": 5678, ...},
+            {"key": "visitors", "kind": "unit", "value": 1234, "previous": 1100, "changeFromPreviousPct": 12.2, ...},
+            {"key": "views", "kind": "unit", "value": 5678, "previous": 5200, "changeFromPreviousPct": 9.2, ...},
             ...
         ]
 
-        External format expects:
+        External format preserves the structured data:
         {
-            "visitors": 1234,
-            "views": 5678,
-            "sessions": 901,
-            "bounce_rate": 0.45,
-            "session_duration": 123.4
+            "visitors": {
+                "key": "visitors",
+                "kind": "unit",
+                "value": 1234,
+                "previous": 1100,
+                "changeFromPreviousPct": 12.2,
+                "isIncreaseBad": false
+            },
+            "bounce_rate": {
+                "key": "bounce_rate",
+                "kind": "percentage",
+                "value": 0.45,
+                "previous": 0.48,
+                "changeFromPreviousPct": -6.3,
+                "isIncreaseBad": true
+            }
         }
         """
 
-        metric_mappings = {
-            "visitors": ("visitors", lambda v: int(v) if v is not None else 0),
-            "views": ("views", lambda v: int(v) if v is not None else 0),
-            "sessions": ("sessions", lambda v: int(v) if v is not None else 0),
-            "bounce rate": ("bounce_rate", lambda v: (v / 100.0) if v is not None else 0.0),
-            "session duration": ("session_duration", lambda v: float(v) if v is not None else 0.0),
+        # Map internal keys to external keys for API consistency
+        metric_key_mappings = {
+            "visitors": "visitors",
+            "views": "views",
+            "sessions": "sessions",
+            "bounce rate": "bounce_rate",
+            "session duration": "session_duration",
         }
 
         result_dict = {}
         for result in response.results:
-            if result.key in metric_mappings:
-                external_key, transformer = metric_mappings[result.key]
-                result_dict[external_key] = transformer(result.value)
+            if result.key in metric_key_mappings:
+                external_key = metric_key_mappings[result.key]
 
-        return {
-            "visitors": result_dict.get("visitors", 0),
-            "views": result_dict.get("views", 0),
-            "sessions": result_dict.get("sessions", 0),
-            "bounce_rate": result_dict.get("bounce_rate", 0.0),
-            "session_duration": result_dict.get("session_duration", 0.0),
+                # Transform values based on metric kind for API consistency
+                kind_str = result.kind.value if hasattr(result.kind, "value") else str(result.kind)
+                transformed_value = self._transform_metric_value(result.value, kind_str)
+                transformed_previous = (
+                    self._transform_metric_value(result.previous, kind_str) if result.previous is not None else None
+                )
+
+                result_dict[external_key] = {
+                    "key": external_key,
+                    "kind": kind_str,
+                    "value": transformed_value,
+                    "previous": transformed_previous,
+                    "changeFromPreviousPct": result.changeFromPreviousPct,
+                    "isIncreaseBad": result.isIncreaseBad,
+                }
+
+        # Ensure all expected metrics are present with defaults
+        default_metrics = {
+            "visitors": {"key": "visitors", "kind": "unit", "value": 0},
+            "views": {"key": "views", "kind": "unit", "value": 0},
+            "sessions": {"key": "sessions", "kind": "unit", "value": 0},
+            "bounce_rate": {"key": "bounce_rate", "kind": "percentage", "value": 0.0, "isIncreaseBad": True},
+            "session_duration": {"key": "session_duration", "kind": "duration_s", "value": 0.0},
         }
+
+        for metric_key, default_data in default_metrics.items():
+            if metric_key not in result_dict:
+                result_dict[metric_key] = {
+                    **default_data,
+                    "previous": None,
+                    "changeFromPreviousPct": None,
+                    "isIncreaseBad": default_data.get("isIncreaseBad"),
+                }
+
+        return result_dict
+
+    def _transform_metric_value(self, value: Optional[float], kind: str) -> Optional[float | int]:
+        """Transform metric values based on their kind for external API consistency."""
+        if value is None:
+            # Return appropriate default based on kind
+            if kind == "unit":
+                return 0
+            elif kind == "percentage":
+                return 0.0
+            else:  # duration_s, currency, etc.
+                return 0.0
+
+        if kind == "unit":
+            return int(value)
+        elif kind == "percentage":
+            # Convert percentage to decimal (e.g., 45 -> 0.45) for external API consistency
+            return value / 100.0
+        else:  # duration_s, currency, etc.
+            return float(value)
 
     def _get_pagination_info(
         self, response: WebStatsTableQueryResponse, limit: int, offset: int

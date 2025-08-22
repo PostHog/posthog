@@ -68,15 +68,46 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         ),
         examples=[
             OpenApiExample(
-                "Overview Response",
-                description="Example response with key metrics",
+                "Overview Response (Structured Format)",
+                description="Structured response with comparison data for each metric",
                 response_only=True,
                 value={
-                    "visitors": 12500,
-                    "views": 45000,
-                    "sessions": 18200,
-                    "bounce_rate": 0.32,
-                    "session_duration": 185.5,
+                    "visitors": {
+                        "key": "visitors",
+                        "kind": "unit",
+                        "value": 12500,
+                        "previous": 11200,
+                        "changeFromPreviousPct": 11.6,
+                    },
+                    "views": {
+                        "key": "views",
+                        "kind": "unit",
+                        "value": 45000,
+                        "previous": 42300,
+                        "changeFromPreviousPct": 6.4,
+                    },
+                    "sessions": {
+                        "key": "sessions",
+                        "kind": "unit",
+                        "value": 18200,
+                        "previous": 17100,
+                        "changeFromPreviousPct": 6.4,
+                    },
+                    "bounce_rate": {
+                        "key": "bounce_rate",
+                        "kind": "percentage",
+                        "value": 0.32,
+                        "previous": 0.35,
+                        "changeFromPreviousPct": -8.6,
+                        "isIncreaseBad": True,
+                    },
+                    "session_duration": {
+                        "key": "session_duration",
+                        "kind": "duration_s",
+                        "value": 185.5,
+                        "previous": 172.3,
+                        "changeFromPreviousPct": 7.7,
+                    },
                 },
             )
         ],
@@ -84,7 +115,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def overview(self, request: Request, **kwargs) -> Response:
         """
-        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration.
+        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration. Each metric returns structured data with current values, previous period comparisons, and percentage changes when the 'compare' parameter is enabled.
         """
         self._can_use_external_web_analytics()
 

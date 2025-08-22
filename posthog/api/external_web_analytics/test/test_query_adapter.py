@@ -101,11 +101,31 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_overview_data(serializer)
 
-        assert result["visitors"] == 1500  # int conversion
-        assert result["views"] == 5678
-        assert result["sessions"] == 987
-        assert result["bounce_rate"] == 0.45  # percentage to decimal
-        assert result["session_duration"] == 123.4  # float preserved
+        # Test structured response format
+        assert result["visitors"]["key"] == "visitors"
+        assert result["visitors"]["kind"] == "unit"
+        assert result["visitors"]["value"] == 1500  # int conversion
+        assert result["visitors"]["previous"] == 1200
+        assert result["visitors"]["changeFromPreviousPct"] == 25.0
+
+        assert result["views"]["key"] == "views"
+        assert result["views"]["kind"] == "unit"
+        assert result["views"]["value"] == 5678
+        assert result["views"]["previous"] == 4500
+        assert result["views"]["changeFromPreviousPct"] == 26.2
+
+        assert result["bounce_rate"]["key"] == "bounce_rate"
+        assert result["bounce_rate"]["kind"] == "percentage"
+        assert result["bounce_rate"]["value"] == 0.45  # percentage to decimal
+        assert result["bounce_rate"]["previous"] == 0.5
+        assert result["bounce_rate"]["changeFromPreviousPct"] == -10.0
+        assert result["bounce_rate"]["isIncreaseBad"] is True
+
+        assert result["session_duration"]["key"] == "session_duration"
+        assert result["session_duration"]["kind"] == "duration_s"
+        assert result["session_duration"]["value"] == 123.4  # float preserved
+        assert result["session_duration"]["previous"] == 115.2
+        assert result["session_duration"]["changeFromPreviousPct"] == 7.1
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
     def test_handles_edge_cases_gracefully(self, mock_runner_class):
@@ -117,22 +137,92 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
                     WebOverviewItem(key="bounce rate", kind=WebOverviewItemKind.PERCENTAGE, value=None),
                 ],
                 "expected": {
-                    "visitors": 0,
-                    "views": 0,
-                    "sessions": 0,
-                    "bounce_rate": 0.0,
-                    "session_duration": 0.0,
+                    "visitors": {
+                        "key": "visitors",
+                        "kind": "unit",
+                        "value": 0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "views": {
+                        "key": "views",
+                        "kind": "unit",
+                        "value": 0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "sessions": {
+                        "key": "sessions",
+                        "kind": "unit",
+                        "value": 0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "bounce_rate": {
+                        "key": "bounce_rate",
+                        "kind": "percentage",
+                        "value": 0.0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "session_duration": {
+                        "key": "session_duration",
+                        "kind": "duration_s",
+                        "value": 0.0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
                 },
             },
             # Case 2: Empty results
             {
                 "items": [],
                 "expected": {
-                    "visitors": 0,
-                    "views": 0,
-                    "sessions": 0,
-                    "bounce_rate": 0.0,
-                    "session_duration": 0.0,
+                    "visitors": {
+                        "key": "visitors",
+                        "kind": "unit",
+                        "value": 0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "views": {
+                        "key": "views",
+                        "kind": "unit",
+                        "value": 0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "sessions": {
+                        "key": "sessions",
+                        "kind": "unit",
+                        "value": 0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "bounce_rate": {
+                        "key": "bounce_rate",
+                        "kind": "percentage",
+                        "value": 0.0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": True,
+                    },
+                    "session_duration": {
+                        "key": "session_duration",
+                        "kind": "duration_s",
+                        "value": 0.0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
                 },
             },
             # Case 3: Only some metrics present
@@ -142,11 +232,46 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
                     WebOverviewItem(key="sessions", kind=WebOverviewItemKind.UNIT, value=80.0),
                 ],
                 "expected": {
-                    "visitors": 100,
-                    "views": 0,
-                    "sessions": 80,
-                    "bounce_rate": 0.0,
-                    "session_duration": 0.0,
+                    "visitors": {
+                        "key": "visitors",
+                        "kind": "unit",
+                        "value": 100,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "views": {
+                        "key": "views",
+                        "kind": "unit",
+                        "value": 0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "sessions": {
+                        "key": "sessions",
+                        "kind": "unit",
+                        "value": 80,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
+                    "bounce_rate": {
+                        "key": "bounce_rate",
+                        "kind": "percentage",
+                        "value": 0.0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": True,
+                    },
+                    "session_duration": {
+                        "key": "session_duration",
+                        "kind": "duration_s",
+                        "value": 0.0,
+                        "previous": None,
+                        "changeFromPreviousPct": None,
+                        "isIncreaseBad": None,
+                    },
                 },
             },
         ]
@@ -279,7 +404,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         result = adapter.get_overview_data(serializer)
 
         # Should only have the known metrics
-        assert result["visitors"] == 100
+        assert result["visitors"]["value"] == 100
         assert "unknown_metric" not in result
         assert "another_unknown" not in result
 
@@ -303,7 +428,36 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
             result = adapter.get_overview_data(serializer)
 
-            assert result["bounce_rate"] == expected_external
+            assert result["bounce_rate"]["value"] == expected_external
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_comparison_period_support(self, mock_runner_class):
+        """Test that comparison period is enabled when compare parameter is True."""
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_overview_response(self.sample_overview_items)
+        mock_runner_class.return_value = mock_runner
+
+        # Test with comparison enabled
+        serializer = self._create_mock_overview_request_serializer(compare=True)
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_overview_data(serializer)
+
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+
+        # Should have comparison filter enabled
+        assert query.compareFilter is not None
+        assert query.compareFilter.compare is True
+
+        # Test without comparison (default)
+        serializer_no_compare = self._create_mock_overview_request_serializer(compare=False)
+        adapter.get_overview_data(serializer_no_compare)
+
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+
+        # Should not have comparison filter
+        assert query.compareFilter is None
 
 
 class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
@@ -690,9 +844,9 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         assert "session_duration" in result
 
         # Verify we actually got data from our test setup
-        assert result["visitors"] == 3  # user_0, user_1, user_2
-        assert result["views"] == 3  # 3 pageviews total
-        assert result["sessions"] == 3  # 3 sessions total
+        assert result["visitors"]["value"] == 3  # user_0, user_1, user_2
+        assert result["views"]["value"] == 3  # 3 pageviews total
+        assert result["sessions"]["value"] == 3  # 3 sessions total
 
     def test_breakdown_data_integration_smoke_test(self):
         adapter = ExternalWebAnalyticsQueryAdapter(self.team)
@@ -797,8 +951,8 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_overview_data(serializer)
 
         # Should get results since all our test data is from example.com
-        assert result["visitors"] == 3
-        assert result["views"] == 3
+        assert result["visitors"]["value"] == 3
+        assert result["views"]["value"] == 3
 
         # Test with different host - should get no results
         serializer = WebAnalyticsOverviewRequestSerializer(
@@ -811,8 +965,8 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         serializer.is_valid(raise_exception=True)
 
         result = adapter.get_overview_data(serializer)
-        assert result["visitors"] == 0
-        assert result["views"] == 0
+        assert result["visitors"]["value"] == 0
+        assert result["views"]["value"] == 0
 
     def test_breakdown_pagination_integration(self):
         mock_request = MagicMock()
