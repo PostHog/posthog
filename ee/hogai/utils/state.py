@@ -87,6 +87,9 @@ def prepare_reasoning_progress_message(content: str) -> AIMessageChunk:
     elif len(content) > 200:
         logger.warning("Content is too long to prepare a reasoning progress message", extra={"content": content})
         content = content[:200] + "..."
+    # What we're doing here is emitting an AIMessageChunk that mimics the OpenAI reasoning format
+    # This gets rendered as a ReasoningMessage in the Assistant class
+    # It's a roundabout way of returning a ReasoningMessage, but otherwise we'd have to make larger changes to Assistant
     return AIMessageChunk(
         content="",
         additional_kwargs={"reasoning": {"summary": [{"text": f"**{content}**"}]}},
