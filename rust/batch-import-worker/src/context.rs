@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::{sync::atomic::AtomicBool, time::Duration};
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
 use tracing::info;
@@ -34,23 +34,19 @@ impl AppContext {
 
         // Initialize the identify cache
         let identify_cache =
-            match RedisIdentifyCache::new(&config.redis_url, config.identify_cache_ttl_seconds)
+            RedisIdentifyCache::new(&config.redis_url, config.identify_cache_ttl_seconds)
                 .await
-            {
-                Ok(cache) => {
-                    info!(
-                        "Using Redis cache for identify events at: {} with TTL: {}s",
+                .with_context(|| {
+                    format!(
+                        "Failed to initialize Redis cache with URL: {} and TTL: {}s",
                         config.redis_url, config.identify_cache_ttl_seconds
-                    );
-                    cache
-                }
-                Err(e) => {
-                    return Err(Error::msg(format!(
-                        "Failed to initialize Redis cache: {}",
-                        e
-                    )));
-                }
-            };
+                    )
+                })?;
+
+        info!(
+            "Using Redis cache for identify events at: {} with TTL: {}s",
+            config.redis_url, config.identify_cache_ttl_seconds
+        );
 
         let ctx = Self {
             config: config.clone(),
