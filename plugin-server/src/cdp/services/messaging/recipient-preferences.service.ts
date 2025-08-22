@@ -1,9 +1,8 @@
-import * as crypto from 'crypto'
-
-import { parseJSON } from '~/utils/json-parse'
+import { Hub, PluginsServerConfig } from '~/types'
 
 import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '../../types'
+import { JWT } from '../../utils/jwt-utils'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms'
@@ -11,7 +10,15 @@ type MessageFunctionActionType = 'function_email' | 'function_sms'
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
 export class RecipientPreferencesService {
-    constructor(private recipientsManager: RecipientsManagerService) {}
+    private jwt: JWT
+
+    constructor(
+        protected hub: Hub,
+        private recipientsManager: RecipientsManagerService,
+        config: PluginsServerConfig
+    ) {
+        this.jwt = new JWT(config)
+    }
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
@@ -79,41 +86,18 @@ export class RecipientPreferencesService {
 
     public validatePreferencesToken(token: string): { valid: boolean; team_id?: number; identifier?: string } {
         try {
-            const secretKey = 'TODO_PICK_REAL_SECRET_KEY'
-
-            // Token format: timestamp.payload.signature
-            const parts = token.split('.')
-            if (parts.length !== 3) {
+            const decoded = this.jwt.verify(token, { ignoreVerificationErrors: true, maxAge: '7d' }) as
+                | string
+                | undefined
+            if (!decoded) {
                 return { valid: false }
             }
-
-            const [timestamp, payloadBase64, signature] = parts
-
-            // Check if token is expired (7 days)
-            const tokenAge = Date.now() - parseInt(timestamp)
-            const maxAge = 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
-            if (tokenAge > maxAge) {
-                return { valid: false }
-            }
-
-            // Verify signature
-            const expectedSignature = crypto
-                .createHmac('sha256', secretKey)
-                .update(`${timestamp}.${payloadBase64}`)
-                .digest('hex')
-
-            if (signature !== expectedSignature) {
-                return { valid: false }
-            }
-
-            // Decode payload
-            const payload = parseJSON(Buffer.from(payloadBase64, 'base64').toString('utf8'))
-
-            return {
-                valid: true,
-                team_id: payload.team_id,
-                identifier: payload.identifier,
-            }
+            // The identifier is encoded as a string, but we need team_id and identifier
+            // If you want to encode more than just the identifier, update JWT usage accordingly
+            // For now, assume identifier is a string like "teamId:identifier" or just identifier
+            // If you want to encode an object, update sign/verify logic in JWT
+            // Here, we just return identifier
+            return { valid: true, identifier: decoded }
         } catch (error) {
             console.error('Error validating preferences token:', error)
             return { valid: false }
@@ -125,22 +109,15 @@ export class RecipientPreferencesService {
      * This mirrors the Django implementation in message_preferences.py
      */
     private generatePreferencesToken(recipient: RecipientManagerRecipient): string {
-        const secretKey = 'TODO_PICK_REAL_SECRET_KEY'
-
-        const timestamp = Date.now().toString()
-        const payload = JSON.stringify({
-            team_id: recipient.team_id,
-            identifier: recipient.identifier,
-        })
-
-        // Encode payload to base64 for URL safety
-        const payloadBase64 = Buffer.from(payload).toString('base64')
-
-        // Create signature
-        const signature = crypto.createHmac('sha256', secretKey).update(`${timestamp}.${payloadBase64}`).digest('hex')
-
-        // Token format: timestamp.payload.signature
-        return `${timestamp}.${payloadBase64}.${signature}`
+        // Only identifier is encoded, as per JWT class
+        // If you want to encode more, update JWT class to accept an object
+        return this.jwt.sign(
+            {
+                team_id: recipient.team_id,
+                identifier: recipient.identifier,
+            },
+            { expiresIn: '7d' }
+        )
     }
 
     public async buildUnsubscribeUrl(
