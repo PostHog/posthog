@@ -2556,7 +2556,8 @@ class TestPrinter(BaseTest):
             JOIN (SELECT event from events) as s ON e.event = s.event
             LEFT JOIN test_table t on e.event = toString(t.id)""")
 
-        assert "GLOBAL LEFT JOIN" in printed
+        assert "GLOBAL JOIN" in printed  # Join #1
+        assert "GLOBAL LEFT JOIN" in printed  # Join #2
 
         assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 

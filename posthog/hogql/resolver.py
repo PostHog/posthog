@@ -382,21 +382,26 @@ class Resolver(CloningVisitor):
 
             if global_table and isinstance(global_table.table, EventsTable):
                 next_join = node.next_join
-                while next_join:
-                    is_global = False
+                is_global = False
 
+                while next_join:
                     if self._is_next_s3(next_join):
                         is_global = True
                     # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
                     elif isinstance(next_join.type, ast.SelectQueryAliasType):
                         select_query_type = next_join.type.select_query_type
                         tables = self._extract_tables_from_query_type(select_query_type)
-                        is_global = any(self._is_s3_table(table) for table in tables)
-
-                    if is_global:
-                        next_join.join_type = f"GLOBAL {next_join.join_type}"
+                        if any(self._is_s3_table(table) for table in tables):
+                            is_global = True
 
                     next_join = next_join.next_join
+
+                # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                if is_global:
+                    next_join = node.next_join
+                    while next_join:
+                        next_join.join_type = f"GLOBAL {next_join.join_type}"
+                        next_join = next_join.next_join
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
