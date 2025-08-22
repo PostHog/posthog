@@ -1,4 +1,6 @@
-import { Hub, PluginsServerConfig } from '~/types'
+import { Hub } from '~/types'
+import { parseJSON } from '~/utils/json-parse'
+import { logger } from '~/utils/logger'
 
 import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '../../types'
@@ -14,10 +16,9 @@ export class RecipientPreferencesService {
 
     constructor(
         protected hub: Hub,
-        private recipientsManager: RecipientsManagerService,
-        config: PluginsServerConfig
+        private recipientsManager: RecipientsManagerService
     ) {
-        this.jwt = new JWT(config)
+        this.jwt = new JWT(hub)
     }
 
     public async shouldSkipAction(
@@ -78,28 +79,24 @@ export class RecipientPreferencesService {
              */
             return messageCategoryPreference === 'OPTED_OUT' || allMarketingPreferences === 'OPTED_OUT'
         } catch (error) {
-            // Log error but don't fail the execution
-            console.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
+            logger.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
             return false
         }
     }
 
-    public validatePreferencesToken(token: string): { valid: boolean; team_id?: number; identifier?: string } {
+    public validatePreferencesToken(
+        token: string
+    ): { valid: false } | { valid: true; team_id: number; identifier: string } {
         try {
-            const decoded = this.jwt.verify(token, { ignoreVerificationErrors: true, maxAge: '7d' }) as
-                | string
-                | undefined
+            const decoded = this.jwt.verify(token, { ignoreVerificationErrors: true, maxAge: '7d' })
             if (!decoded) {
                 return { valid: false }
             }
-            // The identifier is encoded as a string, but we need team_id and identifier
-            // If you want to encode more than just the identifier, update JWT usage accordingly
-            // For now, assume identifier is a string like "teamId:identifier" or just identifier
-            // If you want to encode an object, update sign/verify logic in JWT
-            // Here, we just return identifier
-            return { valid: true, identifier: decoded }
+
+            const { team_id, identifier } = parseJSON(String(decoded))
+            return { valid: true, team_id, identifier }
         } catch (error) {
-            console.error('Error validating preferences token:', error)
+            logger.error('Error validating preferences token:', error)
             return { valid: false }
         }
     }
