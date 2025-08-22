@@ -196,17 +196,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
-        saveEditModeChanges: (
-            filters: DashboardFilter,
-            variables: Record<string, HogQLVariable>,
-            breakdownColors: BreakdownColorConfig[],
-            dataColorThemeId: number | null
-        ) => ({
-            filters,
-            variables,
-            breakdownColors,
-            dataColorThemeId,
-        }),
+        saveEditModeChanges: () => true,
         resetDashboardFilters: () => true,
         resetIntermittentFilters: () => true,
         applyFilters: true,
@@ -299,10 +289,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                saveEditModeChanges: async ({ filters: { date_from, date_to } }, breakpoint) => {
-                    eventUsageLogic.actions.reportDashboardDateRangeChanged(date_from, date_to)
-                    eventUsageLogic.actions.reportDashboardPropertiesChanged()
-
+                saveEditModeChanges: async (_, breakpoint) => {
                     actions.abortAnyRunningQuery()
 
                     try {
@@ -318,6 +305,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 filters: values.effectiveEditBarFilters,
                                 variables: values.urlVariables,
+                                breakdown_colors: values.temporaryBreakdownColors,
+                                data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -1190,6 +1179,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
             })
         },
+
         [insightsModel.actionTypes.duplicateInsightSuccess]: () => {
             // TODO this is a bit hacky, but we need to reload the dashboard to get the new insight
             // TODO when duplicated from a dashboard we should carry the context so only one logic needs to reload
@@ -1398,7 +1388,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
             }
         },
-        saveEditModeChanges: ({ filters: { date_from, date_to } }) => {},
+        saveEditModeChanges: () => {
+            if (
+                values.dashboard?.filters.date_from !== values.effectiveEditBarFilters.date_from ||
+                values.dashboard?.filters.date_to !== values.effectiveEditBarFilters.date_to
+            ) {
+                eventUsageLogic.actions.reportDashboardDateRangeChanged(
+                    values.effectiveEditBarFilters.date_from,
+                    values.effectiveEditBarFilters.date_to
+                )
+            }
+            if (
+                JSON.stringify(values.dashboard?.filters.properties) !==
+                JSON.stringify(values.effectiveEditBarFilters.properties)
+            ) {
+                eventUsageLogic.actions.reportDashboardPropertiesChanged()
+            }
+        },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // Note: handled in subscriptions
@@ -1431,12 +1437,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                 // save edit mode changes
-                actions.saveEditModeChanges(
-                    values.urlFilters,
-                    values.urlVariables,
-                    values.temporaryBreakdownColors,
-                    values.dataColorThemeId
-                )
+                actions.saveEditModeChanges()
             }
 
             if (mode) {
