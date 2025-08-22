@@ -16,6 +16,7 @@ from posthog.clickhouse.plugin_log_entries import (
     PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
     PLUGIN_LOG_ENTRIES_TABLE_SQL,
 )
+from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_NEW_TABLE_SQL, QUERY_LOG_ARCHIVE_NEW_MV_SQL
 from posthog.heatmaps.sql import (
     DISTRIBUTED_HEATMAPS_TABLE_SQL,
     HEATMAPS_TABLE_MV_SQL,
@@ -185,6 +186,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     WEB_BOUNCES_HOURLY_SQL,
     WEB_STATS_SQL,
     WEB_BOUNCES_SQL,
+    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive"),
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
@@ -252,6 +254,7 @@ CREATE_MV_TABLE_QUERIES = (
     SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
     HEATMAPS_TABLE_MV_SQL,
+    QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name="query_log_archive_mv", dest_table="query_log_archive"),
 )
 
 CREATE_TABLE_QUERIES = (

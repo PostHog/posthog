@@ -237,7 +237,9 @@ PRIMARY KEY (team_id, event_date, event_time, query_id)
     )
 
 
-def QUERY_LOG_ARCHIVE_NEW_MV(view_name="query_log_archive_new_mv", dest_table="query_log_archive_new", on_cluster=True):
+def QUERY_LOG_ARCHIVE_NEW_MV_SQL(
+    view_name="query_log_archive_new_mv", dest_table="query_log_archive_new", on_cluster=True
+):
     return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name} {on_cluster_clause}
 TO {dest_table}
 AS SELECT
