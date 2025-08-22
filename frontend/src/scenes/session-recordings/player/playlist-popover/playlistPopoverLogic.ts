@@ -10,7 +10,6 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
@@ -67,38 +66,24 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             addToPlaylist: async ({ playlist }) => {
                 await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 actions.reportRecordingPinnedToList(true)
-                
-                // Reload the collection's pinned recordings if it's currently mounted
+
                 const collectionLogic = sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: playlist.short_id })
                 if (collectionLogic) {
                     collectionLogic.actions.loadPinnedRecordings()
                 }
-                
-                // Also reload the playlist logic if it's mounted (for the recordings list view)
-                const playlistLogic = sessionRecordingsPlaylistLogic.findMounted({ logicKey: playlist.short_id })
-                if (playlistLogic) {
-                    playlistLogic.actions.loadPinnedRecordings()
-                }
-                
+
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
                 await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 actions.reportRecordingPinnedToList(false)
-                
-                // Reload the collection's pinned recordings if it's currently mounted
+
                 const collectionLogic = sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: playlist.short_id })
                 if (collectionLogic) {
                     collectionLogic.actions.loadPinnedRecordings()
                 }
-                
-                // Also reload the playlist logic if it's mounted (for the recordings list view)
-                const playlistLogic = sessionRecordingsPlaylistLogic.findMounted({ logicKey: playlist.short_id })
-                if (playlistLogic) {
-                    playlistLogic.actions.loadPinnedRecordings()
-                }
-                
+
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },
