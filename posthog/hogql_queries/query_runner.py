@@ -915,6 +915,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
 
+            trigger: str | None = get_query_tag_value("trigger")
+
             self.query_id = query_id or self.query_id
             CachedResponse: type[CR] = self.cached_response_type
             cache_manager = get_query_cache_manager(
@@ -938,8 +940,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user
                 )
                 if results:
-                    if isinstance(results, CachedResponse) and (
-                        not get_query_tag_value("trigger") or not get_query_tag_value("trigger").startswith("warming")
+                    if (
+                        isinstance(results, CachedResponse)
+                        and (not trigger or not trigger.startswith("warming"))
+                        and results.query_metadata
                     ):
                         log_event_usage_from_query_metadata(
                             results.query_metadata,
@@ -994,11 +998,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         }
 
             try:
-                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+                query_metadata = extract_query_metadata(query=to_dict(self.query), team=self.team).model_dump()
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
-                if not get_query_tag_value("trigger") or not get_query_tag_value("trigger").startswith("warming"):
+                if not trigger or not trigger.startswith("warming"):
                     log_event_usage_from_query_metadata(
                         query_metadata,
                         team_id=self.team.id,
@@ -1010,8 +1014,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"}
                 )
 
-            if get_query_tag_value("trigger"):
-                fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
+            if trigger:
+                fresh_response_dict["calculation_trigger"] = trigger
 
             fresh_response = CachedResponse(**fresh_response_dict)
 

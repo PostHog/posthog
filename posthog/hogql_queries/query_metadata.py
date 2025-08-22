@@ -51,15 +51,13 @@ class QueryEventsExtractor:
         self.team = team
 
     @staticmethod
-    def _ensure_model_instance(query: dict[str, Any] | BaseModel, model_class: type[T]) -> T:
+    def _ensure_model_instance(query: dict[str, Any], model_class: type[T]) -> T:
         """
         Ensures the query is an instance of the specified model class.
         """
-        if isinstance(query, model_class):
-            return query
         return model_class.model_validate(query)
 
-    def extract_events(self, query: dict[str, Any] | BaseModel) -> list[str]:
+    def extract_events(self, query: dict[str, Any]) -> list[str]:
         """
         Extracts events from a given query dictionary.
 
@@ -225,19 +223,22 @@ class QueryEventsExtractor:
 
 
 def extract_query_metadata(
-    query: dict[str, Any] | BaseModel,
+    query: dict[str, Any] | None,
     team: Team,
 ) -> InsightQueryMetadata:
     """
     Extracts metadata from a given query, including the events used in the query.
 
     Args:
-        query (dict | BaseModel): The query to extract metadata from.
+        query (dict) | None: The query to extract metadata from. If None, returns an empty metadata object.
         team (Team): The team associated with the query.
 
     Returns:
         InsightQueryMetadata: An object containing the query metadata
     """
+    if not query:
+        return InsightQueryMetadata(events=[], updated_at=datetime.now())
+
     events_extractor = QueryEventsExtractor(team=team)
     events = events_extractor.extract_events(query=query)
 
