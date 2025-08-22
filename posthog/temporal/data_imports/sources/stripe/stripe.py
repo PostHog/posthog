@@ -109,7 +109,10 @@ def stripe_source(
                         **{resource.nested_parent_param: obj[resource.parent_id]}, params={**default_params}
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():  # noqa: UP028
-                        yield nested_obj
+                        yield {
+                            **nested_obj,
+                            **{resource.nested_parent_param: obj[resource.parent_id]},
+                        }
             else:
                 stripe_objects = resource.method(params={**default_params, **resource.params})
 

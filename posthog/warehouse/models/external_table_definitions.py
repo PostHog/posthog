@@ -746,6 +746,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
     "stripe_customerbalancetransaction": {
         "amount": IntegerDatabaseField(name="amount"),
         "checkout_session_id": StringDatabaseField(name="checkout_session"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
             isolate_scope=True,
             expr=ast.Call(
@@ -764,6 +765,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "description": StringDatabaseField(name="description"),
         "ending_balance": IntegerDatabaseField(name="ending_balance"),
         "id": StringDatabaseField(name="id"),
+        "customer_id": StringDatabaseField(name="customer"),
         "invoice_id": StringDatabaseField(name="invoice"),
         "livemode": BooleanDatabaseField(name="livemode"),
         "metadata": StringJSONDatabaseField(name="metadata"),
