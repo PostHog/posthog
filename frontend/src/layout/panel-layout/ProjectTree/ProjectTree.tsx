@@ -1,4 +1,4 @@
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
@@ -422,9 +422,14 @@ export function ProjectTree({
                     return
                 }
                 if (item?.record?.href) {
-                    router.actions.push(
+                    const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
-                    )
+                    // Check if it's an external link
+                    if (typeof href === 'string' && (href.startsWith('http://') || href.startsWith('https://'))) {
+                        window.open(href, '_blank')
+                    } else {
+                        router.actions.push(href)
+                    }
                 }
 
                 if (item?.record?.path) {
@@ -511,9 +516,10 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.id.startsWith('project-folder-empty/')) {
+                if (item.id.startsWith('project-folder-empty/') || item.name === 'MCP Server') {
                     return undefined
                 }
+
                 return (
                     <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
                         {renderMenuItems(item, 'context')}
@@ -521,9 +527,10 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                if (item.id.startsWith('project-folder-empty/')) {
+                if (item.id.startsWith('project-folder-empty/') || item.name === 'MCP Server') {
                     return undefined
                 }
+
                 return (
                     <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
                         {renderMenuItems(item, 'dropdown')}
@@ -761,6 +768,8 @@ export function ProjectTree({
                                 ))}
                             </>
                         )}
+
+                        {item.name === 'MCP Server' && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}
