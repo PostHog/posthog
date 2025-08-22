@@ -4,8 +4,9 @@ use std::{sync::atomic::AtomicBool, time::Duration};
 use anyhow::Error;
 use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
+use tracing::{info, warn};
 
-use crate::cache::{AmplitudeIdentifyCache, MemoryAmplitudeIdentifyCache};
+use crate::cache::{AmplitudeIdentifyCache, MemoryAmplitudeIdentifyCache, RedisAmplitudeIdentifyCache};
 use crate::config::Config;
 
 pub struct AppContext {
@@ -31,6 +32,23 @@ impl AppContext {
 
         let liveness = Arc::new(liveness);
 
+        // Initialize the amplitude identify cache - use Redis if configured, otherwise in-memory
+        let amplitude_identify_cache: Arc<dyn AmplitudeIdentifyCache> = if !config.redis_url.is_empty() {
+            match RedisAmplitudeIdentifyCache::with_ttl(&config.redis_url, config.amplitude_identify_cache_ttl_seconds).await {
+                Ok(redis_cache) => {
+                    info!("Using Redis cache for amplitude identify events at: {} with TTL: {}s", config.redis_url, config.amplitude_identify_cache_ttl_seconds);
+                    Arc::new(redis_cache)
+                }
+                Err(e) => {
+                    warn!("Failed to initialize Redis cache, falling back to in-memory: {}", e);
+                    Arc::new(MemoryAmplitudeIdentifyCache::with_ttl(config.amplitude_identify_cache_ttl_seconds))
+                }
+            }
+        } else {
+            info!("Using in-memory cache for amplitude identify events with TTL: {}s (no Redis URL configured)", config.amplitude_identify_cache_ttl_seconds);
+            Arc::new(MemoryAmplitudeIdentifyCache::with_ttl(config.amplitude_identify_cache_ttl_seconds))
+        };
+
         let ctx = Self {
             config: config.clone(),
             db,
@@ -42,7 +60,7 @@ impl AppContext {
             health_registry,
             running: AtomicBool::new(true),
             worker_liveness: liveness,
-            amplitude_identify_cache: Arc::new(MemoryAmplitudeIdentifyCache::new()),
+            amplitude_identify_cache,
         };
 
         Ok(ctx)

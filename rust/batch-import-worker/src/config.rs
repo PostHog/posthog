@@ -60,6 +60,14 @@ pub struct Config {
     // Enable/disable Amplitude identify event injection
     #[envconfig(from = "AMPLITUDE_IDENTIFY_INJECTION", default = "false")]
     pub amplitude_identify_injection: bool,
+
+    // Redis URL for caching (optional, falls back to in-memory if not provided)
+    #[envconfig(from = "REDIS_URL", default = "")]
+    pub redis_url: String,
+
+    // TTL for Amplitude identify cache keys in seconds (default: 24 hours)
+    #[envconfig(from = "AMPLITUDE_IDENTIFY_CACHE_TTL_SECONDS", default = "86400")]
+    pub amplitude_identify_cache_ttl_seconds: u64,
 }
 
 impl Config {
@@ -112,6 +120,8 @@ mod tests {
             backoff_multiplier: 2.0,
             backoff_max_attempts: 0,
             amplitude_identify_injection: false,
+            redis_url: "".to_string(),
+            amplitude_identify_cache_ttl_seconds: 86400,
         }
     }
 

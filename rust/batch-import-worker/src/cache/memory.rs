@@ -5,7 +5,7 @@ use anyhow::Error;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use super::{AmplitudeIdentifyCache, CacheStats, UserDeviceKey};
+use super::{AmplitudeIdentifyCache, CacheStats};
 
 /// In-memory implementation of AmplitudeIdentifyCache using a HashMap
 /// This is suitable for development and single-instance deployments
@@ -15,10 +15,15 @@ pub struct MemoryAmplitudeIdentifyCache {
     /// Using nested structure for efficient lookups and team isolation
     cache: Arc<RwLock<HashMap<i32, HashMap<String, std::collections::HashSet<String>>>>>,
     stats: Arc<RwLock<CacheStats>>,
+    ttl_seconds: u64,
 }
 
 impl MemoryAmplitudeIdentifyCache {
     pub fn new() -> Self {
+        Self::with_ttl(86400) // Default 24 hours
+    }
+
+    pub fn with_ttl(ttl_seconds: u64) -> Self {
         Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(CacheStats {
@@ -26,14 +31,8 @@ impl MemoryAmplitudeIdentifyCache {
                 cache_hits: 0,
                 cache_misses: 0,
             })),
+            ttl_seconds,
         }
-    }
-
-    /// Get or create the user map for a team
-    async fn get_or_create_team_map(&self, team_id: i32) -> tokio::sync::RwLockWriteGuard<'_, HashMap<i32, HashMap<String, std::collections::HashSet<String>>>> {
-        let mut cache = self.cache.write().await;
-        cache.entry(team_id).or_insert_with(HashMap::new);
-        cache
     }
 }
 
