@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import type { SpanAggregation } from './llmObservabilityTraceDataLogic'
+import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,
@@ -215,7 +215,7 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
     )
 }
 /**
- * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Observability schema.
+ * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
  * @param output - Original message from an LLM provider.
  * @param defaultRole - Optional default role to use if the message doesn't have one.
