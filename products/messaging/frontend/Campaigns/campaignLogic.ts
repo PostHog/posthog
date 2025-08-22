@@ -114,12 +114,17 @@ export const campaignLogic = kea<campaignLogicType>([
                                 ? 'At least one event or action is required'
                                 : undefined,
                     },
-                    actions: actions.map((action) => {
-                        const validationResult = HogFlowActionSchema.safeParse(action)
-                        return !['trigger', 'exit'].includes(action.type) && !validationResult.success
-                            ? 'Some fields need work'
-                            : undefined
-                    }),
+                    actions: actions
+                        .map((action) => {
+                            const validationResult = HogFlowActionSchema.safeParse(action)
+                            return !['trigger', 'exit'].includes(action.type) && !validationResult.success
+                                ? {
+                                      [validationResult.error.path[validationResult.error.path.length - 1]]:
+                                          'Some fields need work',
+                                  }
+                                : undefined
+                        })
+                        .filter(Boolean),
                 }
             },
             submit: async (values) => {
