@@ -59,6 +59,10 @@ impl DeduplicationKey {
             formatted_key,
         }
     }
+
+    fn get_formatted_key(&self) -> &str {
+        &self.formatted_key
+    }
 }
 
 impl AsRef<[u8]> for DeduplicationKey {
@@ -233,7 +237,11 @@ impl DeduplicationStore {
             metadata.update_duplicate(raw_event);
 
             // Log the duplicate metrics using trait method
-            info!("Duplicate detected: {}", metadata.get_metrics_summary());
+            info!(
+                "Duplicate detected: {} for key {}",
+                metadata.get_metrics_summary(),
+                key.get_formatted_key()
+            );
 
             // Extract library info and emit duplicate metric with labels
             let (lib_name, lib_version) = extract_library_info(raw_event);
