@@ -197,10 +197,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         saveEditModeChanges: () => true,
-        resetDashboardFilters: () => true,
+        resetUrlFilters: () => true,
         resetIntermittentFilters: () => true,
         applyFilters: true,
-        resetVariables: true,
+        resetUrlVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
@@ -310,6 +310,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 tiles: layoutsToUpdate,
                             }
                         )
+                        actions.resetUrlFilters()
                         return getQueryBasedDashboard(dashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -1413,7 +1414,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
-                actions.resetVariables()
+                actions.resetUrlVariables()
 
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({
@@ -1427,8 +1428,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // discard overrides when opening a dashboard from a link with overrides
 
                 // remove overrides from url
-                actions.resetDashboardFilters()
-                actions.resetVariables()
+                actions.resetUrlFilters()
+                actions.resetUrlVariables()
 
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({
@@ -1720,13 +1721,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 currentLocation.hashParams,
             ]
         },
-        resetVariables: () => {
+        resetUrlVariables: () => {
             const { currentLocation } = router.values
             const newSearchParams = { ...currentLocation.searchParams }
             delete newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
-        resetDashboardFilters: () => {
+        resetUrlFilters: () => {
             const { currentLocation } = router.values
             const newSearchParams = { ...currentLocation.searchParams }
             delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
