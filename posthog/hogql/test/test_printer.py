@@ -2539,6 +2539,28 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_multiple_joins(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+        printed = self._select("""
+            SELECT e.event, s.event, t.id
+            FROM events e
+            JOIN (SELECT event from events) as s ON e.event = s.event
+            LEFT JOIN test_table t on e.event = toString(t.id)""")
+
+        assert "GLOBAL JOIN" in printed  # Join #1
+        assert "GLOBAL LEFT JOIN" in printed  # Join #2
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
