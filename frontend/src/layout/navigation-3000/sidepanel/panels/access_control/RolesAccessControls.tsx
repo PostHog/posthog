@@ -2,51 +2,74 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
+    LemonDivider,
     LemonInput,
     LemonInputSelect,
     LemonModal,
+    LemonSelect,
     LemonTable,
     LemonTableColumns,
+    LemonTag,
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
 
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { fullName } from 'lib/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { RoleType } from '~/types'
+import { AvailableFeature, RoleType } from '~/types'
 
 import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export function RolesAccessControls(): JSX.Element {
     const { sortedRoles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+
+    const defaultRoleRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     const columns: LemonTableColumns<RoleType> = [
         {
             title: 'Role',
             key: 'role',
-            width: 0,
-            render: (_, role) => (
-                <span className="whitespace-nowrap">
-                    <LemonTableLink
-                        onClick={
-                            role
-                                ? () => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))
-                                : undefined
-                        }
-                        title={role?.name ?? 'Default'}
-                    />
-                </span>
-            ),
+            width: 300,
+            render: (_, role) => {
+                const isDefaultRole = role?.id === currentOrganization?.default_role_id
+                return (
+                    <div className="flex items-center gap-2">
+                        <LemonTableLink
+                            onClick={
+                                role
+                                    ? () => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))
+                                    : undefined
+                            }
+                            title={role?.name ?? 'Default'}
+                        />
+                        {isDefaultRole && (
+                            <LemonTag type="primary" size="small">
+                                Default
+                            </LemonTag>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Members',
@@ -81,7 +104,7 @@ export function RolesAccessControls(): JSX.Element {
                 access control but we will be expanding their uses in the future.
             </p>
 
-            <div className="deprecated-space-y-2">
+            <div>
                 <LemonTable
                     columns={columns}
                     dataSource={sortedRoles ?? []}
@@ -95,10 +118,61 @@ export function RolesAccessControls(): JSX.Element {
                     }}
                 />
 
-                <LemonButton type="primary" onClick={() => setEditingRoleId('new')} icon={<IconPlus />}>
+                <LemonButton
+                    className="mt-2"
+                    type="primary"
+                    onClick={() => setEditingRoleId('new')}
+                    icon={<IconPlus />}
+                    disabledReason={defaultRoleRestrictionReason}
+                >
                     Add a role
                 </LemonButton>
+
                 <RoleModal />
+
+                <div className="my-6">
+                    <LemonDivider />
+                </div>
+
+                <h4 className="mb-2">Default role for new members</h4>
+                <p className="text-muted mb-2">
+                    Automatically assign a role to new members when they join the organization.
+                    <Tooltip title="When a new user joins your organization (via invite or signup), they will automatically be added to this role, inheriting all its permissions. This helps ensure consistent access control for new team members.">
+                        <IconInfo className="ml-1" />
+                    </Tooltip>
+                </p>
+                <div className="max-w-80">
+                    <LemonSelect
+                        fullWidth
+                        value={currentOrganization?.default_role_id || null}
+                        onChange={(value) => {
+                            guardAvailableFeature(
+                                AvailableFeature.ADVANCED_PERMISSIONS,
+                                updateOrganization.bind(null, { default_role_id: value })
+                            )
+                        }}
+                        options={[
+                            { value: null, label: 'No default role' },
+                            ...(sortedRoles?.map((role) => ({
+                                value: role.id,
+                                label: role.name,
+                                element: (
+                                    <div>
+                                        {role.name}
+                                        {role.id === currentOrganization?.default_role_id && (
+                                            <LemonTag type="primary" className="ml-2" size="small">
+                                                Current default
+                                            </LemonTag>
+                                        )}
+                                    </div>
+                                ),
+                            })) || []),
+                        ]}
+                        placeholder="Select a default role..."
+                        loading={rolesLoading}
+                        disabledReason={defaultRoleRestrictionReason}
+                    />
+                </div>
             </div>
         </div>
     )
@@ -225,12 +299,28 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
 function RoleModal(): JSX.Element {
     const { editingRoleId } = useValues(roleAccessControlLogic)
     const { setEditingRoleId, submitEditingRole, deleteRole } = useActions(roleAccessControlLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const isEditing = editingRoleId !== 'new'
 
+    const isDefaultRole = currentOrganization?.default_role_id === editingRoleId
+
     const onDelete = (): void => {
+        const baseContent = 'Are you sure you want to delete this role? This action cannot be undone.'
+
         LemonDialog.open({
             title: 'Delete role',
-            content: 'Are you sure you want to delete this role? This action cannot be undone.',
+            maxWidth: 400,
+            content: (
+                <div>
+                    <p>{baseContent}</p>
+                    {isDefaultRole && (
+                        <p className="text-warning font-medium mt-2">
+                            ⚠️ This role is currently set as the default for new members and will be cleared from
+                            organization settings.
+                        </p>
+                    )}
+                </div>
+            ),
             primaryButton: {
                 children: 'Delete permanently',
                 onClick: () => deleteRole(editingRoleId as string),

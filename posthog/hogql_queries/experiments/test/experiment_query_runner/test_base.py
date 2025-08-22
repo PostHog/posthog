@@ -753,19 +753,23 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # No exposures
-
-        flush_persons_and_events()
-
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValueError) as context:
-            query_runner.calculate()
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(str(context.exception), "No control variant found")
+        self.assertEqual(control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 0)
+        self.assertEqual(control_variant.number_of_samples, 0)
+        self.assertEqual(test_variant.number_of_samples, 0)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_no_variant_events(self):
+    def test_query_runner_no_variant_exposures(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
 
@@ -785,8 +789,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         # No variant events
-        for variant in [("control", 10), ("test", 8)]:
-            for i in range(10):
+        for variant, num_users in [("control", 10)]:
+            for i in range(num_users):
                 _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
                 _create_event(
                     team=self.team,
@@ -803,10 +807,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValueError) as context:
-            query_runner.calculate()
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(str(context.exception), "No control variant found")
+        self.assertEqual(control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 0)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 0)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -856,10 +868,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValueError) as context:
-            query_runner.calculate()
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(str(context.exception), "No control variant found")
+        self.assertEqual(control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 0)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
     @parameterized.expand(
         [
@@ -1085,10 +1105,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Handle cases where filters result in no exposures
         if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
-            with self.assertRaises(ValueError) as context:
-                query_runner.calculate()
+            result = query_runner.calculate()
+            assert result.variant_results is not None
+            control_result = result.baseline
+            assert control_result is not None
+            test_result = result.variant_results[0]
+            assert test_result is not None
+            self.assertEqual(control_result.number_of_samples, 0)
+            self.assertEqual(test_result.number_of_samples, 0)
+            self.assertEqual(control_result.sum, 0)
+            self.assertEqual(test_result.sum, 0)
 
-            self.assertEqual(str(context.exception), "No control variant found")
         else:
             result = query_runner.calculate()
             assert result.variant_results is not None

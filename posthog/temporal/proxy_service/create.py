@@ -5,44 +5,45 @@ import math
 import random
 import typing as t
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 import dns.resolver
 import grpc.aio
 import requests
 import temporalio.common
+from structlog import get_logger
 from temporalio import activity, workflow
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.client import (
     Schedule,
-    ScheduleAlreadyRunningError,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleIntervalSpec,
     ScheduleSpec,
 )
+from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
-
-from posthog.temporal.common.schedule import a_create_schedule
 from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.logger import bind_temporal_org_worker_logger
-from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
+from posthog.temporal.common.schedule import a_create_schedule
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
     UpdateProxyRecordInputs,
-    get_grpc_client,
     activity_update_proxy_record,
-    update_record,
+    get_grpc_client,
     record_exists,
+    update_record,
 )
+from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
 from posthog.temporal.proxy_service.proto import (
     CertificateState_READY,
     CreateRequest,
     StatusRequest,
 )
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass
@@ -101,7 +102,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
     """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
     record matching the expected value.
     """
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    logger = LOGGER.bind(organization_id=inputs.organization_id)
     logger.info(
         "Looking up DNS record for %s, expecting %s",
         inputs.domain,
@@ -158,7 +159,7 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
     a Hosted Proxy. It also waits for provisioning to be complete and updates
     the Proxy Record's state as it goes.
     """
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    logger = LOGGER.bind(organization_id=inputs.organization_id)
     logger.info(
         "Creating managed proxy resources for domain %s",
         inputs.domain,
@@ -188,7 +189,7 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
     a Hosted Proxy. It also waits for provisioning to be complete and updates
     the Proxy Record's state as it goes.
     """
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    logger = LOGGER.bind(organization_id=inputs.organization_id)
     logger.info(
         "Waiting for certificate to be provisioned for domain %s",
         inputs.domain,
@@ -234,7 +235,7 @@ class ScheduleMonitorJobInputs:
 
 @activity.defn
 async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    logger = LOGGER.bind(organization_id=inputs.organization_id)
     logger.info(
         "Scheduling daily monitoring job for proxy %s",
         inputs.proxy_record_id,
@@ -295,7 +296,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: CreateManagedProxyInputs) -> None:
         """Workflow implementation to create a Managed reverse Proxy."""
-        logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+        logger = LOGGER.bind(organization_id=inputs.organization_id)
         try:
             try:
                 # Wait for DNS record to be created.

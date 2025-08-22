@@ -1763,16 +1763,17 @@ export enum WebAnalyticsOrderByFields {
     Errors = 'Errors',
 }
 export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
+export type WebAnalyticsSampling = {
+    enabled?: boolean
+    forceSamplingRate?: SamplingRate
+}
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
     compareFilter?: CompareFilter
     doPathCleaning?: boolean
-    sampling?: {
-        enabled?: boolean
-        forceSamplingRate?: SamplingRate
-    }
+    sampling?: WebAnalyticsSampling
     filterTestAccounts?: boolean
     includeRevenue?: boolean
     orderBy?: WebAnalyticsOrderBy
@@ -1815,6 +1816,7 @@ export enum WebStatsBreakdown {
     InitialPage = 'InitialPage',
     ExitPage = 'ExitPage', // not supported in the legacy version
     ExitClick = 'ExitClick',
+    PreviousPage = 'PreviousPage', // $prev_pageview_pathname || $referrer
     ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',

@@ -520,10 +520,19 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Handle cases where filters result in no exposures
         if filter_expected["control_absolute_exposure"] == 0 and filter_expected["test_absolute_exposure"] == 0:
-            with self.assertRaises(ValueError) as context:
-                query_runner.calculate()
+            result = query_runner.calculate()
 
-            self.assertEqual(str(context.exception), "No control variant found")
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
+
+            control_result = result.baseline
+            assert control_result is not None
+            test_result = result.variant_results[0]
+            assert test_result is not None
+
+            self.assertEqual(control_result.number_of_samples, filter_expected["control_absolute_exposure"])
+            self.assertEqual(test_result.number_of_samples, filter_expected["test_absolute_exposure"])
+
         else:
             with freeze_time("2023-01-07"):
                 result = query_runner.calculate()

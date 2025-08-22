@@ -67,7 +67,7 @@ function renderMoreButton(event: ErrorEventType): JSX.Element {
                         fullWidth
                         size="small"
                         sideIcon={<IconAI />}
-                        to={urls.llmObservabilityTrace(event.properties.$ai_trace_id, {
+                        to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
                             event: event.uuid,
                             timestamp: event.timestamp,
                         })}
