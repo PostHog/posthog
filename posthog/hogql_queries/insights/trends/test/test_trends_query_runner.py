@@ -5765,3 +5765,41 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(response)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)
+
+    def test_week_interval_includes_only_data_after_date_from(self):
+        """
+        When using week intervals, the data should only include data after the date_from and not the start of the week.
+        """
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-14",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(1, len(response.results[0]["days"]))
+        self.assertEqual(2, response.results[0]["count"])
+
+        # check it works correctly if the date_from is on the week start
+        response = self._run_trends_query(
+            "2020-01-12",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(1, len(response.results[0]["days"]))
+        self.assertEqual(6, response.results[0]["count"])
+
+        # check it works correctly if the date_from is before the week start
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(2, len(response.results[0]["days"]))
+        self.assertEqual(7, response.results[0]["count"])
