@@ -4,11 +4,12 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 from asgiref.sync import async_to_sync
 from django.utils import timezone
-
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import SessionRecording
+from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
 from posthog.schema import (
     AssistantToolCallMessage,
     HumanMessage,
@@ -17,6 +18,7 @@ from posthog.schema import (
     MaxOuterUniversalFiltersGroup,
     FilterLogicalOperator,
 )
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 from posthog.test.base import BaseTest
 
 
@@ -82,19 +84,19 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner.run.return_value = mock_results
         return mock_query_runner
 
-    def _create_mock_db_sync_to_async(self) -> Callable[[Callable], Callable[..., Awaitable]]:
+    def _create_mock_db_sync_to_async(self) -> Callable:
         """Helper to create a mock database_sync_to_async."""
 
-        def mock_sync_to_async(func: Callable) -> Callable[..., Awaitable]:
+        def mock_database_sync_to_async(func: Callable, thread_sensitive: bool = True) -> Callable[..., Awaitable]:
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 return func(*args, **kwargs)
 
             return async_wrapper
 
-        return mock_sync_to_async
+        return mock_database_sync_to_async
 
     def _create_test_state(
-        self, query: str | None = None, root_tool_call_id: str = "test_tool_call_id"
+        self, query: str | None = None, root_tool_call_id: str | None = "test_tool_call_id"
     ) -> AssistantState:
         """Helper to create a test AssistantState."""
         return AssistantState(
@@ -105,7 +107,8 @@ class TestSessionSummarizationNode(BaseTest):
 
     def test_create_error_response(self) -> None:
         """Test creating error response with proper structure."""
-        result = self.node._create_error_response("Test error", "test_tool_call_id")
+        state = self._create_test_state(root_tool_call_id="test_tool_call_id")
+        result = self.node._create_error_response("Test error", state)
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
@@ -119,7 +122,8 @@ class TestSessionSummarizationNode(BaseTest):
 
     def test_create_error_response_none_tool_call_id(self) -> None:
         """Test error response defaults to 'unknown' when tool_call_id is None."""
-        result = self.node._create_error_response("Test error", None)
+        state = self._create_test_state(root_tool_call_id=None)
+        result = self.node._create_error_response("Test error", state)
 
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
@@ -139,13 +143,6 @@ class TestSessionSummarizationNode(BaseTest):
         """Test streaming progress gracefully handles None writer."""
         # Should not raise exception
         self.node._stream_progress("Test progress", None)
-
-    def test_log_failure(self) -> None:
-        """Test logging failure with error object."""
-        with self.assertLogs("ee.hogai.graph.session_summaries.nodes", level="ERROR") as cm:
-            self.node._log_failure("Test failure", "conv-123", 1000.0, Exception("Test error"))
-
-        self.assertIn("Test failure", cm.output[0])
 
     @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
     def test_generate_replay_filters_no_output(self, mock_filter_graph_class: MagicMock) -> None:
@@ -229,14 +226,22 @@ class TestSessionSummarizationNode(BaseTest):
         session_ids = ["session-1"]
         mock_find_timestamps.return_value = (1000, 2000)
 
-        async def async_gen() -> AsyncGenerator[str, None]:
-            yield "Processing..."
+        async def async_gen() -> (
+            AsyncGenerator[
+                tuple[
+                    SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict
+                ],
+                None,
+            ]
+        ):
+            yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Processing...")
             # No summary yielded - simulates error condition
 
         mock_execute_group.return_value = async_gen()
 
+        state = self._create_test_state()
         with self.assertRaises(ValueError) as context:
-            async_to_sync(self.node._summarize_sessions_as_group)(session_ids, None)
+            async_to_sync(self.node._summarize_sessions_as_group)(session_ids, state, None, None)
 
         self.assertIn("No summary was generated", str(context.exception))
 
