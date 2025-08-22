@@ -41,11 +41,7 @@ impl super::IdentifyCache for RedisIdentifyCache {
 }
 
 impl RedisIdentifyCache {
-    pub async fn new(redis_url: &str) -> Result<Self, Error> {
-        Self::with_ttl(redis_url, 86400).await
-    }
-
-    pub async fn with_ttl(redis_url: &str, ttl_seconds: u64) -> Result<Self, Error> {
+    pub async fn new(redis_url: &str, ttl_seconds: u64) -> Result<Self, Error> {
         if redis_url.is_empty() {
             return Err(Error::msg("Redis URL is required for cache"));
         }
@@ -56,35 +52,6 @@ impl RedisIdentifyCache {
             redis_client: client_arc,
             ttl_seconds,
         })
-    }
-
-    /// Create a test instance with mock Redis client (for testing only)
-    #[cfg(test)]
-    pub fn test_new() -> Self {
-        use common_redis::{CustomRedisError, MockRedisClient};
-
-        let mut mock_client = MockRedisClient::new();
-
-        // Set up default behavior for get operations - return NotFound (first-time encounters)
-        mock_client = mock_client.get_ret("*", Err(CustomRedisError::NotFound));
-
-        // Set up default behavior for set_nx_ex operations - return success
-        mock_client = mock_client.set_nx_ex_ret("*", Ok(true));
-
-        let client_arc = Arc::new(mock_client);
-
-        Self {
-            redis_client: client_arc,
-            ttl_seconds: 86400,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn test_new_with_mock(mock_client: common_redis::MockRedisClient) -> Self {
-        Self {
-            redis_client: Arc::new(mock_client),
-            ttl_seconds: 86400,
-        }
     }
 
     /// Generate Redis key for user-device combination
@@ -156,7 +123,7 @@ mod tests {
         );
         let cache = RedisIdentifyCache {
             redis_client: Arc::new(mock_client),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         // First call should return false (not seen)
@@ -171,7 +138,7 @@ mod tests {
         mock_client2 = mock_client2.set_nx_ex_ret("identify:1:user123:device456", Ok(true));
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         // Mark as seen
@@ -185,7 +152,7 @@ mod tests {
         mock_client3 = mock_client3.get_ret("identify:1:user123:device456", Ok("1".to_string()));
         let cache3 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client3),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         // Second call should return true (seen)
@@ -206,14 +173,14 @@ mod tests {
         );
         let cache1 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client1),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         let mut mock_client2 = MockRedisClient::new();
         mock_client2 = mock_client2.get_ret("identify:2:user123:device456", Ok("1".to_string()));
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         // Same user and device, different teams should be isolated
@@ -274,7 +241,7 @@ mod tests {
         );
         let cache = RedisIdentifyCache {
             redis_client: Arc::new(mock_client),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         let result = cache.has_seen_user_device(1, "user123", "device456").await;
@@ -292,7 +259,7 @@ mod tests {
         );
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         let result2 = cache2
@@ -312,7 +279,7 @@ mod tests {
         mock_client1 = mock_client1.set_nx_ex_ret("identify:1:user123:device456", Ok(true));
         let cache1 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client1),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         let result1 = cache1
@@ -325,7 +292,7 @@ mod tests {
         mock_client2 = mock_client2.set_nx_ex_ret("identify:1:user123:device456", Ok(false)); // false = key already existed
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         let result2 = cache2
@@ -374,7 +341,7 @@ mod tests {
 
         let cache = RedisIdentifyCache {
             redis_client: Arc::new(mock_client),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         // Test first combination: "foo:bar" + ":baz"
@@ -404,7 +371,7 @@ mod tests {
         mock_client2 = mock_client2.set_nx_ex_ret("identify:1:foo%3Abar:%3Abaz", Ok(true));
         let cache2 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client2),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         // Mark first combination as seen (this should succeed)
@@ -422,7 +389,7 @@ mod tests {
         );
         let cache3 = RedisIdentifyCache {
             redis_client: Arc::new(mock_client3),
-            ttl_seconds: 86400,
+            ttl_seconds: 86400, // 24 hours for test
         };
 
         let result3 = cache3
@@ -435,15 +402,15 @@ mod tests {
     #[tokio::test]
     async fn test_cache_redis_url_validation() {
         // Test that empty Redis URL fails
-        let result = RedisIdentifyCache::new("").await;
+        let result = RedisIdentifyCache::new("", 3600).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("Redis URL is required"));
 
-        // Test with TTL
-        let result2 = RedisIdentifyCache::with_ttl("", 3600).await;
+        // Test with different TTL
+        let result2 = RedisIdentifyCache::new("", 7200).await;
         assert!(result2.is_err());
         assert!(result2
             .unwrap_err()
