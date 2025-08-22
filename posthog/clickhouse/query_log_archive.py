@@ -3,6 +3,7 @@ from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
+QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
@@ -237,7 +238,9 @@ PRIMARY KEY (team_id, event_date, event_time, query_id)
     )
 
 
-def QUERY_LOG_ARCHIVE_NEW_MV(view_name="query_log_archive_new_mv", dest_table="query_log_archive_new", on_cluster=True):
+def QUERY_LOG_ARCHIVE_NEW_MV_SQL(
+    view_name="query_log_archive_new_mv", dest_table="query_log_archive_new", on_cluster=True
+):
     return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name} {on_cluster_clause}
 TO {dest_table}
 AS SELECT
@@ -382,7 +385,7 @@ ORDER BY (event_date, event_time)
     )
 
 
-def QUERY_LOG_ARCHIVE_MV(on_cluster=True):
+def QUERY_LOG_ARCHIVE_MV_SQL(on_cluster=True):
     return """CREATE MATERIALIZED VIEW query_log_archive_mv {on_cluster_clause}
 TO {table_name}
 AS SELECT

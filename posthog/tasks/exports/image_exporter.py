@@ -286,7 +286,7 @@ def _screenshot_asset(
 
 def export_image(exported_asset: ExportedAsset) -> None:
     with posthoganalytics.new_context():
-        posthoganalytics.tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
+        posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:

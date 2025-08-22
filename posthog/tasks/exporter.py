@@ -1,5 +1,6 @@
 from typing import Optional
 
+import structlog
 from celery import shared_task
 from prometheus_client import Counter, Histogram
 
@@ -9,6 +10,8 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
+
+logger = structlog.get_logger(__name__)
 
 EXPORT_QUEUED_COUNTER = Counter(
     "exporter_task_queued",
@@ -57,14 +60,15 @@ EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
 )
 @transaction.atomic
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
-    from posthog.tasks.exports import csv_exporter, image_exporter
-
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
     # the TTL is for later cleanup.
-    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.select_for_update().get(
-        pk=exported_asset_id
-    )
+    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.get(pk=exported_asset_id)
+    export_asset_direct(exported_asset, limit)
+
+
+def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+    from posthog.tasks.exports import csv_exporter, image_exporter
 
     try:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):

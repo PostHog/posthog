@@ -70,6 +70,21 @@ def create_empty_paragraph() -> TipTapNode:
     return {"type": "paragraph"}
 
 
+def create_task_list(items: list[tuple[str, bool]]) -> TipTapNode:
+    """Create a bullet list with checkbox-style items.
+
+    Args:
+        items: List of tuples (task_text, is_completed)
+    """
+    list_items = []
+    for task_text, is_completed in items:
+        checkbox = "[x]" if is_completed else "[ ]"
+        task_content = f"{checkbox} {task_text}"
+        list_items.append({"type": "listItem", "content": [create_paragraph_with_text(task_content)]})
+
+    return {"type": "bulletList", "content": list_items}
+
+
 def sanitize_text_content(text: str) -> str:
     """Sanitize text content to ensure it's valid for TipTap editor."""
     if not text or not text.strip():

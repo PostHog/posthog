@@ -2057,6 +2057,225 @@
   
   '''
 # ---
+# name: test_create_table_query[query_log_archive]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS query_log_archive ON CLUSTER 'posthog' (
+      hostname                              LowCardinality(String),
+      user                                  LowCardinality(String),
+      query_id                              String,
+      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
+  
+      event_date                            Date,
+      event_time                            DateTime,
+      event_time_microseconds               DateTime64(6),
+      query_start_time                      DateTime,
+      query_start_time_microseconds         DateTime64(6),
+      query_duration_ms                     UInt64,
+  
+      read_rows                             UInt64,
+      read_bytes                            UInt64,
+      written_rows                          UInt64,
+      written_bytes                         UInt64,
+      result_rows                           UInt64,
+      result_bytes                          UInt64,
+      memory_usage                          UInt64,
+      peak_threads_usage                    UInt64,
+  
+      current_database                      LowCardinality(String),
+      query                                 String,
+      formatted_query                       String,
+      normalized_query_hash                 UInt64,
+      query_kind                            LowCardinality(String),
+  
+      exception_code                        Int32,
+      exception                             String,
+      stack_trace                           String,
+  
+      ProfileEvents_RealTimeMicroseconds Int64,
+      ProfileEvents_OSCPUVirtualTimeMicroseconds Int64,
+  
+      ProfileEvents_S3Clients Int64,
+      ProfileEvents_S3DeleteObjects Int64,
+      ProfileEvents_S3CopyObject Int64,
+      ProfileEvents_S3ListObjects Int64,
+      ProfileEvents_S3HeadObject Int64,
+      ProfileEvents_S3GetObjectAttributes Int64,
+      ProfileEvents_S3CreateMultipartUpload Int64,
+      ProfileEvents_S3UploadPartCopy Int64,
+      ProfileEvents_S3UploadPart Int64,
+      ProfileEvents_S3AbortMultipartUpload Int64,
+      ProfileEvents_S3CompleteMultipartUpload Int64,
+      ProfileEvents_S3PutObject Int64,
+      ProfileEvents_S3GetObject Int64,
+      ProfileEvents_ReadBufferFromS3Bytes Int64,
+      ProfileEvents_WriteBufferFromS3Bytes Int64,
+  
+      lc_workflow LowCardinality(String),
+      lc_kind LowCardinality(String),
+      lc_id String,
+      lc_route_id String,
+      lc_access_method LowCardinality(String),
+  
+      lc_query_type LowCardinality(String),
+      lc_product LowCardinality(String),
+      lc_chargeable Bool,
+      lc_name String,
+      lc_client_query_id String,
+  
+      lc_org_id String,
+      team_id Int64, -- renamed from lc_team_id, no longer an alias
+      lc_user_id Int64,
+      lc_session_id String,
+  
+      lc_dashboard_id Int64,
+      lc_insight_id Int64,
+      lc_cohort_id Int64,
+      lc_batch_export_id String,
+      lc_experiment_id Int64,
+      lc_experiment_feature_flag_key String,
+  
+      lc_alert_config_id String,
+      lc_feature LowCardinality(String),
+      lc_table_id String,
+      lc_warehouse_query Bool,
+      lc_person_on_events_mode LowCardinality(String),
+      lc_service_name String,
+      lc_workload LowCardinality(String),
+  
+      lc_query__kind LowCardinality(String),
+      lc_query__query String,
+  
+      lc_temporal__workflow_namespace String,
+      lc_temporal__workflow_type String,
+      lc_temporal__workflow_id String,
+      lc_temporal__workflow_run_id String,
+      lc_temporal__activity_type String,
+      lc_temporal__activity_id String,
+      lc_temporal__attempt Int64,
+  
+      lc_dagster__job_name String,
+      lc_dagster__run_id String,
+      lc_dagster__owner String
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
+  PARTITION BY toYYYYMM(event_date)
+  ORDER BY (team_id, event_date, event_time, query_id)
+  PRIMARY KEY (team_id, event_date, event_time, query_id)
+      
+  '''
+# ---
+# name: test_create_table_query[query_log_archive_mv]
+  '''
+  CREATE MATERIALIZED VIEW IF NOT EXISTS query_log_archive_mv ON CLUSTER 'posthog'
+  TO query_log_archive
+  AS SELECT
+      hostname,
+      user,
+      query_id,
+      type,
+  
+      event_date,
+      event_time,
+      event_time_microseconds,
+      query_start_time,
+      query_start_time_microseconds,
+      query_duration_ms,
+  
+      read_rows,
+      read_bytes,
+      written_rows,
+      written_bytes,
+      result_rows,
+      result_bytes,
+      memory_usage,
+      peak_threads_usage,
+  
+      current_database,
+      query,
+      formatted_query,
+      normalized_query_hash,
+      query_kind,
+  
+      exception_code,
+      exception,
+      stack_trace,
+  
+      ProfileEvents['RealTimeMicroseconds'] as ProfileEvents_RealTimeMicroseconds,
+      ProfileEvents['OSCPUVirtualTimeMicroseconds'] as ProfileEvents_OSCPUVirtualTimeMicroseconds,
+  
+      ProfileEvents['S3Clients'] as ProfileEvents_S3Clients,
+      ProfileEvents['S3DeleteObjects'] as ProfileEvents_S3DeleteObjects,
+      ProfileEvents['S3CopyObject'] as ProfileEvents_S3CopyObject,
+      ProfileEvents['S3ListObjects'] as ProfileEvents_S3ListObjects,
+      ProfileEvents['S3HeadObject'] as ProfileEvents_S3HeadObject,
+      ProfileEvents['S3GetObjectAttributes'] as ProfileEvents_S3GetObjectAttributes,
+      ProfileEvents['S3CreateMultipartUpload'] as ProfileEvents_S3CreateMultipartUpload,
+      ProfileEvents['S3UploadPartCopy'] as ProfileEvents_S3UploadPartCopy,
+      ProfileEvents['S3UploadPart'] as ProfileEvents_S3UploadPart,
+      ProfileEvents['S3AbortMultipartUpload'] as ProfileEvents_S3AbortMultipartUpload,
+      ProfileEvents['S3CompleteMultipartUpload'] as ProfileEvents_S3CompleteMultipartUpload,
+      ProfileEvents['S3PutObject'] as ProfileEvents_S3PutObject,
+      ProfileEvents['S3GetObject'] as ProfileEvents_S3GetObject,
+      ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
+      ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
+  
+      JSONExtractString(log_comment, 'workflow') as lc_workflow,
+      JSONExtractString(log_comment, 'kind') as lc_kind,
+      JSONExtractString(log_comment, 'id') as lc_id,
+      JSONExtractString(log_comment, 'route_id') as lc_route_id,
+      JSONExtractString(log_comment, 'access_method') as lc_access_method,
+  
+      JSONExtractString(log_comment, 'query_type') as lc_query_type,
+      JSONExtractString(log_comment, 'product') as lc_product,
+      JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
+      JSONExtractString(log_comment, 'name') as lc_name,
+      JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
+  
+      JSONExtractString(log_comment, 'org_id') as lc_org_id,
+      JSONExtractInt(log_comment, 'team_id') as team_id,
+      JSONExtractInt(log_comment, 'user_id') as lc_user_id,
+      JSONExtractString(log_comment, 'session_id') as lc_session_id,
+  
+      JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
+      JSONExtractInt(log_comment, 'insight_id') as lc_insight_id,
+      JSONExtractInt(log_comment, 'cohort_id') as lc_cohort_id,
+      JSONExtractString(log_comment, 'batch_export_id') as lc_batch_export_id,
+      JSONExtractInt(log_comment, 'experiment_id') as lc_experiment_id,
+      JSONExtractString(log_comment, 'experiment_feature_flag_key') as lc_experiment_feature_flag_key,
+  
+      JSONExtractString(log_comment, 'alert_config_id') as lc_alert_config_id,
+      JSONExtractString(log_comment, 'feature') as lc_feature,
+      JSONExtractString(log_comment, 'table_id') as lc_table_id,
+      JSONExtractInt(log_comment, 'warehouse_query') == 1 as lc_warehouse_query,
+      JSONExtractString(log_comment, 'person_on_events_mode') as lc_person_on_events_mode,
+      JSONExtractString(log_comment, 'service_name') as lc_service_name,
+      JSONExtractString(log_comment, 'workload') as lc_workload,
+  
+      if(JSONHas(log_comment, 'query', 'source'),
+          JSONExtractString(log_comment, 'query', 'source', 'kind'),
+          JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
+      if(JSONHas(log_comment, 'query', 'source'),
+          JSONExtractString(log_comment, 'query', 'source', 'query'),
+          JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
+  
+      JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
+      JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
+      JSONExtractString(log_comment, 'temporal', 'workflow_id') as lc_temporal__workflow_id,
+      JSONExtractString(log_comment, 'temporal', 'workflow_run_id') as lc_temporal__workflow_run_id,
+      JSONExtractString(log_comment, 'temporal', 'activity_type') as lc_temporal__activity_type,
+      JSONExtractString(log_comment, 'temporal', 'activity_id') as lc_temporal__activity_id,
+      JSONExtractInt(log_comment, 'temporal', 'attempt') as lc_temporal__attempt,
+  
+      JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
+      JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
+      JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
+  FROM system.query_log
+  WHERE
+      type != 'QueryStart'
+      AND is_initial_query
+      
+  '''
+# ---
 # name: test_create_table_query[raw_sessions]
   '''
   
@@ -4412,6 +4631,113 @@
   
   SETTINGS index_granularity=512
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[query_log_archive]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS query_log_archive ON CLUSTER 'posthog' (
+      hostname                              LowCardinality(String),
+      user                                  LowCardinality(String),
+      query_id                              String,
+      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
+  
+      event_date                            Date,
+      event_time                            DateTime,
+      event_time_microseconds               DateTime64(6),
+      query_start_time                      DateTime,
+      query_start_time_microseconds         DateTime64(6),
+      query_duration_ms                     UInt64,
+  
+      read_rows                             UInt64,
+      read_bytes                            UInt64,
+      written_rows                          UInt64,
+      written_bytes                         UInt64,
+      result_rows                           UInt64,
+      result_bytes                          UInt64,
+      memory_usage                          UInt64,
+      peak_threads_usage                    UInt64,
+  
+      current_database                      LowCardinality(String),
+      query                                 String,
+      formatted_query                       String,
+      normalized_query_hash                 UInt64,
+      query_kind                            LowCardinality(String),
+  
+      exception_code                        Int32,
+      exception                             String,
+      stack_trace                           String,
+  
+      ProfileEvents_RealTimeMicroseconds Int64,
+      ProfileEvents_OSCPUVirtualTimeMicroseconds Int64,
+  
+      ProfileEvents_S3Clients Int64,
+      ProfileEvents_S3DeleteObjects Int64,
+      ProfileEvents_S3CopyObject Int64,
+      ProfileEvents_S3ListObjects Int64,
+      ProfileEvents_S3HeadObject Int64,
+      ProfileEvents_S3GetObjectAttributes Int64,
+      ProfileEvents_S3CreateMultipartUpload Int64,
+      ProfileEvents_S3UploadPartCopy Int64,
+      ProfileEvents_S3UploadPart Int64,
+      ProfileEvents_S3AbortMultipartUpload Int64,
+      ProfileEvents_S3CompleteMultipartUpload Int64,
+      ProfileEvents_S3PutObject Int64,
+      ProfileEvents_S3GetObject Int64,
+      ProfileEvents_ReadBufferFromS3Bytes Int64,
+      ProfileEvents_WriteBufferFromS3Bytes Int64,
+  
+      lc_workflow LowCardinality(String),
+      lc_kind LowCardinality(String),
+      lc_id String,
+      lc_route_id String,
+      lc_access_method LowCardinality(String),
+  
+      lc_query_type LowCardinality(String),
+      lc_product LowCardinality(String),
+      lc_chargeable Bool,
+      lc_name String,
+      lc_client_query_id String,
+  
+      lc_org_id String,
+      team_id Int64, -- renamed from lc_team_id, no longer an alias
+      lc_user_id Int64,
+      lc_session_id String,
+  
+      lc_dashboard_id Int64,
+      lc_insight_id Int64,
+      lc_cohort_id Int64,
+      lc_batch_export_id String,
+      lc_experiment_id Int64,
+      lc_experiment_feature_flag_key String,
+  
+      lc_alert_config_id String,
+      lc_feature LowCardinality(String),
+      lc_table_id String,
+      lc_warehouse_query Bool,
+      lc_person_on_events_mode LowCardinality(String),
+      lc_service_name String,
+      lc_workload LowCardinality(String),
+  
+      lc_query__kind LowCardinality(String),
+      lc_query__query String,
+  
+      lc_temporal__workflow_namespace String,
+      lc_temporal__workflow_type String,
+      lc_temporal__workflow_id String,
+      lc_temporal__workflow_run_id String,
+      lc_temporal__activity_type String,
+      lc_temporal__activity_id String,
+      lc_temporal__attempt Int64,
+  
+      lc_dagster__job_name String,
+      lc_dagster__run_id String,
+      lc_dagster__owner String
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
+  PARTITION BY toYYYYMM(event_date)
+  ORDER BY (team_id, event_date, event_time, query_id)
+  PRIMARY KEY (team_id, event_date, event_time, query_id)
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics2]

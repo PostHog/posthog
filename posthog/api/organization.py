@@ -104,6 +104,11 @@ class OrganizationSerializer(
     logo_media_id = serializers.PrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
+    default_role_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the role to automatically assign to new members joining the organization",
+    )
 
     class Meta:
         model = Organization
@@ -129,6 +134,7 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
+            "default_role_id",
         ]
         read_only_fields = [
             "id",
@@ -143,6 +149,7 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "member_count",
+            "default_role_id",
         ]
         extra_kwargs = {
             "slug": {
