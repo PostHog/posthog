@@ -57,21 +57,36 @@ impl IdentifyCache {
     }
 
     /// Check if we've already seen this user_id + device_id combination
-    pub async fn has_seen_user_device(&self, team_id: i32, user_id: &str, device_id: &str) -> Result<bool, Error> {
+    pub async fn has_seen_user_device(
+        &self,
+        team_id: i32,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<bool, Error> {
         let key = Self::make_key(team_id, user_id, device_id);
 
         match self.redis_client.get(key).await {
             Ok(_) => Ok(true), // Key exists, we've seen this combination
             Err(common_redis::CustomRedisError::NotFound) => Ok(false), // Key doesn't exist
-            Err(e) => Err(Error::msg(format!("Redis error checking user-device: {}", e))),
+            Err(e) => Err(Error::msg(format!(
+                "Redis error checking user-device: {}",
+                e
+            ))),
         }
     }
 
     /// Mark that we've seen this user_id + device_id combination
-    pub async fn mark_seen_user_device(&self, team_id: i32, user_id: &str, device_id: &str) -> Result<(), Error> {
+    pub async fn mark_seen_user_device(
+        &self,
+        team_id: i32,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), Error> {
         let key = Self::make_key(team_id, user_id, device_id);
 
-        self.redis_client.set_nx_ex(key, "1".to_string(), self.ttl_seconds).await
+        self.redis_client
+            .set_nx_ex(key, "1".to_string(), self.ttl_seconds)
+            .await
             .map_err(|e| Error::msg(format!("Redis error marking user-device: {}", e)))?;
 
         Ok(())

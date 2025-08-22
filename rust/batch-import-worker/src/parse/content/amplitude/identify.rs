@@ -17,15 +17,27 @@ pub fn create_identify_event(
     let mut properties = serde_json::Map::new();
 
     // Merge the device_id into the user_id person
-    properties.insert("$anon_distinct_id".to_string(), Value::String(device_id.to_string()));
+    properties.insert(
+        "$anon_distinct_id".to_string(),
+        Value::String(device_id.to_string()),
+    );
 
     // Add Amplitude-specific metadata
-    properties.insert("$amplitude_user_id".to_string(), Value::String(user_id.to_string()));
-    properties.insert("$amplitude_device_id".to_string(), Value::String(device_id.to_string()));
+    properties.insert(
+        "$amplitude_user_id".to_string(),
+        Value::String(user_id.to_string()),
+    );
+    properties.insert(
+        "$amplitude_device_id".to_string(),
+        Value::String(device_id.to_string()),
+    );
 
     // Mark this as a historical migration event
     properties.insert("historical_migration".to_string(), Value::Bool(true));
-    properties.insert("analytics_source".to_string(), Value::String("amplitude".to_string()));
+    properties.insert(
+        "analytics_source".to_string(),
+        Value::String("amplitude".to_string()),
+    );
 
     // Create the raw event
     let raw_event = RawEvent {
@@ -86,11 +98,23 @@ mod tests {
 
         // Check properties
         let props = data.properties;
-        assert_eq!(props.get("$amplitude_user_id"), Some(&Value::String(user_id.to_string())));
-        assert_eq!(props.get("$amplitude_device_id"), Some(&Value::String(device_id.to_string())));
+        assert_eq!(
+            props.get("$amplitude_user_id"),
+            Some(&Value::String(user_id.to_string()))
+        );
+        assert_eq!(
+            props.get("$amplitude_device_id"),
+            Some(&Value::String(device_id.to_string()))
+        );
         assert_eq!(props.get("historical_migration"), Some(&Value::Bool(true)));
-        assert_eq!(props.get("analytics_source"), Some(&Value::String("amplitude".to_string())));
-        assert_eq!(props.get("$anon_distinct_id"), Some(&Value::String(device_id.to_string())));
+        assert_eq!(
+            props.get("analytics_source"),
+            Some(&Value::String("amplitude".to_string()))
+        );
+        assert_eq!(
+            props.get("$anon_distinct_id"),
+            Some(&Value::String(device_id.to_string()))
+        );
     }
 
     #[test]

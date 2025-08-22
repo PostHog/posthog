@@ -346,49 +346,54 @@ impl AmplitudeEvent {
             // Check if we need to inject an $identify event
             if context.generate_identify_events {
                 if let (Some(user_id), Some(device_id)) = (&amp.user_id, &amp.device_id) {
-                // Check cache to see if we've seen this user-device combination
-                let cache_result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        context.identify_cache
-                            .has_seen_user_device(team_id, user_id, device_id)
-                            .await
-                    })
-                });
+                    // Check cache to see if we've seen this user-device combination
+                    let cache_result = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            context
+                                .identify_cache
+                                .has_seen_user_device(team_id, user_id, device_id)
+                                .await
+                        })
+                    });
 
-                match cache_result {
-                    Ok(has_seen) => {
-                        if !has_seen {
-                            // Create and inject $identify event
-                            let identify_uuid = Uuid::now_v7();
-                            let identify_event = identify::create_identify_event(
-                                team_id,
-                                &token,
-                                user_id,
-                                device_id,
-                                identify_uuid,
-                            )?;
+                    match cache_result {
+                        Ok(has_seen) => {
+                            if !has_seen {
+                                // Create and inject $identify event
+                                let identify_uuid = Uuid::now_v7();
+                                let identify_event = identify::create_identify_event(
+                                    team_id,
+                                    &token,
+                                    user_id,
+                                    device_id,
+                                    identify_uuid,
+                                )?;
 
-                            events.push(identify_event);
+                                events.push(identify_event);
 
-                            // Mark as seen in cache
-                            let mark_result = tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    context.identify_cache
-                                        .mark_seen_user_device(team_id, user_id, device_id)
-                                        .await
-                                })
-                            });
+                                // Mark as seen in cache
+                                let mark_result = tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        context
+                                            .identify_cache
+                                            .mark_seen_user_device(team_id, user_id, device_id)
+                                            .await
+                                    })
+                                });
 
-                            if let Err(e) = mark_result {
-                                error!("Failed to mark seen in identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
+                                if let Err(e) = mark_result {
+                                    error!("Failed to mark seen in identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
+                                }
                             }
                         }
-                    }
-                    Err(e) => {
-                        error!("Failed to check identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
+                        Err(e) => {
+                            error!(
+                                "Failed to check identify cache for team {} user {} device {}: {}",
+                                team_id, user_id, device_id, e
+                            );
+                        }
                     }
                 }
-            }
             }
 
             // Always add the original event
