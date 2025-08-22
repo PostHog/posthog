@@ -998,7 +998,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         }
 
             try:
-                query_metadata = extract_query_metadata(query=to_dict(self.query), team=self.team).model_dump()
+                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
