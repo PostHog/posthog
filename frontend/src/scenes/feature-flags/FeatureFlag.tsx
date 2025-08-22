@@ -399,7 +399,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 label="Enable feature flag"
                                                 onChange={() => onChange(!value)}
                                                 checked={value}
-                                                dataAttr="feature-flag-enabled-checkbox"
+                                                data-attr="feature-flag-enabled-checkbox"
                                             />
                                         </div>
                                     )}
@@ -1266,7 +1266,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                             label="Encrypt remote configuration payload"
                                                             onChange={() => onChange(!value)}
                                                             checked={value}
-                                                            dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                            data-attr="feature-flag-payload-encrypted-checkbox"
                                                             disabledReason={
                                                                 hasEncryptedPayloadBeenSaved &&
                                                                 'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
@@ -1568,7 +1568,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     label="Encrypt remote configuration payload"
                                                     onChange={() => onChange(!value)}
                                                     checked={value}
-                                                    dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                    data-attr="feature-flag-payload-encrypted-checkbox"
                                                     disabledReason={
                                                         hasEncryptedPayloadBeenSaved &&
                                                         'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
