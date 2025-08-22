@@ -327,7 +327,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         table_name="writable_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-        extra_fields=KAFKA_COLUMNS,
+        extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns="",
         indexes="",
     )
@@ -341,7 +341,7 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
         table_name="events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
         indexes="",
     )
