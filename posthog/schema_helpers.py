@@ -32,10 +32,7 @@ def strip_version_recursive(d):
 
 
 def to_dict(query: BaseModel) -> dict:
-    # Start with the normal Pydantic serialization (this replaces next_serializer(self))
     dumped = query.model_dump(exclude_none=True, exclude_defaults=True)
-
-    # strip version
     dumped = strip_version_recursive(dumped)
 
     ###
