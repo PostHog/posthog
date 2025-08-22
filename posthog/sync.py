@@ -22,8 +22,8 @@ logger = get_logger(__name__)
 
 # Prometheus metric to track database_sync_to_async execution time
 DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
-    "database_sync_to_async_main_thread_blocked_time_seconds",
-    "Time spent blocking the main thread while executing database_sync_to_async operations",
+    "database_sync_to_async_thread_sensitive_execution_time_seconds",
+    "Time spent while executing database_sync_to_async operations in thread-sensitive mode",
     labelnames=["function_name"],
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, float("inf")),
 )
