@@ -243,10 +243,14 @@ class FastInsightSerializer:
             effective_privilege_level = Dashboard.PrivilegeLevel.CAN_VIEW
         else:
             effective_restriction_level = (
-                user_permissions.insight(insight).effective_restriction_level if user_permissions else 21
+                user_permissions.insight(insight).effective_restriction_level
+                if user_permissions
+                else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
             )
             effective_privilege_level = (
-                user_permissions.insight(insight).effective_privilege_level if user_permissions else 37
+                user_permissions.insight(insight).effective_privilege_level
+                if user_permissions
+                else Dashboard.PrivilegeLevel.CAN_EDIT
             )
 
         # Get tags
