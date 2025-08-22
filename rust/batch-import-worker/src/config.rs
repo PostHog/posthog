@@ -56,6 +56,10 @@ pub struct Config {
     // 0 means unlimited retries
     #[envconfig(from = "BACKOFF_MAX_ATTEMPTS", default = "0")]
     pub backoff_max_attempts: u32,
+
+    // Enable/disable Amplitude identify event injection
+    #[envconfig(from = "AMPLITUDE_IDENTIFY_INJECTION", default = "false")]
+    pub amplitude_identify_injection: bool,
 }
 
 impl Config {
@@ -107,6 +111,7 @@ mod tests {
             backoff_max_seconds: 3600,
             backoff_multiplier: 2.0,
             backoff_max_attempts: 0,
+            amplitude_identify_injection: false,
         }
     }
 

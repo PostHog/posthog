@@ -5,9 +5,12 @@ use chrono::Utc;
 use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::error;
 use uuid::Uuid;
 
 use super::TransformContext;
+
+mod identify;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmplitudeData {
@@ -96,17 +99,17 @@ impl AmplitudeEvent {
     pub fn parse_fn(
         context: TransformContext,
         event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
-    ) -> impl Fn(Self) -> Result<Option<InternallyCapturedEvent>, Error> {
+    ) -> impl Fn(Self) -> Result<Vec<InternallyCapturedEvent>, Error> {
         move |amp| {
             let token = context.token.clone();
             let team_id = context.team_id;
 
             let Some(event_type_raw) = &amp.event_type else {
-                return Ok(None);
+                return Ok(vec![]);
             };
 
             let event_type = match event_type_raw.as_str() {
-                "session_start" => return Ok(None),
+                "session_start" => return Ok(vec![]),
                 "[Amplitude] Page Viewed" => "$pageview".to_string(),
                 "[Amplitude] Element Clicked" | "[Amplitude] Element Changed" => {
                     "$autocapture".to_string()
@@ -335,9 +338,60 @@ impl AmplitudeEvent {
             };
 
             let Some(raw_event) = event_transform(raw_event)? else {
-                return Ok(None);
+                return Ok(vec![]);
             };
 
+            let mut events = Vec::new();
+
+            // Check if we need to inject an $identify event
+            if context.amplitude_identify_injection {
+                if let (Some(user_id), Some(device_id)) = (&amp.user_id, &amp.device_id) {
+                // Check cache to see if we've seen this user-device combination
+                let cache_result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        context.amplitude_identify_cache
+                            .has_seen_user_device(team_id, user_id, device_id)
+                            .await
+                    })
+                });
+
+                match cache_result {
+                    Ok(has_seen) => {
+                        if !has_seen {
+                            // Create and inject $identify event
+                            let identify_uuid = Uuid::now_v7();
+                            let identify_event = identify::create_identify_event(
+                                team_id,
+                                &token,
+                                user_id,
+                                device_id,
+                                identify_uuid,
+                            )?;
+
+                            events.push(identify_event);
+
+                            // Mark as seen in cache
+                            let mark_result = tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    context.amplitude_identify_cache
+                                        .mark_seen_user_device(team_id, user_id, device_id)
+                                        .await
+                                })
+                            });
+
+                            if let Err(e) = mark_result {
+                                error!("Failed to mark seen in identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to check identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
+                    }
+                }
+            }
+            }
+
+            // Always add the original event
             let inner = CapturedEvent {
                 uuid: event_uuid,
                 distinct_id,
@@ -349,7 +403,9 @@ impl AmplitudeEvent {
                 is_cookieless_mode: false,
             };
 
-            Ok(Some(InternallyCapturedEvent { team_id, inner }))
+            events.push(InternallyCapturedEvent { team_id, inner });
+
+            Ok(events)
         }
     }
 }
@@ -405,9 +461,14 @@ mod tests {
     use serde_json::json;
 
     fn create_test_context() -> TransformContext {
+        use crate::cache::MemoryAmplitudeIdentifyCache;
+        use std::sync::Arc;
+
         TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            amplitude_identify_cache: Arc::new(MemoryAmplitudeIdentifyCache::new()),
+            amplitude_identify_injection: false,
         }
     }
 
@@ -431,7 +492,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         assert_eq!(result.team_id, 123);
         assert_eq!(result.inner.token, "test_token");
@@ -470,7 +532,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(data.event, "$pageview");
@@ -491,7 +554,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(data.event, "$autocapture");
@@ -508,7 +572,7 @@ mod tests {
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
         let result = parser(amp_event).unwrap();
 
-        assert!(result.is_none());
+        assert!(result.is_empty());
     }
 
     #[test]
@@ -527,7 +591,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(data.properties.get("$device_type"), Some(&json!("Mobile")));
@@ -570,7 +635,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         let set_once = data.set_once.unwrap();
@@ -602,7 +668,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         let set_once = data.set_once.unwrap();
@@ -630,8 +697,8 @@ mod tests {
             let result = parser(amp_event).unwrap();
 
             if should_parse {
-                assert!(result.is_some());
-                let data: RawEvent = serde_json::from_str(&result.unwrap().inner.data).unwrap();
+                assert!(!result.is_empty());
+                let data: RawEvent = serde_json::from_str(&result[0].inner.data).unwrap();
                 assert!(data.timestamp.is_some());
             }
         }
@@ -648,7 +715,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
         assert_eq!(result.inner.distinct_id, "user123");
 
         // Test with device_id only
@@ -660,7 +728,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
         assert_eq!(result.inner.distinct_id, "device456");
 
         // Test with neither (should generate UUID)
@@ -672,7 +741,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
         assert!(!result.inner.distinct_id.is_empty());
         assert!(Uuid::parse_str(&result.inner.distinct_id).is_ok());
     }
@@ -690,7 +760,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(
@@ -723,6 +794,6 @@ mod tests {
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
         let result = parser(amp_event).unwrap();
 
-        assert!(result.is_none());
+        assert!(result.is_empty());
     }
 }
