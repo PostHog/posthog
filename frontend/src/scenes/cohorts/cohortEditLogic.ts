@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
@@ -73,6 +73,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         }),
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
+        saveCohortSuccess: (cohort: CohortType) => ({ cohort }),
+        fetchCohortSuccess: (cohort: CohortType) => ({ cohort }),
     }),
 
     reducers(({ props }) => ({
@@ -164,6 +166,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     ),
             },
         ],
+        savedCohort: [
+            NEW_COHORT,
+            {
+                fetchCohortSuccess: (_, { cohort }) => cohort,
+                saveCohortSuccess: (_, { cohort }) => cohort,
+            },
+        ],
         cohortMissing: [
             false,
             {
@@ -194,6 +203,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
     })),
+
+    selectors({
+        cohortHasChanges: [
+            (s) => [s.cohort, s.savedCohort],
+            (cohort: CohortType, savedCohort: CohortType): boolean => {
+                return (
+                    (cohort.name || '') !== (savedCohort.name || '') ||
+                    (cohort.description || '') !== (savedCohort.description || '')
+                )
+            },
+        ],
+    }),
 
     forms(({ actions }) => ({
         cohort: {
@@ -228,6 +249,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
                         actions.setCohort(cohort)
+                        actions.fetchCohortSuccess(cohort)
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
                     } catch (error: any) {
@@ -303,6 +325,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                     delete cohort['csv']
                     actions.setCohort(cohort)
+                    actions.saveCohortSuccess(cohort)
                     refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
