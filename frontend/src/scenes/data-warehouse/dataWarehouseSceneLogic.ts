@@ -29,7 +29,7 @@ const ERROR_PATTERNS = {
     AUTH: /auth|credential|permission|unauthorized|forbidden|invalid.*token|expired.*token|access.*denied/i,
     RATE_LIMIT: /rate.*limit|429|quota.*exceeded|too.*many.*requests|throttle/i,
     WARNING: /slow|performance|timeout.*warning|retry.*limit/i,
-} as const
+}
 
 const determineSeverity = (error: string | null): 'critical' | 'warning' => {
     if (!error) {
@@ -351,91 +351,58 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     title: string
                     description: string
                     timestamp: string
-                    actionType:
-                        | 'update_credentials'
-                        | 'adjust_frequency'
-                        | 'retry_sync'
-                        | 'view_materialization'
-                        | 'view_query'
+                    actionType: string
                     actionUrl: string
                     count?: number
                 }> = []
+                // handle materialized view failures from recent activity
+                const materializedViewActivities = recentActivity
+                    .filter((activity) => activity.type === 'Materialized view')
+                    .reduce(
+                        (groups, activity) => {
+                            const key = activity.name || 'unknown'
+                            groups[key] = groups[key] || []
+                            groups[key].push(activity)
+                            return groups
+                        },
+                        {} as Record<string, typeof recentActivity>
+                    )
 
-                // Group activities by source/view and get latest failure for each
-                const activityGroups = recentActivity.reduce(
-                    (groups, activity) => {
-                        const key =
-                            activity.type === 'Materialized view'
-                                ? `materialized-${activity.name || 'unknown'}`
-                                : activity.name || 'Unknown Source'
-
-                        groups[key] = groups[key] || []
-                        groups[key].push(activity)
-                        return groups
-                    },
-                    {} as Record<string, typeof recentActivity>
-                )
-
-                // Create issues from activity failures
-                for (const [key, activities] of Object.entries(activityGroups)) {
+                for (const [viewName, activities] of Object.entries(materializedViewActivities)) {
                     const latestActivity = activities.sort(
                         (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
                     )[0]
-
+                    // only create issues if the most recent run failed
                     if (latestActivity.status !== 'Failed' && !latestActivity.latest_error) {
                         continue
                     }
 
-                    const isMaterializedView = latestActivity.type === 'Materialized view'
-                    const error = latestActivity.latest_error
+                    const materializedView = Object.values(dataWarehouseSavedQueryMapById).find(
+                        (query) => query.name === latestActivity.name
+                    )
 
-                    if (isMaterializedView) {
-                        const materializedView = Object.values(dataWarehouseSavedQueryMapById).find(
-                            (query) => query.name === latestActivity.name
-                        )
-
-                        issues.push({
-                            id: `materialization-${latestActivity.id}`,
-                            type: 'materialization',
-                            severity: 'critical',
-                            title: `${latestActivity.name || 'Unknown Materialized View'} (Materialized View)`,
-                            description: error || 'Materialization failed',
-                            timestamp: latestActivity.created_at,
-                            actionType: 'view_materialization',
-                            actionUrl: materializedView
-                                ? urls.sqlEditor(
-                                      undefined,
-                                      materializedView.id,
-                                      undefined,
-                                      undefined,
-                                      'materialization'
-                                  )
-                                : '#',
-                        })
-                    } else {
-                        const sourceId = dataWarehouseSources?.results?.find(
-                            (s) => s.source_type === latestActivity.name
-                        )?.id
-
-                        issues.push({
-                            id: `source-activity-${key}`,
-                            type: 'data_source',
-                            severity: determineSeverity(error),
-                            title: latestActivity.name || 'Unknown Source',
-                            description: error || 'Sync failed',
-                            timestamp: latestActivity.created_at,
-                            actionType: getActionType(error),
-                            actionUrl: sourceId ? urls.dataWarehouseSource(`managed-${sourceId}`) : '#',
-                            count: activities.length,
-                        })
-                    }
+                    issues.push({
+                        id: `materialization-${latestActivity.id}`,
+                        type: 'materialization',
+                        severity: 'critical',
+                        title: `${viewName} (Materialized View)`,
+                        description: latestActivity.latest_error || 'Materialization failed',
+                        timestamp: latestActivity.created_at,
+                        actionType: 'view_materialization',
+                        actionUrl: urls.sqlEditor(
+                            undefined,
+                            materializedView?.id,
+                            undefined,
+                            undefined,
+                            'materialization'
+                        ),
+                    })
                 }
 
-                // Add source errors not covered by recent activity
+                // handle data source failures from source status directly, not from recent activity
                 const sourcesWithErrors =
                     dataWarehouseSources?.results?.filter(
-                        (source) =>
-                            source.latest_error && source.status === 'Error' && !activityGroups[source.source_type]
+                        (source) => source.latest_error && source.status === 'Error'
                     ) || []
 
                 sourcesWithErrors.forEach((source) => {
