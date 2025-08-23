@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, cast
 
-import settings
+from django.conf import settings
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
