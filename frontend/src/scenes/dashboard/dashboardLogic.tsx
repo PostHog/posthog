@@ -397,16 +397,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Set the dashboard with empty tiles first
                         actions.loadDashboardMetadataSuccess(dashboard)
 
-                        // Then start streaming tiles into the established structure
+                        // Then start streaming tiles with progressive rendering delays
+                        let tileCount = 0
                         api.dashboards.streamTiles(
                             props.id,
                             {
                                 layoutSize: values.currentLayoutSize,
                                 limitTiles,
                             },
-                            // onTile callback
+                            // onTile callback with strategic delays
                             (data) => {
-                                actions.receiveTileFromStream(data)
+                                tileCount++
+
+                                // Add delays after first and fourth tile for progressive rendering
+                                if (tileCount === 1) {
+                                    // First tile - render immediately then pause for next batch
+                                    actions.receiveTileFromStream(data)
+                                    setTimeout(() => {}, 100) // Small delay before next tiles
+                                } else if (tileCount <= 4) {
+                                    // Tiles 2-4 - render with slight delay to create staggered effect
+                                    setTimeout(() => actions.receiveTileFromStream(data), (tileCount - 1) * 50)
+                                } else {
+                                    // Remaining tiles - render with progressive delays
+                                    setTimeout(() => actions.receiveTileFromStream(data), 200 + (tileCount - 4) * 30)
+                                }
                             },
                             // onComplete callback
                             () => {
