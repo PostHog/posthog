@@ -414,15 +414,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                             dashboardMetadata,
                                             createDashboard: true,
                                         })
-                                    } else if (tileCount <= 4) {
-                                        // Tiles 2-4 - render with slight delay to create staggered effect
-                                        setTimeout(() => actions.receiveTileFromStream(data), (tileCount - 1) * 50)
                                     } else {
                                         // Remaining tiles - render with progressive delays
-                                        setTimeout(
-                                            () => actions.receiveTileFromStream(data),
-                                            200 + (tileCount - 4) * 30
-                                        )
+                                        setTimeout(() => actions.receiveTileFromStream(data), 1)
                                     }
                                 }
                             },
