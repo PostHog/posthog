@@ -388,16 +388,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.resetIntermittentFilters()
 
                     try {
-                        // First load metadata to establish dashboard structure
-
-                        const dashboardMetadata = await api.dashboards.getMetadata(props.id)
-
-                        const dashboard = getQueryBasedDashboard({ ...dashboardMetadata, tiles: [] })
-
-                        // Set the dashboard with empty tiles first
-                        actions.loadDashboardMetadataSuccess(dashboard)
-
-                        // Then start streaming tiles with progressive rendering delays
+                        // Start unified streaming - metadata followed by tiles
                         let tileCount = 0
                         api.dashboards.streamTiles(
                             props.id,
@@ -405,21 +396,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 layoutSize: values.currentLayoutSize,
                                 limitTiles,
                             },
-                            // onTile callback with strategic delays
+                            // onMessage callback - handles both metadata and tiles
                             (data) => {
-                                tileCount++
+                                if (data.type === 'metadata') {
+                                    // Set up dashboard structure with metadata
 
-                                // Add delays after first and fourth tile for progressive rendering
-                                if (tileCount === 1) {
-                                    // First tile - render immediately then pause for next batch
-                                    actions.receiveTileFromStream(data)
-                                    setTimeout(() => {}, 100) // Small delay before next tiles
-                                } else if (tileCount <= 4) {
-                                    // Tiles 2-4 - render with slight delay to create staggered effect
-                                    setTimeout(() => actions.receiveTileFromStream(data), (tileCount - 1) * 50)
-                                } else {
-                                    // Remaining tiles - render with progressive delays
-                                    setTimeout(() => actions.receiveTileFromStream(data), 200 + (tileCount - 4) * 30)
+                                    const dashboard = getQueryBasedDashboard({ ...data.dashboard, tiles: [] })
+
+                                    actions.loadDashboardMetadataSuccess(dashboard)
+                                } else if (data.type === 'tile') {
+                                    tileCount++
+
+                                    // Add delays for progressive rendering
+                                    if (tileCount === 1) {
+                                        // First tile - render immediately
+                                        actions.receiveTileFromStream(data)
+                                    } else if (tileCount <= 4) {
+                                        // Tiles 2-4 - render with slight delay to create staggered effect
+                                        setTimeout(() => actions.receiveTileFromStream(data), (tileCount - 1) * 50)
+                                    } else {
+                                        // Remaining tiles - render with progressive delays
+                                        setTimeout(
+                                            () => actions.receiveTileFromStream(data),
+                                            200 + (tileCount - 4) * 30
+                                        )
+                                    }
                                 }
                             },
                             // onComplete callback
@@ -433,7 +434,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         )
 
-                        return dashboard
+                        // Return empty dashboard structure - streaming will populate it
+                        return {
+                            id: props.id,
+                            tiles: [],
+                            name: 'Loading...',
+                            loading: true,
+                        }
                     } catch (error: any) {
                         console.warn('⚠️ Streaming approach failed, falling back to regular loading:', error)
 

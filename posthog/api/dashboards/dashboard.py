@@ -742,12 +742,21 @@ class DashboardsViewSet(
     # ******************************************
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
     def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
-        """Stream dashboard tiles via Server-Sent Events as they are rendered."""
+        """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
         dashboard = self.get_object()
 
         def tile_stream_generator() -> Generator[str, None, None]:
             try:
-                # Create serializer context
+                # First, stream the dashboard metadata
+                dashboard.last_accessed_at = now()
+                dashboard.save(update_fields=["last_accessed_at"])
+                metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
+                metadata_data = metadata_serializer.data
+                # Ensure tiles field is present (empty array for streaming)
+                metadata_data["tiles"] = []
+                yield f"data: {safe_json_dumps({'type': 'metadata', 'dashboard': metadata_data})}\n\n"
+
+                # Create serializer context for tiles
                 context = self.get_serializer_context()
                 context.update({"dashboard": dashboard})
 
