@@ -382,16 +382,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
-                        if (dashboard && values.dashboard) {
-                            // Merge the remaining tiles with the existing ones
-                            const existingTileIds = new Set(values.dashboard.tiles.map((tile) => tile.id))
-                            const remainingTiles = dashboard.tiles.filter((tile) => !existingTileIds.has(tile.id))
-
-                            return {
-                                ...values.dashboard,
-                                tiles: [...values.dashboard.tiles, ...remainingTiles],
-                            }
-                        }
+                        // Just use the same processing pipeline as initial dashboard load
+                        // This ensures all tiles go through the same transformation (InsightModel -> QueryBasedInsightModel)
 
                         return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
@@ -1659,16 +1651,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         loadRemainingTilesSuccess: () => {
-            // Once all tiles are loaded, trigger refresh for any remaining tiles that need it
+            // Refresh all tiles using the same logic as initial dashboard load
             if (values.placement !== DashboardPlacement.Export) {
                 const { action, manualDashboardRefresh } = values.dashboardLoadData
-                // Only refresh the newly loaded tiles
-                const remainingTiles = values.tiles.slice(3) // Skip first 3 tiles
-                actions.updateDashboardItems({
-                    tiles: remainingTiles,
-                    action,
-                    manualDashboardRefresh,
-                })
+                actions.updateDashboardItems({ action, manualDashboardRefresh })
             }
         },
         reportDashboardViewed: async (_, breakpoint) => {
