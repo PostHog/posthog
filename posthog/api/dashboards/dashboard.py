@@ -489,24 +489,30 @@ class DashboardSerializer(DashboardBasicSerializer):
             group_properties={"organization": {"id": str(team.organization_id)}},
         )
 
-        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-        # sm more common than xs, so we sort by sm
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get("sm", {}).get("y", 100),
-                tile.layouts.get("sm", {}).get("x", 100),
-            ),
-        )
-
-        # Check if we should limit the number of tiles (for progressive loading)
+        # Get layout size and limit parameters for progressive loading
         request = self.context.get("request")
         limit_tiles = None
+        layout_size = "sm"  # Default to sm
         if request and hasattr(request, "query_params"):
             try:
                 limit_tiles = int(request.query_params.get("limit_tiles", ""))
             except (ValueError, TypeError):
                 limit_tiles = None
+
+            # Get layout size parameter (sm or xs)
+            layout_size = request.query_params.get("layout_size", "sm")
+            if layout_size not in ["sm", "xs"]:
+                layout_size = "sm"  # fallback to sm if invalid value
+
+        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+        # Use the specified layout size to get the correct order for the current viewport
+        sorted_tiles = sorted(
+            tiles,
+            key=lambda tile: (
+                tile.layouts.get(layout_size, {}).get("y", 100),
+                tile.layouts.get(layout_size, {}).get("x", 100),
+            ),
+        )
 
         # Apply tile limit if specified
         if limit_tiles is not None and limit_tiles > 0:

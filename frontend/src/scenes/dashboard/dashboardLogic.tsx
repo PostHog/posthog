@@ -17,6 +17,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -301,7 +302,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.resetIntermittentFilters()
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.temporaryFilters, values.temporaryVariables)
+                        const apiUrl = values.apiUrl(
+                            'force_cache',
+                            values.temporaryFilters,
+                            values.temporaryVariables,
+                            undefined,
+                            values.currentLayoutSize
+                        )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -352,7 +359,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             'force_cache',
                             values.temporaryFilters,
                             values.temporaryVariables,
-                            limitTiles
+                            limitTiles,
+                            values.currentLayoutSize
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
@@ -378,7 +386,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.temporaryFilters, values.temporaryVariables)
+                        const apiUrl = values.apiUrl(
+                            'force_cache',
+                            values.temporaryFilters,
+                            values.temporaryVariables,
+                            undefined,
+                            values.currentLayoutSize
+                        )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -1074,14 +1088,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>,
-                    limitTiles?: number
+                    limitTiles?: number,
+                    layoutSize?: 'sm' | 'xs'
                 ) =>
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
                         limit_tiles: limitTiles,
+                        layout_size: layoutSize,
                     })}`
+            },
+        ],
+        currentLayoutSize: [
+            (s) => [s.containerWidth],
+            (containerWidth): 'sm' | 'xs' => {
+                // Use same logic as DashboardItems: width > BREAKPOINTS.sm = sm, otherwise xs
+                return containerWidth && containerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
             },
         ],
         tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
