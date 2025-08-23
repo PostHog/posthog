@@ -7,7 +7,7 @@ import { Layout, Layouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiMethodOptions, getJSONOrNull, getResponseBytes } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -58,7 +58,7 @@ import {
     TextModel,
 } from '~/types'
 
-import { sortDayJsDates } from '../insights/utils'
+import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
