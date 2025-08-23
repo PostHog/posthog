@@ -359,10 +359,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
-
-                        // Just use the same processing pipeline as initial dashboard load
-                        // This ensures all tiles go through the same transformation (InsightModel -> QueryBasedInsightModel)
-
                         return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
                         // If loading remaining tiles fails, just return current dashboard
@@ -1042,8 +1038,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         currentLayoutSize: [
             (s) => [s.containerWidth],
             (containerWidth): 'sm' | 'xs' => {
-                // Use same logic as DashboardItems: width > BREAKPOINTS.sm = sm, otherwise xs
-                return containerWidth && containerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
+                // Just use a simple heuristic: if we don't have container width yet, default to 'sm'
+                // Most desktop users will be 'sm', and this will correct itself once container is measured
+                return containerWidth !== null && containerWidth <= BREAKPOINTS.sm ? 'xs' : 'sm'
             },
         ],
         tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
@@ -1574,11 +1571,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
-            // Start loading remaining tiles if the backend indicates there are more
             if (values.dashboard.has_more_tiles) {
-                setTimeout(() => {
-                    actions.loadRemainingTiles()
-                }, 100) // Small delay to let the initial tiles render
+                actions.loadRemainingTiles()
             }
 
             if (values.placement !== DashboardPlacement.Export) {

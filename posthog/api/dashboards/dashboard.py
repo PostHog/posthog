@@ -492,14 +492,13 @@ class DashboardSerializer(DashboardBasicSerializer):
         # Get layout size and limit parameters for progressive loading
         request = self.context.get("request")
         limit_tiles = None
-        layout_size = "sm"  # Default to sm
+        layout_size = "sm"
         if request and hasattr(request, "query_params"):
             try:
                 limit_tiles = int(request.query_params.get("limit_tiles", ""))
             except (ValueError, TypeError):
                 limit_tiles = None
 
-            # Get layout size parameter (sm or xs)
             layout_size = request.query_params.get("layout_size", "sm")
             if layout_size not in ["sm", "xs"]:
                 layout_size = "sm"  # fallback to sm if invalid value
