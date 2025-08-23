@@ -1038,9 +1038,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         currentLayoutSize: [
             (s) => [s.containerWidth],
             (containerWidth): 'sm' | 'xs' => {
-                // Just use a simple heuristic: if we don't have container width yet, default to 'sm'
-                // Most desktop users will be 'sm', and this will correct itself once container is measured
-                return containerWidth !== null && containerWidth <= BREAKPOINTS.sm ? 'xs' : 'sm'
+                // Use precise container width when available, otherwise estimate from window width
+                if (containerWidth !== null) {
+                    // We have the actual container measurement
+                    return containerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
+                }
+                // Estimate from window width, accounting for ~300px of sidebars
+                const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200 // SSR fallback
+                const estimatedContainerWidth = windowWidth - 300
+                return estimatedContainerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
             },
         ],
         tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
