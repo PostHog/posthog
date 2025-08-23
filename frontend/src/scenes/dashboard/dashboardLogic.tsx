@@ -156,12 +156,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadDashboard: (payload: {
             action: DashboardLoadAction
             manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
-        }) => payload,
-        /** Load dashboard with only the first few tiles for progressive loading. */
-        loadDashboardPartial: (payload: {
-            action: DashboardLoadAction
-            manualDashboardRefresh?: boolean
-            limitTiles: number
+            limitTiles?: number // optional limit for progressive loading
         }) => payload,
         /** Load remaining tiles after partial dashboard load. */
         loadRemainingTiles: true,
@@ -295,7 +290,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                  * if manualDashboardRefresh is passed then in loadDashboardSuccess we trigger
                  * updateDashboardItems to refresh all insights with `force_blocking`
                  */
-                loadDashboard: async ({ action, manualDashboardRefresh }, breakpoint) => {
+                loadDashboard: async ({ action, manualDashboardRefresh, limitTiles }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
 
                     await breakpoint(200)
@@ -306,8 +301,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             'force_cache',
                             values.temporaryFilters,
                             values.temporaryVariables,
-                            undefined,
-                            values.currentLayoutSize
+                            values.currentLayoutSize,
+                            limitTiles
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
@@ -348,36 +343,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                loadDashboardPartial: async ({ action, manualDashboardRefresh, limitTiles }, breakpoint) => {
-                    actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
-
-                    await breakpoint(200)
-                    actions.resetIntermittentFilters()
-
-                    try {
-                        const apiUrl = values.apiUrl(
-                            'force_cache',
-                            values.temporaryFilters,
-                            values.temporaryVariables,
-                            limitTiles,
-                            values.currentLayoutSize
-                        )
-                        const dashboardResponse: Response = await api.getResponse(apiUrl)
-                        const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
-
-                        actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
-
-                        return getQueryBasedDashboard(dashboard)
-                    } catch (error: any) {
-                        if (error.status === 404) {
-                            return null
-                        }
-                        if (error.status === 403 && error.code === 'permission_denied') {
-                            actions.setAccessDeniedToDashboard()
-                        }
-                        throw error
-                    }
-                },
                 loadRemainingTiles: async (_, breakpoint) => {
                     if (!values.dashboard) {
                         return values.dashboard
@@ -390,7 +355,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             'force_cache',
                             values.temporaryFilters,
                             values.temporaryVariables,
-                            undefined,
                             values.currentLayoutSize
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
@@ -525,11 +489,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 loadDashboard: () => true,
-                loadDashboardPartial: () => true,
                 loadDashboardSuccess: () => false,
-                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
-                loadDashboardPartialFailure: () => false,
             },
         ],
         loadingPreview: [
@@ -539,9 +500,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setProperties: () => false,
                 setBreakdownFilter: () => false,
                 loadDashboardSuccess: () => false,
-                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
-                loadDashboardPartialFailure: () => false,
                 previewTemporaryFilters: () => true,
             },
         ],
@@ -551,11 +510,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // have to reload dashboard when when cancelling preview
                 // and resetting filters
                 loadDashboard: () => true,
-                loadDashboardPartial: () => true,
                 loadDashboardSuccess: () => false,
-                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
-                loadDashboardPartialFailure: () => false,
             },
         ],
         pageVisibility: [
@@ -574,28 +530,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 loadDashboardSuccess: () => false,
-                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => true,
-                loadDashboardPartialFailure: () => true,
             },
         ],
         dashboardLayouts: [
             {} as Record<DashboardTile['id'], DashboardTile['layouts']>,
             {
                 loadDashboardSuccess: (state, { dashboard, payload }) => {
-                    // don't update dashboardLayouts if we're previewing
-                    if (payload?.action === DashboardLoadAction.Preview) {
-                        return state
-                    }
-
-                    const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
-                    dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
-                        tileIdToLayouts[tile.id] = tile.layouts
-                    })
-
-                    return tileIdToLayouts
-                },
-                loadDashboardPartialSuccess: (state, { dashboard, payload }) => {
                     // don't update dashboardLayouts if we're previewing
                     if (payload?.action === DashboardLoadAction.Preview) {
                         return state
@@ -868,9 +809,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 dashboardNotFound: () => true,
                 loadDashboardSuccess: () => false,
-                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
-                loadDashboardPartialFailure: () => false,
             },
         ],
         loadingRemainingTiles: [
@@ -1088,15 +1027,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>,
-                    limitTiles?: number,
-                    layoutSize?: 'sm' | 'xs'
+                    layoutSize?: 'sm' | 'xs',
+                    limitTiles?: number
                 ) =>
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
-                        limit_tiles: limitTiles,
                         layout_size: layoutSize,
+                        limit_tiles: limitTiles,
                     })}`
             },
         ],
@@ -1313,8 +1252,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
-                        // Progressive loading: load first 3 tiles initially
-                        actions.loadDashboardPartial({
+                        // Progressive loading: load first 4 tiles initially
+                        actions.loadDashboard({
                             action: DashboardLoadAction.InitialLoad,
                             limitTiles: 4,
                         })
@@ -1635,26 +1574,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
-            if (values.placement !== DashboardPlacement.Export) {
-                // access stored values from dashboardLoadData
-                // as we can't pass them down to this listener
-                const { action, manualDashboardRefresh } = values.dashboardLoadData
-                actions.updateDashboardItems({ action, manualDashboardRefresh })
-            }
-
-            if (values.shouldReportOnAPILoad) {
-                actions.setShouldReportOnAPILoad(false)
-                actions.reportDashboardViewed()
-            }
-        },
-        loadDashboardPartialSuccess: (...args) => {
-            void sharedListeners.reportLoadTiming(...args)
-
-            if (!values.dashboard) {
-                actions.dashboardNotFound()
-                return // We hit a 404
-            }
-
             // Start loading remaining tiles if the backend indicates there are more
             if (values.dashboard.has_more_tiles) {
                 setTimeout(() => {
@@ -1664,6 +1583,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (values.placement !== DashboardPlacement.Export) {
                 // access stored values from dashboardLoadData
+                // as we can't pass them down to this listener
                 const { action, manualDashboardRefresh } = values.dashboardLoadData
                 actions.updateDashboardItems({ action, manualDashboardRefresh })
             }
@@ -1757,9 +1677,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
-                actions.loadDashboardPartial({
+                actions.loadDashboard({
                     action: DashboardLoadAction.InitialLoadWithVariables,
-                    limitTiles: 4,
+                    limitTiles: 3,
                 })
             }
 
