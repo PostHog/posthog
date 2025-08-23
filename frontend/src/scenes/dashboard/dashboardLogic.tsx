@@ -1040,11 +1040,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (containerWidth): 'sm' | 'xs' => {
                 // Use precise container width when available, otherwise estimate from window width
                 if (containerWidth !== null) {
-                    // We have the actual container measurement
                     return containerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
                 }
                 // Estimate from window width, accounting for ~300px of sidebars
-                const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200 // SSR fallback
+                const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
                 const estimatedContainerWidth = windowWidth - 300
                 return estimatedContainerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
             },

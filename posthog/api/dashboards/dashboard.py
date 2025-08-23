@@ -472,7 +472,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         serialized_tiles: list[ReturnDict] = []
 
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
             Prefetch(
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),
@@ -490,18 +490,7 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
 
         # Get layout size and limit parameters for progressive loading
-        request = self.context.get("request")
-        limit_tiles = None
-        layout_size = "sm"
-        if request and hasattr(request, "query_params"):
-            try:
-                limit_tiles = int(request.query_params.get("limit_tiles", ""))
-            except (ValueError, TypeError):
-                limit_tiles = None
-
-            layout_size = request.query_params.get("layout_size", "sm")
-            if layout_size not in ["sm", "xs"]:
-                layout_size = "sm"  # fallback to sm if invalid value
+        limit_tiles, layout_size = self._get_progressive_loading_params()
 
         # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
         # Use the specified layout size to get the correct order for the current viewport
@@ -530,24 +519,36 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return serialized_tiles
 
-    def get_has_more_tiles(self, dashboard: Dashboard) -> bool:
-        if self.context["view"].action == "list":
-            return False
-
-        # Check if tiles were limited
+    def _get_progressive_loading_params(self):
+        """Extract progressive loading parameters from request."""
         request = self.context.get("request")
         limit_tiles = None
+        layout_size = "sm"
+
         if request and hasattr(request, "query_params"):
             try:
                 limit_tiles = int(request.query_params.get("limit_tiles", ""))
             except (ValueError, TypeError):
                 limit_tiles = None
 
+            layout_size = request.query_params.get("layout_size", "sm")
+            if layout_size not in ["sm", "xs"]:
+                layout_size = "sm"  # fallback to sm if invalid value
+
+        return limit_tiles, layout_size
+
+    def get_has_more_tiles(self, dashboard: Dashboard) -> bool:
+        if self.context["view"].action == "list":
+            return False
+
+        # Check if tiles were limited
+        limit_tiles, _ = self._get_progressive_loading_params()
+
         if limit_tiles is None or limit_tiles <= 0:
             return False
 
         # Get total number of tiles
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles)
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all())
         total_tiles = tiles.count()
 
         # Only indicate more tiles if there are >= 10 total tiles and more than the limit
