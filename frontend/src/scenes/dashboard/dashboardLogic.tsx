@@ -390,11 +390,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         // Start unified streaming - metadata followed by tiles
                         let tileCount = 0
+
                         api.dashboards.streamTiles(
                             props.id,
                             {
                                 layoutSize: values.currentLayoutSize,
-                                limitTiles,
                             },
                             // onMessage callback - handles both metadata and tiles
                             (data) => {

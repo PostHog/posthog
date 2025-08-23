@@ -600,11 +600,15 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         if request and hasattr(request, "query_params"):
             try:
-                limit_tiles = int(request.query_params.get("limit_tiles", ""))
+                # Check for both camelCase (from frontend) and snake_case (for compatibility)
+                limit_tiles_param = request.query_params.get("limitTiles") or request.query_params.get("limit_tiles")
+                if limit_tiles_param:
+                    limit_tiles = int(limit_tiles_param)
             except (ValueError, TypeError):
                 limit_tiles = None
 
-            layout_size = request.query_params.get("layout_size", "sm")
+            # Check for both camelCase (from frontend) and snake_case (for compatibility)
+            layout_size = request.query_params.get("layoutSize") or request.query_params.get("layout_size", "sm")
             if layout_size not in ["sm", "xs"]:
                 layout_size = "sm"  # fallback to sm if invalid value
 
@@ -771,6 +775,7 @@ class DashboardsViewSet(
 
                 # Get progressive loading parameters
                 limit_tiles, layout_size = self._get_progressive_loading_params_from_request(request)
+                logger.info(f"🖥️ Streaming with layout_size: {layout_size}, limit_tiles: {limit_tiles}")
 
                 # Sort tiles by layout for proper visual order
                 sorted_tiles = sorted(
@@ -781,10 +786,7 @@ class DashboardsViewSet(
                     ),
                 )
 
-                # Apply tile limit if specified and there are enough tiles
-                total_tiles = len(sorted_tiles)
-                if limit_tiles is not None and limit_tiles > 0 and total_tiles >= 10:
-                    sorted_tiles = sorted_tiles[:limit_tiles]
+                # For streaming, we always send all tiles (no limiting)
 
                 # Stream each tile as it's rendered
                 for order, tile in enumerate(sorted_tiles):
@@ -829,13 +831,17 @@ class DashboardsViewSet(
 
         if request and hasattr(request, "query_params"):
             try:
-                limit_tiles = int(request.query_params.get("limit_tiles", ""))
+                # Check for both camelCase (from frontend) and snake_case (for compatibility)
+                limit_tiles_param = request.query_params.get("limitTiles") or request.query_params.get("limit_tiles")
+                if limit_tiles_param:
+                    limit_tiles = int(limit_tiles_param)
             except (ValueError, TypeError):
                 limit_tiles = None
 
-            layout_size = request.query_params.get("layout_size", "sm")
+            # Check for both camelCase (from frontend) and snake_case (for compatibility)
+            layout_size = request.query_params.get("layoutSize") or request.query_params.get("layout_size", "sm")
             if layout_size not in ["sm", "xs"]:
-                layout_size = "sm"
+                layout_size = "sm"  # fallback to sm if invalid value
 
         return limit_tiles, layout_size
 
