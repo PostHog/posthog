@@ -1,9 +1,12 @@
 import json
+from datetime import datetime
 from typing import Any, Optional, cast
+from collections.abc import Generator
 
 import pydantic_core
 import structlog
 from django.db.models import Prefetch
+from django.http import StreamingHttpResponse
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets, status
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -34,6 +37,7 @@ from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
 from posthog.clickhouse.client.async_task_chain import task_chain_context
@@ -43,6 +47,27 @@ from opentelemetry import trace
 
 
 logger = structlog.get_logger(__name__)
+
+
+def format_datetime_like_drf(dt: Optional[datetime]) -> Optional[str]:
+    """Format datetime to match DRF DateTimeField output (ISO format with Z timezone)"""
+    if not dt:
+        return None
+    # Convert +00:00 to Z to match DRF format
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+def safe_json_dumps(obj):
+    """JSON dumps with datetime handling to match DRF format"""
+
+    def json_serializer(obj):
+        if isinstance(obj, datetime):
+            return format_datetime_like_drf(obj)
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+    return json.dumps(obj, default=json_serializer)
+
+
 tracer = trace.get_tracer(__name__)
 
 
@@ -177,6 +202,54 @@ class DashboardBasicSerializer(
         if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             return "v1"
         return "v2"
+
+
+class DashboardMetadataSerializer(DashboardBasicSerializer):
+    """Serializer for dashboard metadata only - no tiles included for streaming mode."""
+
+    filters = serializers.SerializerMethodField()
+    variables = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
+    effective_privilege_level = serializers.SerializerMethodField()
+    effective_restriction_level = serializers.SerializerMethodField()
+    access_control_version = serializers.SerializerMethodField()
+    is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+    breakdown_colors = serializers.JSONField(required=False)
+    data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
+
+    class Meta:
+        model = Dashboard
+        fields = [
+            "id",
+            "name",
+            "description",
+            "pinned",
+            "created_at",
+            "created_by",
+            "is_shared",
+            "deleted",
+            "creation_mode",
+            "filters",
+            "variables",
+            "breakdown_colors",
+            "data_color_theme_id",
+            "tags",
+            "restriction_level",
+            "effective_restriction_level",
+            "effective_privilege_level",
+            "user_access_level",
+            "access_control_version",
+            "last_refresh",
+        ]
+        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+
+    def get_filters(self, dashboard: Dashboard) -> dict:
+        request = self.context.get("request")
+        return filters_override_requested_by_client(request, dashboard)
+
+    def get_variables(self, dashboard: Dashboard) -> dict | None:
+        request = self.context.get("request")
+        return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
 
 
 class DashboardSerializer(DashboardBasicSerializer):
@@ -587,6 +660,7 @@ class DashboardsViewSet(
     scope_object = "dashboard"
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
+    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
@@ -662,6 +736,99 @@ class DashboardsViewSet(
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    # ******************************************
+    # /projects/:id/dashboard/:id/stream_tiles
+    # ******************************************
+    @action(methods=["GET"], detail=True, url_path="stream_tiles")
+    def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        """Stream dashboard tiles via Server-Sent Events as they are rendered."""
+        dashboard = self.get_object()
+
+        def tile_stream_generator() -> Generator[str, None, None]:
+            try:
+                # Create serializer context
+                context = self.get_serializer_context()
+                context.update({"dashboard": dashboard})
+
+                # Get tiles with proper prefetch
+                tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
+                    Prefetch(
+                        "insight__tagged_items",
+                        queryset=TaggedItem.objects.select_related("tag"),
+                        to_attr="prefetched_tags",
+                    )
+                )
+
+                # Get progressive loading parameters
+                limit_tiles, layout_size = self._get_progressive_loading_params_from_request(request)
+
+                # Sort tiles by layout for proper visual order
+                sorted_tiles = sorted(
+                    tiles,
+                    key=lambda tile: (
+                        tile.layouts.get(layout_size, {}).get("y", 100),
+                        tile.layouts.get(layout_size, {}).get("x", 100),
+                    ),
+                )
+
+                # Apply tile limit if specified and there are enough tiles
+                total_tiles = len(sorted_tiles)
+                if limit_tiles is not None and limit_tiles > 0 and total_tiles >= 10:
+                    sorted_tiles = sorted_tiles[:limit_tiles]
+
+                # Stream each tile as it's rendered
+                for order, tile in enumerate(sorted_tiles):
+                    try:
+                        order, tile_data = serialize_tile_with_context(tile, order, context)
+                        yield f"data: {safe_json_dumps({'type': 'tile', 'order': order, 'tile': tile_data})}\n\n"
+                    except Exception as e:
+                        logger.exception(f"Error serializing tile {tile.id}: {e}")
+                        yield f"data: {safe_json_dumps({'type': 'error', 'tile_id': tile.id, 'error': str(e)})}\n\n"
+
+                # Send completion signal
+                yield f"data: {safe_json_dumps({'type': 'complete'})}\n\n"
+
+            except Exception as e:
+                logger.exception(f"Error in tile streaming: {e}")
+                yield f"data: {safe_json_dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+        # Create streaming response
+        response = StreamingHttpResponse(
+            streaming_content=tile_stream_generator(), content_type=ServerSentEventRenderer.media_type
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    # ******************************************
+    # /projects/:id/dashboard/:id/metadata
+    # ******************************************
+    @action(methods=["GET"], detail=True, url_path="metadata")
+    def metadata(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get dashboard metadata only - no tiles included for streaming mode."""
+        dashboard = self.get_object()
+        dashboard.last_accessed_at = now()
+        dashboard.save(update_fields=["last_accessed_at"])
+        serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    def _get_progressive_loading_params_from_request(self, request: Request) -> tuple[Optional[int], str]:
+        """Extract progressive loading parameters directly from request."""
+        limit_tiles = None
+        layout_size = "sm"
+
+        if request and hasattr(request, "query_params"):
+            try:
+                limit_tiles = int(request.query_params.get("limit_tiles", ""))
+            except (ValueError, TypeError):
+                limit_tiles = None
+
+            layout_size = request.query_params.get("layout_size", "sm")
+            if layout_size not in ["sm", "xs"]:
+                layout_size = "sm"
+
+        return limit_tiles, layout_size
 
     # ******************************************
     # /projects/:id/dashboard/:id/viewed

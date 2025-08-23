@@ -7,7 +7,7 @@ import { Layout, Layouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrNull, getResponseBytes } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -30,7 +30,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     DashboardFilter,
@@ -58,7 +58,7 @@ import {
     TextModel,
 } from '~/types'
 
-import { getResponseBytes, sortDayJsDates } from '../insights/utils'
+import { sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
@@ -160,6 +160,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }) => payload,
         /** Load remaining tiles after partial dashboard load. */
         loadRemainingTiles: true,
+        /** Load dashboard with streaming tiles approach. */
+        loadDashboardStreaming: (payload: {
+            action: DashboardLoadAction
+            manualDashboardRefresh?: boolean
+            limitTiles?: number
+        }) => payload,
+        /** Dashboard metadata loaded successfully. */
+        loadDashboardMetadataSuccess: (dashboard: DashboardType<InsightModel>) => ({ dashboard }),
+        /** Dashboard metadata load failed. */
+        loadDashboardMetadataFailure: (error: any) => ({ error }),
+        /** Single tile received from stream. */
+        receiveTileFromStream: (data: { tile: any; order: number }) => data,
+        /** Tile streaming completed. */
+        tileStreamingComplete: true,
+        /** Tile streaming failed. */
+        tileStreamingFailure: (error: any) => ({ error }),
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: string, manualDashboardRefresh: boolean) => ({
             action,
@@ -364,6 +380,70 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // If loading remaining tiles fails, just return current dashboard
                         console.warn('Failed to load remaining tiles:', error)
                         return values.dashboard
+                    }
+                },
+                loadDashboardStreaming: async ({ action, manualDashboardRefresh, limitTiles }, breakpoint) => {
+                    actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
+                    await breakpoint(200)
+                    actions.resetIntermittentFilters()
+
+                    try {
+                        // First load metadata to establish dashboard structure
+
+                        const dashboardMetadata = await api.dashboards.getMetadata(props.id)
+
+                        const dashboard = getQueryBasedDashboard({ ...dashboardMetadata, tiles: [] })
+
+                        // Set the dashboard with empty tiles first
+                        actions.loadDashboardMetadataSuccess(dashboard)
+
+                        // Then start streaming tiles into the established structure
+                        api.dashboards.streamTiles(
+                            props.id,
+                            {
+                                layoutSize: values.currentLayoutSize,
+                                limitTiles,
+                            },
+                            // onTile callback
+                            (data) => {
+                                actions.receiveTileFromStream(data)
+                            },
+                            // onComplete callback
+                            () => {
+                                actions.tileStreamingComplete()
+                            },
+                            // onError callback
+                            (error) => {
+                                console.error('❌ Tile streaming error:', error)
+                                actions.tileStreamingFailure(error)
+                            }
+                        )
+
+                        return dashboard
+                    } catch (error: any) {
+                        console.warn('⚠️ Streaming approach failed, falling back to regular loading:', error)
+
+                        // Fallback to regular dashboard loading if streaming fails
+                        try {
+                            const apiUrl = values.apiUrl(
+                                'force_cache',
+                                values.temporaryFilters,
+                                values.temporaryVariables,
+                                values.currentLayoutSize,
+                                limitTiles
+                            )
+                            const dashboardResponse: Response = await api.getResponse(apiUrl)
+                            const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
+                            return getQueryBasedDashboard(dashboard)
+                        } catch (fallbackError: any) {
+                            if (fallbackError.status === 404) {
+                                return null
+                            }
+                            if (fallbackError.status === 403 && fallbackError.code === 'permission_denied') {
+                                actions.setAccessDeniedToDashboard()
+                            }
+                            throw fallbackError
+                        }
                     }
                 },
                 updateFiltersAndLayoutsAndVariables: async (_, breakpoint) => {
@@ -655,9 +735,60 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles,
                     } as DashboardType<QueryBasedInsightModel>
                 },
+                loadDashboardMetadataSuccess: (_, { dashboard }) => dashboard,
+                receiveTileFromStream: (state, { tile }) => {
+                    if (!state || !state.tiles) {
+                        return state
+                    }
+
+                    // Transform the tile's insight to query-based format (same as getQueryBasedDashboard does)
+                    const transformedTile = {
+                        ...tile,
+                        ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
+                    }
+
+                    // Add or update tile in the dashboard
+                    const existingTileIndex = state.tiles.findIndex((t) => t.id === tile.id)
+                    let newTiles
+
+                    if (existingTileIndex >= 0) {
+                        // Update existing tile
+                        newTiles = [...state.tiles]
+                        newTiles[existingTileIndex] = transformedTile
+                    } else {
+                        // Add new tile in the correct order
+                        newTiles = [...state.tiles, transformedTile]
+                        newTiles.sort((a, b) => {
+                            const aOrder = a.order || 0
+                            const bOrder = b.order || 0
+                            return aOrder - bOrder
+                        })
+                    }
+
+                    return {
+                        ...state,
+                        tiles: newTiles,
+                    } as DashboardType<QueryBasedInsightModel>
+                },
             },
         ],
-        loadTimer: [null as Date | null, { loadDashboard: () => new Date() }],
+        streamingTiles: [
+            [] as any[],
+            {
+                loadDashboardStreaming: () => [],
+                receiveTileFromStream: (state, { tile }) => [...state, tile],
+                tileStreamingComplete: () => [],
+            },
+        ],
+        tileStreamingError: [
+            null as any,
+            {
+                loadDashboardStreaming: () => null,
+                tileStreamingFailure: (_, { error }) => error,
+                tileStreamingComplete: () => null,
+            },
+        ],
+        loadTimer: [null as Date | null, { loadDashboard: () => new Date(), loadDashboardStreaming: () => new Date() }],
         dashboardLoadData: [
             {
                 action: '',
@@ -1254,8 +1385,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
-                        // Progressive loading: load first 4 tiles initially
-                        actions.loadDashboard({
+                        // Streaming loading: load metadata + stream tiles
+                        actions.loadDashboardStreaming({
                             action: DashboardLoadAction.InitialLoad,
                             limitTiles: 4,
                         })
@@ -1676,7 +1807,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
-                actions.loadDashboard({
+                actions.loadDashboardStreaming({
                     action: DashboardLoadAction.InitialLoadWithVariables,
                     limitTiles: 3,
                 })

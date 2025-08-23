@@ -2133,6 +2133,55 @@ const api = {
             return new ApiRequest().dashboardsDetail(id).get()
         },
 
+        async getMetadata(id: number): Promise<DashboardType> {
+            return new ApiRequest().dashboardsDetail(id).withAction('metadata').get()
+        },
+
+        async streamTiles(
+            id: number,
+            params: { layoutSize?: 'sm' | 'xs'; limitTiles?: number } = {},
+            onTile: (tile: any) => void,
+            onComplete: () => void,
+            onError: (error: any) => void
+        ): Promise<() => void> {
+            const url = new ApiRequest()
+                .dashboardsDetail(id)
+                .withAction('stream_tiles')
+                .withQueryString(toParams(params))
+                .assembleFullUrl(true)
+
+            const abortController = new AbortController()
+
+            fetchEventSource(url, {
+                signal: abortController.signal,
+                credentials: 'include',
+                onopen: async (response) => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`)
+                    }
+                },
+                onmessage: (event: EventSourceMessage) => {
+                    try {
+                        const data = JSON.parse(event.data)
+                        if (data.type === 'tile') {
+                            onTile(data)
+                        } else if (data.type === 'complete') {
+                            onComplete()
+                        } else if (data.type === 'error') {
+                            onError(new Error(data.error || 'Streaming error'))
+                        }
+                    } catch (error) {
+                        onError(error)
+                    }
+                },
+                onerror: (error) => {
+                    onError(error)
+                },
+            }).catch(onError)
+
+            return () => abortController.abort()
+        },
+
         collaborators: {
             async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
                 return await new ApiRequest().dashboardCollaborators(dashboardId).get()
