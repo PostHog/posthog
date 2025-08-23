@@ -519,8 +519,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 loadDashboard: () => true,
+                loadDashboardPartial: () => true,
                 loadDashboardSuccess: () => false,
+                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
+                loadDashboardPartialFailure: () => false,
             },
         ],
         loadingPreview: [
@@ -530,7 +533,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setProperties: () => false,
                 setBreakdownFilter: () => false,
                 loadDashboardSuccess: () => false,
+                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
+                loadDashboardPartialFailure: () => false,
                 previewTemporaryFilters: () => true,
             },
         ],
@@ -540,8 +545,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // have to reload dashboard when when cancelling preview
                 // and resetting filters
                 loadDashboard: () => true,
+                loadDashboardPartial: () => true,
                 loadDashboardSuccess: () => false,
+                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
+                loadDashboardPartialFailure: () => false,
             },
         ],
         pageVisibility: [
@@ -560,13 +568,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 loadDashboardSuccess: () => false,
+                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => true,
+                loadDashboardPartialFailure: () => true,
             },
         ],
         dashboardLayouts: [
             {} as Record<DashboardTile['id'], DashboardTile['layouts']>,
             {
                 loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    // don't update dashboardLayouts if we're previewing
+                    if (payload?.action === DashboardLoadAction.Preview) {
+                        return state
+                    }
+
+                    const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
+                    dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
+                        tileIdToLayouts[tile.id] = tile.layouts
+                    })
+
+                    return tileIdToLayouts
+                },
+                loadDashboardPartialSuccess: (state, { dashboard, payload }) => {
                     // don't update dashboardLayouts if we're previewing
                     if (payload?.action === DashboardLoadAction.Preview) {
                         return state
@@ -839,7 +862,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 dashboardNotFound: () => true,
                 loadDashboardSuccess: () => false,
+                loadDashboardPartialSuccess: () => false,
                 loadDashboardFailure: () => false,
+                loadDashboardPartialFailure: () => false,
+            },
+        ],
+        loadingRemainingTiles: [
+            false,
+            {
+                loadRemainingTiles: () => true,
+                loadRemainingTilesSuccess: () => false,
+                loadRemainingTilesFailure: () => false,
             },
         ],
         /** Dashboard variables */
