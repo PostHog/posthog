@@ -1301,7 +1301,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Progressive loading: load first 3 tiles initially
                         actions.loadDashboardPartial({
                             action: DashboardLoadAction.InitialLoad,
-                            limitTiles: 3,
+                            limitTiles: 4,
                         })
                     }
                 }
@@ -1750,7 +1750,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboardPartial({
                     action: DashboardLoadAction.InitialLoadWithVariables,
-                    limitTiles: 3,
+                    limitTiles: 4,
                 })
             }
 
