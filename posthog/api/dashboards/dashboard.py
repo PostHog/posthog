@@ -46,8 +46,6 @@ from posthog.api.dashboards.fast_serializers import (
     serialize_dashboard_tile,
     FastInsightSerializer,
 )
-from profile_get_tiles import profile_get_tiles
-
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -434,7 +432,6 @@ class DashboardSerializer(DashboardBasicSerializer):
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
-    @profile_get_tiles
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
         if self.context["view"].action == "list":
             return None
