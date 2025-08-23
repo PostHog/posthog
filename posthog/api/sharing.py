@@ -375,6 +375,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         add_og_tags = resource.insight or resource.dashboard
         asset_description = ""
 
+        # Check both query params (legacy) and settings for configuration options
+        state = getattr(resource, "settings", {}) or {}
+
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
@@ -390,7 +393,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 user_id=self.request.user.pk if self.request.user.is_authenticated else None,
             )
 
-            fast_serializer = FastInsightSerializer(context)
+            insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
+            fast_serializer = FastInsightSerializer(insight_context)
             insight_data = fast_serializer.serialize(resource.insight)
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})

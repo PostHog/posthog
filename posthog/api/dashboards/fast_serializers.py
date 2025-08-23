@@ -314,6 +314,13 @@ class FastInsightSerializer:
             "filters_hash": insight_result.cache_key,
         }
 
+        # Hide PII fields when hideExtraDetails from SharingConfiguration is enabled
+        if self.context.get("hide_extra_details", False):
+            representation.pop("created_by", None)
+            representation.pop("last_modified_by", None)
+            representation.pop("created_at", None)
+            representation.pop("last_modified_at", None)
+
         return representation
 
 
@@ -332,7 +339,19 @@ def serialize_dashboard_tile(tile: DashboardTile, context: dict[str, Any], order
     }
 
     if tile.insight:
-        fast_serializer = FastInsightSerializer(context)
+        # Check for sharing configuration hideExtraDetails
+        dashboard = context.get("dashboard")
+        hide_extra_details = False
+        if dashboard and hasattr(dashboard, "sharingconfiguration_set"):
+            sharing_configs = list(dashboard.sharingconfiguration_set.all())
+            if sharing_configs:
+                # Get the sharing state from the first sharing config
+                state = sharing_configs[0]
+                hide_extra_details = getattr(state, "hideExtraDetails", False)
+
+        # Add hideExtraDetails to context so that PII related information is not returned to the client
+        insight_context = {**context, "hide_extra_details": hide_extra_details}
+        fast_serializer = FastInsightSerializer(insight_context)
         insight_data = fast_serializer.serialize(tile.insight)
         representation["insight"] = insight_data
 

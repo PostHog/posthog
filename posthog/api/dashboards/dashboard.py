@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, cast
 
 import structlog
@@ -44,6 +45,7 @@ from posthog.api.dashboards.fast_serializers import (
     serialize_dashboard_tile,
     FastInsightSerializer,
 )
+from profile_get_tiles import profile_get_tiles
 
 
 logger = structlog.get_logger(__name__)
@@ -431,14 +433,13 @@ class DashboardSerializer(DashboardBasicSerializer):
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
+    @profile_get_tiles
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
         if self.context["view"].action == "list":
             return None
 
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
-
-        serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
             Prefetch(
@@ -472,11 +473,20 @@ class DashboardSerializer(DashboardBasicSerializer):
             if not sorted_tiles:
                 return []
 
-            for order, tile in enumerate(sorted_tiles):
-                order, tile_data = fast_serialize_tile_with_context(tile, order, self.context)
-                serialized_tiles.append(cast(ReturnDict, tile_data))
+            max_workers = min(len(sorted_tiles), 8)
 
-        return serialized_tiles
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for order, tile in enumerate(sorted_tiles):
+                    future = executor.submit(fast_serialize_tile_with_context, tile, order, self.context)
+                    futures.append(future)
+
+                tile_results: list[ReturnDict | None] = [None] * len(sorted_tiles)
+                for future in as_completed(futures):
+                    order, tile_data = future.result()
+                    tile_results[order] = cast(ReturnDict, tile_data)
+
+        return [result for result in tile_results if result is not None]
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
