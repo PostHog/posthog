@@ -390,6 +390,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         // Start unified streaming - metadata followed by tiles
                         let tileCount = 0
+                        let dashboardMetadata = null
 
                         api.dashboards.streamTiles(
                             props.id,
@@ -399,18 +400,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             // onMessage callback - handles both metadata and tiles
                             (data) => {
                                 if (data.type === 'metadata') {
-                                    // Set up dashboard structure with metadata
-
-                                    const dashboard = getQueryBasedDashboard({ ...data.dashboard, tiles: [] })
-
-                                    actions.loadDashboardMetadataSuccess(dashboard)
+                                    // Store metadata for when first tile arrives
+                                    dashboardMetadata = data.dashboard
                                 } else if (data.type === 'tile') {
                                     tileCount++
 
                                     // Add delays for progressive rendering
                                     if (tileCount === 1) {
-                                        // First tile - render immediately
-                                        actions.receiveTileFromStream(data)
+                                        // First tile - create dashboard structure and render immediately
+
+                                        actions.receiveTileFromStream({
+                                            ...data,
+                                            dashboardMetadata,
+                                            createDashboard: true,
+                                        })
                                     } else if (tileCount <= 4) {
                                         // Tiles 2-4 - render with slight delay to create staggered effect
                                         setTimeout(() => actions.receiveTileFromStream(data), (tileCount - 1) * 50)
@@ -434,12 +437,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         )
 
-                        // Return empty dashboard structure - streaming will populate it
+                        // Return basic dashboard structure - streaming will populate it
                         return {
                             id: props.id,
                             tiles: [],
                             name: 'Loading...',
-                            loading: true,
                         }
                     } catch (error: any) {
                         console.warn('⚠️ Streaming approach failed, falling back to regular loading:', error)
@@ -588,6 +590,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboard: () => true,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
+                loadDashboardStreaming: () => true,
+                tileStreamingComplete: () => false,
+                tileStreamingFailure: () => false,
             },
         ],
         loadingPreview: [
@@ -757,7 +762,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 loadDashboardMetadataSuccess: (_, { dashboard }) => dashboard,
-                receiveTileFromStream: (state, { tile }) => {
+                receiveTileFromStream: (state, { tile, createDashboard, dashboardMetadata }) => {
+                    // If this is the first tile, create the dashboard structure
+                    if (createDashboard && dashboardMetadata) {
+                        const dashboard = getQueryBasedDashboard({ ...dashboardMetadata, tiles: [] })
+                        state = dashboard
+                    }
+
                     if (!state || !state.tiles) {
                         return state
                     }
