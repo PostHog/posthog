@@ -514,8 +514,10 @@ class DashboardSerializer(DashboardBasicSerializer):
             ),
         )
 
-        # Apply tile limit if specified
-        if limit_tiles is not None and limit_tiles > 0:
+        # Apply tile limit if specified, but only if there are enough tiles to make it worthwhile
+        # For dashboards with < 10 tiles, return all tiles even if limit_tiles is specified
+        total_tiles = len(sorted_tiles)
+        if limit_tiles is not None and limit_tiles > 0 and total_tiles >= 10:
             sorted_tiles = sorted_tiles[:limit_tiles]
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
@@ -549,7 +551,9 @@ class DashboardSerializer(DashboardBasicSerializer):
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles)
         total_tiles = tiles.count()
 
-        return total_tiles > limit_tiles
+        # Only indicate more tiles if there are >= 10 total tiles and more than the limit
+        # For dashboards with < 10 tiles, we return all tiles regardless of limit_tiles
+        return total_tiles >= 10 and total_tiles > limit_tiles
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
