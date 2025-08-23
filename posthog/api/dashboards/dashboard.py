@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, cast
 
+import settings
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -472,6 +473,13 @@ class DashboardSerializer(DashboardBasicSerializer):
             # Handle case where there are no tiles
             if not sorted_tiles:
                 return []
+
+            if settings.IN_UNIT_TESTING:
+                serialized_tiles: list[ReturnDict] = []
+                for order, tile in enumerate(sorted_tiles):
+                    order, tile_data = fast_serialize_tile_with_context(tile, order, self.context)
+                    serialized_tiles.append(cast(ReturnDict, tile_data))
+                return serialized_tiles
 
             max_workers = min(len(sorted_tiles), 8)
 
