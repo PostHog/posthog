@@ -31,6 +31,8 @@ const getActionButtonText = (actionType: string): string => {
             return 'Adjust Frequency'
         case 'retry_sync':
             return 'Retry Sync'
+        case 'view_materialization':
+            return 'View Materialization'
         case 'view_query':
             return 'View Query'
         default:
