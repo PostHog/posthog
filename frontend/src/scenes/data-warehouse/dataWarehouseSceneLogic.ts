@@ -25,40 +25,27 @@ import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic
 
 const REFRESH_INTERVAL = 10000
 
-const CRITICAL_ERROR_PATTERNS = [
-    /auth|credential|permission|unauthorized|forbidden|invalid.*token|expired.*token|access.*denied/i,
-    /connection.*failed|timeout|network.*error|dns.*error|ssl.*error|certificate.*error/i,
-    /schema.*error|column.*not.*found|table.*not.*found|syntax.*error|sql.*error/i,
-]
-
-const WARNING_ERROR_PATTERNS = [
-    /rate.*limit|429|quota.*exceeded|too.*many.*requests|throttle/i,
-    /slow|performance|timeout.*warning|retry.*limit/i,
-]
-
-const AUTH_ERROR_PATTERNS = /auth|credential|permission|unauthorized|forbidden/i
-const RATE_LIMIT_PATTERNS = /rate|limit|429|quota|too many requests/i
+const ERROR_PATTERNS = {
+    AUTH: /auth|credential|permission|unauthorized|forbidden|invalid.*token|expired.*token|access.*denied/i,
+    RATE_LIMIT: /rate.*limit|429|quota.*exceeded|too.*many.*requests|throttle/i,
+    WARNING: /slow|performance|timeout.*warning|retry.*limit/i,
+} as const
 
 const determineSeverity = (error: string | null): 'critical' | 'warning' => {
     if (!error) {
         return 'critical'
     }
-
-    const isCritical = CRITICAL_ERROR_PATTERNS.some((pattern) => pattern.test(error))
-    const isWarning = WARNING_ERROR_PATTERNS.some((pattern) => pattern.test(error))
-
-    return isCritical ? 'critical' : isWarning ? 'warning' : 'critical'
+    return ERROR_PATTERNS.WARNING.test(error) ? 'warning' : 'critical'
 }
 
 const getActionType = (error: string | null): 'update_credentials' | 'adjust_frequency' | 'retry_sync' => {
     if (!error) {
         return 'retry_sync'
     }
-
-    if (AUTH_ERROR_PATTERNS.test(error)) {
+    if (ERROR_PATTERNS.AUTH.test(error)) {
         return 'update_credentials'
     }
-    if (RATE_LIMIT_PATTERNS.test(error)) {
+    if (ERROR_PATTERNS.RATE_LIMIT.test(error)) {
         return 'adjust_frequency'
     }
     return 'retry_sync'
@@ -374,47 +361,45 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     count?: number
                 }> = []
 
-                // 1. Group ALL activities by type and name to get the true latest status
-                const activityIssues: Record<string, Array<(typeof recentActivity)[0]>> = {}
-                recentActivity.forEach((activity) => {
-                    const key =
-                        activity.type === 'Materialized view'
-                            ? `materialized-${activity.name || 'unknown'}`
-                            : activity.name || 'Unknown Source'
+                // Group activities by source/view and get latest failure for each
+                const activityGroups = recentActivity.reduce(
+                    (groups, activity) => {
+                        const key =
+                            activity.type === 'Materialized view'
+                                ? `materialized-${activity.name || 'unknown'}`
+                                : activity.name || 'Unknown Source'
 
-                    if (!activityIssues[key]) {
-                        activityIssues[key] = []
-                    }
-                    activityIssues[key].push(activity)
-                })
+                        groups[key] = groups[key] || []
+                        groups[key].push(activity)
+                        return groups
+                    },
+                    {} as Record<string, typeof recentActivity>
+                )
 
-                // Create issues from recent activity failures
-                Object.entries(activityIssues).forEach(([key, activities]) => {
+                // Create issues from activity failures
+                for (const [key, activities] of Object.entries(activityGroups)) {
                     const latestActivity = activities.sort(
                         (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
                     )[0]
 
-                    // Only create issues if the LATEST run is still in a failed state
                     if (latestActivity.status !== 'Failed' && !latestActivity.latest_error) {
-                        return
+                        continue
                     }
 
                     const isMaterializedView = latestActivity.type === 'Materialized view'
-                    const rawError = latestActivity.latest_error
+                    const error = latestActivity.latest_error
 
                     if (isMaterializedView) {
-                        // Find the materialized view ID by matching the name
                         const materializedView = Object.values(dataWarehouseSavedQueryMapById).find(
                             (query) => query.name === latestActivity.name
                         )
 
-                        // Materialized view issue
                         issues.push({
                             id: `materialization-${latestActivity.id}`,
                             type: 'materialization',
                             severity: 'critical',
                             title: `${latestActivity.name || 'Unknown Materialized View'} (Materialized View)`,
-                            description: rawError || 'Materialization failed',
+                            description: error || 'Materialization failed',
                             timestamp: latestActivity.created_at,
                             actionType: 'view_materialization',
                             actionUrl: materializedView
@@ -428,54 +413,43 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                                 : '#',
                         })
                     } else {
-                        // Data source issue
-                        const severity = determineSeverity(rawError)
-                        const actionType = getActionType(rawError)
                         const sourceId = dataWarehouseSources?.results?.find(
                             (s) => s.source_type === latestActivity.name
                         )?.id
-                        const actionUrl = sourceId ? urls.dataWarehouseSource(`managed-${sourceId}`) : '#'
 
                         issues.push({
                             id: `source-activity-${key}`,
                             type: 'data_source',
-                            severity,
+                            severity: determineSeverity(error),
                             title: latestActivity.name || 'Unknown Source',
-                            description: rawError || 'Sync failed',
+                            description: error || 'Sync failed',
                             timestamp: latestActivity.created_at,
-                            actionType,
-                            actionUrl,
+                            actionType: getActionType(error),
+                            actionUrl: sourceId ? urls.dataWarehouseSource(`managed-${sourceId}`) : '#',
                             count: activities.length,
                         })
                     }
-                })
+                }
 
-                // 2. Data source issues from source status (external data source errors)
+                // Add source errors not covered by recent activity
                 const sourcesWithErrors =
                     dataWarehouseSources?.results?.filter(
-                        (source) => source.latest_error && source.status === 'Error'
+                        (source) =>
+                            source.latest_error && source.status === 'Error' && !activityGroups[source.source_type]
                     ) || []
 
                 sourcesWithErrors.forEach((source) => {
-                    // Skip if we already have an issue for this source from recent activity
-                    if (activityIssues[source.source_type]) {
-                        return
-                    }
-
-                    const severity = determineSeverity(source.latest_error)
-                    const actionType = getActionType(source.latest_error)
-
                     issues.push({
                         id: `source-status-${source.id}`,
                         type: 'data_source',
-                        severity,
+                        severity: determineSeverity(source.latest_error),
                         title: source.source_type,
                         description: source.latest_error || 'Sync failed',
                         timestamp:
                             (typeof source.last_run_at === 'string'
                                 ? source.last_run_at
                                 : source.last_run_at?.toISOString()) || new Date().toISOString(),
-                        actionType,
+                        actionType: getActionType(source.latest_error),
                         actionUrl: urls.dataWarehouseSource(`managed-${source.id}`),
                     })
                 })

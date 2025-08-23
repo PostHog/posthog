@@ -23,23 +23,6 @@ export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
 
-const getActionButtonText = (actionType: string): string => {
-    switch (actionType) {
-        case 'update_credentials':
-            return 'Update Credentials'
-        case 'adjust_frequency':
-            return 'Adjust Frequency'
-        case 'retry_sync':
-            return 'Retry Sync'
-        case 'view_materialization':
-            return 'View Materialization'
-        case 'view_query':
-            return 'View Query'
-        default:
-            return 'View Details'
-    }
-}
-
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats, actionableIssues } =
@@ -307,7 +290,9 @@ export function DataWarehouseScene(): JSX.Element {
                                                 to={issue.actionUrl}
                                                 className="font-medium"
                                             >
-                                                {getActionButtonText(issue.actionType)}
+                                                {issue.actionType
+                                                    .replace(/_/g, ' ')
+                                                    .replace(/\b\w/g, (l) => l.toUpperCase())}
                                             </LemonButton>
                                         </div>
                                     </div>
