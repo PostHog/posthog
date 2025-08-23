@@ -4,7 +4,6 @@ import { Properties } from '@posthog/plugin-scaffold'
 
 import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
 import { TransactionClient } from '../../../../utils/db/postgres'
-import { RaceConditionError } from '../../../../utils/utils'
 import { dualWriteComparisonCounter, dualWriteDataMismatchCounter } from '../../persons/metrics'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
@@ -36,43 +35,34 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number> {
-        let raceConditionError: RaceConditionError | null = null
-        
-        try {
-            const [p, s] = await Promise.all([
-                this.primaryRepo.insertGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    groupProperties,
-                    createdAt,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
-                    this.lTx
-                ),
-                this.secondaryRepo.insertGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    groupProperties,
-                    createdAt,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
-                    this.rTx
-                ),
-            ])
+        const [p, s] = await Promise.all([
+            this.primaryRepo.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                this.lTx
+            ),
+            this.secondaryRepo.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                this.rTx
+            ),
+        ])
 
-            if (this.comparisonEnabled) {
-                this.compareInsertGroupResults(p, s)
-            }
-
-            return p
-        } catch (err) {
-            if (err instanceof RaceConditionError) {
-                throw err
-            }
-            throw err
+        if (this.comparisonEnabled) {
+            this.compareInsertGroupResults(p, s)
         }
+
+        return p
     }
 
     async updateGroup(
@@ -85,19 +75,21 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
         propertiesLastOperation: PropertiesLastOperation,
         tag: string
     ): Promise<number | undefined> {
-        const [p, s] = await Promise.all([
-            this.primaryRepo.updateGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                groupProperties,
-                createdAt,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
-                tag,
-                this.lTx
-            ),
-            this.secondaryRepo.updateGroup(
+        const p = await this.primaryRepo.updateGroup(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            groupProperties,
+            createdAt,
+            propertiesLastUpdatedAt,
+            propertiesLastOperation,
+            tag,
+            this.lTx
+        )
+
+        // Only update secondary if primary succeeded
+        if (p !== undefined) {
+            const s = await this.secondaryRepo.updateGroup(
                 teamId,
                 groupTypeIndex,
                 groupKey,
@@ -107,11 +99,11 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
                 propertiesLastOperation,
                 `${tag}-secondary`,
                 this.rTx
-            ),
-        ])
+            )
 
-        if (this.comparisonEnabled) {
-            this.compareUpdateGroupResults(p, s, tag)
+            if (this.comparisonEnabled) {
+                this.compareUpdateGroupResults(p, s, tag)
+            }
         }
 
         return p

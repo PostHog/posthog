@@ -1,13 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import {
-    GroupTypeIndex,
-    Hub,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    TeamId,
-} from '../../../../types'
+import { GroupTypeIndex, Hub, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { RaceConditionError, UUIDT } from '../../../../utils/utils'
@@ -26,7 +20,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
     const TEST_TIMESTAMP = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
     async function setupMigrationDbForGroups(migrationPostgres: PostgresRouter): Promise<void> {
-        // Drop existing tables
         await migrationPostgres.query(
             PostgresUse.PERSONS_WRITE,
             `DROP TABLE IF EXISTS posthog_group CASCADE`,
@@ -34,7 +27,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             'drop-group-table'
         )
 
-        // Create group table in migration database
         await migrationPostgres.query(
             PostgresUse.PERSONS_WRITE,
             `
@@ -75,33 +67,7 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
         }
     }
 
-    async function getFirstTeam(postgres: PostgresRouter): Promise<any> {
-        const teams = await postgres.query(
-            PostgresUse.COMMON_WRITE,
-            'SELECT * FROM posthog_team LIMIT 1',
-            [],
-            'getFirstTeam'
-        )
-        return teams.rows[0]
-    }
-
-    async function assertConsistencyAcrossDatabases(
-        primaryRouter: PostgresRouter,
-        secondaryRouter: PostgresRouter,
-        query: string,
-        params: any[],
-        primaryTag: string,
-        secondaryTag: string
-    ) {
-        const [primary, secondary] = await Promise.all([
-            primaryRouter.query(PostgresUse.PERSONS_READ, query, params, primaryTag),
-            secondaryRouter.query(PostgresUse.PERSONS_READ, query, params, secondaryTag),
-        ])
-        expect(primary.rows).toEqual(secondary.rows)
-    }
-
     async function insertTestTeam(postgres: PostgresRouter, teamId: number) {
-        // First create the project that the team references
         await insertRow(postgres, 'posthog_project', {
             id: teamId,
             organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
@@ -109,7 +75,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             created_at: new Date().toISOString(),
         })
 
-        // Then create the team
         await insertRow(postgres, 'posthog_team', {
             id: teamId,
             name: `Test Team ${teamId}`,
@@ -185,7 +150,7 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
         await setupMigrationDbForGroups(migrationPostgres)
 
         dualWriteRepository = new PostgresDualWriteGroupRepository(postgres, migrationPostgres, {
-            comparisonEnabled: true
+            comparisonEnabled: true,
         })
         singleWriteRepository = new PostgresGroupRepository(postgres)
 
@@ -193,7 +158,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
         await redis.flushdb()
         await hub.redisPool.release(redis)
 
-        // Set up test team
         await insertTestTeam(postgres, 1)
     })
 
@@ -232,12 +196,9 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 propertiesLastOperation
             )
 
-            // Both should return version 1 for new groups
             expect(singleVersion).toBe(1)
             expect(dualVersion).toBe(1)
 
-            // Verify consistency across databases for dual write
-            // Note: We check properties separately since version field may differ in format
             const primaryGroup = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT group_properties, version FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -273,7 +234,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 {}
             )
 
-            // Try to insert again - should throw RaceConditionError
             await expect(
                 singleWriteRepository.insertGroup(
                     teamId,
@@ -286,7 +246,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 )
             ).rejects.toThrow(RaceConditionError)
 
-            // Same for dual write
             await dualWriteRepository.insertGroup(
                 teamId,
                 groupTypeIndex,
@@ -298,15 +257,7 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             )
 
             await expect(
-                dualWriteRepository.insertGroup(
-                    teamId,
-                    groupTypeIndex,
-                    'dual-race',
-                    groupProperties,
-                    createdAt,
-                    {},
-                    {}
-                )
+                dualWriteRepository.insertGroup(teamId, groupTypeIndex, 'dual-race', groupProperties, createdAt, {}, {})
             ).rejects.toThrow(RaceConditionError)
         })
     })
@@ -319,7 +270,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const updatedProperties = { name: 'Updated', new_field: 'value' }
             const createdAt = TEST_TIMESTAMP
 
-            // Create groups in both repos
             await createGroupsInBothRepos(
                 teamId,
                 groupTypeIndex,
@@ -329,7 +279,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 createdAt
             )
 
-            // Update both
             const [singleVersion, dualVersion] = await Promise.all([
                 singleWriteRepository.updateGroup(
                     teamId,
@@ -353,11 +302,9 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 ),
             ])
 
-            // Both should return version 2 after update
             expect(singleVersion).toBe(2)
             expect(dualVersion).toBe(2)
 
-            // Verify consistency across databases for dual write
             const dualGroup = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -417,7 +364,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const updatedProperties = { name: 'Optimistically Updated' }
             const createdAt = TEST_TIMESTAMP
 
-            // Create groups
             await createGroupsInBothRepos(
                 teamId,
                 groupTypeIndex,
@@ -427,7 +373,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 createdAt
             )
 
-            // Update optimistically with correct version (1)
             const [singleVersion, dualVersion] = await Promise.all([
                 singleWriteRepository.updateGroupOptimistically(
                     teamId,
@@ -454,7 +399,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             expect(singleVersion).toBe(2)
             expect(dualVersion).toBe(2)
 
-            // Verify consistency for dual write (check specific fields, not id)
             const primaryResult = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT group_properties, version FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -480,7 +424,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const updatedProperties = { name: 'Should not update' }
             const createdAt = TEST_TIMESTAMP
 
-            // Create groups
             await createGroupsInBothRepos(
                 teamId,
                 groupTypeIndex,
@@ -490,13 +433,12 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 createdAt
             )
 
-            // Try to update with wrong version
             const [singleResult, dualResult] = await Promise.all([
                 singleWriteRepository.updateGroupOptimistically(
                     teamId,
                     groupTypeIndex,
                     'single-mismatch',
-                    999, // wrong version
+                    999,
                     updatedProperties,
                     createdAt,
                     {},
@@ -506,7 +448,7 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                     teamId,
                     groupTypeIndex,
                     'dual-mismatch',
-                    999, // wrong version
+                    999,
                     updatedProperties,
                     createdAt,
                     {},
@@ -526,7 +468,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const groupProperties = { name: 'Fetch Test', type: 'organization' }
             const createdAt = TEST_TIMESTAMP
 
-            // Create groups
             await createGroupsInBothRepos(
                 teamId,
                 groupTypeIndex,
@@ -536,7 +477,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 createdAt
             )
 
-            // Fetch from both repositories
             const [singleGroup, dualGroup] = await Promise.all([
                 singleWriteRepository.fetchGroup(teamId, groupTypeIndex, 'single-fetch'),
                 dualWriteRepository.fetchGroup(teamId, groupTypeIndex, 'dual-fetch'),
@@ -569,7 +509,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const groupProperties = { name: 'Lock Test' }
             const createdAt = TEST_TIMESTAMP
 
-            // Create groups
             await createGroupsInBothRepos(
                 teamId,
                 groupTypeIndex,
@@ -579,7 +518,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 createdAt
             )
 
-            // Fetch with forUpdate
             const [singleGroup, dualGroup] = await Promise.all([
                 singleWriteRepository.fetchGroup(teamId, groupTypeIndex, 'single-lock', { forUpdate: true }),
                 dualWriteRepository.fetchGroup(teamId, groupTypeIndex, 'dual-lock', { forUpdate: true }),
@@ -598,7 +536,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const groupTypeIndex = 0 as GroupTypeIndex
             const createdAt = TEST_TIMESTAMP
 
-            // Single write transaction
             const singleResult = await singleWriteRepository.inTransaction('single-tx', async (tx) => {
                 const version1 = await tx.insertGroup(
                     teamId,
@@ -624,7 +561,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 return { version1, version2 }
             })
 
-            // Dual write transaction
             const dualResult = await dualWriteRepository.inTransaction('dual-tx', async (tx) => {
                 const version1 = await tx.insertGroup(
                     teamId,
@@ -655,7 +591,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             expect(dualResult.version1).toBe(1)
             expect(dualResult.version2).toBe(2)
 
-            // Verify dual write consistency (check specific fields, not id)
             const primaryTx = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT group_properties, version FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -679,7 +614,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const groupTypeIndex = 0 as GroupTypeIndex
             const createdAt = TEST_TIMESTAMP
 
-            // Single write transaction with error
             await expect(
                 singleWriteRepository.inTransaction('single-rollback', async (tx) => {
                     await tx.insertGroup(
@@ -695,7 +629,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 })
             ).rejects.toThrow('Intentional rollback')
 
-            // Dual write transaction with error
             await expect(
                 dualWriteRepository.inTransaction('dual-rollback', async (tx) => {
                     await tx.insertGroup(
@@ -711,7 +644,6 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
                 })
             ).rejects.toThrow('Intentional rollback')
 
-            // Verify neither created any groups
             const singleCheck = await singleWriteRepository.fetchGroup(teamId, groupTypeIndex, 'single-rollback-1')
             const dualCheck = await dualWriteRepository.fetchGroup(teamId, groupTypeIndex, 'dual-rollback-1')
 
@@ -727,12 +659,10 @@ describe('Groups Single Write - Dual Write Compatibility', () => {
             const groupProperties = { name: 'Error Test' }
             const createdAt = TEST_TIMESTAMP
 
-            // Mock database error for single write
             const singleSpy = jest
                 .spyOn((singleWriteRepository as any).postgres, 'query')
                 .mockRejectedValueOnce(new Error('Database connection lost'))
 
-            // Mock database error for dual write primary
             const dualSpy = jest
                 .spyOn((dualWriteRepository as any).primaryRepo, 'insertGroup')
                 .mockRejectedValueOnce(new Error('Database connection lost'))

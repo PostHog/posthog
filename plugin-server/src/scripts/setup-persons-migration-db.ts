@@ -72,7 +72,7 @@ async function checkPreparedTransactions(dbUrl: string): Promise<void> {
 }
 
 async function main() {
-    const defaultUrl = 'postgres://posthog:posthog@localhost:5434/test_posthog_persons_migration'
+    const defaultUrl = 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
     const dbUrl = process.env.PERSONS_MIGRATION_DATABASE_URL || defaultUrl
 
     const { adminUrl, dbName } = parseDb(dbUrl)

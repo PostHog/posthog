@@ -58,38 +58,40 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
     ): Promise<number> {
         let result!: number
         let raceConditionError: RaceConditionError | null = null
-        
+
         try {
             await this.coordinator.run('insertGroup', async (leftTx, rightTx) => {
                 try {
-                    const [p, s] = await Promise.all([
-                        this.primaryRepo.insertGroup(
-                            teamId,
-                            groupTypeIndex,
-                            groupKey,
-                            groupProperties,
-                            createdAt,
-                            propertiesLastUpdatedAt,
-                            propertiesLastOperation,
-                            leftTx
-                        ),
-                        this.secondaryRepo.insertGroup(
-                            teamId,
-                            groupTypeIndex,
-                            groupKey,
-                            groupProperties,
-                            createdAt,
-                            propertiesLastUpdatedAt,
-                            propertiesLastOperation,
-                            rightTx
-                        ),
-                    ])
+                    // Insert to primary first to get the version
+                    const primaryVersion = await this.primaryRepo.insertGroup(
+                        teamId,
+                        groupTypeIndex,
+                        groupKey,
+                        groupProperties,
+                        createdAt,
+                        propertiesLastUpdatedAt,
+                        propertiesLastOperation,
+                        leftTx
+                    )
+
+                    // Then insert to secondary with the same version to maintain consistency
+                    const secondaryVersion = await this.secondaryRepo.insertGroupWithVersion(
+                        teamId,
+                        groupTypeIndex,
+                        groupKey,
+                        groupProperties,
+                        createdAt,
+                        propertiesLastUpdatedAt,
+                        propertiesLastOperation,
+                        primaryVersion,
+                        rightTx
+                    )
 
                     if (this.comparisonEnabled) {
-                        this.compareInsertGroupResults(p, s)
+                        this.compareInsertGroupResults(primaryVersion, secondaryVersion)
                     }
 
-                    result = p
+                    result = primaryVersion
                     return true
                 } catch (err) {
                     if (err instanceof RaceConditionError) {
@@ -105,11 +107,11 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
             }
             throw err
         }
-        
+
         if (raceConditionError) {
             throw raceConditionError
         }
-        
+
         return result
     }
 
@@ -125,19 +127,23 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
     ): Promise<number | undefined> {
         let primaryOut!: number | undefined
         await this.coordinator.run(`updateGroup:${tag}`, async (leftTx, rightTx) => {
-            const [p, s] = await Promise.all([
-                this.primaryRepo.updateGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    groupProperties,
-                    createdAt,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
-                    tag,
-                    leftTx
-                ),
-                this.secondaryRepo.updateGroup(
+            // Enforce version parity: run primary first, then update secondary
+            const p = await this.primaryRepo.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                tag,
+                leftTx
+            )
+            primaryOut = p
+
+            // Only update secondary if primary succeeded
+            if (p !== undefined) {
+                const s = await this.secondaryRepo.updateGroup(
                     teamId,
                     groupTypeIndex,
                     groupKey,
@@ -147,14 +153,13 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
                     propertiesLastOperation,
                     `${tag}-secondary`,
                     rightTx
-                ),
-            ])
+                )
 
-            if (this.comparisonEnabled) {
-                this.compareUpdateGroupResults(p, s, tag)
+                if (this.comparisonEnabled) {
+                    this.compareUpdateGroupResults(p, s, tag)
+                }
             }
 
-            primaryOut = p
             return true
         })
         return primaryOut
@@ -217,7 +222,7 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
                     error: err,
                     teamId,
                     groupKey,
-                    groupTypeIndex
+                    groupTypeIndex,
                 })
             }
         }
@@ -231,7 +236,7 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
     ): Promise<T> {
         let result!: T
         let raceConditionError: RaceConditionError | null = null
-        
+
         try {
             await this.coordinator.run(`dual-tx:${description}`, async (lTx, rTx) => {
                 const txWrapper = new DualWriteGroupRepositoryTransaction(
@@ -258,11 +263,11 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
             }
             throw err
         }
-        
+
         if (raceConditionError) {
             throw raceConditionError
         }
-        
+
         return result
     }
 

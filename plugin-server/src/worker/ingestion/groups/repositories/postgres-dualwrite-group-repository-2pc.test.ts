@@ -1,13 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import {
-    GroupTypeIndex,
-    Hub,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    TeamId,
-} from '../../../../types'
+import { GroupTypeIndex, Hub, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { RaceConditionError, UUIDT } from '../../../../utils/utils'
@@ -22,7 +16,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
     let repository: PostgresDualWriteGroupRepository
 
     async function setupMigrationDbForGroups(migrationPostgres: PostgresRouter): Promise<void> {
-        // Drop existing tables
         await migrationPostgres.query(
             PostgresUse.PERSONS_WRITE,
             `DROP TABLE IF EXISTS posthog_group CASCADE`,
@@ -30,7 +23,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             'drop-group-table'
         )
 
-        // Create group table in migration database
         await migrationPostgres.query(
             PostgresUse.PERSONS_WRITE,
             `
@@ -71,16 +63,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
         }
     }
 
-    async function getFirstTeam(postgres: PostgresRouter): Promise<any> {
-        const teams = await postgres.query(
-            PostgresUse.COMMON_WRITE,
-            'SELECT * FROM posthog_team LIMIT 1',
-            [],
-            'getFirstTeam'
-        )
-        return teams.rows[0]
-    }
-
     async function assertConsistencyAcrossDatabases(
         primaryRouter: PostgresRouter,
         secondaryRouter: PostgresRouter,
@@ -96,11 +78,7 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
         expect(primary.rows).toEqual(secondary.rows)
     }
 
-    function mockDatabaseError(
-        router: PostgresRouter,
-        error: Error,
-        tagPattern: string
-    ) {
+    function mockDatabaseError(router: PostgresRouter, error: Error, tagPattern: string) {
         const originalQuery = router.query.bind(router)
         return jest.spyOn(router, 'query').mockImplementation((use: any, text: any, params: any, tag: string) => {
             if (tag && tag.startsWith(tagPattern)) {
@@ -111,7 +89,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
     }
 
     async function insertTestTeam(postgres: PostgresRouter, teamId: number) {
-        // First create the project that the team references
         await insertRow(postgres, 'posthog_project', {
             id: teamId,
             organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
@@ -119,7 +96,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             created_at: new Date().toISOString(),
         })
 
-        // Then create the team
         await insertRow(postgres, 'posthog_team', {
             id: teamId,
             name: `Test Team ${teamId}`,
@@ -160,14 +136,13 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
         await setupMigrationDbForGroups(migrationPostgres)
 
         repository = new PostgresDualWriteGroupRepository(postgres, migrationPostgres, {
-            comparisonEnabled: true
+            comparisonEnabled: true,
         })
 
         const redis = await hub.redisPool.acquire()
         await redis.flushdb()
         await hub.redisPool.release(redis)
 
-        // Set up test team
         await insertTestTeam(postgres, 1)
     })
 
@@ -199,7 +174,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
             expect(version).toBe(1)
 
-            // Verify both databases have the group
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3',
@@ -231,20 +205,11 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                 .mockRejectedValue(new Error('simulated secondary failure'))
 
             await expect(
-                repository.insertGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    groupProperties,
-                    createdAt,
-                    {},
-                    {}
-                )
+                repository.insertGroup(teamId, groupTypeIndex, groupKey, groupProperties, createdAt, {}, {})
             ).rejects.toThrow('simulated secondary failure')
 
             spy.mockRestore()
 
-            // Verify neither database has the group
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -269,22 +234,10 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const groupProperties = { name: 'Primary Fail Test' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            const mockSpy = mockDatabaseError(
-                postgres,
-                new Error('primary database connection lost'),
-                'insertGroup'
-            )
+            const mockSpy = mockDatabaseError(postgres, new Error('primary database connection lost'), 'insertGroup')
 
             await expect(
-                repository.insertGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    groupProperties,
-                    createdAt,
-                    {},
-                    {}
-                )
+                repository.insertGroup(teamId, groupTypeIndex, groupKey, groupProperties, createdAt, {}, {})
             ).rejects.toThrow('primary database connection lost')
 
             mockSpy.mockRestore()
@@ -321,15 +274,7 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             )
 
             await expect(
-                repository.insertGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    groupProperties,
-                    createdAt,
-                    {},
-                    {}
-                )
+                repository.insertGroup(teamId, groupTypeIndex, groupKey, groupProperties, createdAt, {}, {})
             ).rejects.toThrow('secondary database connection lost')
 
             mockSpy.mockRestore()
@@ -359,32 +304,12 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const groupProperties = { name: 'Race Condition Test' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            // First insert
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                groupProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, groupProperties, createdAt, {}, {})
 
-            // Second insert with same key should throw RaceConditionError
-            // TODO: This currently returns undefined instead of throwing
             await expect(
-                repository.insertGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    groupProperties,
-                    createdAt,
-                    {},
-                    {}
-                )
+                repository.insertGroup(teamId, groupTypeIndex, groupKey, groupProperties, createdAt, {}, {})
             ).rejects.toThrow(RaceConditionError)
 
-            // Verify only one group exists
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -404,18 +329,8 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const updatedProperties = { name: 'Updated Name', newProp: 'value' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            // First insert a group
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                initialProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, initialProperties, createdAt, {}, {})
 
-            // Now update it
             const version = await repository.updateGroup(
                 teamId,
                 groupTypeIndex,
@@ -429,7 +344,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
             expect(version).toBe(2)
 
-            // Verify both databases have the updated group
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -457,16 +371,7 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const updatedProperties = { name: 'Should Not Update' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            // First insert a group
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                initialProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, initialProperties, createdAt, {}, {})
 
             const spy = jest
                 .spyOn((repository as any).secondaryRepo, 'updateGroup')
@@ -487,7 +392,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
             spy.mockRestore()
 
-            // Verify both databases still have the original properties
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -515,21 +419,9 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const updatedProperties = { name: 'Updated' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                initialProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, initialProperties, createdAt, {}, {})
 
-            const mockSpy = mockDatabaseError(
-                postgres,
-                new Error('primary update failed'),
-                'updateGroup'
-            )
+            const mockSpy = mockDatabaseError(postgres, new Error('primary update failed'), 'updateGroup')
 
             await expect(
                 repository.updateGroup(
@@ -572,21 +464,9 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const updatedProperties = { name: 'Updated' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                initialProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, initialProperties, createdAt, {}, {})
 
-            const mockSpy = mockDatabaseError(
-                migrationPostgres,
-                new Error('secondary update failed'),
-                'updateGroup'
-            )
+            const mockSpy = mockDatabaseError(migrationPostgres, new Error('secondary update failed'), 'updateGroup')
 
             await expect(
                 repository.updateGroup(
@@ -652,23 +532,13 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const updatedProperties = { name: 'Updated Optimistically' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            // Insert group
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                initialProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, initialProperties, createdAt, {}, {})
 
-            // Update optimistically with correct version
             const version = await repository.updateGroupOptimistically(
                 teamId,
                 groupTypeIndex,
                 groupKey,
-                1, // expected version
+                1,
                 updatedProperties,
                 createdAt,
                 {},
@@ -677,7 +547,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
             expect(version).toBe(2)
 
-            // Verify both databases have the updated group
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -705,23 +574,13 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const updatedProperties = { name: 'Should not update' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            // Insert group (version 0)
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                initialProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, initialProperties, createdAt, {}, {})
 
-            // Try to update with wrong expected version
             const result = await repository.updateGroupOptimistically(
                 teamId,
                 groupTypeIndex,
                 groupKey,
-                5, // wrong expected version
+                5,
                 updatedProperties,
                 createdAt,
                 {},
@@ -730,7 +589,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
             expect(result).toBeUndefined()
 
-            // Verify group is unchanged
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -749,21 +607,12 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const updatedProperties = { name: 'Updated in primary only' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                initialProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, initialProperties, createdAt, {}, {})
 
             const spy = jest
                 .spyOn((repository as any).secondaryRepo, 'updateGroupOptimistically')
                 .mockRejectedValue(new Error('secondary optimistic update failure'))
 
-            // Should NOT throw - returns primary result even if secondary fails
             const result = await repository.updateGroupOptimistically(
                 teamId,
                 groupTypeIndex,
@@ -774,12 +623,11 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                 {},
                 {}
             )
-            
-            expect(result).toBe(2) // Primary succeeded
+
+            expect(result).toBe(2)
 
             spy.mockRestore()
 
-            // Primary should have been updated (non-2PC, no rollback)
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -807,7 +655,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-20T10:30:00.000Z').toUTC()
 
             const result = await repository.inTransaction('test-multi-operation', async (tx) => {
-                // Insert first group
                 const version1 = await tx.insertGroup(
                     teamId,
                     groupTypeIndex,
@@ -818,7 +665,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                     {}
                 )
 
-                // Insert second group
                 const version2 = await tx.insertGroup(
                     teamId,
                     groupTypeIndex,
@@ -829,7 +675,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                     {}
                 )
 
-                // Update first group
                 const updatedVersion = await tx.updateGroup(
                     teamId,
                     groupTypeIndex,
@@ -848,7 +693,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             expect(result.version2).toBe(1)
             expect(result.updatedVersion).toBe(2)
 
-            // Verify both groups exist in both databases
             const group1Primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -864,13 +708,13 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
             expect(group1Primary.rows.length).toBe(1)
             expect(group1Secondary.rows.length).toBe(1)
-            expect(group1Primary.rows[0].group_properties).toEqual({ 
-                name: 'Updated Transaction Group 1', 
-                status: 'active' 
+            expect(group1Primary.rows[0].group_properties).toEqual({
+                name: 'Updated Transaction Group 1',
+                status: 'active',
             })
-            expect(group1Secondary.rows[0].group_properties).toEqual({ 
-                name: 'Updated Transaction Group 1', 
-                status: 'active' 
+            expect(group1Secondary.rows[0].group_properties).toEqual({
+                name: 'Updated Transaction Group 1',
+                status: 'active',
             })
 
             const group2Primary = await postgres.query(
@@ -895,14 +739,12 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const groupTypeIndex = 0 as GroupTypeIndex
             const createdAt = DateTime.fromISO('2024-01-20T10:30:00.000Z').toUTC()
 
-            // Mock to make second insert fail on secondary
             const spy = jest.spyOn((repository as any).secondaryRepo, 'insertGroup')
-            spy.mockResolvedValueOnce(0) // First insert succeeds
+            spy.mockResolvedValueOnce(0)
             spy.mockRejectedValueOnce(new Error('simulated insertGroup failure in transaction'))
 
             await expect(
                 repository.inTransaction('test-rollback', async (tx) => {
-                    // First insert should succeed initially
                     await tx.insertGroup(
                         teamId,
                         groupTypeIndex,
@@ -913,7 +755,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                         {}
                     )
 
-                    // Second insert should fail
                     await tx.insertGroup(
                         teamId,
                         groupTypeIndex,
@@ -930,7 +771,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
             spy.mockRestore()
 
-            // Verify nothing was persisted to either database
             const check1Primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -969,7 +809,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const groupTypeIndex = 0 as GroupTypeIndex
             const createdAt = DateTime.fromISO('2024-01-20T10:30:00.000Z').toUTC()
 
-            // First create a group
             await repository.insertGroup(
                 teamId,
                 groupTypeIndex,
@@ -980,7 +819,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                 {}
             )
 
-            // Try to create with same key in transaction
             await expect(
                 repository.inTransaction('test-race-condition', async (tx) => {
                     await tx.insertGroup(
@@ -996,7 +834,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                 })
             ).rejects.toThrow(RaceConditionError)
 
-            // Verify only original group exists
             const check = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -1029,7 +866,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                 })
             ).rejects.toThrow('Custom transaction error')
 
-            // Verify group was rolled back
             const check = await postgres.query(
                 PostgresUse.PERSONS_READ,
                 'SELECT 1 FROM posthog_group WHERE team_id = $1 AND group_key = $2',
@@ -1062,7 +898,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                         {}
                     )
 
-                    // This should fail
                     await tx.updateGroup(
                         teamId,
                         groupTypeIndex,
@@ -1134,7 +969,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const groupTypeIndex = 0 as GroupTypeIndex
             const createdAt = DateTime.fromISO('2024-01-20T10:30:00.000Z').toUTC()
 
-            // Create a group outside transaction
             await repository.insertGroup(
                 teamId,
                 groupTypeIndex,
@@ -1145,9 +979,7 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                 {}
             )
 
-            // Now use it within a transaction
             const txResult = await repository.inTransaction('test-mixed-calls', async (tx) => {
-                // Update the group created outside
                 const updatedVersion = await tx.updateGroup(
                     teamId,
                     groupTypeIndex,
@@ -1159,7 +991,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                     'tx-update'
                 )
 
-                // Create a new group within the transaction
                 const newVersion = await tx.insertGroup(
                     teamId,
                     groupTypeIndex,
@@ -1173,7 +1004,6 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
                 return { updatedVersion, newVersion }
             })
 
-            // Verify the mixed operations worked
             const updatedOutside = await repository.fetchGroup(teamId, groupTypeIndex, 'outside-tx')
             const insideGroup = await repository.fetchGroup(teamId, groupTypeIndex, 'inside-tx')
 
@@ -1195,18 +1025,9 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             const groupProperties = { name: 'Metrics Test' }
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 
-            // Spy on comparison method
-            const compareSpy = jest.spyOn((repository as any), 'compareInsertGroupResults')
+            const compareSpy = jest.spyOn(repository as any, 'compareInsertGroupResults')
 
-            await repository.insertGroup(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                groupProperties,
-                createdAt,
-                {},
-                {}
-            )
+            await repository.insertGroup(teamId, groupTypeIndex, groupKey, groupProperties, createdAt, {}, {})
 
             expect(compareSpy).toHaveBeenCalledWith(1, 1)
             compareSpy.mockRestore()
