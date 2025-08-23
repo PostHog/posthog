@@ -156,6 +156,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             action: DashboardLoadAction
             manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
         }) => payload,
+        /** Load dashboard with only the first few tiles for progressive loading. */
+        loadDashboardPartial: (payload: {
+            action: DashboardLoadAction
+            manualDashboardRefresh?: boolean
+            limitTiles: number
+        }) => payload,
+        /** Load remaining tiles after partial dashboard load. */
+        loadRemainingTiles: true,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: string, manualDashboardRefresh: boolean) => ({
             action,
@@ -331,6 +339,65 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             actions.setAccessDeniedToDashboard()
                         }
                         throw error
+                    }
+                },
+                loadDashboardPartial: async ({ action, manualDashboardRefresh, limitTiles }, breakpoint) => {
+                    actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
+
+                    await breakpoint(200)
+                    actions.resetIntermittentFilters()
+
+                    try {
+                        const apiUrl = values.apiUrl(
+                            'force_cache',
+                            values.temporaryFilters,
+                            values.temporaryVariables,
+                            limitTiles
+                        )
+                        const dashboardResponse: Response = await api.getResponse(apiUrl)
+                        const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
+
+                        actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
+
+                        return getQueryBasedDashboard(dashboard)
+                    } catch (error: any) {
+                        if (error.status === 404) {
+                            return null
+                        }
+                        if (error.status === 403 && error.code === 'permission_denied') {
+                            actions.setAccessDeniedToDashboard()
+                        }
+                        throw error
+                    }
+                },
+                loadRemainingTiles: async (_, breakpoint) => {
+                    if (!values.dashboard) {
+                        return values.dashboard
+                    }
+
+                    await breakpoint(200)
+
+                    try {
+                        const apiUrl = values.apiUrl('force_cache', values.temporaryFilters, values.temporaryVariables)
+                        const dashboardResponse: Response = await api.getResponse(apiUrl)
+                        const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
+
+                        if (dashboard && values.dashboard) {
+                            // Merge the remaining tiles with the existing ones
+                            const existingTileIds = new Set(values.dashboard.tiles.map((tile) => tile.id))
+                            const remainingTiles = dashboard.tiles.filter((tile) => !existingTileIds.has(tile.id))
+
+                            return {
+                                ...values.dashboard,
+                                tiles: [...values.dashboard.tiles, ...remainingTiles],
+                            }
+                        }
+
+                        return getQueryBasedDashboard(dashboard)
+                    } catch (error: any) {
+                        // If loading remaining tiles fails, just return current dashboard
+                        console.warn('Failed to load remaining tiles:', error)
+                        return values.dashboard
                     }
                 },
                 updateFiltersAndLayoutsAndVariables: async (_, breakpoint) => {
@@ -981,12 +1048,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
-                    variablesOverride?: Record<string, HogQLVariable>
+                    variablesOverride?: Record<string, HogQLVariable>,
+                    limitTiles?: number
                 ) =>
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
+                        limit_tiles: limitTiles,
                     })}`
             },
         ],
@@ -1196,8 +1265,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
-                        actions.loadDashboard({
+                        // Progressive loading: load first 3 tiles initially
+                        actions.loadDashboardPartial({
                             action: DashboardLoadAction.InitialLoad,
+                            limitTiles: 3,
                         })
                     }
                 }
@@ -1528,6 +1599,45 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.reportDashboardViewed()
             }
         },
+        loadDashboardPartialSuccess: (...args) => {
+            void sharedListeners.reportLoadTiming(...args)
+
+            if (!values.dashboard) {
+                actions.dashboardNotFound()
+                return // We hit a 404
+            }
+
+            // Start loading remaining tiles if the backend indicates there are more
+            if (values.dashboard.has_more_tiles) {
+                setTimeout(() => {
+                    actions.loadRemainingTiles()
+                }, 100) // Small delay to let the initial tiles render
+            }
+
+            if (values.placement !== DashboardPlacement.Export) {
+                // access stored values from dashboardLoadData
+                const { action, manualDashboardRefresh } = values.dashboardLoadData
+                actions.updateDashboardItems({ action, manualDashboardRefresh })
+            }
+
+            if (values.shouldReportOnAPILoad) {
+                actions.setShouldReportOnAPILoad(false)
+                actions.reportDashboardViewed()
+            }
+        },
+        loadRemainingTilesSuccess: () => {
+            // Once all tiles are loaded, trigger refresh for any remaining tiles that need it
+            if (values.placement !== DashboardPlacement.Export) {
+                const { action, manualDashboardRefresh } = values.dashboardLoadData
+                // Only refresh the newly loaded tiles
+                const remainingTiles = values.tiles.slice(3) // Skip first 3 tiles
+                actions.updateDashboardItems({
+                    tiles: remainingTiles,
+                    action,
+                    manualDashboardRefresh,
+                })
+            }
+        },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
             // and "values.dashboard" will then fail
@@ -1605,8 +1715,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
-                actions.loadDashboard({
+                actions.loadDashboardPartial({
                     action: DashboardLoadAction.InitialLoadWithVariables,
+                    limitTiles: 3,
                 })
             }
 

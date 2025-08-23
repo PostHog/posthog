@@ -181,6 +181,7 @@ class DashboardBasicSerializer(
 
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
+    has_more_tiles = serializers.SerializerMethodField()
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -216,6 +217,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "data_color_theme_id",
             "tags",
             "tiles",
+            "has_more_tiles",
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
@@ -497,6 +499,19 @@ class DashboardSerializer(DashboardBasicSerializer):
             ),
         )
 
+        # Check if we should limit the number of tiles (for progressive loading)
+        request = self.context.get("request")
+        limit_tiles = None
+        if request and hasattr(request, "query_params"):
+            try:
+                limit_tiles = int(request.query_params.get("limit_tiles", ""))
+            except (ValueError, TypeError):
+                limit_tiles = None
+
+        # Apply tile limit if specified
+        if limit_tiles is not None and limit_tiles > 0:
+            sorted_tiles = sorted_tiles[:limit_tiles]
+
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -507,6 +522,28 @@ class DashboardSerializer(DashboardBasicSerializer):
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 
         return serialized_tiles
+
+    def get_has_more_tiles(self, dashboard: Dashboard) -> bool:
+        if self.context["view"].action == "list":
+            return False
+
+        # Check if tiles were limited
+        request = self.context.get("request")
+        limit_tiles = None
+        if request and hasattr(request, "query_params"):
+            try:
+                limit_tiles = int(request.query_params.get("limit_tiles", ""))
+            except (ValueError, TypeError):
+                limit_tiles = None
+
+        if limit_tiles is None or limit_tiles <= 0:
+            return False
+
+        # Get total number of tiles
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles)
+        total_tiles = tiles.count()
+
+        return total_tiles > limit_tiles
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
