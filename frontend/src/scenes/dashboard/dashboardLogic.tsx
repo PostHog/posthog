@@ -158,10 +158,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
         }) => payload,
         /** Load dashboard with streaming tiles approach. */
-        loadDashboardStreaming: (payload: {
-            action: DashboardLoadAction
-            manualDashboardRefresh?: boolean
-        }) => payload,
+        loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => payload,
         /** Dashboard metadata loaded successfully. */
         loadDashboardMetadataSuccess: (dashboard: DashboardType<InsightModel>) => ({ dashboard }),
         /** Dashboard metadata load failed. */
@@ -1696,7 +1693,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
-if (values.placement !== DashboardPlacement.Export) {
+            if (values.placement !== DashboardPlacement.Export) {
                 // access stored values from dashboardLoadData
                 // as we can't pass them down to this listener
                 const { action, manualDashboardRefresh } = values.dashboardLoadData
