@@ -254,7 +254,6 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
-    has_more_tiles = serializers.SerializerMethodField()
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -290,7 +289,6 @@ class DashboardSerializer(DashboardBasicSerializer):
             "data_color_theme_id",
             "tags",
             "tiles",
-            "has_more_tiles",
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
@@ -563,7 +561,7 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
 
         # Get layout size and limit parameters for progressive loading
-        limit_tiles, layout_size = self._get_progressive_loading_params()
+        layout_size = "sm"  # default layout size
 
         # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
         # Use the specified layout size to get the correct order for the current viewport
@@ -592,45 +590,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return serialized_tiles
 
-    def _get_progressive_loading_params(self):
-        """Extract progressive loading parameters from request."""
-        request = self.context.get("request")
-        limit_tiles = None
-        layout_size = "sm"
 
-        if request and hasattr(request, "query_params"):
-            try:
-                # Check for both camelCase (from frontend) and snake_case (for compatibility)
-                limit_tiles_param = request.query_params.get("limitTiles") or request.query_params.get("limit_tiles")
-                if limit_tiles_param:
-                    limit_tiles = int(limit_tiles_param)
-            except (ValueError, TypeError):
-                limit_tiles = None
-
-            # Check for both camelCase (from frontend) and snake_case (for compatibility)
-            layout_size = request.query_params.get("layoutSize") or request.query_params.get("layout_size", "sm")
-            if layout_size not in ["sm", "xs"]:
-                layout_size = "sm"  # fallback to sm if invalid value
-
-        return limit_tiles, layout_size
-
-    def get_has_more_tiles(self, dashboard: Dashboard) -> bool:
-        if self.context["view"].action == "list":
-            return False
-
-        # Check if tiles were limited
-        limit_tiles, _ = self._get_progressive_loading_params()
-
-        if limit_tiles is None or limit_tiles <= 0:
-            return False
-
-        # Get total number of tiles
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all())
-        total_tiles = tiles.count()
-
-        # Only indicate more tiles if there are >= 10 total tiles and more than the limit
-        # For dashboards with < 10 tiles, we return all tiles regardless of limit_tiles
-        return total_tiles >= 10 and total_tiles > limit_tiles
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -773,9 +733,9 @@ class DashboardsViewSet(
                     )
                 )
 
-                # Get progressive loading parameters
-                limit_tiles, layout_size = self._get_progressive_loading_params_from_request(request)
-                logger.info(f"🖥️ Streaming with layout_size: {layout_size}, limit_tiles: {limit_tiles}")
+                # Get layout size for tile ordering
+                layout_size = self._get_layout_size_from_request(request)
+                logger.info(f"🖥️ Streaming with layout_size: {layout_size}")
 
                 # Sort tiles by layout for proper visual order
                 sorted_tiles = sorted(
@@ -824,26 +784,17 @@ class DashboardsViewSet(
         serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
 
-    def _get_progressive_loading_params_from_request(self, request: Request) -> tuple[Optional[int], str]:
-        """Extract progressive loading parameters directly from request."""
-        limit_tiles = None
+    def _get_layout_size_from_request(self, request: Request) -> str:
+        """Extract layout size parameter from request."""
         layout_size = "sm"
 
         if request and hasattr(request, "query_params"):
-            try:
-                # Check for both camelCase (from frontend) and snake_case (for compatibility)
-                limit_tiles_param = request.query_params.get("limitTiles") or request.query_params.get("limit_tiles")
-                if limit_tiles_param:
-                    limit_tiles = int(limit_tiles_param)
-            except (ValueError, TypeError):
-                limit_tiles = None
-
             # Check for both camelCase (from frontend) and snake_case (for compatibility)
             layout_size = request.query_params.get("layoutSize") or request.query_params.get("layout_size", "sm")
             if layout_size not in ["sm", "xs"]:
                 layout_size = "sm"  # fallback to sm if invalid value
 
-        return limit_tiles, layout_size
+        return layout_size
 
     # ******************************************
     # /projects/:id/dashboard/:id/viewed

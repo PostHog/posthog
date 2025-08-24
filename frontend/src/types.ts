@@ -2141,7 +2141,6 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
-    has_more_tiles?: boolean
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     breakdown_colors?: BreakdownColorConfig[]

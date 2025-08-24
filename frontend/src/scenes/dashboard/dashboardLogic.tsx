@@ -156,15 +156,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadDashboard: (payload: {
             action: DashboardLoadAction
             manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
-            limitTiles?: number // optional limit for progressive loading
         }) => payload,
-        /** Load remaining tiles after partial dashboard load. */
-        loadRemainingTiles: true,
         /** Load dashboard with streaming tiles approach. */
         loadDashboardStreaming: (payload: {
             action: DashboardLoadAction
             manualDashboardRefresh?: boolean
-            limitTiles?: number
         }) => payload,
         /** Dashboard metadata loaded successfully. */
         loadDashboardMetadataSuccess: (dashboard: DashboardType<InsightModel>) => ({ dashboard }),
@@ -359,30 +355,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                loadRemainingTiles: async (_, breakpoint) => {
-                    if (!values.dashboard) {
-                        return values.dashboard
-                    }
-
-                    await breakpoint(200)
-
-                    try {
-                        const apiUrl = values.apiUrl(
-                            'force_cache',
-                            values.temporaryFilters,
-                            values.temporaryVariables,
-                            values.currentLayoutSize
-                        )
-                        const dashboardResponse: Response = await api.getResponse(apiUrl)
-                        const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
-                        return getQueryBasedDashboard(dashboard)
-                    } catch (error: any) {
-                        // If loading remaining tiles fails, just return current dashboard
-                        console.warn('Failed to load remaining tiles:', error)
-                        return values.dashboard
-                    }
-                },
-                loadDashboardStreaming: async ({ action, manualDashboardRefresh, limitTiles }, breakpoint) => {
+                loadDashboardStreaming: async ({ action, manualDashboardRefresh }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
                     await breakpoint(200)
                     actions.resetIntermittentFilters()
@@ -446,8 +419,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 'force_cache',
                                 values.temporaryFilters,
                                 values.temporaryVariables,
-                                values.currentLayoutSize,
-                                limitTiles
+                                values.currentLayoutSize
                             )
                             const dashboardResponse: Response = await api.getResponse(apiUrl)
                             const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
@@ -965,14 +937,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardFailure: () => false,
             },
         ],
-        loadingRemainingTiles: [
-            false,
-            {
-                loadRemainingTiles: () => true,
-                loadRemainingTilesSuccess: () => false,
-                loadRemainingTilesFailure: () => false,
-            },
-        ],
         /** Dashboard variables */
         initialVariablesLoaded: [
             false,
@@ -1414,7 +1378,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Streaming loading: load metadata + stream tiles
                         actions.loadDashboardStreaming({
                             action: DashboardLoadAction.InitialLoad,
-                            limitTiles: 4,
                         })
                     }
                 }
@@ -1733,11 +1696,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
-            if (values.dashboard.has_more_tiles) {
-                actions.loadRemainingTiles()
-            }
-
-            if (values.placement !== DashboardPlacement.Export) {
+if (values.placement !== DashboardPlacement.Export) {
                 // access stored values from dashboardLoadData
                 // as we can't pass them down to this listener
                 const { action, manualDashboardRefresh } = values.dashboardLoadData
@@ -1747,13 +1706,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
                 actions.reportDashboardViewed()
-            }
-        },
-        loadRemainingTilesSuccess: () => {
-            // Refresh all tiles using the same logic as initial dashboard load
-            if (values.placement !== DashboardPlacement.Export) {
-                const { action, manualDashboardRefresh } = values.dashboardLoadData
-                actions.updateDashboardItems({ action, manualDashboardRefresh })
             }
         },
         reportDashboardViewed: async (_, breakpoint) => {
@@ -1835,7 +1787,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboardStreaming({
                     action: DashboardLoadAction.InitialLoadWithVariables,
-                    limitTiles: 3,
                 })
             }
 
