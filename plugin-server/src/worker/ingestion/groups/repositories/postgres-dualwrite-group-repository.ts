@@ -62,36 +62,34 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
         try {
             await this.coordinator.run('insertGroup', async (leftTx, rightTx) => {
                 try {
-                    // Insert to primary first to get the version
-                    const primaryVersion = await this.primaryRepo.insertGroup(
-                        teamId,
-                        groupTypeIndex,
-                        groupKey,
-                        groupProperties,
-                        createdAt,
-                        propertiesLastUpdatedAt,
-                        propertiesLastOperation,
-                        leftTx
-                    )
-
-                    // Then insert to secondary with the same version to maintain consistency
-                    const secondaryVersion = await this.secondaryRepo.insertGroupWithVersion(
-                        teamId,
-                        groupTypeIndex,
-                        groupKey,
-                        groupProperties,
-                        createdAt,
-                        propertiesLastUpdatedAt,
-                        propertiesLastOperation,
-                        primaryVersion,
-                        rightTx
-                    )
+                    const [p, s] = await Promise.all([
+                        this.primaryRepo.insertGroup(
+                            teamId,
+                            groupTypeIndex,
+                            groupKey,
+                            groupProperties,
+                            createdAt,
+                            propertiesLastUpdatedAt,
+                            propertiesLastOperation,
+                            leftTx
+                        ),
+                        this.secondaryRepo.insertGroup(
+                            teamId,
+                            groupTypeIndex,
+                            groupKey,
+                            groupProperties,
+                            createdAt,
+                            propertiesLastUpdatedAt,
+                            propertiesLastOperation,
+                            rightTx
+                        ),
+                    ])
 
                     if (this.comparisonEnabled) {
-                        this.compareInsertGroupResults(primaryVersion, secondaryVersion)
+                        this.compareInsertGroupResults(p, s)
                     }
 
-                    result = primaryVersion
+                    result = p
                     return true
                 } catch (err) {
                     if (err instanceof RaceConditionError) {
@@ -127,7 +125,6 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
     ): Promise<number | undefined> {
         let primaryOut!: number | undefined
         await this.coordinator.run(`updateGroup:${tag}`, async (leftTx, rightTx) => {
-            // Enforce version parity: run primary first, then update secondary
             const p = await this.primaryRepo.updateGroup(
                 teamId,
                 groupTypeIndex,
@@ -141,7 +138,6 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
             )
             primaryOut = p
 
-            // Only update secondary if primary succeeded
             if (p !== undefined) {
                 const s = await this.secondaryRepo.updateGroup(
                     teamId,
@@ -175,7 +171,6 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined> {
-        // Optimistic updates don't use 2PC - primary is source of truth
         const primaryResult = await this.primaryRepo.updateGroupOptimistically(
             teamId,
             groupTypeIndex,
@@ -188,7 +183,6 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
         )
 
         if (primaryResult !== undefined) {
-            // Best effort update to secondary
             try {
                 const secondaryResult = await this.secondaryRepo.updateGroupOptimistically(
                     teamId,
@@ -217,7 +211,6 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
                     }
                 }
             } catch (err) {
-                // Log error but don't fail the operation
                 _logger.error('Failed to update secondary in optimistic update', {
                     error: err,
                     teamId,

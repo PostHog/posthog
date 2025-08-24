@@ -87,7 +87,6 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
             this.lTx
         )
 
-        // Only update secondary if primary succeeded
         if (p !== undefined) {
             const s = await this.secondaryRepo.updateGroup(
                 teamId,
