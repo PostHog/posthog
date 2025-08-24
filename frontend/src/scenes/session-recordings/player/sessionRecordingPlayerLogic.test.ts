@@ -285,7 +285,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                    matchedEvents: listOfMatchingEvents,
                 },
             })
             logic.mount()
@@ -293,7 +293,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                        matchedEvents: listOfMatchingEvents,
                     },
                 }),
             })
@@ -304,7 +304,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                    matchedEvents: listOfMatchingEvents,
                 },
             })
             logic.mount()
@@ -312,7 +312,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                        matchedEvents: listOfMatchingEvents,
                     },
                 }),
             })
@@ -321,7 +321,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                    matchedEvents: listOfMatchingEvents.slice(0, 1),
                 },
             })
             logic.mount()
@@ -329,7 +329,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                        matchedEvents: listOfMatchingEvents.slice(0, 1),
                     },
                 }),
             })

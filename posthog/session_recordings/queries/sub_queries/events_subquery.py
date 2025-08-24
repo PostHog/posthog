@@ -69,10 +69,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return event_exprs
 
     def _select_from_events(
-        self, select_expr: ast.Expr, where_expr: ast.Expr | list[ast.Expr], group_by: list[ast.Expr]
+        self,
+        select_expr: ast.Expr | list[ast.Expr],
+        where_expr: ast.Expr | list[ast.Expr],
+        group_by: list[ast.Expr],
+        limit_expr: ast.Expr,
     ) -> ast.SelectQuery:
         return ast.SelectQuery(
-            select=[select_expr],
+            select=select_expr if isinstance(select_expr, list) else [select_expr],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
             ),
@@ -80,9 +84,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             having=self._having_predicates(),
             group_by=group_by,
             order_by=[ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), order="DESC")],
+            limit=limit_expr,
         )
 
-    def _get_queries_for_matching(self, select_expr: ast.Expr, group_by: list[ast.Expr]) -> list[ast.SelectQuery]:
+    def _get_queries_for_matching(
+        self, select_expr: ast.Expr | list[ast.Expr], group_by: list[ast.Expr]
+    ) -> list[ast.SelectQuery]:
         """
         takes each filter in the query that can be queried from the events table
         and makes a separate query for each
@@ -113,7 +120,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         queries: list[ast.SelectQuery] = []
         for expr in gathered_exprs:
-            queries.append(self._select_from_events(select_expr, expr, group_by=group_by))
+            queries.append(
+                self._select_from_events(select_expr, expr, group_by=group_by, limit_expr=ast.Constant(value=10000))
+            )
 
         negative_guard_query = self._negative_guard_query()
         if negative_guard_query:
@@ -146,10 +155,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 )
             )
         return self._select_from_events(
-            select_expr=ast.Field(chain=["uuid"]),
+            select_expr=[ast.Field(chain=["uuid"]), ast.Call(name="any", args=[ast.Field(chain=["timestamp"])])],
             where_expr=self.wrapped_with_query_operand(exprs=select_exprs),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
             group_by=[ast.Field(chain=["$session_id"]), ast.Field(chain=["uuid"])],
+            limit_expr=ast.Constant(value=10000),
         )
 
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:
@@ -163,7 +173,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         )
 
         return SessionRecordingQueryResult(
-            results=[x[0] for x in hogql_query_response.results or []],
+            results=hogql_query_response.results,
             has_more_recording=False,
             timings=hogql_query_response.timings,
         )
@@ -319,6 +329,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
                 where_expr=gathered_exprs,
                 group_by=[ast.Field(chain=["$session_id"])],
+                limit_expr=ast.Constant(value=100),
             )
         else:
             return None

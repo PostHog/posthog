@@ -33,6 +33,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MatchedRecordingEvent,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -426,6 +427,10 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
 export interface RecordingsQueryResponse {
     results: SessionRecordingType[]
     has_next: boolean
+}
+
+export interface MatchingEventsResponse {
+    results: MatchedRecordingEvent[]
 }
 
 export type RecordingOrder =
