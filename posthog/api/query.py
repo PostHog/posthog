@@ -34,6 +34,7 @@ from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters,
     apply_dashboard_variables,
@@ -69,7 +70,7 @@ QUERY_EXECUTOR = ThreadPoolExecutor(
 
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
-) -> tuple[BaseModel, str, ExecutionMode]:
+) -> tuple[BaseModel, str, ExecutionMode, bool]:
     """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
     query = request_data.query
 
@@ -91,7 +92,7 @@ def _process_query_request(
 
     tag_queries(query=query.model_dump())
 
-    return query, query_id, execution_mode
+    return query, query_id, execution_mode, bool(request_data.generate_sql_only)
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -138,31 +139,34 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
-            query, client_query_id, execution_mode = _process_query_request(
+            query, client_query_id, execution_mode, generate_sql_only = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
 
-            result = process_query_model(
-                self.team,
-                query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user,  # type: ignore[arg-type]
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                limit_context=(
-                    # QUERY_ASYNC provides extended max execution time for insight queries
-                    LimitContext.QUERY_ASYNC
-                    if (
-                        is_insight_query(query_dict)
-                        or is_insight_actors_query(query_dict)
-                        or is_insight_actors_options_query(query_dict)
-                    )
-                    and get_query_tag_value("access_method") != "personal_api_key"
-                    else None
-                ),
-            )
+            if generate_sql_only:
+                result = self._generate_sql_only(query, client_query_id, request.user)
+            else:
+                result = process_query_model(
+                    self.team,
+                    query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user,  # type: ignore[arg-type]
+                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    limit_context=(
+                        # QUERY_ASYNC provides extended max execution time for insight queries
+                        LimitContext.QUERY_ASYNC
+                        if (
+                            is_insight_query(query_dict)
+                            or is_insight_actors_query(query_dict)
+                            or is_insight_actors_options_query(query_dict)
+                        )
+                        and get_query_tag_value("access_method") != "personal_api_key"
+                        else None
+                    ),
+                )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
             response_status = (
@@ -276,6 +280,43 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    def _generate_sql_only(self, query, client_query_id, user):
+        """Generate ClickHouse SQL without executing it."""
+        from posthog.schema import HogQLQuery, HogQLASTQuery
+
+        # Only support HogQL queries for SQL generation
+        if not isinstance(query, HogQLQuery | HogQLASTQuery):
+            raise ValidationError("SQL generation is only supported for HogQL queries")
+
+        try:
+            query_executor = HogQLQueryExecutor(
+                query=query.query if isinstance(query, HogQLQuery) else query,
+                team=self.team,
+                query_type="HogQLQuery",
+                filters=query.filters,
+                variables=query.variables,
+                modifiers=query.modifiers,
+                limit_context=LimitContext.QUERY,
+            )
+
+            clickhouse_sql, clickhouse_context = query_executor.generate_clickhouse_sql()
+
+            # Return the same structure as HogQLQueryResponse but without results
+            return {
+                "query": query_executor.query,
+                "hogql": query_executor.hogql,
+                "clickhouse": clickhouse_sql,
+                "results": [],
+                "columns": query_executor.print_columns,
+                "types": [],
+                "timings": query_executor.timings.to_list(),
+                "modifiers": query_executor.query_modifiers,
+            }
+        except Exception as e:
+            if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
+                raise ValidationError(str(e))
+            raise
 
 
 MAX_QUERY_TIMEOUT = 600

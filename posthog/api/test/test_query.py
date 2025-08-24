@@ -1211,3 +1211,66 @@ class TestQueryUpgrade(APIBaseTest):
                 }
             },
         )
+
+
+class TestQueryGenerateSqlOnly(ClickhouseTestMixin, APIBaseTest):
+    def test_generate_sql_only_hogql_query(self):
+        """Test that generate_sql_only parameter returns ClickHouse SQL without executing it."""
+        query = HogQLQuery(query="select event, distinct_id from events limit 10")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/", {"query": query.model_dump(), "generate_sql_only": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Should contain ClickHouse SQL
+        self.assertIn("clickhouse", response_data)
+        self.assertIsNotNone(response_data["clickhouse"])
+        self.assertIn("SELECT", response_data["clickhouse"])
+
+        # Should contain HogQL
+        self.assertIn("hogql", response_data)
+        self.assertIsNotNone(response_data["hogql"])
+
+        # Should not contain actual results
+        self.assertEqual(response_data["results"], [])
+        self.assertEqual(response_data["types"], [])
+
+        # Should contain expected structure
+        self.assertIn("columns", response_data)
+        self.assertIn("timings", response_data)
+
+    def test_generate_sql_only_non_hogql_query_fails(self):
+        """Test that generate_sql_only fails for non-HogQL queries."""
+        query = EventsQuery(select=["event", "timestamp"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/", {"query": query.model_dump(), "generate_sql_only": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("SQL generation is only supported for HogQL queries", response.json()["detail"])
+
+    def test_regular_query_without_generate_sql_only(self):
+        """Test that regular queries still work without the generate_sql_only parameter."""
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_event(
+                team=self.team,
+                event="test_event",
+                distinct_id="test_user",
+                properties={"key": "value"},
+            )
+        flush_persons_and_events()
+
+        query = HogQLQuery(query="select event from events limit 1")
+
+        response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.model_dump()})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Should contain actual results when not using generate_sql_only
+        self.assertNotEqual(response_data["results"], [])
+        self.assertEqual(response_data["results"], [["test_event"]])
