@@ -782,11 +782,27 @@ class InsightSearchNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(
-            model="gpt-4.1-mini",
-            temperature=0.7,
-            max_completion_tokens=1000,
-            streaming=True,
-            stream_usage=True,
-            max_retries=3,
-        )
+        debug: bool = False
+
+        if debug:
+            logger.info("Using Gemini ✨")
+            from ee.hogai.llm import MaxGemini
+
+            return MaxGemini(
+                model="gemini-2.5-flash",
+                temperature=0.7,
+                max_retries=3,
+                max_output_tokens=700,
+                team=self._team,
+                user=self._user,
+            )
+
+        else:
+            return ChatOpenAI(
+                model="gpt-4.1-mini",
+                temperature=0.7,
+                max_completion_tokens=1000,
+                streaming=True,
+                stream_usage=True,
+                max_retries=3,
+            )
