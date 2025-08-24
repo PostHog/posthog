@@ -16,6 +16,7 @@ from posthoganalytics.ai.openai import OpenAI
 
 from products.llm_analytics.backend.providers.formatters.openai_formatter import convert_to_openai_messages
 
+
 logger = logging.getLogger(__name__)
 
 

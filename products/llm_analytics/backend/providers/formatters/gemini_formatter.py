@@ -4,6 +4,7 @@ from typing import cast
 from anthropic.types import MessageParam
 from google.genai.types import Blob, Content, ContentListUnion, Part
 
+
 from products.llm_analytics.backend.providers.formatters.anthropic_typeguards import (
     is_base64_image_param,
     is_image_block_param,
