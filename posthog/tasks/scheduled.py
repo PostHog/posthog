@@ -7,6 +7,7 @@ from celery.schedules import crontab
 from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
+from posthog.tasks.team_access_cache_tasks import warm_all_teams_caches_task
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
@@ -94,6 +95,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
+    )
+
+    # Team access cache warming - every 10 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        600,  # Every 10 minutes (no TTL, just fill missing entries)
+        warm_all_teams_caches_task.s(),
+        name="warm team access caches",
     )
 
     # Update events table partitions twice a week
