@@ -2139,7 +2139,7 @@ const api = {
 
         async streamTiles(
             id: number,
-            params: { layoutSize?: 'sm' | 'xs'; limitTiles?: number } = {},
+            params: { layoutSize?: 'sm' | 'xs' } = {},
             onTile: (tile: any) => void,
             onComplete: () => void,
             onError: (error: any) => void

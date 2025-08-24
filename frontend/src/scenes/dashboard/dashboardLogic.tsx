@@ -299,7 +299,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                  * if manualDashboardRefresh is passed then in loadDashboardSuccess we trigger
                  * updateDashboardItems to refresh all insights with `force_blocking`
                  */
-                loadDashboard: async ({ action, manualDashboardRefresh, limitTiles }, breakpoint) => {
+                loadDashboard: async ({ action, manualDashboardRefresh }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
 
                     await breakpoint(200)
@@ -310,8 +310,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             'force_cache',
                             values.temporaryFilters,
                             values.temporaryVariables,
-                            values.currentLayoutSize,
-                            limitTiles
+                            values.currentLayoutSize
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
@@ -1141,15 +1140,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>,
-                    layoutSize?: 'sm' | 'xs',
-                    limitTiles?: number
+                    layoutSize?: 'sm' | 'xs'
                 ) =>
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
                         layout_size: layoutSize,
-                        limit_tiles: limitTiles,
                     })}`
             },
         ],
