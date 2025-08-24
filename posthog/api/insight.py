@@ -23,7 +23,6 @@ from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -35,6 +34,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.dashboards.fast_serializers import FastInsightSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
@@ -58,8 +58,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -649,77 +647,8 @@ class InsightSerializer(InsightBasicSerializer):
         return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
-        representation = super().to_representation(instance)
-
-        # the ORM doesn't know about deleted dashboard tiles
-        # when they have just been updated
-        # we store them and can use that list to correct the response
-        # and avoid refreshing from the DB
-        if self.context.get("after_dashboard_changes"):
-            representation["dashboards"] = [
-                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
-            ]
-        else:
-            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
-
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        request: Optional[Request] = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
-        dashboard_variables_override = variables_override_requested_by_client(
-            request, dashboard, list(self.context["insight_variables"])
-        )
-
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
-            query = instance.query or instance.query_from_filters
-            if (
-                dashboard is not None
-                or dashboard_filters_override is not None
-                or dashboard_variables_override is not None
-            ):
-                query = apply_dashboard_filters_to_dict(
-                    query,
-                    (
-                        dashboard_filters_override
-                        if dashboard_filters_override is not None
-                        else dashboard.filters
-                        if dashboard
-                        else {}
-                    ),
-                    instance.team,
-                )
-
-                query = apply_dashboard_variables_to_dict(
-                    query,
-                    dashboard_variables_override or {},
-                    instance.team,
-                )
-            representation["filters"] = {}
-            representation["query"] = query
-        else:
-            representation["filters"] = instance.dashboard_filters(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
-            )
-            representation["query"] = instance.get_effective_query(
-                dashboard=dashboard,
-                dashboard_filters_override=dashboard_filters_override,
-                dashboard_variables_override=dashboard_variables_override,
-            )
-
-            if "insight" not in representation["filters"] and not representation["query"]:
-                representation["filters"]["insight"] = "TRENDS"
-
-        representation["filters_hash"] = self.insight_result(instance).cache_key
-
-        # Hide PII fields when hideExtraDetails from SharingConfiguration is enabled
-        if self.context.get("hide_extra_details", False):
-            representation.pop("created_by", None)
-            representation.pop("last_modified_by", None)
-            representation.pop("created_at", None)
-            representation.pop("last_modified_at", None)
-
-        return representation
+        fast_serializer = FastInsightSerializer(self.context)
+        return fast_serializer.serialize(instance)
 
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:

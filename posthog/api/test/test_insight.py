@@ -374,8 +374,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
 
         with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            "posthog.api.dashboards.fast_serializers.calculate_for_query_based_insight"
         ) as calculate_for_query_based_insight:
+            from posthog.caching.fetch_from_cache import InsightResult
+
+            calculate_for_query_based_insight.return_value = InsightResult(
+                result=None, last_refresh=None, cache_key="test", is_cached=False, timezone="UTC"
+            )
             self.client.get(valid_url)
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
@@ -388,8 +393,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
 
         with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            "posthog.api.dashboards.fast_serializers.calculate_for_query_based_insight"
         ) as calculate_for_query_based_insight:
+            calculate_for_query_based_insight.return_value = InsightResult(
+                result=None, last_refresh=None, cache_key="test", is_cached=False, timezone="UTC"
+            )
             self.client.get(valid_url, data={"refresh": True})
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,

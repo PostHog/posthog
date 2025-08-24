@@ -1371,6 +1371,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         },
                     },
                     "query_status": None,
+                    "refreshing": False,
                     "result": None,
                     "saved": False,
                     "short_id": ANY,

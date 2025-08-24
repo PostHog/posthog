@@ -1,7 +1,7 @@
-import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, cast
 
-import pydantic_core
+from django.conf import settings
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -40,41 +40,15 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from contextlib import nullcontext
 import posthoganalytics
 from opentelemetry import trace
-
+from posthog.api.dashboards.fast_serializers import (
+    fast_serialize_tile_with_context,
+    serialize_text,
+    serialize_dashboard_tile,
+    FastInsightSerializer,
+)
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
-
-
-def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
-    """
-    Serialize a single tile with error handling. Returns (order, tile_data) tuple.
-    This function is designed to be thread-safe and used with ThreadPoolExecutor.
-    """
-    # Create a copy of context to avoid thread conflicts
-    tile_context = context.copy()
-    tile_context.update(
-        {
-            "dashboard_tile": tile,
-            "order": order,
-        }
-    )
-
-    if isinstance(tile.layouts, str):
-        tile.layouts = json.loads(tile.layouts)
-
-    try:
-        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
-        return order, tile_data
-    except pydantic_core.ValidationError as e:
-        if not tile.insight:
-            raise
-        query = tile.insight.query
-        tile.insight.query = None
-        tile_data = DashboardTileSerializer(tile, context=tile_context).data
-        tile_data["insight"]["query"] = query
-        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
-        return order, tile_data
 
 
 class CanEditDashboard(BasePermission):
@@ -94,6 +68,9 @@ class TextSerializer(serializers.ModelSerializer):
         model = Text
         fields = "__all__"
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
+
+    def to_representation(self, instance: Text):
+        return serialize_text(instance)
 
 
 class DashboardTileSerializer(serializers.ModelSerializer):
@@ -116,15 +93,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("DashboardTileSerializer.to_representation")
     def to_representation(self, instance: DashboardTile):
-        representation = super().to_representation(instance)
-
-        representation["order"] = self.context.get("order", None)
-
-        insight_representation = representation["insight"] or {}  # May be missing for text tiles
-        representation["last_refresh"] = insight_representation.get("last_refresh", None)
-        representation["is_cached"] = insight_representation.get("is_cached", False)
-
-        return representation
+        return serialize_dashboard_tile(instance, self.context)
 
 
 class DashboardBasicSerializer(
@@ -313,8 +282,10 @@ class DashboardSerializer(DashboardBasicSerializer):
 
     def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
         if existing_tile.insight:
+            # Use fast serializer for data extraction, passing full context
+            fast_serializer = FastInsightSerializer(self.context)
             new_data = {
-                **InsightSerializer(existing_tile.insight, context=self.context).data,
+                **fast_serializer.serialize(existing_tile.insight),
                 "id": None,  # to create a new Insight
                 "last_refresh": now(),
                 "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
@@ -337,7 +308,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             )
         elif existing_tile.text:
             new_data = {
-                **TextSerializer(existing_tile.text, context=self.context).data,
+                **serialize_text(existing_tile.text),
                 "id": None,  # to create a new Text
             }
             new_data.pop("dashboards", None)
@@ -468,8 +439,6 @@ class DashboardSerializer(DashboardBasicSerializer):
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        serialized_tiles: list[ReturnDict] = []
-
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
             Prefetch(
                 "insight__tagged_items",
@@ -502,11 +471,27 @@ class DashboardSerializer(DashboardBasicSerializer):
             if not sorted_tiles:
                 return []
 
-            for order, tile in enumerate(sorted_tiles):
-                order, tile_data = serialize_tile_with_context(tile, order, self.context)
-                serialized_tiles.append(cast(ReturnDict, tile_data))
+            if settings.IN_UNIT_TESTING:
+                serialized_tiles: list[ReturnDict] = []
+                for order, tile in enumerate(sorted_tiles):
+                    order, tile_data = fast_serialize_tile_with_context(tile, order, self.context)
+                    serialized_tiles.append(cast(ReturnDict, tile_data))
+                return serialized_tiles
 
-        return serialized_tiles
+            max_workers = min(len(sorted_tiles), 8)
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for order, tile in enumerate(sorted_tiles):
+                    future = executor.submit(fast_serialize_tile_with_context, tile, order, self.context)
+                    futures.append(future)
+
+                tile_results: list[ReturnDict | None] = [None] * len(sorted_tiles)
+                for future in as_completed(futures):
+                    order, tile_data = future.result()
+                    tile_results[order] = cast(ReturnDict, tile_data)
+
+        return [result for result in tile_results if result is not None]
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
