@@ -16,7 +16,16 @@ export function MarketingAnalyticsSettings(): JSX.Element {
 
     return (
         <SceneContent className={cn(!newSceneLayout && 'gap-8 mb-10')}>
-            {newSceneLayout && <SceneTitleSection name="Marketing analytics" description={null} />}
+            {newSceneLayout && (
+                <SceneTitleSection
+                    name="Marketing analytics"
+                    description={null}
+                    resourceType={{
+                        type: 'marketing',
+                        typePlural: 'marketing',
+                    }}
+                />
+            )}
             <SceneDivider />
             <BaseCurrency />
             <SceneDivider />

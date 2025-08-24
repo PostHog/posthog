@@ -70,6 +70,10 @@ export function ToolbarLaunch(): JSX.Element {
                 <SceneTitleSection
                     name="Toolbar"
                     description="PostHog toolbar launches PostHog right in your app or website."
+                    resourceType={{
+                        type: 'toolbar',
+                        typePlural: 'toolbar',
+                    }}
                 />
 
                 <SceneDivider />

@@ -50,7 +50,14 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
     return (
         <SceneContent forceNewSpacing>
-            <SceneTitleSection name="Revenue" description={introductionDescription} />
+            <SceneTitleSection
+                name="Revenue"
+                description={introductionDescription}
+                resourceType={{
+                    type: 'revenue',
+                    typePlural: 'revenue',
+                }}
+            />
             <SceneDivider />
             <ProductIntroduction
                 productName="Revenue tracking"

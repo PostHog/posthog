@@ -81,6 +81,10 @@ export function PropertyDefinitionsTable(): JSX.Element {
             <SceneTitleSection
                 name="Properties"
                 description="Properties are additional fields you can configure to be sent along with an event capture."
+                resourceType={{
+                    type: 'property',
+                    typePlural: 'properties',
+                }}
             />
             <SceneDivider />
             <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">

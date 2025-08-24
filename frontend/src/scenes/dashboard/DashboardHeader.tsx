@@ -63,6 +63,7 @@ import {
 
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { DashboardSaveButton } from './DashboardSaveButton'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
@@ -85,6 +86,7 @@ export function DashboardHeader(): JSX.Element | null {
         apiUrl,
         showTextTileModal,
         textTileId,
+        dashboardHasChanges,
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
@@ -361,40 +363,118 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {dashboard ? (
-                                <AccessControlledLemonButton
-                                    userAccessLevel={dashboard.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Dashboard}
-                                    onClick={showAddInsightToDashboardModal}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <AccessControlledLemonButton
-                                                        userAccessLevel={dashboard.user_access_level}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        resourceType={AccessControlResourceType.Dashboard}
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                        }}
-                                                        data-attr="add-text-tile-to-dashboard"
-                                                    >
-                                                        Add text card
-                                                    </AccessControlledLemonButton>
-                                                </>
-                                            ),
-                                        },
-                                        disabled: false,
-                                        'data-attr': 'dashboard-add-dropdown',
-                                    }}
-                                >
-                                    Add insight
-                                </AccessControlledLemonButton>
+                            {dashboard && canEditDashboard ? (
+                                dashboardHasChanges || (dashboardMode as DashboardMode) === DashboardMode.Edit ? (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            data-attr="dashboard-discard-changes"
+                                            onClick={() => {
+                                                if (
+                                                    dashboardMode &&
+                                                    (dashboardMode as DashboardMode) === DashboardMode.Edit
+                                                ) {
+                                                    setDashboardMode(
+                                                        null,
+                                                        DashboardEventSource.DashboardHeaderDiscardChanges
+                                                    )
+                                                } else {
+                                                    // Reload the dashboard to discard changes
+                                                    window.location.reload()
+                                                }
+                                            }}
+                                        >
+                                            Cancel
+                                        </LemonButton>
+                                        <DashboardSaveButton
+                                            dashboardHasChanges={dashboardHasChanges}
+                                            dashboardLoading={dashboardLoading}
+                                            onSave={() => {
+                                                // Save changes and exit edit mode
+                                                triggerDashboardUpdate({})
+                                                if (
+                                                    dashboardMode &&
+                                                    (dashboardMode as DashboardMode) === DashboardMode.Edit
+                                                ) {
+                                                    setDashboardMode(
+                                                        null,
+                                                        DashboardEventSource.DashboardHeaderSaveDashboard
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                    </>
+                                ) : dashboard.tiles.length === 0 ? (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            data-attr="dashboard-edit-button"
+                                            onClick={() =>
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                            }
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                        <AccessControlledLemonButton
+                                            userAccessLevel={dashboard.user_access_level}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            resourceType={AccessControlResourceType.Dashboard}
+                                            onClick={() => {
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                                showAddInsightToDashboardModal()
+                                            }}
+                                            type="primary"
+                                            data-attr="dashboard-add-graph-header"
+                                        >
+                                            Add insight
+                                        </AccessControlledLemonButton>
+                                    </>
+                                ) : (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            data-attr="dashboard-edit-button"
+                                            onClick={() =>
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                            }
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                        <AccessControlledLemonButton
+                                            userAccessLevel={dashboard.user_access_level}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            resourceType={AccessControlResourceType.Dashboard}
+                                            onClick={showAddInsightToDashboardModal}
+                                            type="primary"
+                                            data-attr="dashboard-add-graph-header"
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <>
+                                                            <AccessControlledLemonButton
+                                                                userAccessLevel={dashboard.user_access_level}
+                                                                minAccessLevel={AccessControlLevel.Editor}
+                                                                resourceType={AccessControlResourceType.Dashboard}
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                                }}
+                                                                data-attr="add-text-tile-to-dashboard"
+                                                            >
+                                                                Add text card
+                                                            </AccessControlledLemonButton>
+                                                        </>
+                                                    ),
+                                                },
+                                                disabled: false,
+                                                'data-attr': 'dashboard-add-dropdown',
+                                            }}
+                                        >
+                                            Add insight
+                                        </AccessControlledLemonButton>
+                                    </>
+                                )
                             ) : null}
                         </>
                     )

@@ -14,7 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconColor } from '~/types'
 
-import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
+import '../../panel-layout/ProjectTree/defaultTree'
 
 type ResourceType = {
     to?: string
@@ -176,7 +176,7 @@ function SceneName({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnChange = useDebouncedCallback(onChange || (() => {}), 1500)
+    const debouncedOnChange = useDebouncedCallback(onChange || (() => {}), 100)
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
@@ -296,7 +296,7 @@ function SceneDescription({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnDescriptionChange = useDebouncedCallback(onChange || (() => {}), 1500)
+    const debouncedOnDescriptionChange = useDebouncedCallback(onChange || (() => {}), 100)
 
     if (!onChange && canEdit) {
         console.warn('SceneDescription: onBlur is required when canEdit is true')

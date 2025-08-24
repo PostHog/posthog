@@ -576,6 +576,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
+        savedDashboard: [
+            null as DashboardType<QueryBasedInsightModel> | null,
+            {
+                [dashboardsModel.actionTypes.updateDashboardSuccess]: (_, { dashboard }) => dashboard || null,
+                loadDashboardSuccess: (_, { dashboard }) => dashboard,
+            },
+        ],
         loadTimer: [null as Date | null, { loadDashboard: () => new Date() }],
         dashboardLoadData: [
             {
@@ -1126,6 +1133,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 return [createMaxContextHelpers.dashboard(dashboard)]
+            },
+        ],
+        dashboardHasChanges: [
+            (s) => [s.dashboard, s.savedDashboard],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                savedDashboard: DashboardType<QueryBasedInsightModel> | null
+            ): boolean => {
+                if (!dashboard || !savedDashboard) {
+                    return false
+                }
+                return (
+                    (dashboard.name || '') !== (savedDashboard.name || '') ||
+                    (dashboard.description || '') !== (savedDashboard.description || '')
+                )
             },
         ],
     })),

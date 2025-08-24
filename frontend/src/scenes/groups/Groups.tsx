@@ -51,6 +51,10 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 <SceneTitleSection
                     name="Groups"
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
+                    resourceType={{
+                        type: 'group',
+                        typePlural: 'groups',
+                    }}
                 />
                 <GroupsIntroduction />
             </SceneContent>
@@ -86,6 +90,10 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
+                resourceType={{
+                    type: 'group',
+                    typePlural: 'groups',
+                }}
             />
             <SceneDivider />
 
