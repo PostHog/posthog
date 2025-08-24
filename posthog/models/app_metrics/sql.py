@@ -177,9 +177,9 @@ FROM (
     GROUP BY date
     ORDER BY date
     WITH FILL
-        FROM dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s)
-        TO dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
-        STEP %(with_fill_step)s
+        FROM dateTrunc(%(interval)s, toDateTime64(%(date_from)s, 0, %(timezone)s), %(timezone)s)
+        TO dateTrunc(%(interval)s, toDateTime64(%(date_to)s, 0, %(timezone)s) + {interval_function}(1), %(timezone)s)
+        STEP {interval_function}(1)
 )
 """
 

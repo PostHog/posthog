@@ -36,6 +36,12 @@ export function getDefaultConfig(): PluginsServerConfig {
               ? 'postgres://posthog:posthog@localhost:5432/posthog'
               : '',
         PERSONS_READONLY_DATABASE_URL: '',
+        PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons_migration'
+              : '',
+        PERSONS_MIGRATION_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -285,6 +291,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
+        PERSONS_DUAL_WRITE_ENABLED: false,
+        PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // Messaging

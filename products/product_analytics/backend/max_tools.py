@@ -8,16 +8,10 @@ from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import (
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
     AssistantMessage,
-    AssistantRetentionQuery,
     AssistantToolCallMessage,
-    AssistantTrendsQuery,
     VisualizationMessage,
 )
-
-QueryResult = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 
 
 class EditCurrentInsightArgs(BaseModel):

@@ -97,7 +97,6 @@ from posthog.models.property_definition import (
 from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_RAW_SESSION_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
@@ -127,6 +126,12 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
+)
+from posthog.models.raw_sessions.sql import (
+    DROP_RAW_SESSION_SHARDED_TABLE_SQL,
+    DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
+    DROP_RAW_SESSION_WRITABLE_TABLE_SQL,
+    WRITABLE_RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -1160,7 +1165,9 @@ def reset_clickhouse_database() -> None:
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
-            DROP_RAW_SESSION_TABLE_SQL(),
+            DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
+            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
+            DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
             DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
@@ -1184,6 +1191,7 @@ def reset_clickhouse_database() -> None:
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
+            WRITABLE_RAW_SESSIONS_TABLE_SQL(),
             SESSIONS_TABLE_SQL(),
             SESSION_RECORDING_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
