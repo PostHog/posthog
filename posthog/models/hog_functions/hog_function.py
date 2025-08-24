@@ -268,20 +268,41 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
     if settings.DISABLE_MMDB or not created:
         return
 
-    # New way: Create GeoIP transformation
-    from posthog.models.hog_functions.hog_function import HogFunction
+    template = HogFunctionTemplate.get_template("template-geoip")
+    if template:
+        from posthog.api.hog_function import HogFunctionSerializer
+        from types import SimpleNamespace
 
-    # NOTE: This is hardcoded to simplify the creation
-    HogFunction.objects.create(
-        team=instance,
-        created_by=kwargs.get("initiating_user"),
-        template_id="plugin-posthog-plugin-geoip",
-        type="transformation",
-        name="GeoIP",
-        description="Enrich events with GeoIP data",
-        icon_url="/static/transformations/geoip.png",
-        hog="return event",
-        inputs_schema=[],
-        enabled=True,
-        execution_order=1,
-    )
+        serializer_data = {
+            "template_id": template.template_id,
+            "type": "transformation",
+            "name": template.name,
+            "description": template.description or "Adds geoip data to the event",
+            "icon_url": template.icon_url or "/static/transformations/geoip.png",
+            "hog": template.code,
+            "inputs_schema": template.inputs_schema,
+            "enabled": True,
+            "execution_order": 1,
+        }
+
+        # Create a mock request context for the serializer since it expects a request object
+        mock_request = SimpleNamespace(user=kwargs.get("initiating_user"))
+
+        serializer = HogFunctionSerializer(
+            data=serializer_data,
+            context={
+                "get_team": lambda: instance,
+                "is_create": True,
+                "request": mock_request,
+                "bypass_addon_check": False,
+            },
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+        else:
+            logger.error(
+                "Failed to create default GeoIP transformation during team creation",
+                team_id=instance.id,
+                errors=serializer.errors,
+            )
