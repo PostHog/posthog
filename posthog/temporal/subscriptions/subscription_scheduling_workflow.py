@@ -19,7 +19,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
 
-# Changed 8/12/25 11:20 AM
+# Changed 8/22/25 11:20 PM
 
 
 @dataclasses.dataclass

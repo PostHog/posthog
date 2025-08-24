@@ -406,6 +406,40 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnyAssistantGeneratedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantHogQLQuery"
+                }
+            ],
+            "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
+        },
+        "AnyAssistantSupportedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            ],
+            "description": "The union type with all supported base queries for the assistant."
+        },
         "AnyDataNode": {
             "anyOf": [
                 {
@@ -24611,16 +24645,10 @@
                 "answer": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
                         }
                     ]
                 },

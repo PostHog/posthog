@@ -13,14 +13,22 @@ from pydantic import BaseModel, Field
 from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
+    AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
+    AssistantHogQLQuery,
     AssistantMessage,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
+    TrendsQuery,
     VisualizationMessage,
     NotebookUpdateMessage,
+    RetentionQuery,
+    FunnelsQuery,
+    HogQLQuery,
 )
 
 AIMessageUnion = Union[
@@ -37,6 +45,11 @@ AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
+
+AnyAssistantGeneratedQuery = (
+    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+)
+AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 
 
 def merge(_: Any | None, right: Any | None) -> Any | None:
