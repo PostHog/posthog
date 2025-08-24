@@ -16,7 +16,7 @@ from ee.models.assistant import Conversation
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.sync import database_sync_to_async
-from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool
+from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool, HogQLGeneratorNode
 
 
 class EvalInput(BaseModel):
@@ -127,8 +127,8 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
             EvalCase(
                 input=EvalInput(
                     instructions="how many bills did users pay from Australia? Output just a single number.",
-                    apply_patch=lambda tool: patch.object(
-                        tool,
+                    apply_patch=lambda _: patch.object(
+                        HogQLGeneratorNode,
                         "_aget_core_memory_text",
                         return_value='Use "paid_bill" event from the events table joined by "events.person_id = persons.id". The person properties have the "$geoip_country_code" field with two-letter country codes (uppercase).',
                     ).start(),

@@ -64,17 +64,19 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
    - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
-4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
-
+4. **Property Value Matching**:
+- IMPORTANT: If tool call returns property values that are related but not synonyms to the user's requested value: USE USER'S ORIGINAL VALUE.
+- IMPORTANT: If tool call returns property values that are synonyms, typos, or a variant of the user's requested value: USE FOUND VALUES
+- If the tool call returns no values, you can retry with the next best property or entity.
 </tool_usage>
 """.strip()
 
 HUMAN_IN_THE_LOOP_PROMPT = """
 When you need clarification or determines that additional information is required, you can use the `ask_user_for_help` tool.
 **When to Ask for Help**:
-- Cannot infer the correct entity/group/event type
-- No properties found for the entity/group/event
-- Property values don't match user's request
+- Cannot infer the correct entity/group/event type.
+- Cannot infer the correct property for the entity/group/event.
+- No properties found for the entity/group/event.
 """.strip()
 
 
