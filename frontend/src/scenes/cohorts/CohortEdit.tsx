@@ -40,14 +40,19 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
+import { AddPersonToCohortModal } from './AddPersonToCohortModal'
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
+
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const modalLogic = addPersonToCohortModalLogic(logicProps)
+    const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
@@ -70,6 +75,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
+            <AddPersonToCohortModal id={id} />
             <PageHeader
                 buttons={
                     <div className="flex items-center gap-2">
@@ -340,6 +346,17 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     {cohort.is_static ? (
                         <>
                             <SceneDivider />
+                            {!isNewCohort && (
+                                <SceneSection
+                                    title="Add Users Manually"
+                                    description="Select the users that you would like to add to the cohort."
+                                >
+                                    <LemonButton className="w-fit" type="primary" onClick={showAddPersonToCohortModal}>
+                                        Add Users
+                                    </LemonButton>
+                                </SceneSection>
+                            )}
+                            <LemonDivider label="OR" />
                             <SceneSection
                                 title={isNewCohort ? 'Upload users' : 'Add users'}
                                 description="Upload a CSV file to add users to your cohort. For single-column files, include

@@ -1,0 +1,25 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonModal } from '@posthog/lemon-ui'
+
+import { AddPersonToCohortModalBody } from './AddPersonToCohortModalBody'
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { CohortLogicProps } from './cohortEditLogic'
+
+export function AddPersonToCohortModal({ id }: CohortLogicProps): JSX.Element {
+    const logicProps = { id }
+    const logic = addPersonToCohortModalLogic(logicProps)
+    const { hideAddPersonToCohortModal } = useActions(logic)
+    const { addPersonToCohortModalVisible } = useValues(logic)
+    return (
+        <BindLogic logic={addPersonToCohortModalLogic} props={{ id }}>
+            <LemonModal
+                title="Add person to cohort"
+                onClose={hideAddPersonToCohortModal}
+                isOpen={addPersonToCohortModalVisible}
+            >
+                <AddPersonToCohortModalBody />
+            </LemonModal>
+        </BindLogic>
+    )
+}
