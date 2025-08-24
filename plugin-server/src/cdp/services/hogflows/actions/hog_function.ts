@@ -111,6 +111,14 @@ export class HogFunctionHandler implements ActionHandler {
             },
         }
 
+        if (action.type === 'function_email') {
+            const unsubscribeUrl = await this.recipientPreferencesService.buildUnsubscribeUrl(
+                hogFunctionInvocation,
+                action
+            )
+            globals.unsubscribe_url = unsubscribeUrl
+        }
+
         if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
             return {
                 finished: true,
