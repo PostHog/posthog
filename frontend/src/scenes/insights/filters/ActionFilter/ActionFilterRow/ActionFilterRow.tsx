@@ -51,15 +51,16 @@ import { MathType, NodeKind } from '~/queries/schema/schema-general'
 import {
     TRAILING_MATH_TYPES,
     getMathTypeWarning,
-    isCalendarHeatmapQuery,
     isInsightVizNode,
     isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
     BaseMathType,
     ChartDisplayCategory,
+    ChartDisplayType,
     CountPerActorMathType,
     EntityType,
     EntityTypes,
@@ -729,7 +730,11 @@ function useMathSelectorOptions({
     mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
-    const isCalendarHeatmap = query && isInsightVizNode(query) && isCalendarHeatmapQuery(query.source)
+    const isCalendarHeatmap =
+        query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source) &&
+        query.source.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
 
     const {
         needsUpgradeForGroups,

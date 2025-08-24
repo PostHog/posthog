@@ -3,6 +3,8 @@ import { humanFriendlyNumber } from 'lib/utils'
 export interface AxisConfig {
     values: string[]
 }
+
+// Calendar heatmap utility functions
 export function thresholdFontSize(width: number): number {
     // These numbers are thresholds for the table's width, if we do not update the fontSize, the table overflows horizontally
     if (width < 1007) {
@@ -22,13 +24,6 @@ export const DaysAbbreviated: AxisConfig = {
 
 export const HoursAbbreviated: AxisConfig = {
     values: Array.from({ length: 24 }, (_, i) => String(i)),
-}
-
-export function rowLabels(weekStartDay: number): string[] {
-    return Array.from({ length: DaysAbbreviated.values.length }, (_, i) => {
-        const adjustedDay = (i + weekStartDay) % DaysAbbreviated.values.length
-        return DaysAbbreviated.values[adjustedDay]
-    })
 }
 
 export enum AggregationLabel {

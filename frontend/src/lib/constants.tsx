@@ -14,20 +14,26 @@ export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayC
     [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayCategory.TotalValue,
 }
 export const NON_TIME_SERIES_DISPLAY_TYPES = Object.entries(DISPLAY_TYPES_TO_CATEGORIES)
     .filter(([, category]) => category === ChartDisplayCategory.TotalValue)
     .map(([displayType]) => displayType as ChartDisplayType)
 
 /** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
-export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
+export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber, ChartDisplayType.CalendarHeatmap]
 /** Display types which only work with a single series. */
-export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
+export const SINGLE_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.CalendarHeatmap,
+]
 
 export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
+    ChartDisplayType.CalendarHeatmap,
 ]
 
 /** Display types for which a percent stack view is available. */

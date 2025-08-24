@@ -1,5 +1,4 @@
 import {
-    CalendarHeatmapQuery,
     FunnelsQuery,
     InsightNodeKind,
     InsightQueryNode,
@@ -11,7 +10,7 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 export const trendsQueryDefault: TrendsQuery = {
     kind: NodeKind.TrendsQuery,
@@ -26,8 +25,8 @@ export const trendsQueryDefault: TrendsQuery = {
     trendsFilter: {},
 }
 
-export const calendarHeatmapQueryDefault: CalendarHeatmapQuery = {
-    kind: NodeKind.CalendarHeatmapQuery,
+export const calendarHeatmapQueryDefault: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
     series: [
         {
             kind: NodeKind.EventsNode,
@@ -36,7 +35,9 @@ export const calendarHeatmapQueryDefault: CalendarHeatmapQuery = {
             math: BaseMathType.TotalCount,
         },
     ],
-    calendarHeatmapFilter: {},
+    trendsFilter: {
+        display: ChartDisplayType.CalendarHeatmap,
+    },
 }
 
 export const funnelsQueryDefault: FunnelsQuery = {
@@ -113,5 +114,4 @@ export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> =
     [NodeKind.PathsQuery]: pathsQueryDefault,
     [NodeKind.StickinessQuery]: stickinessQueryDefault,
     [NodeKind.LifecycleQuery]: lifecycleQueryDefault,
-    [NodeKind.CalendarHeatmapQuery]: calendarHeatmapQueryDefault,
 }

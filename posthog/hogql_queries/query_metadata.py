@@ -21,7 +21,6 @@ from posthog.schema import (
     PathType,
     StickinessQuery,
     LifecycleQuery,
-    CalendarHeatmapQuery,
     DataTableNode,
     ActorsQuery,
     InsightActorsQuery,
@@ -32,6 +31,7 @@ from posthog.schema import (
     EventsQuery,
     FunnelExclusionEventsNode,
     FunnelExclusionActionsNode,
+    CalendarHeatmapQuery,
 )
 from posthog.utils import get_from_dict_or_attr
 from posthog.hogql_queries.query_runner import RunnableQueryNode
