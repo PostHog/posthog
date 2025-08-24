@@ -68,7 +68,7 @@ Currently, **read permissions are required** for the following resources:
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                supports_append=True,
+                supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in STRIPE_ENDPOINTS

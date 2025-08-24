@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from stripe import ListObject, StripeClient
 from structlog.types import FilteringBoundLogger
@@ -35,7 +35,6 @@ DEFAULT_LIMIT = 100
 class StripeResource:
     method: Callable[..., ListObject[Any]]
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
-    nested_resources: dict[str, "StripeResource"] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -61,7 +60,7 @@ def stripe_source(
             api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=5
         )
         default_params = {"limit": DEFAULT_LIMIT}
-        resources: dict[str, StripeResource] = {
+        resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
             ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
             BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
             CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
@@ -103,10 +102,11 @@ def stripe_source(
             logger.debug(f"Stripe: iterating all objects from resource")
 
             if isinstance(resource, StripeNestedResource):
-                stripe_parent_objects = resource.parent.method(params={**default_params, **resource.params})
+                stripe_parent_objects = resource.parent.method(params={**default_params, **resource.parent.params})
                 for obj in stripe_parent_objects.auto_paging_iter():
                     stripe_nested_objects = resource.method(
-                        **{resource.nested_parent_param: obj[resource.parent_id]}, params={**default_params}
+                        **{resource.nested_parent_param: obj[resource.parent_id]},
+                        params={**default_params, **resource.params},
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():  # noqa: UP028
                         yield {
