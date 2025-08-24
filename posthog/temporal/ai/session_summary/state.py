@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import json
 
 from enum import Enum
@@ -8,6 +9,7 @@ from redis import asyncio as aioredis
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from posthog.redis import get_async_client
 
+
 T = TypeVar("T")
 
 
@@ -16,6 +18,11 @@ class StateActivitiesEnum(Enum):
     SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
     SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patterns from all the summaries
     SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
+
+
+def generate_state_id_from_session_ids(session_ids: list[str]) -> str:
+    """Generate a short, but reproducible state id from a list of session ids."""
+    return hashlib.sha256(",".join(session_ids).encode()).hexdigest()[:16]
 
 
 def get_redis_state_client(
@@ -107,49 +114,37 @@ async def store_data_in_redis(
 
 async def get_data_class_from_redis(
     redis_client: aioredis.Redis, redis_key: str | None, label: StateActivitiesEnum, target_class: type[T]
-) -> T:
-    """Load and parse a dataclass instance stored as JSON in Redis.
-
-    Parameters
-    ----------
-    redis_client:
-        Redis client used to fetch the value.
-    redis_key:
-        Key from which the JSON value is retrieved.
-    label:
-        Activity label used solely for error messages.
-    target_class:
-        Dataclass type into which the JSON will be loaded.
-
-    Returns
-    -------
-    T
-        Instance of `target_class` reconstructed from the stored JSON.
-    """
+) -> T | None:
+    """Load and parse a dataclass instance stored as JSON in Redis."""
     if not redis_key:
-        raise ValueError(f"Redis key is required for {label.value} to extract data from Redis ({target_class})")
+        # If the data not present - it's probably not cached yet
+        return None
     redis_data_str = await get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
+    if not redis_data_str:
+        return None
     try:
         return target_class(**json.loads(redis_data_str))
     except Exception as err:
-        raise ValueError(
-            f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label.value}): {err}"
-        ) from err
+        # Should be an actual exception as the data is already in Redis, but malformed
+        raise ValueError(f"Failed to parse output data for Redis key {redis_key} ({label.value}): {err}") from err
 
 
 async def get_data_str_from_redis(
     redis_client: aioredis.Redis, redis_key: str | None, label: StateActivitiesEnum
-) -> str:
+) -> str | None:
     """Retrieve and decompress a string value from Redis."""
     if not redis_key:
-        raise ValueError(f"Redis key is required to get data from Redis ({label.value})")
+        # If the data not present - it's probably not cached yet
+        return None
     raw_redis_data = await redis_client.get(redis_key)
     if not raw_redis_data:
-        raise ValueError(f"Output data not found in Redis for key {redis_key} ({label.value})")
+        # If the key doesn't exist in Redis, return None (not cached yet)
+        return None
     try:
         redis_data_str = decompress_redis_data(raw_redis_data)
         return redis_data_str
     except Exception as err:
+        # Also exception if the data is present, but malformed
         raise ValueError(
             f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label.value}): {err}"
         ) from err

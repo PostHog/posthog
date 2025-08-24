@@ -14,15 +14,14 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
-import posthoganalytics
 from posthoganalytics import capture_exception
+import posthoganalytics
 from pydantic import BaseModel
 
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 
-# Import moved inside functions to avoid circular imports
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
