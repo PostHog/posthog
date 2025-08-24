@@ -364,7 +364,6 @@ export function DataWarehouseScene(): JSX.Element {
                         <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
                     </LemonCard>
                 </div>
-                // cost breakdown
                 <div className="space-y-2">
                     {(() => {
                         if (!totalRowsStats || !billing) {
