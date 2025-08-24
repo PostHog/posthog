@@ -509,22 +509,22 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
             ),
             EvalCase(
                 input="Show me recordings since the 1st of August",
-                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2025-08-01T00:00:00"}),
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2025-08-01T00:00:00:000"}),
             ),
             EvalCase(
                 input="Show me recordings until the 31st of August",
-                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_to": "2025-08-31T23:59:59"}),
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_to": "2025-08-31T23:59:59:999"}),
             ),
             EvalCase(
                 input="Show me recordings from the 1st of September to the 31st of September",
                 expected=DUMMY_CURRENT_FILTERS.model_copy(
-                    update={"date_from": "2025-09-01T00:00:00", "date_to": "2025-09-30T23:59:59"}
+                    update={"date_from": "2025-09-01T00:00:00:000", "date_to": "2025-09-30T23:59:59:999"}
                 ),
             ),
             EvalCase(
                 input="Show me recordings from the 1st of September to the 1st of September",
                 expected=DUMMY_CURRENT_FILTERS.model_copy(
-                    update={"date_from": "2025-09-01T00:00:00", "date_to": "2025-09-01T23:59:59"}
+                    update={"date_from": "2025-09-01T00:00:00:000", "date_to": "2025-09-01T23:59:59:999"}
                 ),
             ),
             EvalCase(
