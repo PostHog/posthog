@@ -739,7 +739,10 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                     {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
                         <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
                             Get richer insights automatically by{' '}
-                            <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
+                            <Link
+                                to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics"
+                                target="_blank"
+                            >
                                 enabling enriched analytics for flags{' '}
                             </Link>
                         </LemonBanner>
