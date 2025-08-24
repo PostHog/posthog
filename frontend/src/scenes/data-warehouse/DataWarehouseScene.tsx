@@ -11,6 +11,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { IconCancel, IconExclamation, IconRadioButtonUnchecked, IconSync } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { compactNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -25,8 +26,14 @@ const LIST_SIZE = 5
 
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats, actionableIssues } =
-        useValues(dataWarehouseSceneLogic)
+    const {
+        materializedViews,
+        activityPaginationState,
+        computedAllSources,
+        totalRowsStats,
+        actionableIssues,
+        billing,
+    } = useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage } = useActions(dataWarehouseSceneLogic)
 
     const sourcesPagination = usePagination(computedAllSources, { pageSize: LIST_SIZE }, 'sources')
@@ -356,6 +363,169 @@ export function DataWarehouseScene(): JSX.Element {
                         />
                         <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
                     </LemonCard>
+                </div>
+                // cost breakdown
+                <div className="space-y-2">
+                    {(() => {
+                        if (!totalRowsStats || !billing) {
+                            return null
+                        }
+
+                        // for testing: allow overriding usage via URL params
+                        const urlParams = new URLSearchParams(window.location.search)
+                        const testUsage = urlParams.get('test_dw_usage')
+
+                        const currentUsage = testUsage
+                            ? parseInt(testUsage, 10)
+                            : totalRowsStats?.tracked_billing_rows || 0
+                        const pendingUsage = totalRowsStats?.pending_billing_rows || 0
+                        const totalUsage = currentUsage
+                        const dataWarehouseProduct = billing?.products?.find((p) => p.type === 'data_warehouse')
+
+                        if (!dataWarehouseProduct?.tiers) {
+                            return null
+                        }
+
+                        const tiers = dataWarehouseProduct.tiers.map((tier, index) => ({
+                            name: index === 0 ? 'Free' : `Tier ${index}`,
+                            min: dataWarehouseProduct.tiers?.[index - 1]?.up_to || 0,
+                            max: tier.up_to || Infinity,
+                            unitPrice: parseFloat(tier.unit_amount_usd) || 0,
+                        }))
+
+                        const totalCost = dataWarehouseProduct?.current_amount_usd
+                            ? parseFloat(dataWarehouseProduct.current_amount_usd)
+                            : tiers.reduce((cost, tier) => {
+                                  const usageInTier = Math.max(0, Math.min(tier.max - tier.min, totalUsage - tier.min))
+                                  return cost + usageInTier * tier.unitPrice
+                              }, 0)
+
+                        const activeTiers = tiers.map((tier) => {
+                            const usageInTier = Math.max(0, Math.min(tier.max - tier.min, totalUsage - tier.min))
+                            const cost = usageInTier * tier.unitPrice
+
+                            return {
+                                ...tier,
+                                usage: usageInTier,
+                                cost,
+                                isActive: totalUsage > tier.min && totalUsage <= tier.max,
+                                hasUsage: usageInTier > 0,
+                            }
+                        })
+
+                        const currentTier = tiers.find((t) => totalUsage >= t.min && totalUsage <= t.max) || tiers[0]
+
+                        return (
+                            <LemonCard className="p-4 hover:transform-none">
+                                <div className="flex items-start gap-1 mb-3">
+                                    <div className="text-sm text-muted">Data Warehouse Costs</div>
+                                    <Tooltip title="Shows your current Data Warehouse costs based on rows synced in the billing period">
+                                        <IconInfo className="text-muted mt-0.5" />
+                                    </Tooltip>
+                                </div>
+
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <div className="text-2xl font-semibold">${totalCost.toFixed(2)}</div>
+                                        <div className="text-xs text-muted">Current month</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-lg font-medium">{compactNumber(totalUsage)}</div>
+                                        <div className="text-xs text-muted">
+                                            Rows processed
+                                            {pendingUsage > 0 && (
+                                                <div className="text-warning">
+                                                    {compactNumber(pendingUsage)} pending
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-between items-center mb-3">
+                                    <span className="text-sm text-muted">Current tier</span>
+                                    <LemonTag type={currentTier.name === 'Free' ? 'success' : 'primary'} size="small">
+                                        {currentTier.name}
+                                    </LemonTag>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <div className="text-sm text-muted mb-2">Pricing tiers</div>
+                                    {tiers.map((tier) => {
+                                        const tierData = activeTiers.find((t) => t.name === tier.name)
+                                        const isActive = tierData?.isActive
+                                        const hasUsage = tierData?.hasUsage
+
+                                        return (
+                                            <div
+                                                key={tier.name}
+                                                className={`flex justify-between items-center p-2 rounded text-sm ${
+                                                    isActive
+                                                        ? 'bg-primary-alt-highlight border border-primary-alt'
+                                                        : hasUsage
+                                                          ? 'bg-bg-light'
+                                                          : ''
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium">{tier.name}</span>
+                                                    <span className="text-muted">
+                                                        {tier.max === Infinity
+                                                            ? `${compactNumber(tier.min)}+ rows`
+                                                            : tier.min === 0
+                                                              ? `0 - ${compactNumber(tier.max)} rows`
+                                                              : `${compactNumber(tier.min)} - ${compactNumber(tier.max)} rows`}
+                                                    </span>
+                                                    {tier.unitPrice > 0 && (
+                                                        <span className="text-xs text-muted">
+                                                            (${tier.unitPrice.toFixed(4)}/row)
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="font-medium">
+                                                        ${(tierData?.cost || 0).toFixed(2)}
+                                                    </div>
+                                                    {tierData?.hasUsage && (
+                                                        <div className="text-xs text-muted">
+                                                            {compactNumber(tierData.usage)} rows
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+
+                                {currentTier.max !== Infinity && (
+                                    <div className="mt-4 pt-3 border-t border-border">
+                                        <div className="flex justify-between text-xs text-muted mb-1">
+                                            <span>Progress to next tier</span>
+                                            <span>
+                                                {Math.round(
+                                                    ((totalUsage - currentTier.min) /
+                                                        (currentTier.max - currentTier.min)) *
+                                                        100
+                                                )}
+                                                %
+                                            </span>
+                                        </div>
+                                        <div className="w-full bg-border rounded-full h-2">
+                                            <div
+                                                className="bg-primary h-2 rounded-full transition-all"
+                                                style={{
+                                                    width: `${Math.min(100, ((totalUsage - currentTier.min) / (currentTier.max - currentTier.min)) * 100)}%`,
+                                                }}
+                                            />
+                                        </div>
+                                        <div className="text-xs text-muted mt-1">
+                                            {compactNumber(currentTier.max - totalUsage)} rows until next tier
+                                        </div>
+                                    </div>
+                                )}
+                            </LemonCard>
+                        )
+                    })()}
                 </div>
             </div>
         </div>
