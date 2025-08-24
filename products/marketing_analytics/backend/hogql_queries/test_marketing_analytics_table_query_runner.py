@@ -162,17 +162,29 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     def test_calculate_basic(self):
         with patch.object(MarketingAnalyticsTableQueryRunner, "to_query") as mock_to_query:
             mock_to_query.return_value = ast.SelectQuery(
-                select=[ast.Field(chain=["test"])], select_from=ast.JoinExpr(table=ast.Field(chain=["test_table"]))
+                select=[ast.Alias(alias="Campaign", expr=ast.Field(chain=["campaign"]))],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["test_table"])),
             )
 
             with patch("posthog.hogql.query.execute_hogql_query") as mock_execute:
-                mock_execute.return_value = Mock(results=[["test_result"]], types=[], hogql="SELECT test", timings=[])
+                mock_execute.return_value = Mock(
+                    results=[["test_campaign"]], types=[], hogql="SELECT campaign", timings=[]
+                )
 
                 runner = self._create_query_runner()
                 result = runner.calculate()
 
                 assert isinstance(result, MarketingAnalyticsTableQueryResponse)
-                assert result.results == [["test_result"]]
+                # Results are now transformed to WebAnalyticsItemBase objects
+                assert len(result.results) == 1
+                assert len(result.results[0]) == 1
+                # Check the transformed item structure (should be WebAnalyticsItemBase)
+                transformed_item = result.results[0][0]
+                assert transformed_item.key == "Campaign"
+                assert transformed_item.value == "test_campaign"
+                assert transformed_item.previous is None
+                assert transformed_item.kind == "unit"
+                assert transformed_item.isIncreaseBad is False
                 assert result.hasMore is False
                 assert result.limit == DEFAULT_LIMIT
                 assert result.offset == 0
