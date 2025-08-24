@@ -23716,6 +23716,9 @@
                 "id": {
                     "type": "string"
                 },
+                "progress_text": {
+                    "type": "string"
+                },
                 "prompt": {
                     "type": "string"
                 },

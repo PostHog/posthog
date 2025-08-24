@@ -4719,6 +4719,7 @@ class TaskExecutionItem(BaseModel):
     artifact_ids: Optional[list[str]] = None
     description: str
     id: str
+    progress_text: Optional[str] = None
     prompt: str
     status: TaskExecutionStatus
 

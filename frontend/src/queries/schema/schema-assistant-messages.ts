@@ -140,6 +140,7 @@ export interface TaskExecutionItem {
     prompt: string
     status: TaskExecutionStatus
     artifact_ids?: string[]
+    progress_text?: string
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {

@@ -537,6 +537,21 @@ function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element
                                 >
                                     {task.description}
                                 </div>
+
+                                {task.progress_text && task.status !== TaskExecutionStatus.Pending && (
+                                    <div
+                                        className={`text-xs mt-0.5 font-medium ${
+                                            task.status === TaskExecutionStatus.InProgress
+                                                ? 'text-primary-alt animate-pulse'
+                                                : task.status === TaskExecutionStatus.Completed
+                                                  ? 'text-success'
+                                                  : 'text-danger'
+                                        }`}
+                                    >
+                                        {task.progress_text}
+                                    </div>
+                                )}
+
                                 {task.prompt && (
                                     <div
                                         className={clsx(

@@ -107,6 +107,7 @@ STREAMING_NODES: set[MaxNodeName] = {
     AssistantNodeName.SESSION_SUMMARIZATION,
     DeepResearchNodeName.ONBOARDING,
     DeepResearchNodeName.PLANNER,
+    DeepResearchNodeName.TASK_EXECUTOR,
 }
 """Nodes that can stream messages to the client directly from a streaming API (e.g. MaxChatOpenAI)."""
 

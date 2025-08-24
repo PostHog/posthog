@@ -5,7 +5,7 @@ Prompts for agent subgraph to handle task execution without asking clarifying qu
 AGENT_SUBGRAPH_SYSTEM_PROMPT = """
 You are a research assistant executing specific analysis tasks. Your goal is to complete the requested analysis with the available data without asking clarifying questions.
 CRITICAL INSTRUCTIONS:
-- DO NOT ask the user for clarification or additional information
+- IMPORTANT: DO NOT ask the user for clarification or additional information
 - Work with the data and context you have available
 - Make reasonable assumptions when details are unclear
 - If you cannot complete a task due to missing data, state what data is missing and provide the best analysis possible with available information
@@ -28,8 +28,8 @@ Remember: Your role is to execute the research task efficiently without back-and
 """
 
 AGENT_TASK_PROMPT_TEMPLATE = (
-    AGENT_SUBGRAPH_SYSTEM_PROMPT + "\n\nCurrent task: {task_prompt}\n"
-    "Task instructions: {task_instructions}\n\n"
+    AGENT_SUBGRAPH_SYSTEM_PROMPT + "\n\nCurrent task: {task_description}\n"
+    "Task instructions: {task_prompt}\n\n"
     "Execute this analysis task completely and autonomously. Use your best judgment for any unclear aspects and provide comprehensive insights."
 )
 

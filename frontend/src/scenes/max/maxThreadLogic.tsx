@@ -349,7 +349,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                         return
                                     }
                                 }
-                                if (
+                                // Check if a message with the same ID already exists
+                                const existingMessageIndex = parsedResponse.id
+                                    ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
+                                    : -1
+
+                                if (existingMessageIndex >= 0) {
+                                    // Replace existing message with same ID
+                                    actions.replaceMessage(existingMessageIndex, {
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                } else if (
                                     values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
                                     values.threadRaw.length === 0
                                 ) {

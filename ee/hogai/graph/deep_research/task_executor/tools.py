@@ -1,16 +1,20 @@
-from typing import cast
+from typing import cast, Optional
+from collections.abc import Callable
 import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph.state import CompiledStateGraph
 import structlog
 from langchain_core.runnables import RunnableLambda, RunnableConfig
+from langchain_core.runnables.utils import AddableDict
 
 from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult
 from ee.hogai.utils.types import (
     AssistantState,
     VisualizationMessage,
 )
+from posthog.exceptions_capture import capture_exception
+from posthog.schema import AssistantMessage, HumanMessage, ReasoningMessage
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
 )
@@ -21,12 +25,36 @@ from langchain_openai import ChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
+INSIGHT_SUBGRAPH_REASONING_MESSAGES = {
+    "query_planner": "📋 Planning query approach...",
+    "trends_generator": "📈 Generating trends analysis...",
+    "funnel_generator": "🔀 Building funnel analysis...",
+    "retention_generator": "📊 Analyzing retention patterns...",
+    "query_executor": "⚡ Executing query...",
+    "insight_rag_context": "🔍 Searching relevant context...",
+}
+
 
 class ExecuteTasksTool:
     """Tool for executing multiple tasks in parallel using the insights subgraph."""
 
     def __init__(self, insights_subgraph: CompiledStateGraph):
         self._insights_subgraph = insights_subgraph
+        self._reasoning_callback: Optional[Callable[[ReasoningMessage], None]] = None
+        self._task_progress_callback: Optional[Callable[[str, str], None]] = None
+        self._task_nodes_seen: dict[str, set[str]] = {}
+
+    def set_reasoning_callback(self, callback: Callable[[ReasoningMessage], None]):
+        """Set a callback to emit reasoning messages during task execution."""
+        self._reasoning_callback = callback
+
+    def set_task_progress_callback(self, callback: Callable[[str, str], None]):
+        """Set a callback to emit task-specific progress updates.
+
+        Args:
+            callback: Function that takes (task_id, progress_text) parameters
+        """
+        self._task_progress_callback = callback
 
     async def astream(
         self,
@@ -38,11 +66,18 @@ class ExecuteTasksTool:
         """
 
         task_executor = RunnableLambda(self._execute_task_with_insights).with_config(run_name="TaskExecutor")  # type: ignore
-
         batch_inputs = [{"task": task, "artifacts": artifacts, "config": config} for task, artifacts in input_tuples]
+
+        task_progress = {}
+        for i, (task, _) in enumerate(input_tuples, 1):
+            task_progress[task.id] = i
 
         async for _, output in task_executor.abatch_as_completed(batch_inputs, config=config):
             yield output
+
+        yield ReasoningMessage(
+            content=f"All {len(input_tuples)} research tasks completed! Collected insights are ready for synthesis and analysis."
+        )
 
     async def _execute_task_with_insights(self, input_dict: dict) -> DeepResearchSingleTaskResult:
         """Execute a single task using the full insights pipeline."""
@@ -50,6 +85,9 @@ class ExecuteTasksTool:
         task = input_dict["task"]
         artifacts = input_dict["artifacts"]
         config = input_dict.get("config")
+
+        self._current_task_id = task.id
+        self._task_nodes_seen[task.id] = set()
 
         # This is needed by the InsightsAssistantGraph to return an AssistantToolCallMessage
         task_tool_call_id = f"task_{uuid.uuid4().hex[:8]}"
@@ -65,23 +103,59 @@ class ExecuteTasksTool:
             prompt += f"- {artifact.id}: {artifact.description}\nQuery: {artifact.query}\n\n"
         prompt = prompt.strip()
 
+        formatted_instructions = AGENT_TASK_PROMPT_TEMPLATE.format(
+            task_prompt=task.prompt, task_description=task.description
+        )
+
+        human_message = HumanMessage(content=formatted_instructions, id=str(uuid.uuid4()))
         input_state = AssistantState(
+            messages=[human_message],
+            start_id=human_message.id,
             root_tool_call_id=task_tool_call_id,
             root_tool_insight_plan=task.prompt,
         )
 
-        raw_result = await self._insights_subgraph.ainvoke(input_state, config)
+        last_message = None
+        subgraph_result_messages = []
+        try:
+            async for chunk in self._insights_subgraph.astream(
+                input_state, config, subgraphs=True, stream_mode=["updates"]
+            ):
+                if not chunk:
+                    continue
+                content = chunk[2]
 
-        tool_result_message = raw_result["messages"][-1]
-        if not isinstance(tool_result_message, AssistantToolCallMessage):
+                node_name = self._extract_node_name(content)
+
+                self._process_stream_message(node_name, INSIGHT_SUBGRAPH_REASONING_MESSAGES, task.id)
+                node_key = next(iter(content))
+                if content[node_key]["messages"]:
+                    subgraph_result_messages.extend(content[node_key]["messages"])
+
+        except Exception as e:
+            capture_exception(e)
+            raise
+
+        last_message = subgraph_result_messages[-1]
+        if not last_message:
+            logger.warning("Task failed: no messages received from insights subgraph", task_id=task.id)
             return self._failed_result(task)
 
-        artifacts = self._extract_artifacts(raw_result, task)
+        if not isinstance(last_message, AssistantToolCallMessage):
+            logger.warning(
+                "Task failed: last message is not AssistantToolCallMessage",
+                task_id=task.id,
+            )
+            return self._failed_result(task)
+
+        tool_result_message = last_message
+
+        artifacts = self._extract_artifacts(subgraph_result_messages, task)
         if len(artifacts) == 0:
-            return self._failed_result(task)
+            logger.warning("Task failed: no artifacts extracted", task_id=task.id)
 
         formatted_instructions = AGENT_TASK_PROMPT_TEMPLATE.format(
-            task_prompt=task.description, task_instructions=task.prompt
+            task_prompt=task.prompt, task_description=task.description
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -100,6 +174,7 @@ class ExecuteTasksTool:
         response = cast(LangchainAIMessage, response)
 
         return DeepResearchSingleTaskResult(
+            id=task.id,
             description=task.description,
             result=str(response),
             artifacts=artifacts,
@@ -108,16 +183,16 @@ class ExecuteTasksTool:
 
     def _failed_result(self, task: TaskExecutionItem) -> DeepResearchSingleTaskResult:
         return DeepResearchSingleTaskResult(
-            description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
+            id=task.id, description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
         )
 
-    def _extract_artifacts(self, subgraph_result, task: TaskExecutionItem) -> list[InsightArtifact]:
+    def _extract_artifacts(
+        self, subgraph_result_messages: list[AssistantMessage], task: TaskExecutionItem
+    ) -> list[InsightArtifact]:
         """Extract artifacts from insights subgraph execution results."""
 
         artifacts = []
-        messages = subgraph_result["messages"]
-
-        for message in messages:
+        for message in subgraph_result_messages:
             if isinstance(message, VisualizationMessage) and message.id:
                 artifact = InsightArtifact(
                     id=task.id,
@@ -126,6 +201,31 @@ class ExecuteTasksTool:
                 )
                 artifacts.append(artifact)
         return artifacts
+
+    def _extract_node_name(self, content: AddableDict) -> str | None:
+        """Extract the node name from a graph path tuple."""
+        node_name = next(iter(content.keys()))
+        return node_name.value
+
+    def _process_stream_message(
+        self,
+        node_name: str | None,
+        node_reasoning_messages: dict[str, str],
+        current_task_id: str | None = None,
+    ):
+        """Process a single message from the stream."""
+        if node_name and current_task_id:
+            if current_task_id not in self._task_nodes_seen:
+                self._task_nodes_seen[current_task_id] = set()
+
+            if node_name not in self._task_nodes_seen[current_task_id]:
+                self._task_nodes_seen[current_task_id].add(node_name)
+
+        if self._reasoning_callback:
+            if node_name in node_reasoning_messages:
+                progress_text = node_reasoning_messages[node_name]
+                if self._task_progress_callback and current_task_id:
+                    self._task_progress_callback(current_task_id, progress_text)
 
     def _get_model(self) -> ChatOpenAI:
         return ChatOpenAI(

@@ -30,6 +30,7 @@ class DeepResearchSingleTaskResult(BaseModel):
     The result of an individual task.
     """
 
+    id: str
     description: str
     result: str
     artifacts: list[InsightArtifact] = Field(default=[])

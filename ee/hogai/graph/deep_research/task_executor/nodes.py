@@ -18,7 +18,13 @@ from ee.hogai.utils.types.base import InsightArtifact
 from posthog.exceptions_capture import capture_exception
 from .tools import ExecuteTasksTool
 from posthog.models import Team, User
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, TaskExecutionMessage, TaskExecutionStatus
+from posthog.schema import (
+    AssistantMessage,
+    AssistantToolCallMessage,
+    ReasoningMessage,
+    TaskExecutionMessage,
+    TaskExecutionStatus,
+)
 
 
 logger = structlog.get_logger(__name__)
@@ -51,7 +57,6 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         self, state: DeepResearchState, config: RunnableConfig, tool_call_id: str
     ) -> PartialDeepResearchState:
         try:
-            current_task_index = 0
             writer = get_stream_writer()
 
             artifacts: list[InsightArtifact] = []
@@ -72,19 +77,42 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
                 input_tuples.append((task, task_artifacts))
 
             # Send initial message showing all tasks as pending
-            initial_message = TaskExecutionMessage(id=str(uuid.uuid4()), tasks=tasks)
+            task_execution_message_id = str(uuid.uuid4())
+            initial_message = TaskExecutionMessage(id=task_execution_message_id, tasks=tasks)
             writer(self._message_to_langgraph_update(initial_message, DeepResearchNodeName.TASK_EXECUTOR))
 
+            # Set up a callback to emit real-time reasoning messages
+            def emit_reasoning(reasoning_msg: ReasoningMessage):
+                writer(self._message_to_langgraph_update(reasoning_msg, DeepResearchNodeName.TASK_EXECUTOR))
+
+            # Set up a callback to emit task-specific progress updates
+            def emit_task_progress(task_id: str, progress_text: str):
+                for task in tasks:
+                    if task.id == task_id:
+                        task.progress_text = progress_text
+                        updated_message = TaskExecutionMessage(id=task_execution_message_id, tasks=tasks)
+                        writer(self._message_to_langgraph_update(updated_message, DeepResearchNodeName.TASK_EXECUTOR))
+                        break
+
+            self._execute_tasks_tool.set_reasoning_callback(emit_reasoning)
+            self._execute_tasks_tool.set_task_progress_callback(emit_task_progress)
+
             task_results = []
-            async for task_result in self._execute_tasks_tool.astream(input_tuples, config):
-                task_result = cast(DeepResearchSingleTaskResult, task_result)
-                tasks[current_task_index].status = task_result.status
-                completed_message = TaskExecutionMessage(id=str(uuid.uuid4()), tasks=tasks.copy())
-                if current_task_index < len(tasks) - 2:
-                    # We don't need to stream the last message twice
+            async for stream_item in self._execute_tasks_tool.astream(input_tuples, config):
+                if isinstance(stream_item, ReasoningMessage):
+                    writer(self._message_to_langgraph_update(stream_item, DeepResearchNodeName.TASK_EXECUTOR))
+                elif isinstance(stream_item, DeepResearchSingleTaskResult):
+                    task_result = cast(DeepResearchSingleTaskResult, stream_item)
+                    for task in tasks:
+                        if task.id == task_result.id:
+                            task.status = task_result.status
+                            if task_result.artifacts:
+                                task.artifact_ids = [artifact.id for artifact in task_result.artifacts]
+                            break
+
+                    completed_message = TaskExecutionMessage(id=task_execution_message_id, tasks=tasks.copy())
                     writer(self._message_to_langgraph_update(completed_message, DeepResearchNodeName.TASK_EXECUTOR))
-                current_task_index += 1
-                task_results.append(task_result)
+                    task_results.append(task_result)
 
             formatted_results = ""
             for single_task_result in task_results:
@@ -96,9 +124,10 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
                     f"- {single_task_result.description}:\n{single_task_result.result}\nArtifacts:\n{artifacts_str}\n"
                 )
 
+            final_completed_message = TaskExecutionMessage(id=task_execution_message_id, tasks=tasks.copy())
             return PartialDeepResearchState(
                 messages=[
-                    completed_message,
+                    final_completed_message,
                     AssistantToolCallMessage(
                         content=EXECUTE_TASKS_TOOL_RESULT.format(results=formatted_results),
                         id=str(uuid.uuid4()),
