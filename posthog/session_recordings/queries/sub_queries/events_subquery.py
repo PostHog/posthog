@@ -1,3 +1,4 @@
+import typing
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -48,6 +49,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return event_exprs
 
+    @staticmethod
+    def _has_negative_operator(candidate: typing.Any) -> bool:
+        # noinspection PyBroadException
+        try:
+            if isinstance(candidate, dict):
+                return candidate.get("operator", None) in NEGATIVE_OPERATORS
+            return candidate.operator in NEGATIVE_OPERATORS
+        except:
+            return False
+
     @property
     def _negative_event_predicates(self) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
@@ -60,7 +71,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
             for prop in entity.properties or []:
                 # TODO how can we make this work for HogQL property filters
-                if "operator" in prop and prop.operator in NEGATIVE_OPERATORS:
+                if self._has_negative_operator(prop):
                     entity_exprs.append(property_to_expr(entity.properties, team=self._team, scope="replay_entity"))
 
             if entity_exprs:
@@ -229,32 +240,28 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
-        exprs: list[ast.Expr] = []
-
-        if self.event_properties:
-            # when we're saying property is not set then we have to check it is not set on every event
-            # e.g. countIf(JSONHas(events.properties, '$feature/target-flag')) = 0
-            for prop in self.event_properties:
-                if getattr(prop, "operator", None) in NEGATIVE_OPERATORS:
-                    exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Call(
-                                name="countIf",
-                                args=[
-                                    # we count the positive equivalent so we can easily assert there are no matches
-                                    property_to_expr(
-                                        prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[prop.operator]}),
-                                        team=self._team,
-                                        scope="event",
-                                    ),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
-                        )
-                    )
-
+        exprs: list[ast.Expr] = self._negative_having_guard()
         return self.wrapped_with_query_operand(exprs=exprs) if exprs else ast.Constant(value=True)
+
+    def _add_negative_guard_count_in_session(self, prop) -> ast.Expr | None:
+        if not self._has_negative_operator(prop):
+            return None
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(
+                name="countIf",
+                args=[
+                    # we count the positive equivalent so we can easily assert there are no matches
+                    property_to_expr(
+                        prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[prop.operator]}),
+                        team=self._team,
+                        scope="event",
+                    ),
+                ],
+            ),
+            right=ast.Constant(value=0),
+        )
 
     @property
     def action_entities(self):
@@ -283,6 +290,27 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def person_properties(self) -> list[AnyPropertyFilter] | None:
         return [g for g in (self._query.properties or []) if is_person_property(g)]
 
+    def _negative_having_guard(self) -> list[ast.Expr]:
+        gathered_exprs: list[ast.Expr] = []
+
+        for p in self.event_properties:
+            guard = self._add_negative_guard_count_in_session(p)
+            if guard:
+                gathered_exprs.append(guard)
+
+        for p in self.group_properties:
+            guard = self._add_negative_guard_count_in_session(p)
+            if guard:
+                gathered_exprs.append(guard)
+
+        if self._team.person_on_events_mode and self.person_properties:
+            for p in self.person_properties:
+                guard = self._add_negative_guard_count_in_session(p)
+                if guard:
+                    gathered_exprs.append(guard)
+
+        return gathered_exprs
+
     def _negative_guard_query(self) -> ast.SelectQuery | None:
         if self._query.operand == "OR":
             return None
@@ -295,7 +323,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         for p in self.event_properties:
             # TODO how can we detect negative queries
-            if "operator" in p and p.operator in NEGATIVE_OPERATORS:
+            if self._has_negative_operator(p):
                 gathered_exprs.append(
                     property_to_expr(
                         p,
@@ -305,13 +333,13 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 )
 
         for p in self.group_properties:
-            if p.operator in NEGATIVE_OPERATORS:
+            if self._has_negative_operator(p):
                 gathered_exprs.append(property_to_expr(p, team=self._team))
 
         if self._team.person_on_events_mode and self.person_properties:
             for p in self.person_properties:
                 # need a solution here for HogQL property filters
-                if "operator" in p and p.operator in NEGATIVE_OPERATORS:
+                if self._has_negative_operator(p):
                     gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
         if gathered_exprs:
