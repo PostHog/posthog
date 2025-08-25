@@ -1,9 +1,9 @@
-import datetime
 import os
+import datetime
 import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Optional, cast, Literal
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -11,6 +11,7 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -29,6 +30,7 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
+
 from .utils import UUIDTModel, sane_repr
 
 try:

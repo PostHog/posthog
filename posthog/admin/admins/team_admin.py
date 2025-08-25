@@ -1,9 +1,9 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
+
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from django.urls import reverse
-
 from posthog.models import Team
 
 

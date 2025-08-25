@@ -1,8 +1,11 @@
 from typing import Any, Optional
+
 import pytest
 from unittest.mock import Mock
+
 from posthog.schema import NodeKind
-from posthog.schema_migrations import LATEST_VERSIONS, SchemaMigration, MIGRATIONS
+
+from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration
 from posthog.schema_migrations.upgrade_manager import upgrade_insight, upgrade_query
 
 

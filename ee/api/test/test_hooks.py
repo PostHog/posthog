@@ -1,16 +1,18 @@
 import uuid
 
+from posthog.test.base import ClickhouseTestMixin
+
 from inline_snapshot import snapshot
 
-from ee.api.hooks import valid_domain, create_zapier_hog_function
-from ee.api.test.base import APILicensedTest
-from ee.models.hook import Hook
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.test.base import ClickhouseTestMixin
-from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
+
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from ee.api.hooks import create_zapier_hog_function, valid_domain
+from ee.api.test.base import APILicensedTest
+from ee.models.hook import Hook
 
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):

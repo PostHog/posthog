@@ -1,27 +1,31 @@
-from datetime import timedelta
-from unittest.mock import patch, MagicMock, AsyncMock
-from django.utils import timezone
 import asyncio
+from datetime import timedelta
 
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from ee.hogai.graph.insights.nodes import InsightSearchNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import Conversation
-from posthog.models import Insight, InsightViewed
+from django.utils import timezone
+
 from posthog.schema import (
     AssistantToolCallMessage,
     DataTableNode,
     EntityType,
+    FunnelsQuery,
     HogQLQuery,
     HumanMessage,
     InsightVizNode,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
+    TrendsQuery,
     VisualizationMessage,
 )
-from posthog.test.base import BaseTest
-from posthog.schema import TrendsQuery, FunnelsQuery
+
+from posthog.models import Insight, InsightViewed
+
+from ee.hogai.graph.insights.nodes import InsightSearchNode
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.models.assistant import Conversation
 
 
 class TestInsightSearchNode(BaseTest):

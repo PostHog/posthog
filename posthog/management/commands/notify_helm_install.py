@@ -1,9 +1,10 @@
 import os
 from pprint import pprint
 
-import posthoganalytics
 from django.conf import settings
 from django.core.management.base import BaseCommand
+
+import posthoganalytics
 
 from posthog.utils import get_helm_info_env, get_machine_id
 

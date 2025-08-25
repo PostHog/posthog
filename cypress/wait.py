@@ -1,6 +1,6 @@
+import time
 import datetime
 import http.client
-import time
 
 
 def main():

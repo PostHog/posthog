@@ -1,7 +1,9 @@
 import asyncio
 import datetime
 from typing import Union
+
 from django.conf import settings
+
 import structlog
 from celery import chain
 from prometheus_client import Histogram
@@ -10,9 +12,9 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
+from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
-from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 

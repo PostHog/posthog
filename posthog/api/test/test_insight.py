@@ -1,41 +1,31 @@
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
+
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    FuzzyInt,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
+)
 from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, patch
-from zoneinfo import ZoneInfo
 
 from django.test import override_settings
 from django.utils import timezone
-from freezegun import freeze_time
+
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog import settings
-from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.insight_cache import update_cache
-from posthog.caching.insight_caching_state import TargetCacheAge
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import (
-    Cohort,
-    Dashboard,
-    DashboardTile,
-    Filter,
-    Insight,
-    InsightViewed,
-    OrganizationMembership,
-    Person,
-    SharingConfiguration,
-    Team,
-    Text,
-    User,
-)
-from ee.models.rbac.access_control import AccessControl
-from posthog.models.insight_caching_state import InsightCachingState
-from posthog.models.insight_variable import InsightVariable
-from posthog.models.project import Project
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -53,19 +43,34 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     TrendsQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    FuzzyInt,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-    snapshot_postgres_queries,
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog import settings
+from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.insight_cache import update_cache
+from posthog.caching.insight_caching_state import TargetCacheAge
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import (
+    Cohort,
+    Dashboard,
+    DashboardTile,
+    Filter,
+    Insight,
+    InsightViewed,
+    OrganizationMembership,
+    Person,
+    SharingConfiguration,
+    Team,
+    Text,
+    User,
 )
+from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -3553,8 +3558,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         Test that when listing insights with short_id parameter, organization admins can see all insights
         regardless of access controls, but regular users are still filtered by access controls.
         """
-        from ee.models.rbac.access_control import AccessControl
         from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
 
         # Create insights with different access levels
         filter_dict = {"events": [{"id": "$pageview"}]}
