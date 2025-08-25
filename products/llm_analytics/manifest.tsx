@@ -22,7 +22,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics trace',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/start-here',
+            defaultDocsPath: '/docs/llm-analytics/traces',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
