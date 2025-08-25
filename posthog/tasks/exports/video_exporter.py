@@ -1,13 +1,19 @@
-from typing import Literal, Optional
 import os
-import tempfile
 import time
 import uuid
 import shutil
+import tempfile
 import subprocess
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from typing import Literal, Optional
+
 import posthoganalytics
+
 from posthog.exceptions_capture import capture_exception
+
+from playwright.sync_api import (
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
 
 ScreenWidth = Literal[800, 1920, 1400]
 HEIGHT_OFFSET = 85
