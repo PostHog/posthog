@@ -2483,35 +2483,27 @@ class SendUsageNoLicenseTest(APIBaseTest):
             _ = team.organization.for_internal_metrics
 
 
-class TestQuerySplitting(ClickhouseTestMixin, TestCase):
-    team: Team = None  # type: ignore
-    begin: datetime = None  # type: ignore
-    end: datetime = None  # type: ignore
-
-    @classmethod
-    def setUpTestData(cls) -> None:
-        # Clear existing ClickHouse data
-        sync_execute("TRUNCATE TABLE events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE person_distinct_id")
+class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
+    def setUp(self) -> None:
+        super().setUp()
 
         # Clear existing Django data
         Team.objects.all().delete()
         Organization.objects.all().delete()
 
         # Create a fresh team for testing
-        cls.team = Team.objects.create(organization=Organization.objects.create(name="test"))
+        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
         # Create test events across a time period
-        cls.begin = datetime(2023, 1, 1, 0, 0)
-        cls.end = datetime(2023, 1, 2, 0, 0)
+        self.begin = datetime(2023, 1, 1, 0, 0)
+        self.end = datetime(2023, 1, 2, 0, 0)
 
         # Create 10 events in the time period
         for i in range(10):
             _create_event(
                 event="test_event",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={},
                 person_mode="propertyless",
             )
@@ -2520,9 +2512,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(5):
             _create_event(
                 event="enhanced_event",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"enhanced_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"$lib": "web"},
                 person_mode="full",
             )
@@ -2531,9 +2523,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(3):
             _create_event(
                 event="survey sent",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"survey_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"survey_id": f"survey_{i}"},
                 person_mode="full",
             )
@@ -2541,9 +2533,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(3):
             _create_event(
                 event="$feature_flag_called",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"ff_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"$feature_flag": f"flag_{i}"},
                 person_mode="full",
             )
@@ -2553,9 +2545,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(3):
             _create_event(
                 event="$ai_generation",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"ai_gen_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={
                     "$ai_model": "gpt-4",
                     "$ai_provider": "openai",
@@ -2569,9 +2561,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(2):
             _create_event(
                 event="$ai_span",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"ai_span_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={
                     "$ai_trace_id": f"trace_{i}",
                     "$ai_span_id": f"span_{i}",
@@ -2582,9 +2574,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         # $ai_trace events
         _create_event(
             event="$ai_trace",
-            team=cls.team,
+            team=self.team,
             distinct_id="ai_trace_user",
-            timestamp=cls.begin + relativedelta(hours=1),
+            timestamp=self.begin + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_1",
             },
@@ -2595,9 +2587,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(2):
             _create_event(
                 event="$ai_embedding",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"ai_embed_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={
                     "$ai_model": "text-embedding-ada-002",
                     "$ai_provider": "openai",
@@ -2609,9 +2601,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         # $ai_feedback events
         _create_event(
             event="$ai_feedback",
-            team=cls.team,
+            team=self.team,
             distinct_id="ai_feedback_user",
-            timestamp=cls.begin + relativedelta(hours=2),
+            timestamp=self.begin + relativedelta(hours=2),
             properties={
                 "$ai_trace_id": "trace_1",
                 "rating": 5,
@@ -2622,9 +2614,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         # $ai_metric events
         _create_event(
             event="$ai_metric",
-            team=cls.team,
+            team=self.team,
             distinct_id="ai_metric_user",
-            timestamp=cls.begin + relativedelta(hours=3),
+            timestamp=self.begin + relativedelta(hours=3),
             properties={
                 "$ai_trace_id": "trace_1",
                 "latency_ms": 250,
@@ -2633,12 +2625,6 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         )
 
         flush_persons_and_events()
-
-    def setUp(self) -> None:
-        # Copy class attributes to instance attributes
-        self.team = self.__class__.team
-        self.begin = self.__class__.begin
-        self.end = self.__class__.end
 
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
