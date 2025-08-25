@@ -1,13 +1,13 @@
 from datetime import datetime
+
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from django.test import override_settings
-from freezegun import freeze_time
+
 from rest_framework.exceptions import APIException
 
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
-from posthog.errors import ExposedCHQueryError
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -21,7 +21,12 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
-from posthog.test.base import BaseTest
+
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.errors import ExposedCHQueryError
+
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 
 
 class TestAssistantQueryExecutor(BaseTest):

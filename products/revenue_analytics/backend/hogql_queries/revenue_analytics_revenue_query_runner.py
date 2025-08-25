@@ -2,11 +2,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.schema import (
     CachedRevenueAnalyticsRevenueQueryResponse,
     HogQLQueryResponse,
@@ -16,11 +11,17 @@ from posthog.schema import (
     RevenueAnalyticsRevenueQueryResult,
     RevenueAnalyticsRevenueQueryResultItem,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+
 from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView, RevenueAnalyticsSubscriptionView
 
-from .revenue_analytics_query_runner import (
-    RevenueAnalyticsQueryRunner,
-)
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 LOOKBACK_PERIOD_DAYS = 30
 LOOKBACK_PERIOD = timedelta(days=LOOKBACK_PERIOD_DAYS)

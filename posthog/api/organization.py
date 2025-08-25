@@ -1,3 +1,4 @@
+import json
 import dataclasses
 from functools import cached_property
 from typing import Any, Optional, Union, cast
@@ -5,11 +6,13 @@ from typing import Any, Optional, Union, cast
 from django.db.models import Model, QuerySet
 from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
+
+import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-import posthoganalytics
-import json
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -17,36 +20,29 @@ from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.event_usage import report_organization_deleted, groups
-from posthog.models import (
-    User,
-    Team,
-    Organization,
-)
-from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
+from posthog.event_usage import groups, report_organization_action, report_organization_deleted
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
-from posthog.models.signals import mute_selected_signals, model_activity_signal
+from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.signals import model_activity_signal, mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
-    TimeSensitiveActionPermission,
     OrganizationMemberPermissions,
+    TimeSensitiveActionPermission,
     extract_organization,
 )
-from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from rest_framework.decorators import action
-from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
-from posthog.exceptions_capture import capture_exception
-from drf_spectacular.utils import extend_schema
-from posthog.event_usage import report_organization_action
+from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -367,11 +363,11 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         The request data should be a mapping of source environment IDs to target environment IDs.
         Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
         """
-        from posthog.tasks.tasks import environments_rollback_migration
         from posthog.storage.environments_rollback_storage import (
             add_organization_to_rollback_list,
             is_organization_rollback_triggered,
         )
+        from posthog.tasks.tasks import environments_rollback_migration
 
         organization = self.get_object()
 

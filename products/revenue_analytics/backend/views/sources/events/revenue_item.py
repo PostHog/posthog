@@ -1,17 +1,17 @@
 from collections.abc import Iterable
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import (
+    currency_expression_for_events,
+    revenue_comparison_and_value_exprs_for_events,
+)
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.sources.helpers import (
+    currency_aware_amount,
+    currency_aware_divider,
     events_expr_for_team,
     is_zero_decimal_in_stripe,
-    currency_aware_divider,
-    currency_aware_amount,
-)
-from posthog.hogql.database.schema.exchange_rate import (
-    revenue_comparison_and_value_exprs_for_events,
-    currency_expression_for_events,
 )
 
 

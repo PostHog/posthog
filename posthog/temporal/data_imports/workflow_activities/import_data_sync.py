@@ -1,9 +1,10 @@
-import dataclasses
 import uuid
+import dataclasses
 from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
+
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity

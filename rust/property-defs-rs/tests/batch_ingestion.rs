@@ -7,10 +7,10 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 use property_defs_rs::{
+    batch_ingestion::process_batch,
     config::Config,
     types::{Event, GroupType, PropertyParentType, Update},
     update_cache::Cache,
-    v2_batch_ingestion::process_batch,
 };
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

@@ -1,11 +1,11 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 
-import temporalio.activity
 import temporalio.common
+import temporalio.activity
 import temporalio.workflow
 from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
