@@ -91,7 +91,7 @@ const IngestionStatusCheck = (): JSX.Element | null => {
             </p>
             <p>
                 To use the LLM Analytics product, please{' '}
-                <Link to="https://posthog.com/docs/ai-engineering/observability">
+                <Link to="https://posthog.com/docs/llm-analytics/start-here">
                     instrument your LLM calls with the PostHog SDK
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
@@ -238,7 +238,7 @@ function LLMAnalyticsNoEvents(): JSX.Element {
                 <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
                 <p className="text-sm text-center text-balance">
                     To use the LLM Analytics product, please{' '}
-                    <Link to="https://posthog.com/docs/ai-engineering/observability">
+                    <Link to="https://posthog.com/docs/llm-analytics/start-here">
                         instrument your LLM calls with the PostHog SDK
                     </Link>{' '}
                 </p>
@@ -294,7 +294,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            to="https://posthog.com/docs/ai-engineering/observability"
+                            to="https://posthog.com/docs/llm-analytics/start-here"
                             type="secondary"
                             targetBlank
                         >
