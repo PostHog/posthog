@@ -37,6 +37,9 @@ procs:
     temporal-worker-tasks-agent:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue tasks-task-queue --metrics-port 8007'
 
+    temporal-worker-billing:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue billing-task-queue --metrics-port 8008'
+
     dagster:
         shell: |-
             bin/check_postgres_up && \
