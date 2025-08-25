@@ -78,7 +78,7 @@ from ee.models.license import License
 logger = structlog.get_logger(__name__)
 
 
-def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
+def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
     # recordings in period  - 5 sessions
     for i in range(1, 6):
         session_id = str(i)
@@ -102,6 +102,15 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             last_timestamp=timestamp + timedelta(seconds=1),
             snapshot_source="mobile",
             size=6,
+        )
+
+    if include_zero_duration:
+        produce_replay_summary(
+            team_id=team_id,
+            session_id="zero-duration",
+            distinct_id=str(uuid4()),
+            first_timestamp=now() - relativedelta(hours=12),
+            last_timestamp=now() - relativedelta(hours=12),
         )
 
     # recordings out of period  - 11 sessions
@@ -958,6 +967,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
 
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 0
+        assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
@@ -965,6 +975,28 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    def test_usage_report_replay_with_zero_duration(self) -> None:
+        _setup_replay_data(self.team.pk, include_mobile_replay=False, include_zero_duration=True)
+
+        period = get_previous_day()
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert report.recording_count_in_period == 6
+        assert report.mobile_recording_count_in_period == 0
+        assert report.zero_duration_recording_count_in_period == 1
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 6
+        assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].zero_duration_recording_count_in_period == 1
 
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_mobile(self) -> None:
