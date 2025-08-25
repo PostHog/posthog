@@ -21,21 +21,33 @@ import java.util.Map;
  * posthogController
  */
 @Controller
-@RequestMapping("/api/heatmap")
+@RequestMapping("/api/heatmap/")
 public class PosthogController {
 
     @Autowired
     private EventsService eventsService;
 
     @CrossOrigin(origins = "http://localhost:4200")
-    @GetMapping("/")
+    @GetMapping(params = "type=rightclick")
+    public ResponseEntity<HeatmapResponse> getRightClickHeatmap(
+            @RequestParam(name = "type") String type,
+            @RequestParam(name = "date_from", defaultValue = "7d") String date,
+            @RequestParam(name = "url_exact", required = false) String urlExact,
+            @RequestParam(name = "aggregation") String aggregation) {
+        List<ApiHeatmapGetDTO> results;
+        results = eventsService.getRightClickHeatmap(type, date, urlExact, aggregation);
+        return new ResponseEntity<>(new HeatmapResponse(results), HttpStatus.OK);
+    }
+
+    @CrossOrigin(origins = "http://localhost:4200")
+    @GetMapping(params = "type")
     public ResponseEntity<HeatmapResponse> getAllHeatmap(
             @RequestParam(name = "type") String type,
             @RequestParam(name = "date_from", defaultValue = "7d") String date,
-            @RequestParam(name = "url_exact", required = false) String urlExact
-    ) {
+            @RequestParam(name = "url_exact", required = false) String urlExact,
+            @RequestParam(name = "aggregation") String aggregation) {
         List<ApiHeatmapGetDTO> results;
-        results = eventsService.getAllHeatmap(type, date, urlExact);
+        results = eventsService.getAllHeatmap(type, date, urlExact, aggregation);
         return new ResponseEntity<>(new HeatmapResponse(results), HttpStatus.OK);
     }
 }

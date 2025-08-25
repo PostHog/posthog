@@ -125,6 +125,14 @@ export const HeatmapsSettings = ({
                                 value: 'scrolldepth',
                                 label: 'Scroll depth',
                             },
+                            {
+                                value: 'rightclick',
+                                label: 'Right clicks',
+                            },
+                            {
+                                value: 'gridscroll',
+                                label: 'Grid Scroll',
+                            },
                         ]}
                         size="small"
                     />
