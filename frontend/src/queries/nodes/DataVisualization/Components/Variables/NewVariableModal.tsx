@@ -175,6 +175,9 @@ export const NewVariableModal = (): JSX.Element => {
                         value={variable.name}
                         onChange={(value) => updateVariable({ ...variable, name: value })}
                     />
+                    {modalType === 'new' && variable.name.length > 0 && (
+                        <span className="text-xs">{`Use this variable by referencing {variables.${variable.name.replaceAll(' ', '_')}}.`}</span>
+                    )}
                 </LemonField.Pure>
                 <LemonField.Pure label="Type" className="gap-1">
                     <LemonSelect
