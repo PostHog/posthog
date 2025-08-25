@@ -455,10 +455,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // since filters on dashboard might be different from filters on insight
             // we need to trigger dashboard reload to pick up results for updated insight
             savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
-                dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
-                    action: DashboardLoadAction.Update,
-                    manualDashboardRefresh: false,
-                })
+                dashboardLogic
+                    .findMounted({ id: dashboard_id })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
             )
 
             const mountedInsightSceneLogic = insightSceneLogic.findMounted()
