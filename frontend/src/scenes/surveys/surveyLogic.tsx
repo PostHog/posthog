@@ -476,25 +476,24 @@ export const surveyLogic = kea<surveyLogicType>([
     actions({
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
-        setDefaultForQuestionType: (
-            idx: number,
-            surveyQuestion: SurveyQuestion,
-            type: SurveyQuestionType,
-            isEditingQuestion: boolean,
-            isEditingDescription: boolean,
-            isEditingThankYouMessage: boolean
-        ) => ({
+        setDefaultForQuestionType: (idx: number, surveyQuestion: SurveyQuestion, type: SurveyQuestionType) => ({
             idx,
             surveyQuestion,
             type,
-            isEditingQuestion,
-            isEditingDescription,
-            isEditingThankYouMessage,
         }),
         setQuestionBranchingType: (questionIndex, type, specificQuestionIndex) => ({
             questionIndex,
             type,
             specificQuestionIndex,
+        }),
+        setMultipleSurveyQuestion: (
+            questionIndex: number,
+            question: MultipleSurveyQuestion,
+            type: SurveyQuestionType.MultipleChoice | SurveyQuestionType.SingleChoice
+        ) => ({
+            questionIndex,
+            question,
+            type,
         }),
         setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep, specificQuestionIndex) => ({
             questionIndex,
@@ -1028,19 +1027,21 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
-                setDefaultForQuestionType: (
-                    state,
-                    { idx, type, surveyQuestion, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
-                ) => {
-                    const question = isEditingQuestion
-                        ? surveyQuestion.question
-                        : defaultSurveyFieldValues[type].questions[0].question
-                    const description = isEditingDescription
-                        ? surveyQuestion.description
-                        : defaultSurveyFieldValues[type].questions[0].description
-                    const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance?.thankYouMessageHeader
-                        : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
+                setDefaultForQuestionType: (state, { idx, type, surveyQuestion }) => {
+                    const question =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].question !== surveyQuestion.question
+                            ? surveyQuestion.question
+                            : defaultSurveyFieldValues[type].questions[0].question
+                    const description =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].description !==
+                        surveyQuestion.description
+                            ? surveyQuestion.description
+                            : defaultSurveyFieldValues[type].questions[0].description
+                    const thankYouMessageHeader =
+                        defaultSurveyFieldValues[surveyQuestion.type].appearance.thankYouMessageHeader !==
+                        state.appearance?.thankYouMessageHeader
+                            ? state.appearance?.thankYouMessageHeader
+                            : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
 
                     const q = {
@@ -1152,6 +1153,18 @@ export const surveyLogic = kea<surveyLogicType>([
                         delete question.branching
                     })
 
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                setMultipleSurveyQuestion: (state, { questionIndex, question, type }) => {
+                    const newQuestions = [...state.questions]
+                    const newQuestion: MultipleSurveyQuestion = {
+                        ...question,
+                        type,
+                    }
+                    newQuestions[questionIndex] = newQuestion
                     return {
                         ...state,
                         questions: newQuestions,
