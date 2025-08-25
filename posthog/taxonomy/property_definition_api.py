@@ -1,11 +1,12 @@
-import dataclasses
 import json
-from typing import Any, Optional, Self, cast, Union
+import dataclasses
+from typing import Any, Optional, Self, Union, cast
 
 from django.db import connection, models
-from django.db.models import QuerySet, Manager
+from django.db.models import Manager, QuerySet
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -22,7 +23,7 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
-from posthog.taxonomy.taxonomy import PROPERTY_NAME_ALIASES, CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [
@@ -644,9 +645,7 @@ class PropertyDefinitionViewSet(
             and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
         ):
             try:
-                from ee.api.ee_property_definition import (
-                    EnterprisePropertyDefinitionSerializer,
-                )
+                from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
             except ImportError:
                 pass
             else:

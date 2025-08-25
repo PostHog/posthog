@@ -1,5 +1,6 @@
-from typing import Any
 from enum import StrEnum
+from typing import Any
+
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 

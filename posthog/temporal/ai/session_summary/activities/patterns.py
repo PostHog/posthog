@@ -1,10 +1,30 @@
-import asyncio
 import json
+import asyncio
 from math import ceil
 from typing import cast
-from redis import asyncio as aioredis
+
 import structlog
 import temporalio
+from redis import asyncio as aioredis
+from temporalio.client import WorkflowHandle
+from temporalio.exceptions import ApplicationError
+
+from posthog.redis import get_async_client
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    generate_state_id_from_session_ids,
+    generate_state_key,
+    get_data_class_from_redis,
+    get_data_str_from_redis,
+    get_redis_state_client,
+    store_data_in_redis,
+)
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionGroupSummaryOfSummariesInputs,
+    SessionGroupSummaryPatternsExtractionChunksInputs,
+)
+from posthog.temporal.common.client import async_connect
+
 from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,
     PATTERNS_ASSIGNMENT_CHUNK_SIZE,
@@ -12,12 +32,12 @@ from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_SYNC_MODEL,
     SINGLE_ENTITY_MAX_TOKENS,
 )
-from temporalio.client import WorkflowHandle
 from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_combination,
     get_llm_session_group_patterns_extraction,
 )
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
@@ -29,10 +49,6 @@ from ee.hogai.session_summaries.session_group.patterns import (
     combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
-from ee.hogai.session_summaries.session.summarize_session import (
-    ExtraSummaryContext,
-    SingleSessionSummaryLlmInputs,
-)
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
     generate_session_group_patterns_combination_prompt,
@@ -40,23 +56,6 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
     remove_excessive_content_from_session_summary_for_llm,
 )
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
-from posthog.temporal.ai.session_summary.state import (
-    StateActivitiesEnum,
-    generate_state_id_from_session_ids,
-    generate_state_key,
-    get_data_class_from_redis,
-    get_data_str_from_redis,
-    get_redis_state_client,
-    store_data_in_redis,
-)
-from posthog.redis import get_async_client
-from posthog.temporal.ai.session_summary.types.group import (
-    SessionGroupSummaryOfSummariesInputs,
-    SessionGroupSummaryPatternsExtractionChunksInputs,
-)
-from temporalio.exceptions import ApplicationError
-
-from posthog.temporal.common.client import async_connect
 
 logger = structlog.get_logger(__name__)
 

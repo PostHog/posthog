@@ -1,23 +1,24 @@
-from freezegun import freeze_time
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person
+
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import (
     DROP_PARTITION_SQL,
-    TABLE_TEMPLATE,
     HOURLY_TABLE_TEMPLATE,
-    WEB_STATS_COLUMNS,
-    WEB_STATS_ORDER_BY_FUNC,
-    WEB_STATS_INSERT_SQL,
+    TABLE_TEMPLATE,
     WEB_BOUNCES_INSERT_SQL,
-    get_web_stats_insert_columns,
-    get_web_bounces_insert_columns,
+    WEB_STATS_COLUMNS,
+    WEB_STATS_INSERT_SQL,
+    WEB_STATS_ORDER_BY_FUNC,
     get_all_filters,
-    get_team_filters,
     get_date_filters,
+    get_team_filters,
+    get_web_bounces_insert_columns,
+    get_web_stats_insert_columns,
 )
-from posthog.test.base import _create_event, _create_person
 
 
 class TestPartitionDropSQL:

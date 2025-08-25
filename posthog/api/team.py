@@ -5,9 +5,11 @@ from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
+
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
@@ -16,25 +18,19 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
-from posthog.models.activity_logging.activity_log import (
-    Detail,
-    dict_changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
+from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
-from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
-from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -47,12 +43,9 @@ from posthog.permissions import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import (
-    get_instance_realm,
-    get_ip_address,
-    get_week_start_for_country_code,
-)
+from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -458,6 +451,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
 
         return value
+
+    def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [url for url in value if url]
+
+    def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [domain for domain in value if domain]
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)

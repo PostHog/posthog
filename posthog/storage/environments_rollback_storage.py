@@ -3,7 +3,6 @@ from uuid import UUID
 
 from posthog.redis import get_client
 
-
 ENV_ROLLBACK_REDIS_KEY = "@posthog/environments-rollback/triggered-org-ids"
 
 
