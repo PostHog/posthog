@@ -54,6 +54,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             "feature_flag_requests": {"limit": None, "usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0},
             "surveys": {"limit": None, "usage": 0},
+            "ai_events": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_product_features=[],
@@ -154,6 +155,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             "feature_flag_requests": {"limit": None, "usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0},
             "surveys": {"limit": None, "usage": 0},
+            "ai_events": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
@@ -769,6 +771,11 @@ class TestBillingAPI(APILicensedTest):
                     "todays_usage": 0,
                     "usage": 0,
                 },
+                "ai_events": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
                 "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
                 "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
             },
@@ -849,6 +856,7 @@ class TestBillingAPI(APILicensedTest):
             "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0, "todays_usage": 0},
+            "ai_events": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
             "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
         }
