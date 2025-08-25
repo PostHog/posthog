@@ -130,6 +130,11 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
     },
+    analyze_survey_responses: {
+        name: 'Analyze survey responses',
+        description: 'Analyze survey responses to extract themes and actionable insights',
+        product: Scene.Surveys,
+    },
     create_message_template: {
         name: 'Create email templates',
         description: 'Create email templates from scratch or using a URL for inspiration',
