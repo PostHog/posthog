@@ -47,7 +47,7 @@ const persistTabs = (tabs: SceneTab[]): void => {
     const teamId = getCurrentTeamIdOrNone()
     sessionStorage.setItem(`${TAB_STATE_KEY}-${teamId}`, JSON.stringify(tabs))
 }
-const getPersistedTabs: (teamId: number) => SceneTab[] | null = () => {
+const getPersistedTabs: () => SceneTab[] | null = () => {
     const teamId = getCurrentTeamIdOrNone()
     const savedTabs = sessionStorage.getItem(`${TAB_STATE_KEY}-${teamId}`)
     if (savedTabs) {
