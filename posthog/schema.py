@@ -2074,6 +2074,15 @@ class ProsemirrorJSONContent(BaseModel):
     type: Optional[str] = None
 
 
+class Query(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: NodeKind
+    response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class QueryIndexUsage(StrEnum):
     UNDECISIVE = "undecisive"
     NO = "no"
@@ -2844,20 +2853,22 @@ class ActorsPropertyTaxonomyResponse(BaseModel):
     sample_values: list[Union[str, float, bool, int]]
 
 
+class AlertCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    calculated_value: float
+    created_at: str
+    id: str
+    state: AlertState
+    targets_notified: bool
+
+
 class AlertCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     type: AlertConditionType
-
-
-class Query(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: NodeKind
-    response: Optional[dict[str, Any]] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantArrayPropertyFilter(BaseModel):
@@ -5127,6 +5138,13 @@ class ActorsQueryResponse(BaseModel):
     types: Optional[list[str]] = None
 
 
+class Threshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    configuration: InsightThreshold
+
+
 class AnalyticsQueryResponseBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5149,51 +5167,6 @@ class AnalyticsQueryResponseBase(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class AnyResponseType1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    field_create_in_folder: Optional[str] = Field(
-        default=None, alias="_create_in_folder", description="Only used when creating objects"
-    )
-    cache_target_age: Optional[str] = None
-    created_at: Optional[str] = None
-    created_by: Optional[UserBasicType] = None
-    dashboard_tiles: Optional[list[DashboardTileBasicType]] = None
-    dashboards: Optional[list[float]] = None
-    deleted: Optional[bool] = None
-    derived_name: Optional[str] = None
-    description: Optional[str] = None
-    disable_baseline: Optional[bool] = Field(
-        default=None, description="Only used in the frontend to toggle showing Baseline in funnels or not"
-    )
-    effective_privilege_level: Optional[DashboardPrivilegeLevel] = None
-    effective_restriction_level: Optional[DashboardRestrictionLevel] = None
-    favorited: Optional[bool] = None
-    id: Optional[float] = Field(
-        default=None, description="The primary key in the database, used as well in API endpoints"
-    )
-    is_sample: Optional[bool] = None
-    last_modified_at: Optional[str] = None
-    last_modified_by: Optional[UserBasicType] = None
-    last_refresh: Optional[str] = None
-    name: Optional[str] = None
-    next: Optional[str] = Field(default=None, description="Only used in the frontend to store the next breakdown url")
-    next_allowed_client_refresh: Optional[str] = None
-    order: Optional[float] = None
-    query: Optional[Query] = None
-    query_status: Optional[QueryStatus] = None
-    result: Optional[Any] = None
-    saved: Optional[bool] = None
-    short_id: Optional[str] = Field(
-        default=None, description="The unique key we use when communicating with the user, e.g. in URLs"
-    )
-    tags: Optional[list[str]] = None
-    timezone: Optional[str] = None
-    updated_at: Optional[str] = None
-    user_access_level: Optional[AccessControlLevel] = None
 
 
 class AssistantFunnelNodeShared(BaseModel):
@@ -10835,36 +10808,6 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class AnyResponseType(
-    RootModel[
-        Union[
-            dict[str, Any],
-            HogQueryResponse,
-            HogQLQueryResponse,
-            HogQLMetadataResponse,
-            HogQLAutocompleteResponse,
-            Any,
-            EventsQueryResponse,
-            ErrorTrackingQueryResponse,
-            LogsQueryResponse,
-            AnyResponseType1,
-        ]
-    ]
-):
-    root: Union[
-        dict[str, Any],
-        HogQueryResponse,
-        HogQLQueryResponse,
-        HogQLMetadataResponse,
-        HogQLAutocompleteResponse,
-        Any,
-        EventsQueryResponse,
-        ErrorTrackingQueryResponse,
-        LogsQueryResponse,
-        AnyResponseType1,
-    ]
-
-
 class AssistantBasePropertyFilter(
     RootModel[
         Union[
@@ -13687,6 +13630,118 @@ class DataTableNode(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AlertType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    calculation_interval: AlertCalculationInterval
+    checks: list[AlertCheck]
+    condition: AlertCondition
+    config: TrendsAlertConfig
+    created_at: str
+    created_by: UserBasicType
+    enabled: bool
+    id: str
+    insight: QueryBasedInsightModel
+    last_checked_at: str
+    last_notified_at: str
+    name: str
+    skip_weekend: Optional[bool] = None
+    snoozed_until: Optional[str] = None
+    state: AlertState
+    subscribed_users: list[UserBasicType]
+    threshold: Threshold
+
+
+class AlertTypeBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: AlertCondition
+    config: TrendsAlertConfig
+    enabled: bool
+    insight: QueryBasedInsightModel
+    name: str
+    skip_weekend: Optional[bool] = None
+    threshold: Threshold
+
+
+class AnyResponseType1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field_create_in_folder: Optional[str] = Field(
+        default=None, alias="_create_in_folder", description="Only used when creating objects"
+    )
+    alerts: Optional[list[AlertType]] = None
+    cache_target_age: Optional[str] = None
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    dashboard_tiles: Optional[list[DashboardTileBasicType]] = None
+    dashboards: Optional[list[float]] = None
+    deleted: Optional[bool] = None
+    derived_name: Optional[str] = None
+    description: Optional[str] = None
+    disable_baseline: Optional[bool] = Field(
+        default=None, description="Only used in the frontend to toggle showing Baseline in funnels or not"
+    )
+    effective_privilege_level: Optional[DashboardPrivilegeLevel] = None
+    effective_restriction_level: Optional[DashboardRestrictionLevel] = None
+    favorited: Optional[bool] = None
+    id: Optional[float] = Field(
+        default=None, description="The primary key in the database, used as well in API endpoints"
+    )
+    is_sample: Optional[bool] = None
+    last_modified_at: Optional[str] = None
+    last_modified_by: Optional[UserBasicType] = None
+    last_refresh: Optional[str] = None
+    name: Optional[str] = None
+    next: Optional[str] = Field(default=None, description="Only used in the frontend to store the next breakdown url")
+    next_allowed_client_refresh: Optional[str] = None
+    order: Optional[float] = None
+    query: Optional[Query] = None
+    query_status: Optional[QueryStatus] = None
+    result: Optional[Any] = None
+    saved: Optional[bool] = None
+    short_id: Optional[str] = Field(
+        default=None, description="The unique key we use when communicating with the user, e.g. in URLs"
+    )
+    tags: Optional[list[str]] = None
+    timezone: Optional[str] = None
+    updated_at: Optional[str] = None
+    user_access_level: Optional[AccessControlLevel] = None
+
+
+class AnyResponseType(
+    RootModel[
+        Union[
+            dict[str, Any],
+            HogQueryResponse,
+            HogQLQueryResponse,
+            HogQLMetadataResponse,
+            HogQLAutocompleteResponse,
+            Any,
+            EventsQueryResponse,
+            ErrorTrackingQueryResponse,
+            LogsQueryResponse,
+            AnyResponseType1,
+        ]
+    ]
+):
+    root: Union[
+        dict[str, Any],
+        HogQueryResponse,
+        HogQLQueryResponse,
+        HogQLMetadataResponse,
+        HogQLAutocompleteResponse,
+        Any,
+        EventsQueryResponse,
+        ErrorTrackingQueryResponse,
+        LogsQueryResponse,
+        AnyResponseType1,
+    ]
+
+
 class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13920,6 +13975,48 @@ class MaxUIContext(BaseModel):
     filters_override: Optional[DashboardFilter] = None
     insights: Optional[list[MaxInsightContext]] = None
     variables_override: Optional[dict[str, HogQLVariable]] = None
+
+
+class QueryBasedInsightModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field_create_in_folder: Optional[str] = Field(
+        default=None, alias="_create_in_folder", description="Only used when creating objects"
+    )
+    alerts: Optional[list[AlertType]] = None
+    cache_target_age: Optional[str] = None
+    created_at: str
+    created_by: Optional[UserBasicType] = None
+    dashboard_tiles: Optional[list[DashboardTileBasicType]] = None
+    dashboards: Optional[list[float]] = None
+    deleted: bool
+    derived_name: Optional[str] = None
+    description: Optional[str] = None
+    disable_baseline: Optional[bool] = Field(
+        default=None, description="Only used in the frontend to toggle showing Baseline in funnels or not"
+    )
+    effective_privilege_level: DashboardPrivilegeLevel
+    effective_restriction_level: DashboardRestrictionLevel
+    favorited: Optional[bool] = None
+    id: float = Field(..., description="The primary key in the database, used as well in API endpoints")
+    is_sample: bool
+    last_modified_at: str
+    last_modified_by: Optional[UserBasicType] = None
+    last_refresh: Optional[str] = None
+    name: str
+    next: Optional[str] = Field(default=None, description="Only used in the frontend to store the next breakdown url")
+    next_allowed_client_refresh: Optional[str] = None
+    order: Optional[float] = None
+    query: Optional[Query] = None
+    query_status: Optional[QueryStatus] = None
+    result: Any
+    saved: bool
+    short_id: str = Field(..., description="The unique key we use when communicating with the user, e.g. in URLs")
+    tags: Optional[list[str]] = None
+    timezone: Optional[str] = None
+    updated_at: str
+    user_access_level: AccessControlLevel
 
 
 class QueryRequest(BaseModel):
@@ -14378,6 +14475,8 @@ class SourceFieldSwitchGroupConfig(BaseModel):
 
 ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
+AlertType.model_rebuild()
+AlertTypeBase.model_rebuild()
 HumanMessage.model_rebuild()
 MaxDashboardContext.model_rebuild()
 MaxInsightContext.model_rebuild()

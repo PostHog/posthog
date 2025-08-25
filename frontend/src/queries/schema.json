@@ -352,6 +352,28 @@
             "enum": ["hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
+        "AlertCheck": {
+            "additionalProperties": false,
+            "properties": {
+                "calculated_value": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/AlertState"
+                },
+                "targets_notified": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["id", "created_at", "calculated_value", "state", "targets_notified"],
+            "type": "object"
+        },
         "AlertCondition": {
             "additionalProperties": false,
             "properties": {
@@ -366,9 +388,134 @@
             "enum": ["absolute_value", "relative_increase", "relative_decrease"],
             "type": "string"
         },
+        "AlertConfig": {
+            "$ref": "#/definitions/TrendsAlertConfig"
+        },
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
+        },
+        "AlertType": {
+            "additionalProperties": false,
+            "properties": {
+                "calculation_interval": {
+                    "$ref": "#/definitions/AlertCalculationInterval"
+                },
+                "checks": {
+                    "items": {
+                        "$ref": "#/definitions/AlertCheck"
+                    },
+                    "type": "array"
+                },
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "config": {
+                    "$ref": "#/definitions/AlertConfig"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "$ref": "#/definitions/UserBasicType"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "insight": {
+                    "$ref": "#/definitions/QueryBasedInsightModel"
+                },
+                "last_checked_at": {
+                    "type": "string"
+                },
+                "last_notified_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "skip_weekend": {
+                    "type": "boolean"
+                },
+                "snoozed_until": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/AlertState"
+                },
+                "subscribed_users": {
+                    "items": {
+                        "$ref": "#/definitions/UserBasicType"
+                    },
+                    "type": "array"
+                },
+                "threshold": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "configuration": {
+                            "$ref": "#/definitions/InsightThreshold"
+                        }
+                    },
+                    "required": ["configuration"],
+                    "type": "object"
+                }
+            },
+            "required": [
+                "calculation_interval",
+                "checks",
+                "condition",
+                "config",
+                "created_at",
+                "created_by",
+                "enabled",
+                "id",
+                "insight",
+                "last_checked_at",
+                "last_notified_at",
+                "name",
+                "state",
+                "subscribed_users",
+                "threshold"
+            ],
+            "type": "object"
+        },
+        "AlertTypeBase": {
+            "additionalProperties": false,
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "config": {
+                    "$ref": "#/definitions/AlertConfig"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "insight": {
+                    "$ref": "#/definitions/QueryBasedInsightModel"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "skip_weekend": {
+                    "type": "boolean"
+                },
+                "threshold": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "configuration": {
+                            "$ref": "#/definitions/InsightThreshold"
+                        }
+                    },
+                    "required": ["configuration"],
+                    "type": "object"
+                }
+            },
+            "required": ["name", "condition", "threshold", "enabled", "insight", "config"],
+            "type": "object"
         },
         "AnalyticsQueryResponseBase": {
             "additionalProperties": false,
@@ -710,6 +857,12 @@
                         "_create_in_folder": {
                             "description": "Only used when creating objects",
                             "type": ["string", "null"]
+                        },
+                        "alerts": {
+                            "items": {
+                                "$ref": "#/definitions/AlertType"
+                            },
+                            "type": "array"
                         },
                         "cache_target_age": {
                             "type": ["string", "null"]
@@ -16768,6 +16921,196 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "QueryBasedInsightModel": {
+            "additionalProperties": false,
+            "properties": {
+                "_create_in_folder": {
+                    "description": "Only used when creating objects",
+                    "type": ["string", "null"]
+                },
+                "alerts": {
+                    "items": {
+                        "$ref": "#/definitions/AlertType"
+                    },
+                    "type": "array"
+                },
+                "cache_target_age": {
+                    "type": ["string", "null"]
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/UserBasicType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dashboard_tiles": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/DashboardTileBasicType"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dashboards": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "deprecated": "Use `dashboard_tiles` instead"
+                },
+                "deleted": {
+                    "type": "boolean"
+                },
+                "derived_name": {
+                    "type": ["string", "null"]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "disable_baseline": {
+                    "description": "Only used in the frontend to toggle showing Baseline in funnels or not",
+                    "type": "boolean"
+                },
+                "effective_privilege_level": {
+                    "$ref": "#/definitions/DashboardPrivilegeLevel"
+                },
+                "effective_restriction_level": {
+                    "$ref": "#/definitions/DashboardRestrictionLevel"
+                },
+                "favorited": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "The primary key in the database, used as well in API endpoints",
+                    "type": "number"
+                },
+                "is_sample": {
+                    "type": "boolean"
+                },
+                "last_modified_at": {
+                    "type": "string"
+                },
+                "last_modified_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/UserBasicType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "last_refresh": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "next": {
+                    "description": "Only used in the frontend to store the next breakdown url",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": ["number", "null"]
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "description": "Node base class, everything else inherits from here.",
+                            "properties": {
+                                "kind": {
+                                    "$ref": "#/definitions/NodeKind"
+                                },
+                                "response": {
+                                    "type": "object"
+                                },
+                                "version": {
+                                    "description": "version of the node, used for schema migrations",
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["kind"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus"
+                },
+                "result": {},
+                "saved": {
+                    "type": "boolean"
+                },
+                "short_id": {
+                    "$ref": "#/definitions/InsightShortId",
+                    "description": "The unique key we use when communicating with the user, e.g. in URLs"
+                },
+                "tags": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": ["string", "null"]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_access_level": {
+                    "$ref": "#/definitions/AccessControlLevel"
+                }
+            },
+            "required": [
+                "created_at",
+                "created_by",
+                "dashboard_tiles",
+                "dashboards",
+                "deleted",
+                "effective_privilege_level",
+                "effective_restriction_level",
+                "id",
+                "is_sample",
+                "last_modified_at",
+                "last_modified_by",
+                "last_refresh",
+                "name",
+                "order",
+                "query",
+                "result",
+                "saved",
+                "short_id",
+                "updated_at",
+                "user_access_level"
+            ],
             "type": "object"
         },
         "QueryIndexUsage": {
