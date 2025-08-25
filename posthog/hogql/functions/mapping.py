@@ -2,25 +2,25 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-
-from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArrayType,
     BooleanType,
     DateTimeType,
     DateType,
+    DecimalType,
     FloatType,
+    IntegerType,
     IntervalType,
     StringType,
     TupleType,
-    IntegerType,
-    DecimalType,
     UUIDType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
 from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
+
+from posthog.cloud_utils import is_ci, is_cloud
 
 
 def validate_function_args(

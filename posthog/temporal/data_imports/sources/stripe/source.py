@@ -1,25 +1,26 @@
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-
+from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from posthog.temporal.data_imports.sources.stripe.settings import (
+    ENDPOINTS as STRIPE_ENDPOINTS,
+    INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
+)
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
-from posthog.temporal.data_imports.sources.stripe.settings import (
-    ENDPOINTS as STRIPE_ENDPOINTS,
-    INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
-)
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
 

@@ -1,30 +1,30 @@
-import logging
 import re
+import logging
 import warnings
 from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
 
-from posthog.sync import database_sync_to_async
 from django.db.models import Max
 from django.utils import timezone
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, AIMessageChunk
+
+from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from langgraph.types import StreamWriter
 from langgraph.config import get_stream_writer
+from langgraph.types import StreamWriter
+
+from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Insight
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
-from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
-from posthog.schema import (
-    AssistantToolCallMessage,
-    VisualizationMessage,
-)
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 from .prompts import (
     EMPTY_DATABASE_ERROR_MESSAGE,
@@ -587,10 +587,10 @@ class InsightSearchNode(AssistantNode):
 
             insight_name = insight.name or insight.derived_name or "Unnamed Insight"
 
-            visualization_message = VisualizationMessage.model_construct(
+            visualization_message = VisualizationMessage(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
-                answer=query_obj,  # type: ignore[arg-type]
+                answer=query_obj,
                 id=str(uuid4()),
             )
 

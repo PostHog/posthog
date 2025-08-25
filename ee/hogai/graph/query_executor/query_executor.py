@@ -1,5 +1,35 @@
+import json
 from datetime import datetime
+from time import sleep
 from typing import Optional
+
+from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
+
+from rest_framework.exceptions import APIException
+
+from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+    FunnelsQuery,
+    HogQLQuery,
+    RetentionQuery,
+    TrendsQuery,
+)
+
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
+
+from posthog.api.services.query import process_query_dict
+from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.team.team import Team
 
 from ee.hogai.graph.query_executor.format import (
     FunnelResultsFormatter,
@@ -7,28 +37,6 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
-from posthog.clickhouse.query_tagging import tags_context, Product
-from posthog.models.team.team import Team
-from posthog.schema import (
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    HogQLQuery,
-)
-from django.conf import settings
-from posthog.api.services.query import process_query_dict
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.clickhouse.client.execute_async import get_query_status
-from rest_framework.exceptions import APIException
-from posthog.errors import ExposedCHQueryError
-from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQLNotImplementedError
-from time import sleep
-import json
-from django.core.serializers.json import DjangoJSONEncoder
 
 SupportedQueryTypes = (
     AssistantTrendsQuery

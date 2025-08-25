@@ -2,8 +2,6 @@ import json
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
-import structlog
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -11,8 +9,11 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
+
+import structlog
+import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers
-from posthog.exceptions_capture import capture_exception
+from rest_framework.request import Request
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
@@ -20,25 +21,14 @@ from posthog.api.email_verification import EmailVerifier, is_email_verification_
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
-from rest_framework.request import Request
 from posthog.email import is_email_available
-from posthog.event_usage import (
-    alias_invite_id,
-    report_user_joined_organization,
-    report_user_signed_up,
-)
-from posthog.models import (
-    Organization,
-    OrganizationDomain,
-    OrganizationInvite,
-    InviteExpiredException,
-    Team,
-    User,
-)
+from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailValidationHelper
+from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
-from posthog.helpers.email_utils import EmailValidationHelper
 
 logger = structlog.get_logger(__name__)
 

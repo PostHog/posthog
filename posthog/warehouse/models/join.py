@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Optional, cast
 from warnings import warn
-from datetime import datetime
+
 from django.db import models
 
 from posthog.hogql import ast
@@ -9,6 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
+
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
