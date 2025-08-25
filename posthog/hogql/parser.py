@@ -3,6 +3,13 @@ from typing import Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
+from hogql_parser import (
+    parse_expr as _parse_expr_cpp,
+    parse_full_template_string as _parse_full_template_string_cpp,
+    parse_order_expr as _parse_order_expr_cpp,
+    parse_program as _parse_program_cpp,
+    parse_select as _parse_select_cpp,
+)
 from opentelemetry import trace
 from prometheus_client import Histogram
 
@@ -16,14 +23,6 @@ from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-
-from hogql_parser import (
-    parse_expr as _parse_expr_cpp,
-    parse_full_template_string as _parse_full_template_string_cpp,
-    parse_order_expr as _parse_order_expr_cpp,
-    parse_program as _parse_program_cpp,
-    parse_select as _parse_select_cpp,
-)
 
 tracer = trace.get_tracer(__name__)
 

@@ -1,5 +1,5 @@
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.test.activity_log_utils import ActivityLogTestHelper
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):
@@ -19,8 +19,9 @@ class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):
         self.assertIn("are_tables_created", external_data_source_exclusions)
 
     def test_external_data_source_scope_in_activity_log_types(self):
-        from posthog.models.activity_logging.activity_log import ActivityScope
         from typing import get_args
+
+        from posthog.models.activity_logging.activity_log import ActivityScope
 
         self.assertIn("ExternalDataSource", get_args(ActivityScope))
 

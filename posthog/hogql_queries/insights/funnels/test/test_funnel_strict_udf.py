@@ -4,6 +4,8 @@ from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person
 from unittest.mock import Mock, patch
 
+from hogql_parser import parse_expr
+
 from posthog.schema import BreakdownAttributionType, BreakdownFilter, EventsNode, FunnelsFilter, FunnelsQuery
 
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
@@ -18,8 +20,6 @@ from posthog.hogql_queries.insights.funnels.test.test_funnel_strict import (
     BaseTestStrictFunnelGroupBreakdown,
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-
-from hogql_parser import parse_expr
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))

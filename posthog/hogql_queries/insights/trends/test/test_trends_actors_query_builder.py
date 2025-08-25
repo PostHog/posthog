@@ -4,6 +4,8 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
+from hogql_parser import parse_select
+
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
@@ -26,8 +28,6 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.constants import UNIQUE_GROUPS
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-
-from hogql_parser import parse_select
 
 default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
 
