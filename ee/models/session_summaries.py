@@ -24,6 +24,17 @@ class SessionSummaryRunMeta:
     visual_confirmation: bool
 
 
+@dataclass(frozen=True)
+class SessionSummaryPage:
+    """Paginated results for session summaries"""
+
+    total_count: int
+    limit: int
+    has_next: bool
+    has_previous: bool
+    results: list["SingleSessionSummary"]
+
+
 class SingleSessionSummaryManager(models.Manager):
     """Manager for SingleSessionSummary with utility methods."""
 
@@ -36,6 +47,7 @@ class SingleSessionSummaryManager(models.Manager):
         if extra_summary_context is not None:
             extra_summary_context_dict = asdict(extra_summary_context)
             # Match exact context
+            # TODO: Check manually, in Python, not in DB
             queryset = queryset.filter(extra_summary_context=extra_summary_context_dict)
 
         return queryset.order_by("-created_at").first()
@@ -62,6 +74,74 @@ class SingleSessionSummaryManager(models.Manager):
             extra_summary_context=extra_summary_context_dict,
             run_metadata=run_metadata_dict,
             created_by=created_by,
+        )
+
+    def get_bulk_summaries(
+        self,
+        team: Team,
+        session_ids: list[str],
+        extra_summary_context: ExtraSummaryContext | None = None,
+        limit: int = 100,
+        page: int = 1,
+    ) -> SessionSummaryPage:
+        """Get multiple session summaries with pagination.
+        
+        For each session_id, returns the most recent summary matching the context criteria:
+        - If extra_summary_context is provided: returns summaries with matching context
+        - If extra_summary_context is None: returns summaries with null context
+        """
+        # Base query filtering by team and session_ids
+        queryset = self.filter(team=team, session_id__in=session_ids)
+        
+        # Apply context filtering
+        if extra_summary_context is not None:
+            # Get all summaries with non-null context for Python filtering
+            queryset = queryset.filter(extra_summary_context__isnull=False)
+            target_context = asdict(extra_summary_context)
+        else:
+            # Get only summaries with null context
+            queryset = queryset.filter(extra_summary_context__isnull=True)
+        
+        # Use DISTINCT ON to get the latest summary per session_id
+        # This is PostgreSQL-specific but very efficient
+        queryset = (
+            queryset
+            .order_by('session_id', '-created_at')
+            .distinct('session_id')
+        )
+        
+        # For context filtering, we still need to filter in Python
+        if extra_summary_context is not None:
+            # Fetch all and filter for matching context
+            all_summaries = list(queryset)
+            filtered_summaries = [s for s in all_summaries if s.extra_summary_context == target_context]
+        else:
+            # For null context, the DB filtering is sufficient
+            filtered_summaries = list(queryset)
+        
+        # Apply pagination manually since we're working with a list
+        total_count = len(filtered_summaries)
+        start_index = (page - 1) * limit
+        end_index = start_index + limit
+        
+        # Handle invalid page numbers
+        if start_index >= total_count and total_count > 0:
+            return SessionSummaryPage(
+                results=[],
+                total_count=0,
+                limit=limit,
+                has_next=False,
+                has_previous=False,
+            )
+        
+        page_summaries = filtered_summaries[start_index:end_index]
+        
+        return SessionSummaryPage(
+            results=page_summaries,
+            total_count=total_count,
+            limit=limit,
+            has_next=end_index < total_count,
+            has_previous=page > 1,
         )
 
 
