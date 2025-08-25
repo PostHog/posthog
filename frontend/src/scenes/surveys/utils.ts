@@ -429,7 +429,7 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
-export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+export const DATE_FORMAT = 'YYYY-MM-DD'
 
 export function getSurveyStartDateForQuery(survey: Survey): string {
     return dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
