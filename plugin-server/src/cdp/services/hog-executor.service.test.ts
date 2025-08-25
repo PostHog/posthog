@@ -1065,5 +1065,48 @@ describe('Hog Executor', () => {
                 }
             `)
         })
+
+        it('replaces access token placeholders in body, headers, and url', async () => {
+            const mockIntegrationInputs = {
+                oauth: {
+                    value: {
+                        access_token: '$$_access_token_placeholder_123$$',
+                        access_token_raw: 'actual_secret_token_12345',
+                    },
+                },
+            }
+
+            jest.spyOn(executor['hogInputsService'], 'loadIntegrationInputs').mockResolvedValue(mockIntegrationInputs)
+
+            const invocation = createExampleInvocation()
+            invocation.state.globals.inputs = mockIntegrationInputs
+            invocation.state.vmState = { stack: [] } as any
+            invocation.queueParameters = {
+                type: 'fetch',
+                url: 'https://example.com/test?q=$$_access_token_placeholder_123$$',
+                method: 'POST',
+                headers: {
+                    'X-Test': '$$_access_token_placeholder_123$$',
+                    Authorization: 'Bearer $$_access_token_placeholder_123$$',
+                },
+                body: '$$_access_token_placeholder_123$$',
+            } as any
+
+            await executor.executeFetch(invocation)
+
+            expect(jest.mocked(fetch).mock.calls[0] as any).toMatchInlineSnapshot(`
+                [
+                  "https://example.com/test?q=actual_secret_token_12345",
+                  {
+                    "body": "actual_secret_token_12345",
+                    "headers": {
+                      "Authorization": "Bearer actual_secret_token_12345",
+                      "X-Test": "actual_secret_token_12345",
+                    },
+                    "method": "POST",
+                  },
+                ]
+            `)
+        })
     })
 })

@@ -9,3 +9,4 @@ export const KAFKAJS_LOG_LEVEL_MAPPING = {
     WARN: logLevel.WARN,
     ERROR: logLevel.ERROR,
 }
+export const ACCESS_TOKEN_PLACEHOLDER = '$$_access_token_placeholder_'
