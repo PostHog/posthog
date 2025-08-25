@@ -429,15 +429,15 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
-export const DATE_FORMAT = 'YYYY-MM-DD'
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 export function getSurveyStartDateForQuery(survey: Survey): string {
-    return dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
+    return dayjs(survey.created_at).utc().subtract(1, 'day').startOf('day').format(DATE_FORMAT)
 }
 
 export function getSurveyEndDateForQuery(survey: Survey): string {
     return survey.end_date
-        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
+        ? dayjs(survey.end_date).utc().add(1, 'day').endOf('day').format(DATE_FORMAT)
         : dayjs().utc().endOf('day').format(DATE_FORMAT)
 }
 
