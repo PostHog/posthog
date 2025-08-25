@@ -5,16 +5,6 @@ import { GraphDataset } from '~/types'
 
 import type { mrrBreakdownModalLogicType } from './mrrBreakdownModalLogicType'
 
-export interface MRRBreakdownData {
-    labels: string[]
-    datasets: {
-        new: GraphDataset
-        expansion: GraphDataset
-        contraction: GraphDataset
-        churn: GraphDataset
-    }
-}
-
 export const mrrBreakdownModalLogic = kea<mrrBreakdownModalLogicType>([
     path(['products', 'revenueAnalytics', 'mrrBreakdownModalLogic']),
 
