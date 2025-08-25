@@ -1,7 +1,8 @@
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
 from posthog.models.experiment import Experiment, ExperimentToSavedMetric
+
+from ee.api.test.base import APILicensedTest
 
 
 class TestExperimentSavedMetricsCRUD(APILicensedTest):

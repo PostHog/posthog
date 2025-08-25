@@ -1,36 +1,31 @@
-import chdb
-import structlog
 import time
-from datetime import datetime, UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import chdb
 import dagster
-from dagster import (
-    Field,
-    MetadataValue,
-    AssetCheckExecutionContext,
-    AssetCheckResult,
-    AssetCheckSeverity,
-    asset_check,
+import structlog
+from dagster import AssetCheckExecutionContext, AssetCheckResult, AssetCheckSeverity, Field, MetadataValue, asset_check
+
+from posthog.schema import DateRange, HogQLQueryModifiers, WebOverviewItem, WebOverviewQuery
+
+from posthog.hogql.database.schema.web_analytics_s3 import (
+    get_s3_function_args,
+    get_s3_url,
+    get_s3_web_bounces_structure,
+    get_s3_web_stats_structure,
 )
-from dags.common import JobOwners, dagster_tags
-from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
+from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql.query import HogQLQueryExecutor
-from posthog.hogql.database.schema.web_analytics_s3 import (
-    get_s3_url,
-    get_s3_web_stats_structure,
-    get_s3_web_bounces_structure,
-    get_s3_function_args,
-)
 from posthog.models import Team
-from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
 from posthog.settings.base_variables import DEBUG
 
+from dags.common import JobOwners, dagster_tags
+from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 logger = structlog.get_logger(__name__)
 

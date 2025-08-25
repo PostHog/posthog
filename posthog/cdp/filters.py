@@ -1,9 +1,11 @@
 from typing import Optional
-from posthog.hogql.visitor import TraversingVisitor
-from posthog.models.action.action import Action
+
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr, ast
+from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
+
+from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 
 

@@ -1,8 +1,9 @@
 from typing import Literal, get_origin
+
 from pydantic import BaseModel, ValidationError
 
-from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
 from posthog.schema import (
+    BaseMathType,
     ChartDisplayType,
     FunnelsQuery,
     LifecycleQuery,
@@ -10,8 +11,9 @@ from posthog.schema import (
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-    BaseMathType,
 )
+
+from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
 from posthog.types import InsightQueryNode
 
 

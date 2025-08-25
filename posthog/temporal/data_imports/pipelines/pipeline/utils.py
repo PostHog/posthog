@@ -1,17 +1,17 @@
-import datetime
-import decimal
-import hashlib
 import json
 import math
 import uuid
+import decimal
+import hashlib
+import datetime
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Optional
 
-import deltalake as deltalake
 import numpy as np
 import orjson
 import pyarrow as pa
+import deltalake as deltalake
 import pyarrow.compute as pc
 from dateutil import parser
 from dlt.common.data_types.typing import TDataType
@@ -21,11 +21,7 @@ from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.typings import (
-    PartitionFormat,
-    PartitionMode,
-    SourceResponse,
-)
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import ExternalDataSchema

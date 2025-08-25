@@ -1,30 +1,28 @@
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-import os
 
 import dagster
-from dagster import DailyPartitionsDefinition, BackfillPolicy
-from dags.common import JobOwners, dagster_tags
-from dags.web_preaggregated_utils import (
-    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
-    DAGSTER_WEB_JOB_TIMEOUT,
-    HISTORICAL_DAILY_CRON_SCHEDULE,
-    INTRA_DAY_HOURLY_CRON_SCHEDULE,
-    drop_partitions_for_date_range,
-    merge_clickhouse_settings,
-    WEB_ANALYTICS_CONFIG_SCHEMA,
-    swap_partitions_from_staging,
-    web_analytics_retry_policy_def,
-    check_for_concurrent_runs,
-    clear_all_staging_partitions,
-)
+from dagster import BackfillPolicy, DailyPartitionsDefinition
+
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
-from posthog.models.web_preaggregated.sql import (
-    WEB_BOUNCES_INSERT_SQL,
-    WEB_STATS_INSERT_SQL,
+from dags.common import JobOwners, dagster_tags
+from dags.web_preaggregated_utils import (
+    DAGSTER_WEB_JOB_TIMEOUT,
+    HISTORICAL_DAILY_CRON_SCHEDULE,
+    INTRA_DAY_HOURLY_CRON_SCHEDULE,
+    WEB_ANALYTICS_CONFIG_SCHEMA,
+    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
+    check_for_concurrent_runs,
+    clear_all_staging_partitions,
+    drop_partitions_for_date_range,
+    merge_clickhouse_settings,
+    swap_partitions_from_staging,
+    web_analytics_retry_policy_def,
 )
 
 MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN"

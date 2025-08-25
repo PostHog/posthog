@@ -1,28 +1,31 @@
 import logging
 
 import pytest
+
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 from deepdiff import DeepDiff
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
-from ee.models.assistant import Conversation
-from ee.hogai.eval.conftest import MaxEval
 from posthog.schema import (
     DurationType,
+    EventPropertyFilter,
     FilterLogicalOperator,
     MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
     MaxRecordingUniversalFilters,
+    PersonPropertyFilter,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingOrder,
-    EventPropertyFilter,
     RecordingOrderDirection,
-    PersonPropertyFilter,
 )
+
+from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 from products.replay.backend.prompts import USER_FILTER_OPTIONS_PROMPT
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.eval.conftest import MaxEval
+from ee.models.assistant import Conversation
 
 logger = logging.getLogger(__name__)
 

@@ -1,27 +1,30 @@
-from pathlib import Path
-from typing import Union, Any
-from unittest.mock import Mock
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Union
 
 import pytest
-from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.errors import QueryError
-from posthog.models.team.team import Team
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock
+
 from posthog.schema import (
+    BaseMathType,
+    ConversionGoalFilter2,
+    DateRange,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
-    SourceMap,
-    DateRange,
-    ConversionGoalFilter2,
     NodeKind,
-    BaseMathType,
+    SourceMap,
 )
+
+from posthog.hogql.errors import QueryError
+from posthog.hogql.test.utils import pretty_print_in_tests
+
+from posthog.models import Action
+from posthog.models.team.team import Team
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-from posthog.models import Action
 
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,

@@ -11,15 +11,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field, ValidationError, create_model
 
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.hogql.ai import SCHEMA_MESSAGE
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
@@ -27,6 +18,18 @@ from posthog.schema import (
     AssistantTrendsQuery,
     VisualizationMessage,
 )
+
+from posthog.hogql.ai import SCHEMA_MESSAGE
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
+
+from posthog.models.group_type_mapping import GroupTypeMapping
+
+from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from ..base import AssistantNode
 from .prompts import (

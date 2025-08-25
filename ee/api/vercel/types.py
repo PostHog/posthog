@@ -1,4 +1,5 @@
-from typing import Union, Literal, TypedDict, NotRequired
+from typing import Literal, NotRequired, TypedDict, Union
+
 from django.contrib.auth.models import AnonymousUser
 
 
