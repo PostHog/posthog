@@ -1,12 +1,14 @@
 import time
 import datetime
+
 from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import RequestFactory, TestCase
 from django.http import HttpResponse
+from django.test import RequestFactory, TestCase
+
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
 
@@ -17,11 +19,11 @@ from posthog.auth import (
     TemporaryTokenAuthentication,
 )
 from posthog.helpers.two_factor_session import (
+    TWO_FACTOR_ENFORCEMENT_FROM_DATE,
     clear_two_factor_session_flags,
     is_two_factor_session_expired,
     is_two_factor_verified_in_session,
     set_two_factor_verified_in_session,
-    TWO_FACTOR_ENFORCEMENT_FROM_DATE,
 )
 from posthog.models import Organization, User
 

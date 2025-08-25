@@ -1,4 +1,5 @@
 import structlog
+from hogql_parser import parse_program
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
@@ -9,8 +10,6 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-
-from hogql_parser import parse_program
 
 logger = structlog.get_logger(__name__)
 
