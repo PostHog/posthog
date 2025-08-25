@@ -1,12 +1,12 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.query_log_archive import (
-    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
     DROP_QUERY_LOG_ARCHIVE_MV,
-    EXCHANGE_QUERY_LOG_ARCHIVE_TABLES,
-    RENAME_QUERY_LOG_ARCHIVE_MV,
     DROP_QUERY_LOG_ARCHIVE_OLD_TABLE,
+    EXCHANGE_QUERY_LOG_ARCHIVE_TABLES,
+    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
+    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
+    RENAME_QUERY_LOG_ARCHIVE_MV,
 )
 
 operations = [

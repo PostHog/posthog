@@ -1,7 +1,8 @@
 from collections import namedtuple
-from unittest import mock
 
 import pytest
+from unittest import mock
+
 from _pytest.terminal import TerminalReporter
 
 # We want the PostHog django_db_setup fixture here

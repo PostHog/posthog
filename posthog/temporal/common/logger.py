@@ -24,20 +24,21 @@ Temporal context, like activity ID, workflow type, attempt number, and others, w
 automatically included.
 """
 
-import asyncio
-import collections.abc
-import contextvars
-import functools
-import json
 import ssl
 import sys
+import json
 import typing
+import asyncio
+import functools
+import contextvars
+import collections.abc
+
+from django.conf import settings
 
 import aiokafka
 import structlog
 import temporalio.activity
 import temporalio.workflow
-from django.conf import settings
 from structlog._frames import _find_first_app_frame_and_name
 from structlog._log_levels import LEVEL_TO_NAME, NAME_TO_LEVEL
 from structlog.processors import EventRenamer

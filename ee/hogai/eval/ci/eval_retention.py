@@ -1,22 +1,13 @@
 import pytest
+
 from braintrust import EvalCase
 
+from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery, NodeKind
+
 from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
-from posthog.schema import (
-    AssistantRetentionEventsNode,
-    AssistantRetentionFilter,
-    AssistantRetentionQuery,
-    NodeKind,
-)
 
 from ..base import MaxPublicEval
-from ..scorers import (
-    PlanAndQueryOutput,
-    PlanCorrectness,
-    QueryAndPlanAlignment,
-    QueryKindSelection,
-    TimeRangeRelevancy,
-)
+from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db

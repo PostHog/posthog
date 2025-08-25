@@ -6,15 +6,9 @@ from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
 
-from posthog.schema import (
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantMessage,
-    AssistantRetentionQuery,
-    AssistantToolCall,
-    AssistantTrendsQuery,
-    NodeKind,
-)
+from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
+
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
 
 from .sql import SQLSemanticsCorrectness
 
@@ -67,12 +61,9 @@ class ToolRelevance(ScorerWithPartial):
         return Score(name=self._name(), score=score)
 
 
-QueryType = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
-
-
 class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
-    query: QueryType | None
+    query: AnyAssistantGeneratedQuery | None
     query_generation_retry_count: int | None
 
 

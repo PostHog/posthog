@@ -1,9 +1,20 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 import dagster
-import pytest
 from dagster import OpExecutionContext
 from dagster_aws.s3.resources import S3Resource
+
+from posthog.schema import (
+    ActorsPropertyTaxonomyResponse,
+    CachedEventTaxonomyQueryResponse,
+    CachedTeamTaxonomyQueryResponse,
+    EventTaxonomyItem,
+    TeamTaxonomyItem,
+)
+
+from posthog.models import GroupTypeMapping, Organization, Project, Team
+from posthog.models.property_definition import PropertyDefinition
 
 from dags.max_ai.snapshot_team_data import (
     SnapshotUnrecoverableError,
@@ -15,15 +26,6 @@ from dags.max_ai.snapshot_team_data import (
     snapshot_properties_taxonomy,
 )
 from ee.hogai.eval.schema import PostgresTeamDataSnapshot, TeamSnapshot
-from posthog.models import GroupTypeMapping, Organization, Project, Team
-from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    ActorsPropertyTaxonomyResponse,
-    CachedEventTaxonomyQueryResponse,
-    CachedTeamTaxonomyQueryResponse,
-    EventTaxonomyItem,
-    TeamTaxonomyItem,
-)
 
 
 @pytest.fixture

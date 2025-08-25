@@ -406,6 +406,40 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnyAssistantGeneratedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantHogQLQuery"
+                }
+            ],
+            "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
+        },
+        "AnyAssistantSupportedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            ],
+            "description": "The union type with all supported base queries for the assistant."
+        },
         "AnyDataNode": {
             "anyOf": [
                 {
@@ -23196,6 +23230,31 @@
                     },
                     "type": "array"
                 },
+                "resultCustomizationBy": {
+                    "$ref": "#/definitions/ResultCustomizationBy",
+                    "default": "value",
+                    "description": "Whether result datasets are associated by their values or by their order."
+                },
+                "resultCustomizations": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByValue"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Customizations for the appearance of result datasets."
+                },
                 "showLegend": {
                     "type": "boolean"
                 },
@@ -24611,16 +24670,10 @@
                 "answer": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
                         }
                     ]
                 },

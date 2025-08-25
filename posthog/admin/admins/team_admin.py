@@ -1,9 +1,9 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
+
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from django.urls import reverse
-
 from posthog.models import Team
 
 
@@ -97,6 +97,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "data_attributes",
                     "session_recording_version",
                     "inject_web_apps",
+                    "web_analytics_pre_aggregated_tables_enabled",
                     "extra_settings",
                     "modifiers",
                     "drop_events_older_than",

@@ -1,9 +1,10 @@
 import base64
 
+from django.conf import settings
+
 import boto3
 import dagster
 from dagster_docker import PipesDockerClient
-from django.conf import settings
 from pydantic import Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 

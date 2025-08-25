@@ -1,19 +1,18 @@
 import re
 
 import pytest
+
 from braintrust import EvalCase
+
+from posthog.schema import HumanMessage, VisualizationMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
-from posthog.schema import HumanMessage, VisualizationMessage
 
 from ..base import MaxPublicEval
-from ..scorers import (
-    InsightEvaluationAccuracy,
-    InsightSearchOutput,
-)
+from ..scorers import InsightEvaluationAccuracy, InsightSearchOutput
 
 
 def extract_evaluation_info_from_state(state) -> dict:

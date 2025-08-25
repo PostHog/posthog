@@ -1,13 +1,15 @@
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, UTC
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, call, patch
 
 import dagster
 from dagster import TimeWindow
 
+from posthog.models.web_preaggregated.sql import DROP_PARTITION_SQL
+
 from dags.web_preaggregated_daily import pre_aggregate_web_analytics_data
 from dags.web_preaggregated_utils import get_partitions, swap_partitions_from_staging
-from posthog.models.web_preaggregated.sql import DROP_PARTITION_SQL
 
 
 class TestPartitionHandling:

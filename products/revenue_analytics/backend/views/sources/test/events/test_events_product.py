@@ -1,7 +1,7 @@
 from products.revenue_analytics.backend.views.core import SourceHandle
+from products.revenue_analytics.backend.views.schemas.product import SCHEMA as PRODUCT_SCHEMA
 from products.revenue_analytics.backend.views.sources.events.product import build
 from products.revenue_analytics.backend.views.sources.test.events.base import EventsSourceBaseTest
-from products.revenue_analytics.backend.views.schemas.product import SCHEMA as PRODUCT_SCHEMA
 
 
 class TestProductEventsBuilder(EventsSourceBaseTest):

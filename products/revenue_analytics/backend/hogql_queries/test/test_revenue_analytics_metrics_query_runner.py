@@ -1,10 +1,16 @@
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import ANY
 
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import ANY
 
-from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -17,6 +23,8 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     SubscriptionDropoffMode,
 )
+
+from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -24,15 +32,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
     RevenueAnalyticsMetricsQueryRunner,
 )

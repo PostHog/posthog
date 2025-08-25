@@ -1,13 +1,17 @@
 import pytest
+
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 
+from posthog.schema import SurveyCreationSchema
+
+from posthog.models import FeatureFlag
+
+from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
+
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.models.assistant import Conversation
-from posthog.models import FeatureFlag
-from posthog.schema import SurveyCreationSchema
-from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
 
 from ..base import MaxPublicEval
 

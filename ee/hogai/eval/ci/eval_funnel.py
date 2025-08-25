@@ -2,9 +2,9 @@ from datetime import datetime
 from textwrap import dedent
 
 import pytest
+
 from braintrust import EvalCase
 
-from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsExclusionEventsNode,
@@ -13,14 +13,10 @@ from posthog.schema import (
     NodeKind,
 )
 
+from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
+
 from ..base import MaxPublicEval
-from ..scorers import (
-    PlanAndQueryOutput,
-    PlanCorrectness,
-    QueryAndPlanAlignment,
-    QueryKindSelection,
-    TimeRangeRelevancy,
-)
+from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db
