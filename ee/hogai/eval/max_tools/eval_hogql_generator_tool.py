@@ -1,4 +1,3 @@
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -10,19 +9,13 @@ from pydantic import BaseModel
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.functions.mapping import (
-    HOGQL_AGGREGATIONS,
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-    HOGQL_POSTHOG_FUNCTIONS,
-    SQL_KEYWORDS,
-)
 
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool
 
 from ee.hogai.eval.conftest import MaxEval
-from ee.hogai.eval.eval_sql import SQLSyntaxCorrectness
+from ee.hogai.eval.eval_sql import SQLFunctionCorrectness, SQLSyntaxCorrectness
 from ee.hogai.eval.scorers import SQLSemanticsCorrectness
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
@@ -34,77 +27,6 @@ class EvalInput(BaseModel):
     instructions: str
     current_query: str | None = None
     apply_patch: Callable[[HogQLGeneratorTool], Any] | None = None
-
-
-class SQLFunctionCorrectness:
-    """Evaluate if all SQL functions in the generated query are from the allowed list in mapping.py"""
-
-    def _name(self):
-        return "sql_function_correctness"
-
-    def _extract_functions_from_sql(self, sql_query: str) -> set[str]:
-        """Extract all function names from SQL query using regex."""
-        if not sql_query:
-            return set()
-
-        # Pattern to match function calls: word followed by opening parenthesis
-        # This captures the function name before the opening parenthesis
-        function_pattern = r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
-
-        functions = set()
-        for match in re.finditer(function_pattern, sql_query):
-            function_name = match.group(1)
-
-            if function_name.upper() not in SQL_KEYWORDS:
-                functions.add(function_name)
-
-        return functions
-
-    def _is_function_allowed(self, function_name: str) -> bool:
-        """Check if a function is in the allowed list from mapping.py"""
-        # Check in all three function dictionaries
-        return (
-            function_name in HOGQL_CLICKHOUSE_FUNCTIONS
-            or function_name in HOGQL_AGGREGATIONS
-            or function_name in HOGQL_POSTHOG_FUNCTIONS
-        )
-
-    async def eval_async(self, input: str, expected: str, output: str, **kwargs) -> Score:
-        return self.eval_sync(input, expected, output, **kwargs)
-
-    def eval_sync(self, input: str, expected: str, output: str, **kwargs) -> Score:
-        """Evaluate SQL function correctness synchronously."""
-        if not output:
-            return Score(
-                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
-            )
-
-        functions = self._extract_functions_from_sql(output)
-        if not functions:
-            return Score(name=self._name(), score=None, metadata={"reason": "No functions found in query"})
-
-        invalid_functions = set()
-        for func in functions:
-            if not self._is_function_allowed(func):
-                invalid_functions.add(func)
-
-        if invalid_functions:
-            score = 0.0
-            metadata = {
-                "reason": f"Invalid functions found: {', '.join(sorted(invalid_functions))}",
-                "invalid_functions": sorted(invalid_functions),
-                "total_functions": len(functions),
-                "valid_functions": len(functions) - len(invalid_functions),
-            }
-        else:
-            score = 1.0
-            metadata = {
-                "reason": f"All functions are valid: {', '.join(sorted(functions))}",
-                "total_functions": len(functions),
-                "valid_functions": len(functions),
-            }
-
-        return Score(name=self._name(), score=score, metadata=metadata)
 
 
 @pytest.fixture

@@ -5,6 +5,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantHogQLQuery
+
 from posthog.models import Team, User
 
 from products.data_warehouse.backend.prompts import HOGQL_GENERATOR_USER_PROMPT, SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
@@ -131,7 +133,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             **self.context,
         }
 
-        final_result: SchemaGeneratorOutput[str] | None = None  # type: ignore
+        final_result: SchemaGeneratorOutput[AssistantHogQLQuery] | None = None
         final_error: Optional[PydanticOutputParserException] = None
         for _ in range(GENERATION_ATTEMPTS_ALLOWED):
             try:
@@ -142,10 +144,10 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                     else:
                         return "I need more information to generate the query.", ""
                 else:
-                    final_result = result_so_far["output"]
-                    assert final_result is not None
+                    output = result_so_far["output"]
+                    assert output is not None
 
-                    final_result = self._parse_output(final_result)
+                    final_result = self._parse_output(output)
                     # If quality check raises, we will still iterate if we've got any attempts left,
                     # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
                     await self._quality_check_output(output=final_result)
