@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -27,7 +27,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     key(({ insightId }) => `insight-${insightId}`),
     actions({
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
-        refreshAlertsFromAPI: true,
     }),
 
     connect((props: InsightAlertsLogicProps) => ({
@@ -41,7 +40,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     })),
 
     loaders(({ props }) => ({
-        alertsFromAPI: {
+        alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
                 const response = await api.alerts.list(props.insightId)
@@ -60,19 +59,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     selectors({
-        // Use embedded alerts from insight (efficient for dashboard loading)
-        // but fall back to API alerts when available (for when we refresh after operations)
-        alerts: [
-            (s) => [s.insight, s.alertsFromAPI, s.alertsFromAPILoading],
-            (insight, alertsFromAPI, alertsFromAPILoading): AlertType[] => {
-                if (!alertsFromAPILoading && alertsFromAPI.length > 0) {
-                    // Use fresh API data when available
-                    return alertsFromAPI
-                }
-                // Fall back to embedded insight data (efficient for dashboard loading)
-                return insight?.alerts && Array.isArray(insight.alerts) ? insight.alerts : []
-            },
-        ],
         alertThresholdLines: [
             (s) => [s.alerts, s.showAlertThresholdLines],
             (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
@@ -111,9 +97,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        refreshAlertsFromAPI: async () => {
-            actions.loadAlerts()
-        },
         setQuery: ({ query }) => {
             if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
                 actions.setShouldShowAlertDeletionWarning(false)
@@ -122,4 +105,14 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        // If the insight has an alerts property (even if empty), use it - this means the backend sent us the alerts data
+        if (values.insight?.alerts && Array.isArray(values.insight.alerts)) {
+            actions.loadAlertsSuccess(values.insight.alerts)
+        } else {
+            // No alerts property means we need to fetch from API (e.g., when viewing insight in isolation)
+            actions.loadAlerts()
+        }
+    }),
 ])

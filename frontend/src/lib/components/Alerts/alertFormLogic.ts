@@ -69,15 +69,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     connect((props: AlertFormLogicProps) => ({
         values: [trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }), ['goalLines']],
-        actions: props.insightVizDataLogicProps
-            ? [
-                  insightAlertsLogic({
-                      insightId: props.insightId,
-                      insightLogicProps: props.insightVizDataLogicProps,
-                  }),
-                  ['loadAlerts'],
-              ]
-            : [],
     })),
 
     actions({
@@ -166,7 +157,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         },
     })),
 
-    listeners(({ props, values, actions }) => ({
+    listeners(({ props, values }) => ({
         deleteAlert: async () => {
             // deletion only allowed on created alert (which will have alertId)
             if (!values.alertForm.id) {
@@ -175,8 +166,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             await api.alerts.delete(values.alertForm.id)
             lemonToast.success('Alert deleted.')
 
+            // Refresh alerts if we have the insightAlertsLogic available
             if (props.insightVizDataLogicProps) {
-                actions.loadAlerts()
+                insightAlertsLogic({
+                    insightId: props.insightId,
+                    insightLogicProps: props.insightVizDataLogicProps,
+                }).actions.loadAlerts()
             }
 
             props.onEditSuccess(undefined)
@@ -188,8 +183,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
 
+            // Refresh alerts if we have the insightAlertsLogic available
             if (props.insightVizDataLogicProps) {
-                actions.loadAlerts()
+                insightAlertsLogic({
+                    insightId: props.insightId,
+                    insightLogicProps: props.insightVizDataLogicProps,
+                }).actions.loadAlerts()
             }
 
             props.onEditSuccess(values.alertForm.id)
@@ -201,15 +200,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: null })
 
+            // Refresh alerts if we have the insightAlertsLogic available
             if (props.insightVizDataLogicProps) {
-                actions.loadAlerts()
+                insightAlertsLogic({
+                    insightId: props.insightId,
+                    insightLogicProps: props.insightVizDataLogicProps,
+                }).actions.loadAlerts()
             }
 
             props.onEditSuccess(values.alertForm.id)
         },
         submitAlertFormSuccess: async () => {
+            // Refresh alerts after successful form submission
             if (props.insightVizDataLogicProps) {
-                actions.loadAlerts()
+                insightAlertsLogic({
+                    insightId: props.insightId,
+                    insightLogicProps: props.insightVizDataLogicProps,
+                }).actions.loadAlerts()
             }
         },
     })),
