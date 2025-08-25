@@ -294,7 +294,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            to="https://posthog.com/docs/llm-analytics/start-here"
+                            to="https://posthog.com/docs/llm-analytics/installation"
                             type="secondary"
                             targetBlank
                         >
