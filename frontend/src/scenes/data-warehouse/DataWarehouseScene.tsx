@@ -370,13 +370,7 @@ export function DataWarehouseScene(): JSX.Element {
                             return null
                         }
 
-                        // for testing: allow overriding usage via URL params
-                        const urlParams = new URLSearchParams(window.location.search)
-                        const testUsage = urlParams.get('test_dw_usage')
-
-                        const currentUsage = testUsage
-                            ? parseInt(testUsage, 10)
-                            : totalRowsStats?.tracked_billing_rows || 0
+                        const currentUsage = totalRowsStats?.tracked_billing_rows || 0
                         const pendingUsage = totalRowsStats?.pending_billing_rows || 0
                         const totalUsage = currentUsage
                         const dataWarehouseProduct = billing?.products?.find((p) => p.type === 'data_warehouse')
