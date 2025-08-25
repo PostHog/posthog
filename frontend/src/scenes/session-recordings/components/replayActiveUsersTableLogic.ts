@@ -23,18 +23,46 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
         countedUsers: {
             loadCountedUsers: async (_, breakpoint): Promise<{ person: PersonType; count: number }[]> => {
                 const q = hogql`
-                    select p, any (pp), count () as c
-                    from (
-                        select any (person_id) as p, any (person.properties) as pp
-                        from raw_session_replay_events
-                        where min_first_timestamp <= now()
-                        and min_first_timestamp >= now() - toIntervalDay(7)
-                        group by session_id
-                        having date_diff('second', min (min_first_timestamp), max (max_last_timestamp)) > 5000
-                        ) as q
-                    group by p
-                    order by c desc
-                        limit 10
+                    WITH
+            -- get the session ids for any recorded sessions in the last 7 days
+            recorded_sessions AS (
+                SELECT session_id
+                FROM raw_session_replay_events
+                WHERE min_first_timestamp >= now() - interval 7 day
+                  AND min_first_timestamp <= now()
+                GROUP BY session_id
+                HAVING date_diff('second', min(min_first_timestamp), max(max_last_timestamp)) > 5
+            ),
+            -- way faster to get person props from the events table
+            -- so get the mapping of person_id/person_properties to session_id
+            -- from the events table that has the same session_id as the recorded sessions
+            session_persons AS (
+                SELECT
+                    $session_id as session_id,
+                    any(person_id) as person_id,
+                    any(person.properties) as pp
+                FROM events
+                WHERE timestamp >= now() - interval 7 day
+                  AND timestamp <= now()
+                  AND $session_id IN (SELECT session_id FROM recorded_sessions)
+                  -- including events when querying the events table is always _much_ faster,
+                  -- but we don't know what events an account will have
+                  -- so we just include the most common ones
+                  -- this won't work for everyone but then that's try with the poorly performing query
+                  -- that this replaces, so it's at least no worse 🙈
+                  AND event IN ('$pageview', '$screen', '$autocapture', '$feature_flag_called', '$pageleave', '$identify', '$web_vitals', '$set', 'Application Opened', 'Application Backgrounded')
+                GROUP BY $session_id
+            )
+            -- now we can count the distinct sessions per person
+            SELECT
+                sp.person_id,
+                sp.pp,
+                count(distinct sp.session_id) as total_count
+            FROM session_persons sp 
+            WHERE sp.person_id IS NOT NULL
+            GROUP BY sp.person_id, sp.pp
+            ORDER BY total_count DESC
+            LIMIT 10
                 `
 
                 const qResponse = await api.queryHogQL(q)

@@ -6,12 +6,14 @@ import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusS
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -126,7 +128,9 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
+    const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
@@ -255,7 +259,12 @@ export function ProjectTree({
 
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                     <>
-                        <BrowserLikeMenuItems href={item.record?.href} MenuItem={MenuItem} />
+                        <BrowserLikeMenuItems
+                            href={item.record?.href}
+                            MenuItem={MenuItem}
+                            canOpenInPostHogTab={canOpenInPostHogTab}
+                            resetPanelLayout={resetPanelLayout}
+                        />
                         <MenuSeparator />
                     </>
                 ) : null}

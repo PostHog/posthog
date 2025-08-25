@@ -3,13 +3,11 @@ import logging
 import dataclasses
 from datetime import timedelta
 
-from django.db import close_old_connections
-
 import structlog
-from asgiref.sync import sync_to_async
 from temporalio import activity, common, workflow
 
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -35,9 +33,8 @@ async def run_quota_limiting_all_orgs(
         try:
             from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-            @sync_to_async
+            @database_sync_to_async(thread_sensitive=False)
             def async_update_all_orgs_billing_quotas():
-                close_old_connections()
                 update_all_orgs_billing_quotas()
 
             await async_update_all_orgs_billing_quotas()

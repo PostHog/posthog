@@ -41,6 +41,8 @@ import {
     QuerySchema,
     QueryStatusResponse,
     ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsMetricsQuery,
@@ -482,6 +484,28 @@ export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefin
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizationBy
+    }
+    return undefined
+}
+
+export function getResultCustomizations(query: FunnelsQuery): Record<string, ResultCustomizationByValue> | undefined
+export function getResultCustomizations(
+    query: TrendsQuery | StickinessQuery
+): Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizations
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.resultCustomizations
     }
     return undefined
 }
