@@ -82,7 +82,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                     }
                 ]
             }
-        ) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
+        ) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 33, 1])
 
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(

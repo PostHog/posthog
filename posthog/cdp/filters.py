@@ -25,7 +25,7 @@ def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
 
 def _build_event_filter_expr(filter: dict) -> ast.Expr:
     """Build expression for a single event filter."""
-    event_name = filter["id"]
+    event_name = filter.get("id")
     if event_name is None:
         return ast.Constant(value=1)  # Match all events
     return parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})
@@ -48,7 +48,7 @@ def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Te
     filter_exprs: list[ast.Expr] = []
 
     # Add event or action expression
-    if filter.get("type") == "events" and filter.get("id"):
+    if filter.get("type") == "events":
         filter_exprs.append(_build_event_filter_expr(filter))
     elif filter.get("type") == "actions":
         filter_exprs.append(_build_action_filter_expr(filter, actions, team))
