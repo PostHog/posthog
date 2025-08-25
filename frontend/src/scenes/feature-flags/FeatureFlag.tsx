@@ -404,6 +404,21 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         </div>
                                     )}
                                 </LemonField>
+                                {isNewFeatureFlag && (
+                                    <LemonField name="_should_create_usage_dashboard">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded p-4">
+                                                <LemonCheckbox
+                                                    id="create-usage-dashboard-checkbox"
+                                                    label="Create Usage Dashboard"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    dataAttr="create-usage-dashboard-checkbox"
+                                                />
+                                            </div>
+                                        )}
+                                    </LemonField>
+                                )}
                                 {!featureFlag.is_remote_configuration && (
                                     <LemonField name="ensure_experience_continuity">
                                         {({ value, onChange }) => (
