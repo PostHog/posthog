@@ -91,7 +91,7 @@ const IngestionStatusCheck = (): JSX.Element | null => {
             </p>
             <p>
                 To use the LLM Analytics product, please{' '}
-                <Link to="https://posthog.com/docs/llm-analytics/start-here">
+                <Link to="https://posthog.com/docs/llm-analytics/installation">
                     instrument your LLM calls with the PostHog SDK
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
