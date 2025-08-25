@@ -62,7 +62,7 @@ export function TwoFactorSetupModal(): JSX.Element {
                             change your organization
                         </button>
                     </div>
-                    {showOrgDropdown && <OrganizationDropdownMenu />}
+                    {showOrgDropdown && <OrganizationDropdownMenu allowCreate={false} />}
                 </div>
             </div>
         </LemonModal>
