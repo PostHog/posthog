@@ -280,18 +280,20 @@ def _milliseconds_to_timestamp(milliseconds: int) -> str:
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
     seconds = seconds % 60
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
 
 
-def _create_recording_widget_content(session_id: str, milliseconds_since_start: int) -> TipTapNode:
-    """Create a session recording widget for embedding in notebooks."""
+def _create_recording_widget_content(name: str, *, session_id: str, timestamp_ms: int) -> TipTapNode:
+    """Create a session recording widget for playing the session within notebook."""
     return {
         "type": "ph-recording",
         "attrs": {
             "id": session_id,
             "noInspector": False,
-            "timestampMs": milliseconds_since_start,
-            "title": f"Recording at {_milliseconds_to_timestamp(milliseconds_since_start)}",
+            # Actually start playback from 5 seconds before the interesting timestamp,
+            # so that the user sees what happened just before
+            "timestampMs": max(timestamp_ms - 5000, 0),
+            "title": f"{name} at {_milliseconds_to_timestamp(timestamp_ms)}",
         },
     }
 
@@ -401,7 +403,13 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext, team
     session_id = event_data.target_event.session_id
 
     # Embedded session recording widget
-    content.append(_create_recording_widget_content(session_id, event_data.target_event.milliseconds_since_start))
+    content.append(
+        _create_recording_widget_content(
+            name=event_data.target_event.description,
+            session_id=session_id,
+            timestamp_ms=event_data.target_event.milliseconds_since_start,
+        )
+    )
 
     # Quick summary
     content.append(create_heading_with_text("Quick summary", 4))
