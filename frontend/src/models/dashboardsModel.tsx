@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -292,6 +293,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 actions.dashboardsFullyLoaded()
             }
         },
+
         addDashboardSuccess: ({ dashboard }) => {
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
 
@@ -343,9 +345,19 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 </>
             )
         },
+
+        // Listen for organization changes to load dashboards when it becomes available
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
+            if (currentOrganization && !values.pagedDashboards) {
+                actions.loadDashboards()
+            }
+        },
     })),
     afterMount(({ actions }) => {
-        actions.loadDashboards()
+        if (organizationLogic.values.currentOrganization) {
+            // don't load dashboards if organization is unavailable
+            actions.loadDashboards()
+        }
     }),
     permanentlyMount(),
 ])

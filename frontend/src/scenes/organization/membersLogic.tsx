@@ -40,9 +40,12 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                return await api.organizationMembers.listAll({
-                    limit: PAGINATION_LIMIT,
-                })
+                // Don't make a request if organization is unavailable
+                if (organizationLogic.values.currentOrganization) {
+                    return await api.organizationMembers.listAll({
+                        limit: PAGINATION_LIMIT,
+                    })
+                }
             },
             loadMemberUpdates: async () => {
                 const newestMemberUpdate = values.members?.sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1))?.[0]
@@ -184,6 +187,13 @@ export const membersLogic = kea<membersLogicType>([
         loadAllMembersSuccess: ({ members }) => {
             if (members && members.length > 1) {
                 activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+            }
+        },
+
+        // Listen for organization changes to load members when it becomes available
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
+            if (currentOrganization && !values.members) {
+                actions.loadAllMembers()
             }
         },
     })),

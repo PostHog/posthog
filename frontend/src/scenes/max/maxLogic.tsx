@@ -17,6 +17,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import { organizationLogic } from '~/scenes/organizationLogic'
 import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
@@ -392,6 +393,13 @@ export const maxLogic = kea<maxLogicType>([
             actions.resetContext()
             actions.focusInput()
         },
+
+        // Listen for organization changes to load conversation history when it becomes available
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
+            if (currentOrganization && !values.conversationHistory?.length) {
+                actions.loadConversationHistory()
+            }
+        },
     })),
 
     afterMount(({ actions, values }) => {
@@ -409,8 +417,10 @@ export const maxLogic = kea<maxLogicType>([
             }
         }
 
-        // Load conversation history on mount
-        actions.loadConversationHistory()
+        // Load conversation history if current organization is available
+        if (organizationLogic.values.currentOrganization) {
+            actions.loadConversationHistory()
+        }
     }),
 
     urlToAction(({ actions, values }) => ({
