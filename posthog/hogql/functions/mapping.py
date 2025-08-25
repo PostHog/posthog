@@ -101,6 +101,55 @@ def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantTy
     )
 
 
+SQL_KEYWORDS = {
+    "SELECT",
+    "FROM",
+    "WHERE",
+    "GROUP",
+    "ORDER",
+    "BY",
+    "HAVING",
+    "JOIN",
+    "LEFT",
+    "RIGHT",
+    "INNER",
+    "OUTER",
+    "ON",
+    "AS",
+    "AND",
+    "OR",
+    "NOT",
+    "IN",
+    "EXISTS",
+    "BETWEEN",
+    "LIKE",
+    "IS",
+    "NULL",
+    "CASE",
+    "WHEN",
+    "THEN",
+    "ELSE",
+    "END",
+    "DISTINCT",
+    "ALL",
+    "UNION",
+    "INTERSECT",
+    "EXCEPT",
+    "LIMIT",
+    "OFFSET",
+    "OVER",
+    "PARTITION",
+    "ROWS",
+    "RANGE",
+    "UNBOUNDED",
+    "PRECEDING",
+    "FOLLOWING",
+    "INTERVAL",
+    "CURRENT",
+    "ROW",
+}
+
+
 HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
     "equals": ast.CompareOperationOp.Eq,
     "notEquals": ast.CompareOperationOp.NotEq,
@@ -2085,45 +2134,8 @@ def normalize_hogql_function_names(query: str) -> str:
     def replace_function_name(match):
         function_name = match.group(1)
         # Don't replace SQL keywords that aren't functions
-        sql_keywords = {
-            "SELECT",
-            "FROM",
-            "WHERE",
-            "GROUP",
-            "ORDER",
-            "BY",
-            "HAVING",
-            "JOIN",
-            "LEFT",
-            "RIGHT",
-            "INNER",
-            "OUTER",
-            "ON",
-            "AS",
-            "AND",
-            "OR",
-            "NOT",
-            "IN",
-            "EXISTS",
-            "BETWEEN",
-            "LIKE",
-            "IS",
-            "NULL",
-            "CASE",
-            "WHEN",
-            "THEN",
-            "ELSE",
-            "END",
-            "DISTINCT",
-            "ALL",
-            "UNION",
-            "INTERSECT",
-            "EXCEPT",
-            "LIMIT",
-            "OFFSET",
-        }
 
-        if function_name.upper() in sql_keywords:
+        if function_name.upper() in SQL_KEYWORDS:
             return match.group(0)
 
         correct_name = get_correct_function_name(function_name)

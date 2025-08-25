@@ -74,7 +74,8 @@ class HogQLGeneratorMixin(AssistantContextMixin):
 
     def _parse_output(self, output: dict) -> SQLSchemaGeneratorOutput:
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
+        normalized_query = normalize_hogql_function_names(result.query)
+        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=normalized_query))
 
     @database_sync_to_async(thread_sensitive=False)
     def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
@@ -84,12 +85,8 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         if not query:
             raise PydanticOutputParserException(llm_output="", validation_message=f"Output is empty")
 
-        # Normalize function names to use correct casing
-        normalized_query = normalize_hogql_function_names(query)
-        output.query.query = normalized_query
-
         try:
-            parsed_query = parse_select(normalized_query, placeholders={})
+            parsed_query = parse_select(query, placeholders={})
 
             # Replace placeholders with dummy values to compile the generated query.
             finder = find_placeholders(parsed_query)
@@ -107,4 +104,4 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
-            raise PydanticOutputParserException(llm_output=normalized_query, validation_message=err_msg)
+            raise PydanticOutputParserException(llm_output=query, validation_message=err_msg)

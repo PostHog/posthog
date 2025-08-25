@@ -5,8 +5,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery
-
 from posthog.models import Team, User
 
 from products.data_warehouse.backend.prompts import HOGQL_GENERATOR_USER_PROMPT, SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
@@ -14,7 +12,7 @@ from products.data_warehouse.backend.prompts import HOGQL_GENERATOR_USER_PROMPT,
 from ee.hogai.graph.query_planner.prompts import PROPERTY_FILTERS_EXPLANATION_PROMPT
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
+from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
@@ -146,11 +144,11 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                 else:
                     final_result = result_so_far["output"]
                     assert final_result is not None
+
+                    final_result = self._parse_output(final_result)
                     # If quality check raises, we will still iterate if we've got any attempts left,
                     # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
-                    await self._quality_check_output(
-                        SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=final_result.query))
-                    )
+                    await self._quality_check_output(output=final_result)
                     final_error = None
                     break  # All good, let's go
             except PydanticOutputParserException as e:
@@ -165,4 +163,4 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             # Well, better that that nothing - let's just capture the error and send what we've got
             capture_exception(final_error)
 
-        return "```sql\n" + final_result.query + "\n```", final_result.query
+        return "```sql\n" + final_result.query.query + "\n```", final_result.query.query
