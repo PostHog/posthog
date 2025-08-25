@@ -1,13 +1,13 @@
-from collections import Counter
-from collections import Counter as TCounter
-from typing import Union, cast
+from collections import (
+    Counter,
+    Counter as TCounter,
+)
 from collections.abc import Generator
+from typing import Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_column_for_property
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models.action.util import (
-    get_action_tables_and_properties,
-)
+from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -16,11 +16,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.property import (
-    PropertyIdentifier,
-    PropertyType,
-    TableWithProperties,
-)
+from posthog.models.property import PropertyIdentifier, PropertyType, TableWithProperties
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.property_optimizer import PropertyOptimizer
 

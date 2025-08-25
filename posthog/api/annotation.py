@@ -1,18 +1,19 @@
+import dataclasses
 from datetime import datetime
 from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import filters, serializers, viewsets, pagination
+
+from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
-import dataclasses
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal
 
 

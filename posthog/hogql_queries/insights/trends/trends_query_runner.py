@@ -1,6 +1,6 @@
 import threading
 from copy import deepcopy
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -8,45 +8,9 @@ from typing import Any, Optional, Union
 from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
+
 from natsort import natsorted, ns
 
-from posthog.caching.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-)
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import QueryTags
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
-    BREAKDOWN_OTHER_DISPLAY,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.formula_ast import FormulaAST
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import (
-    QueryPreviousPeriodDateRange,
-)
-from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series, format_label_date
-from posthog.models import Team
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
     BreakdownItem,
@@ -68,12 +32,49 @@ from posthog.schema import (
     MultipleBreakdownOptions,
     MultipleBreakdownType,
     QueryTiming,
+    ResolvedDateRangeResponse,
     Series,
+    TrendsFormulaNode,
     TrendsQuery,
     TrendsQueryResponse,
-    TrendsFormulaNode,
-    ResolvedDateRangeResponse,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.caching.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import QueryTags
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
+from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.formula_ast import FormulaAST
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.models import Team
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property_definition import PropertyDefinition
+from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 

@@ -1,27 +1,30 @@
+import os
+import uuid
 import asyncio
 import datetime as dt
 import functools
-import os
+
+import pytest
 import unittest.mock
-import uuid
+from freezegun.api import freeze_time
 from unittest.mock import patch
 
+from django.conf import settings
+from django.test import override_settings
+
+import pyarrow as pa
 import aioboto3
 import deltalake
-import pyarrow as pa
-import pytest
 import pytest_asyncio
 import temporalio.common
 import temporalio.worker
 from asgiref.sync import sync_to_async
-from django.conf import settings
-from django.test import override_settings
-from freezegun.api import freeze_time
 from structlog.testing import capture_logs
 
-from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
+
+from posthog import constants
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async

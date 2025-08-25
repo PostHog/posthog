@@ -1,3 +1,4 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import mock_open, patch
 
 from boto3 import resource
@@ -13,7 +14,6 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import image_exporter
-from posthog.test.base import APIBaseTest
 
 TEST_PREFIX = "Test-Exports"
 

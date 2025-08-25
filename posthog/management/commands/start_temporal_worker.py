@@ -1,8 +1,8 @@
+import signal
 import asyncio
 import datetime as dt
-import faulthandler
 import functools
-import signal
+import faulthandler
 
 import structlog
 from temporalio import workflow
@@ -19,16 +19,25 @@ from posthog.constants import (
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
     DATA_WAREHOUSE_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
-    TASKS_TASK_QUEUE,
     MAX_AI_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
+    TASKS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
-from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
+from posthog.temporal.ai import (
+    ACTIVITIES as AI_ACTIVITIES,
+    WORKFLOWS as AI_WORKFLOWS,
+)
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import create_worker
-from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
-from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
+from posthog.temporal.data_imports.settings import (
+    ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    WORKFLOWS as DATA_SYNC_WORKFLOWS,
+)
+from posthog.temporal.data_modeling import (
+    ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    WORKFLOWS as DATA_MODELING_WORKFLOWS,
+)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
@@ -37,7 +46,10 @@ from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
     WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
-from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
+from posthog.temporal.proxy_service import (
+    ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
+    WORKFLOWS as PROXY_SERVICE_WORKFLOWS,
+)
 from posthog.temporal.quota_limiting import (
     ACTIVITIES as QUOTA_LIMITING_ACTIVITIES,
     WORKFLOWS as QUOTA_LIMITING_WORKFLOWS,
@@ -50,9 +62,19 @@ from posthog.temporal.session_recordings import (
     ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
     WORKFLOWS as SESSION_RECORDINGS_WORKFLOWS,
 )
-from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
-from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
-from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from posthog.temporal.subscriptions import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from posthog.temporal.tests.utils.workflow import (
+    ACTIVITIES as TEST_ACTIVITIES,
+    WORKFLOWS as TEST_WORKFLOWS,
+)
+from posthog.temporal.usage_reports import (
+    ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
+)
+
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
