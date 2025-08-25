@@ -175,7 +175,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
             await api.alerts.delete(values.alertForm.id)
             lemonToast.success('Alert deleted.')
 
-            // Refresh alerts data using API (more efficient than reloading whole insight)
             if (props.insightVizDataLogicProps) {
                 actions.loadAlerts()
             }
@@ -189,7 +188,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
 
-            // Refresh alerts data using API (more efficient than reloading whole insight)
             if (props.insightVizDataLogicProps) {
                 actions.loadAlerts()
             }
@@ -203,14 +201,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: null })
 
-            // Refresh alerts data using API (more efficient than reloading whole insight)
             if (props.insightVizDataLogicProps) {
                 actions.loadAlerts()
             }
 
             props.onEditSuccess(values.alertForm.id)
         },
-        // Also refresh after successful form submission (create/update)
         submitAlertFormSuccess: async () => {
             if (props.insightVizDataLogicProps) {
                 actions.loadAlerts()

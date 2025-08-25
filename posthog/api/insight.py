@@ -33,6 +33,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
 from posthog import schema
+from posthog.api.alert import AlertSerializer
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_variable import map_stale_to_latest
@@ -630,8 +631,6 @@ class InsightSerializer(InsightBasicSerializer):
         return self.insight_result(insight).types
 
     def get_alerts(self, insight: Insight):
-        from posthog.api.alert import AlertSerializer
-
         if not are_alerts_supported_for_insight(insight):
             return []
 
