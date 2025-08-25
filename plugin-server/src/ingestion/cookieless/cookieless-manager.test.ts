@@ -123,6 +123,7 @@ describe('CookielessManager', () => {
         const differentDay = new Date('2025-01-11T11:00:00')
         const userAgent = 'Test User Agent'
         const identifiedDistinctId = 'identified@example.com'
+        const cookieConsentedAnonymousDistinctId = 'cookieConsentedAnonymousDistinctId'
         let event: PluginEvent
         let eventABitLater: PluginEvent
         let eventMuchLater: PluginEvent
@@ -253,6 +254,11 @@ describe('CookielessManager', () => {
                 ...event,
                 event: '$create_alias',
                 uuid: new UUID7(now.getTime()).toString(),
+                properties: {
+                    ...event.properties,
+                    distinct_id: COOKIELESS_SENTINEL_VALUE,
+                    alias: cookieConsentedAnonymousDistinctId,
+                },
             })
             mergeDangerouslyEvent = deepFreeze({
                 ...event,
@@ -338,15 +344,21 @@ describe('CookielessManager', () => {
                     throw new Error('no event or properties')
                 }
                 expect(actual.ip).toBeNull()
-                expect(actual.properties.$raw_user_user).toBeUndefined()
+                expect(actual.properties.$raw_user_agent).toBeUndefined()
                 expect(actual.properties.$ip).toBeUndefined()
                 expect(actual.properties.$cookieless_extra).toBeUndefined()
             })
-            it('should drop alias and merge events', async () => {
-                const actual1 = await processEvent(aliasEvent)
-                const actual2 = await processEvent(mergeDangerouslyEvent)
-                expect(actual1).toBeUndefined()
-                expect(actual2).toBeUndefined()
+            it('should drop merge events', async () => {
+                const actual = await processEvent(mergeDangerouslyEvent)
+                expect(actual).toBeUndefined()
+            })
+            it('should handle alias events', async () => {
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(aliasEvent)
+                const distinctId = actual1?.distinct_id
+                expect(distinctId).toBeTruthy()
+                expect(actual2?.distinct_id).toEqual(distinctId)
+                expect(actual2?.properties?.distinct_id).toEqual(distinctId)
             })
             it('should pass through non-cookieless events', async () => {
                 const actual1 = await processEvent(nonCookielessEvent)
