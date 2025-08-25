@@ -68,7 +68,7 @@ async def query_usage_reports(
 
         print(f"Querying all org reports {period_start} - {period_end}")  # noqa: T201
 
-        @database_sync_to_async
+        @database_sync_to_async(thread_sensitive=False)
         def async_get_all_usage_data(p_start, p_end):
             return _get_all_usage_data(p_start, p_end)
 
@@ -84,7 +84,7 @@ async def query_usage_reports(
 
         print("Querying all teams")  # noqa: T201
 
-        @database_sync_to_async
+        @database_sync_to_async(thread_sensitive=False)
         def async_get_teams_for_usage_reports():
             return _get_teams_for_usage_reports()
 
@@ -96,7 +96,7 @@ async def query_usage_reports(
 
         print("Generating org reports")  # noqa: T201
 
-        @database_sync_to_async
+        @database_sync_to_async(thread_sensitive=False)
         def async_add_team_report_to_org_reports(o_r, t, t_r, p_start):
             return _add_team_report_to_org_reports(o_r, t, t_r, p_start)
 
@@ -106,7 +106,7 @@ async def query_usage_reports(
 
         print(f"Generating org reports complete {len(org_reports)} orgs")  # noqa: T201
 
-        @sync_to_async
+        @sync_to_async(thread_sensitive=False)
         def async_get_instance_metadata(p):
             return get_instance_metadata(p)
 
@@ -152,7 +152,7 @@ async def query_usage_reports(
                 full_report = _get_full_org_usage_report(org_report, instance_metadata)
                 full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
-                @sync_to_async
+                @sync_to_async(thread_sensitive=False)
                 def async_capture_report(oid, frd, ad) -> None:
                     try:
                         at_date_str = ad.isoformat() if ad else None
@@ -168,7 +168,7 @@ async def query_usage_reports(
                 if not inputs.skip_capture_event:
                     await async_capture_report(organization_id, full_report_dict, at_date)
 
-                @sync_to_async
+                @sync_to_async(thread_sensitive=False)
                 def async_queue_report(p, oid, frd) -> bool:
                     try:
                         _queue_report(p, oid, frd)
