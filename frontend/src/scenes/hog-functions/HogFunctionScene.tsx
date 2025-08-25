@@ -2,6 +2,7 @@ import { actions, connect, kea, key, path, props, reducers, selectors, useAction
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -27,6 +28,7 @@ import {
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogFunctionMetricsV2 } from './metrics/HogFunctionMetricsV2'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
@@ -242,7 +244,11 @@ export function HogFunctionScene(): JSX.Element {
             : {
                   label: 'Metrics',
                   key: 'metrics',
-                  content: <HogFunctionMetrics id={id} />,
+                  content: (
+                      <FlaggedFeature flag="cdp-app-metrics-new" fallback={<HogFunctionMetrics id={id} />}>
+                          <HogFunctionMetricsV2 id={id} />
+                      </FlaggedFeature>
+                  ),
               },
         type === 'site_app' || type === 'site_destination'
             ? null
