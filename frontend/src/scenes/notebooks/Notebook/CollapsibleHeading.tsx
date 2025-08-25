@@ -4,7 +4,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { Editor, ReactRenderer } from '@tiptap/react'
 
-import { IconTriangleDownFilled, IconTriangleRightFilled } from '@posthog/icons'
+import { IconEye, IconTriangleDownFilled, IconTriangleRightFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { humanList, identifierToHuman, pluralize } from 'lib/utils'
@@ -192,8 +192,14 @@ const createCollapsedContentDecoration = (
 
 function CollapsedContentSummary({ summary, onClick }: { summary: string; onClick: () => void }): JSX.Element {
     return (
-        <LemonButton type="tertiary" size="xxsmall" onClick={onClick} className="italic ml-4 opacity-80">
-            Expand to see {summary}
+        <LemonButton
+            type="tertiary"
+            size="xxsmall"
+            onClick={onClick}
+            icon={<IconEye />}
+            className="italic -ml-1 opacity-80"
+        >
+            Expand for {summary}
         </LemonButton>
     )
 }
