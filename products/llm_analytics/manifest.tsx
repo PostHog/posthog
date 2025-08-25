@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics users',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/start-here',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsPlayground: {
             import: () => import('./frontend/LLMAnalyticsPlaygroundScene'),
