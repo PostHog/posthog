@@ -1358,6 +1358,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,
+                    "alerts": [],
                     "cache_target_age": ANY,
                     "order": None,
                     "query": {
