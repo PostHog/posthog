@@ -58,7 +58,7 @@ export function FunnelLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
-                goalLines={goalLines}
+                goalLines={goalLines ?? []}
                 tooltip={{
                     showHeader: false,
                     hideColorCol: true,
