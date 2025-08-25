@@ -10,6 +10,7 @@ from dateutil import parser
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -24,7 +25,7 @@ from posthog.warehouse.s3 import get_s3_client
 from posthog.warehouse.types import IncrementalFieldType
 
 
-class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"

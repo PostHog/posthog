@@ -845,3 +845,80 @@ class ActivityLogTestHelper(APILicensedTest):
     def update_project(self, project_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a project via API."""
         return self.update_team(project_id, updates)
+
+    def create_external_data_source(self, source_type: str = "Stripe", **kwargs) -> dict[str, Any]:
+        """Create an external data source via API."""
+        from unittest.mock import patch
+
+        # Mock the Stripe validation to avoid needing real credentials
+        with patch("posthog.temporal.data_imports.sources.stripe.stripe.validate_credentials", return_value=True):
+            with patch("posthog.warehouse.data_load.service.sync_external_data_job_workflow"):
+                data = {
+                    "source_type": source_type,
+                    "payload": {
+                        "stripe_account_id": "acct_test_placeholder",
+                        "stripe_secret_key": "test_key_placeholder_not_real",
+                        "schemas": [
+                            {
+                                "name": "Customer",
+                                "should_sync": kwargs.get("should_sync", True),
+                                "sync_type": kwargs.get("sync_type", "full_refresh"),
+                            }
+                        ],
+                        **kwargs.get("payload", {}),
+                    },
+                    **{k: v for k, v in kwargs.items() if k not in ["payload", "should_sync", "sync_type"]},
+                }
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/external_data_sources/", data, format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+                return response.json()
+
+    def update_external_data_source(self, source_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        """Update an external data source via API."""
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/external_data_sources/{source_id}/", updates, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
+
+    def delete_external_data_source(self, source_id: str) -> None:
+        """Delete an external data source via API."""
+        response = self.client.delete(f"/api/environments/{self.team.id}/external_data_sources/{source_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def create_external_data_schema(self, source_id: str, name: str = "test_schema", **kwargs) -> dict[str, Any]:
+        """Create an external data schema by updating the source."""
+        return self.update_external_data_source(source_id, {"schemas": [{"name": name, **kwargs}]})
+
+    def update_external_data_schema(self, schema_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        """Update an external data schema via API."""
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/external_data_schemas/{schema_id}/", updates, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
+
+    def delete_external_data_schema(self, schema_id: str) -> None:
+        """Delete an external data schema via API."""
+        response = self.client.delete(f"/api/environments/{self.team.id}/external_data_schemas/{schema_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def get_activity_logs_for_item(self, scope: str, item_id: str) -> list[Any]:
+        """Get activity logs for a specific item."""
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        return list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope=scope,
+                item_id=str(item_id),
+            ).order_by("-created_at")
+        )
+
+    def clear_activity_logs(self) -> None:
+        """Clear all activity logs for the test team."""
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        ActivityLog.objects.filter(team_id=self.team.id).delete()

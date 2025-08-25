@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
@@ -67,6 +67,8 @@ ActivityScope = Literal[
     "AlertConfiguration",
     "Threshold",
     "AlertSubscription",
+    "ExternalDataSource",
+    "ExternalDataSchema",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -113,6 +115,8 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
             return obj.__dict__
         if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, time):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
             return str(obj)
@@ -432,6 +436,19 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "bytecode",
         "bytecode_error",
         "steps_json",
+    ],
+    "ExternalDataSource": [
+        "job_inputs",
+        "connection_id",
+        "destination_id",
+        "are_tables_created",
+    ],
+    "ExternalDataSchema": [
+        "sync_type_config",
+        "latest_error",
+        "last_synced_at",
+        "table",
+        "sync_frequency_interval",
     ],
 }
 
