@@ -1,29 +1,34 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { IconComment, IconPerson } from '@posthog/icons'
+import { LemonSwitch } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { asDisplay } from 'scenes/persons/person-utils'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, SessionRecordingId } from '~/types'
-import { urls } from 'scenes/urls'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     SessionRecordingPlayerMode,
     getCurrentPlayerTime,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { useActions, useValues } from 'kea'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { useEffect } from 'react'
 import {
     SessionRecordingPreview,
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { urls } from 'scenes/urls'
+
+import { SessionRecordingId } from '~/types'
+
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { NotFound } from 'lib/components/NotFound'
-import { IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const HEIGHT = 500
@@ -56,10 +61,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
-    useEffect(() => {
-        loadRecordingMeta()
-    }, [])
     // TODO Only load data when in view...
+    useOnMountEffect(loadRecordingMeta)
 
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
@@ -88,9 +91,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
-    }, [sessionPlayerMetaData?.person?.id])
+    }, [sessionPlayerMetaData?.person?.id]) // oxlint-disable-line exhaustive-deps
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMessageListeners({
             'play-replay': ({ time }) => {
                 if (!expanded) {
@@ -102,7 +105,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
-    }, [])
+    })
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />

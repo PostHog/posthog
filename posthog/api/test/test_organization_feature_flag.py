@@ -1,20 +1,23 @@
 from typing import Any
+
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import ANY
 
 from rest_framework import status
 
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
-from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models.experiment import Experiment
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+
+from products.early_access_features.backend.models import EarlyAccessFeature
+
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -22,6 +25,14 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.team_1 = self.team
         self.team_2 = Team.objects.create(organization=self.organization)
         self.team_3 = Team.objects.create(organization=self.organization)
+
+        # Set deterministic API tokens to ensure stable query snapshots
+        self.team_1.api_token = "phc_test_token_1"
+        self.team_1.save()
+        self.team_2.api_token = "phc_test_token_2"
+        self.team_2.save()
+        self.team_3.api_token = "phc_test_token_3"
+        self.team_3.save()
 
         self.feature_flag_key = "key-1"
 
@@ -77,6 +88,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         self.team_1 = self.team
         self.team_2 = Team.objects.create(organization=self.organization)
+
+        # Set deterministic API tokens to ensure stable query snapshots
+        self.team_1.api_token = "phc_test_copy_token_1"
+        self.team_1.save()
+        self.team_2.api_token = "phc_test_copy_token_2"
+        self.team_2.save()
 
         self.feature_flag_key = "copied-flag-key"
         self.rollout_percentage_to_copy = 65
@@ -135,6 +152,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -217,6 +235,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 2,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -257,6 +276,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_update_override_deleted(self):
         target_project = self.team_2
         target_project_2 = Team.objects.create(organization=self.organization)
+        # Set deterministic API token for newly created team
+        target_project_2.api_token = "phc_test_copy_token_3"
+        target_project_2.save()
         rollout_percentage_existing = 99
 
         existing_deleted_flag = FeatureFlag.objects.create(
@@ -343,6 +365,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
         flag_response = response.json()["success"][0]
 

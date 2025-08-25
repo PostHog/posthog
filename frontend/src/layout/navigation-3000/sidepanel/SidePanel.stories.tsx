@@ -1,7 +1,8 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { useEffect } from 'react'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -44,9 +45,7 @@ export default meta
 
 const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    useEffect(() => {
-        openSidePanel(props.panel)
-    }, [])
+    useOnMountEffect(() => openSidePanel(props.panel))
 
     return <App />
 }
@@ -100,9 +99,7 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
         },
     })
 
-    useEffect(() => {
-        openEmailForm()
-    }, [])
+    useOnMountEffect(openEmailForm)
 
     return <BaseTemplate panel={SidePanelTab.Support} />
 }

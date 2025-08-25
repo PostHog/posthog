@@ -1,17 +1,19 @@
-import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
+import { LemonSelectOption } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { toSentenceCase } from 'lib/utils'
-import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    APIScopeObject,
     AccessControlLevel,
-    AccessControlResourceType,
     AccessControlResponseType,
     AccessControlType,
     AccessControlTypeMember,
@@ -19,7 +21,6 @@ import {
     AccessControlTypeProject,
     AccessControlTypeRole,
     AccessControlUpdateType,
-    APIScopeObject,
     OrganizationMemberType,
     RoleType,
 } from '~/types'
@@ -160,30 +161,20 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
     })),
     selectors({
-        resource: [
-            () => [(_, props) => props],
-            (props): AccessControlResourceType => {
-                return props.resource as AccessControlResourceType
-            },
-        ],
+        resource: [(_, p) => [p.resource], (resource) => resource],
 
         endpoint: [
-            () => [(_, props) => props],
-            (props): string => {
+            (_, p) => [p.resource, p.resource_id],
+            (resource, resource_id): string => {
                 // TODO: This is far from perfect... but it's a start
-                if (props.resource === 'project') {
+                if (resource === 'project') {
                     return `api/projects/@current/access_controls`
                 }
-                return `api/projects/@current/${props.resource}s/${props.resource_id}/access_controls`
+                return `api/projects/@current/${resource}s/${resource_id}/access_controls`
             },
         ],
 
-        humanReadableResource: [
-            () => [(_, props) => props],
-            (props): string => {
-                return props.resource.replace(/_/g, ' ')
-            },
-        ],
+        humanReadableResource: [(_, p) => [p.resource], (resource) => resource.replace(/_/g, ' ')],
 
         availableLevelsWithNone: [
             (s) => [s.accessControls],
@@ -323,7 +314,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadAccessControls()
         actions.ensureAllMembersLoaded()
+        actions.loadAccessControls()
     }),
 ])

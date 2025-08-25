@@ -1,14 +1,16 @@
 from typing import Optional
 
 import pytest
+
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
+
+from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
-from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from .conftest import MaxEval
 from .scorers import ToolRelevance
@@ -90,7 +92,7 @@ def call_node(demo_org_team_user, core_memory):
 
 
 @pytest.mark.django_db
-async def eval_memory(call_node):
+async def eval_memory(call_node, pytestconfig):
     await MaxEval(
         experiment_name="memory",
         task=call_node,
@@ -151,6 +153,20 @@ async def eval_memory(call_node):
                     args={"memory_content": "The user prefers to view pageview trends broken down by country."},
                 ),
             ),
+            # Test /remember slash command
+            EvalCase(
+                input="/remember Our main KPI is monthly active users (MAU)",
+                expected=AssistantToolCall(
+                    id="6",
+                    name="core_memory_append",
+                    args={"memory_content": "Our main KPI is monthly active users (MAU)"},
+                ),
+            ),
+            # Test /remember slash command with no arg
+            EvalCase(
+                input="/remember",
+                expected=None,
+            ),
             # Test omitting irrelevant personal info
             EvalCase(
                 input="My name is John Doherty.",
@@ -162,4 +178,5 @@ async def eval_memory(call_node):
                 expected=None,
             ),
         ],
+        pytestconfig=pytestconfig,
     )

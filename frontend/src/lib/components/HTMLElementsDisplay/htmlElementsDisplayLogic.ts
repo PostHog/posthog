@@ -1,5 +1,6 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import {
     ParsedCSSSelector,
     parsedSelectorToSelectorString,
@@ -120,8 +121,8 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                 return chosenSelectorMatchCount === null
                     ? 'info'
                     : chosenSelectorMatchCount === 1
-                    ? 'success'
-                    : 'warning'
+                      ? 'success'
+                      : 'warning'
             },
         ],
     })),

@@ -1,20 +1,23 @@
 import pytest
+
 from braintrust import EvalCase
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.models.assistant import Conversation
-from posthog.models.action.action import Action
-from posthog.models.team.team import Team
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
     HumanMessage,
     MaxActionContext,
-    MaxUIContext,
     MaxEventContext,
+    MaxUIContext,
 )
+
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph import AssistantGraph
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.models.assistant import Conversation
 
 from .conftest import MaxEval
 from .scorers import ToolRelevance
@@ -66,7 +69,7 @@ def sample_action(demo_org_team_user):
 
 
 @pytest.mark.django_db
-async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
+async def eval_ui_context_actions(call_root_with_ui_context, sample_action, pytestconfig):
     """Test that actions in UI context are properly used in RAG context retrieval"""
     await MaxEval(
         experiment_name="ui_context_actions",
@@ -126,11 +129,12 @@ async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )
 
 
 @pytest.mark.django_db
-async def eval_ui_context_events(call_root_with_ui_context):
+async def eval_ui_context_events(call_root_with_ui_context, pytestconfig):
     """Test that events in UI context are properly used in taxonomy agent"""
     await MaxEval(
         experiment_name="ui_context_events",
@@ -219,4 +223,5 @@ async def eval_ui_context_events(call_root_with_ui_context):
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )

@@ -1,16 +1,18 @@
 import './StoriesModal.scss'
 
-import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconX } from '@posthog/icons'
+
+import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
+import { StoriesPlayer, Story } from './StoriesPlayer'
 import { storiesLogic } from './storiesLogic'
 import { CloseOverlayAction, StoryType } from './storiesMap'
 import type { story } from './storiesMap'
-import { StoriesPlayer, Story } from './StoriesPlayer'
 
 const IMAGE_STORY_INTERVAL = 6000
 const MIN_WIDTH = 320 // Minimum width in pixels
@@ -60,38 +62,51 @@ export const StoriesModal = (): JSX.Element | null => {
     const [overlayComponent, setOverlayComponent] = useState<(() => JSX.Element) | null>(null)
     const [overlayAnimating, setOverlayAnimating] = useState(false)
 
-    // Calculate dimensions based on window size and aspect ratio
+    // Calculate dimensions based on window size and current story's aspect ratio
     const dimensions = useMemo(() => {
         if (!windowSize.width || !windowSize.height) {
             return { width: DEFAULT_WIDTH, height: DEFAULT_WIDTH / ASPECT_RATIO }
         } // Default fallback
 
-        // Calculate max available dimensions (90% of window)
+        // Get current story's aspect ratio
+        const currentStoryAspectRatio = activeStory?.aspectRatio || '16:9'
+
+        if (currentStoryAspectRatio === '4:3') {
+            // For 4:3 stories, start with 550px height and scale down if needed
+            const maxHeight = Math.min(windowSize.height * 0.9, 550)
+            const width = (maxHeight * 4) / 3
+
+            // Ensure it fits within window width
+            const maxAvailableWidth = windowSize.width * 0.9
+            let finalWidth = width
+            let finalHeight = maxHeight
+
+            if (width > maxAvailableWidth) {
+                finalWidth = maxAvailableWidth
+                finalHeight = (finalWidth * 3) / 4
+            }
+
+            return { width: Math.round(finalWidth), height: Math.round(finalHeight) }
+        }
+        // Default 16:9 calculation
         const maxAvailableWidth = Math.min(windowSize.width * 0.9, MAX_WIDTH)
         const maxAvailableHeight = Math.min(windowSize.height * 0.9, MAX_WIDTH / ASPECT_RATIO)
 
-        // Calculate dimensions that fit both width and height constraints while maintaining aspect ratio
         let width = maxAvailableWidth
         let height = width / ASPECT_RATIO
 
-        // If height is too large, scale down based on height
         if (height > maxAvailableHeight) {
             height = maxAvailableHeight
             width = height * ASPECT_RATIO
         }
 
-        // Ensure minimum width
         if (width < MIN_WIDTH) {
             width = MIN_WIDTH
             height = width / ASPECT_RATIO
         }
 
-        // Round to whole pixels
-        width = Math.round(width)
-        height = Math.round(height)
-
-        return { width, height }
-    }, [windowSize.width, windowSize.height])
+        return { width: Math.round(width), height: Math.round(height) }
+    }, [windowSize.width, windowSize.height, activeStory?.aspectRatio])
 
     // Mark story as viewed when it becomes active
     useEffect(() => {
@@ -292,6 +307,7 @@ export const StoriesModal = (): JSX.Element | null => {
             url: story.mediaUrl || '',
             type: story.type,
             duration: story.durationMs,
+            aspectRatio: story.aspectRatio || '16:9',
             header: {
                 heading: story.title,
                 subheading: story.description || '',

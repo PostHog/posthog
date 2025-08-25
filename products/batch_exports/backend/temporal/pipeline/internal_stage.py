@@ -1,12 +1,13 @@
+import uuid
+import typing
 import asyncio
 import datetime as dt
-import typing
-import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 
-import aioboto3
 from django.conf import settings
+
+import aioboto3
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -15,27 +16,21 @@ from posthog.clickhouse.query_tagging import Product
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportField,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from structlog.contextvars import bind_contextvars
+
+from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import (
-    ClickHouseClientTimeoutError,
-    ClickHouseQueryStatus,
-    get_client,
-)
+from posthog.temporal.common.clickhouse import ClickHouseClientTimeoutError, ClickHouseQueryStatus, get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import default_fields
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchModel,
     compose_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
-    resolve_batch_exports_model,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
@@ -50,7 +45,7 @@ from products.batch_exports.backend.temporal.sql import (
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
-LOGGER = get_logger()
+LOGGER = get_write_only_logger()
 
 
 def _get_s3_endpoint_url() -> str:
@@ -145,7 +140,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
         set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema, inputs.batch_export_id
         )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -373,7 +368,21 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
+                s3_folder = _get_clickhouse_s3_staging_folder_url(
+                    batch_export_id=batch_export_id,
+                    data_interval_start=data_interval_start,
+                    data_interval_end=data_interval_end,
+                )
+                assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
+                assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
+                query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
+                    data_interval_start=interval_start,
+                    data_interval_end=interval_end,
+                    s3_folder=s3_folder,
+                    s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                    s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                    num_partitions=settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
+                )
             else:
                 query = query_or_model
 

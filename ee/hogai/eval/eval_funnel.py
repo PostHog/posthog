@@ -2,9 +2,9 @@ from datetime import datetime
 from textwrap import dedent
 
 import pytest
+
 from braintrust import EvalCase
 
-from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsExclusionEventsNode,
@@ -13,12 +13,14 @@ from posthog.schema import (
     NodeKind,
 )
 
+from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
+
 from .conftest import MaxEval
 from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db
-async def eval_funnel(call_root_for_insight_generation):
+async def eval_funnel(call_root_for_insight_generation, pytestconfig):
     await MaxEval(
         experiment_name="funnel",
         task=call_root_for_insight_generation,
@@ -729,4 +731,5 @@ Time period: this January
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )

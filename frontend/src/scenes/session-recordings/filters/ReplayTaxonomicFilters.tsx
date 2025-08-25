@@ -1,11 +1,14 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconInfo, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { useState } from 'react'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { PropertyFilterType } from '~/types'
@@ -17,6 +20,7 @@ export interface ReplayTaxonomicFiltersProps {
 }
 
 export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
+    const showCommentText = useFeatureFlag('COMMENT_TEXT_FILTERING')
     const {
         filterGroup: { values: filters },
     } = useValues(universalFiltersLogic)
@@ -47,6 +51,13 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
             taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
         },
     ]
+    if (showCommentText) {
+        properties.push({
+            key: 'comment_text',
+            propertyFilterType: PropertyFilterType.Recording,
+            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+        })
+    }
 
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">

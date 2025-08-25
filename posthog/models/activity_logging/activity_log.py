@@ -1,27 +1,25 @@
-import dataclasses
 import json
+import dataclasses
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
+from django.conf import settings
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
+from django.core.paginator import Paginator
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from posthog.exceptions_capture import capture_exception
-import structlog
-from django.core.paginator import Paginator
-from django.core.exceptions import ObjectDoesNotExist
-
-from django.db import models
 from django.utils import timezone
-from django.conf import settings
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.user import User
-from posthog.models.utils import UUIDT, UUIDModel
+import structlog
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import UUIDT, UUIDTModel
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +40,8 @@ ActivityScope = Literal[
     "Dashboard",
     "Replay",
     "Experiment",
+    "ExperimentHoldout",
+    "ExperimentSavedMetric",
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
@@ -50,13 +50,30 @@ ActivityScope = Literal[
     "Project",
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
+    "Organization",
+    "OrganizationMembership",
+    "Role",
+    "UserGroup",
+    "BatchExport",
+    "BatchImport",
+    "Integration",
+    "Annotation",
+    "Tag",
+    "TaggedItem",
+    "Subscription",
+    "PersonalAPIKey",
+    "User",
+    "Action",
+    "AlertConfiguration",
+    "Threshold",
+    "AlertSubscription",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: ActivityScope
+    type: ActivityScope | str
     action: ChangeAction
     field: Optional[str] = None
     before: Optional[Any] = None
@@ -71,6 +88,15 @@ class Trigger:
 
 
 @dataclasses.dataclass(frozen=True)
+class ActivityContextBase:
+    """
+    Extend this class in specific implementations to add context-specific fields.
+    """
+
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     # The display name of the item in question
     name: Optional[str] = None
@@ -79,17 +105,20 @@ class Detail:
     type: Optional[str] = None
     changes: Optional[list[Change]] = None
     trigger: Optional[Trigger] = None
+    context: Optional[ActivityContextBase] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger):
+        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
             return str(obj)
-        if isinstance(obj, User):
+        if isinstance(obj, UUID):
+            return str(obj)
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
             return {"first_name": obj.first_name, "email": obj.email}
         if isinstance(obj, float):
             # more precision than we'll need but avoids rounding too unnecessarily
@@ -97,7 +126,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Decimal):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, FeatureFlag):
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
             return {
                 "id": obj.id,
                 "key": obj.key,
@@ -107,11 +136,32 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "deleted": obj.deleted,
                 "active": obj.active,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
+            return {
+                "id": obj.id,
+                "short_id": obj.short_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+                "team_id": obj.team_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
+            return {
+                "id": obj.id,
+                "media_location": obj.media_location,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+            }
 
         return json.JSONEncoder.default(self, obj)
 
 
-class ActivityLog(UUIDModel):
+class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
@@ -161,12 +211,49 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "HogFunction": [
         "encrypted_inputs",
     ],
+    "Integration": [
+        "config",
+        "sensitive_config",
+    ],
+    "BatchImport": [
+        "import_config",
+    ],
+    "Subscription": [
+        "target_value",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
+    "Organization": {
+        "name": "organization name",
+        "enforce_2fa": "two-factor authentication requirement",
+        "members_can_invite": "member invitation permissions",
+        "members_can_use_personal_api_keys": "personal API key permissions",
+        "allow_publicly_shared_resources": "public sharing permissions",
+        "is_member_join_email_enabled": "member join email notifications",
+        "session_cookie_age": "session cookie age",
+        "default_experiment_stats_method": "default experiment stats method",
+    },
+    "BatchExport": {
+        "paused": "enabled",
+    },
+}
+
+# Fields that prevent activity signal triggering entirely when only these fields change
+signal_exclusions: dict[ActivityScope, list[str]] = {
+    "PersonalAPIKey": [
+        "last_used_at",
+    ],
+    "AlertConfiguration": [
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
+    ],
 }
 
 field_exclusions: dict[ActivityScope, list[str]] = {
@@ -198,6 +285,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "exposure_cohort",
         "holdout",
         "saved_metrics",
+        "experimenttosavedmetric_set",
+    ],
+    "ExperimentSavedMetric": [
+        "experiments",
         "experimenttosavedmetric_set",
     ],
     "Person": [
@@ -273,10 +364,83 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "sync_frequency_interval",
         "deleted_name",
     ],
+    "Organization": [
+        "teams",
+        "billing",
+        "organization_billing",
+        "_billing_plan_details",
+        "usage",
+        "customer_id",
+        "customer_trust_scores",
+        "personalization",
+        "members",
+        "memberships",
+        "available_product_features",
+        "domain_whitelist",
+        "setup_section_2_completed",
+        "plugins_access_level",
+        "is_hipaa",
+        "is_ai_data_processing_approved",
+        "never_drop_data",
+    ],
+    "BatchExport": [
+        "latest_runs",
+        "last_updated_at",
+        "last_paused_at",
+        "batchexportrun_set",
+        "batchexportbackfill_set",
+    ],
+    "BatchImport": [
+        "lease_id",
+        "leased_until",
+        "status_message",
+        "state",
+        "secrets",
+        "lease_id",
+        "backoff_attempt",
+        "backoff_until",
+    ],
+    "Integration": [
+        "sensitive_config",
+        "errors",
+    ],
+    "PersonalAPIKey": [
+        "value",
+        "secure_value",
+        "last_used_at",
+    ],
+    "User": [
+        "password",
+        "current_organization_id",
+        "current_team_id",
+        "temporary_token",
+        "distinct_id",
+        "partial_notification_settings",
+        "anonymize_data",
+        "is_email_verified",
+        "_billing_plan_details",
+        "strapi_id",
+    ],
+    "AlertConfiguration": [
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
+    ],
+    "Action": [
+        "bytecode",
+        "bytecode_error",
+        "steps_json",
+    ],
 }
 
 
 def describe_change(m: Any) -> Union[str, dict]:
+    # Use lazy imports to avoid circular dependencies
+    from posthog.models.dashboard import Dashboard
+    from posthog.models.dashboard_tile import DashboardTile
+
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
@@ -304,16 +468,37 @@ def safely_get_field_value(instance: models.Model | None, field: str):
     """Helper function to get the value of a field, handling related objects and exceptions."""
     if instance is None:
         return None
+
     try:
+        field_obj = instance._meta.get_field(field)
+
+        # For ForeignKey/OneToOneField, always access the ID first to avoid lazy loading
+        # throwing malformed UUID validation errors
+        if isinstance(field_obj, models.ForeignKey | models.OneToOneField):
+            field_id = getattr(instance, f"{field}_id", None)
+            if field_id is None:
+                return None
+            # Ensure field_id is actually an ID, not the object itself
+            if hasattr(field_id, "pk"):
+                field_id = field_id.pk
+            # Only fetch the actual object if we have a valid ID
+            related_model = field_obj.related_model
+            if isinstance(related_model, type) and issubclass(related_model, models.Model):
+                return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
+            else:
+                return field_id
+
+        # For other fields, use normal access
         value = getattr(instance, field, None)
         if isinstance(value, models.Manager):
             value = _read_through_relation(value)
+        return value
+
     # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
     # exception. We catch this exception and return None, since the related object has been deleted, and we
     # don't need any additional information about it other than the fact that it was deleted.
-    except ObjectDoesNotExist:
-        value = None
-    return value
+    except (ObjectDoesNotExist, FieldDoesNotExist):
+        return None
 
 
 def changes_between(
@@ -437,8 +622,8 @@ def dict_changes_between(
 def log_activity(
     *,
     organization_id: Optional[UUID],
-    team_id: int,
-    user: Optional[User],
+    team_id: Optional[int],
+    user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,
     activity: str,
@@ -467,18 +652,26 @@ def log_activity(
             )
             return None
 
-        activity_log = ActivityLog.objects.create(
-            organization_id=organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            is_system=user is None,
-            item_id=str(item_id),
-            scope=scope,
-            activity=activity,
-            detail=detail,
-        )
-        return activity_log
+        def _do_log_activity():
+            return ActivityLog.objects.create(
+                organization_id=organization_id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                is_system=user is None,
+                item_id=str(item_id),
+                scope=scope,
+                activity=activity,
+                detail=detail,
+            )
+
+        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
+        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+            transaction.on_commit(_do_log_activity)
+            return None
+        else:
+            return _do_log_activity()
+
     except Exception as e:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -547,9 +740,9 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
 
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.api.activity_log import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     try:
         serialized_data = ActivityLogSerializer(instance).data

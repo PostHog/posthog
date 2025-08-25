@@ -1,7 +1,10 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useMemo, useState } from 'react'
+
+import { IconChevronRight } from '@posthog/icons'
+
 import { Popover } from 'lib/lemon-ui/Popover'
-import { useState } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryTiming } from '~/queries/schema/schema-general'
@@ -12,22 +15,136 @@ export interface TimingsProps {
 }
 
 export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | null {
-    return (
-        <div className="deprecated-space-y-2 p-2">
-            {timings.map(({ k: key, t: time }) => (
+    type TimingTreeNode = {
+        name: string
+        fullPath: string
+        time?: number
+        endTime: number
+        children: TimingTreeNode[]
+    }
+
+    const { rootNodes, maxTime } = useMemo(() => {
+        const root: {
+            childrenMap: Map<string, TimingTreeNode & { childrenMap: Map<string, any> }>
+            children: TimingTreeNode[]
+        } = {
+            childrenMap: new Map(),
+            children: [],
+        }
+
+        const getOrCreateChild = (
+            parent: typeof root | (TimingTreeNode & { childrenMap: Map<string, any> }),
+            name: string,
+            fullPath: string
+        ): TimingTreeNode & { childrenMap: Map<string, any> } => {
+            const existing = parent.childrenMap.get(name)
+            if (existing) {
+                return existing
+            }
+            const created: TimingTreeNode & { childrenMap: Map<string, any> } = {
+                name,
+                fullPath,
+                endTime: 0,
+                children: [],
+                childrenMap: new Map(),
+            }
+            parent.childrenMap.set(name, created)
+            parent.children.push(created)
+            return created
+        }
+
+        timings.forEach(({ k, t }) => {
+            const isDotOnly = k === '.'
+            const normalized = isDotOnly ? ['.'] : k.replace(/^\.\//, '').split('/')
+            let parent: any = root
+            let path = ''
+            normalized.forEach((segment, index) => {
+                path = path ? `${path}/${segment}` : segment
+                const node = getOrCreateChild(parent, segment, isDotOnly ? '.' : path)
+                // update endTime along the path to allow groups to show total time of descendants
+                if (t > node.endTime) {
+                    node.endTime = t
+                }
+                if (index === normalized.length - 1) {
+                    node.time = t
+                }
+                parent = node
+            })
+        })
+
+        const detachMaps = (nodes: (TimingTreeNode & { childrenMap: Map<string, any> })[]): TimingTreeNode[] => {
+            return nodes.map((n) => {
+                const { childrenMap, ...rest } = n as any
+                ;(rest as TimingTreeNode).children = detachMaps(n.children as any as any)
+                return rest as TimingTreeNode
+            })
+        }
+
+        return {
+            rootNodes: detachMaps(root.children as any),
+            maxTime: timings.length ? timings[timings.length - 1].t : 0,
+        }
+    }, [timings])
+
+    const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['']))
+
+    const toggle = (path: string): void => {
+        setExpanded((prev) => {
+            const next = new Set(prev)
+            if (next.has(path)) {
+                next.delete(path)
+            } else {
+                next.add(path)
+            }
+            return next
+        })
+    }
+
+    const renderNode = (node: TimingTreeNode, depth: number): JSX.Element[] => {
+        const isGroup = node.children.length > 0
+        const pathKey = node.fullPath || node.name
+        const isExpanded = expanded.has(pathKey)
+        const displayTime = node.time ?? node.endTime
+        const row = (
+            <div
+                key={pathKey}
+                className={clsx(
+                    'flex justify-between items-start deprecated-space-x-2 py-1.5',
+                    displayTime > maxTime * 0.5 ? 'font-bold' : ''
+                )}
+            >
                 <div
-                    key={key}
                     className={clsx(
-                        'flex justify-between items-start deprecated-space-x-2',
-                        time > timings[timings.length - 1].t * 0.5 ? 'font-bold' : ''
+                        'flex items-center gap-1.5',
+                        isGroup ? 'cursor-pointer' : 'cursor-default',
+                        depth > 0 ? 'border-l-2 border-border' : ''
                     )}
+                    style={{ paddingLeft: depth * 32 }}
+                    onClick={() => (isGroup ? toggle(pathKey) : undefined)}
                 >
-                    <div>{key == '.' ? 'Query total' : key}</div>
-                    <div>{time.toFixed(3)}s</div>
+                    {isGroup ? (
+                        <IconChevronRight className={clsx('transition-transform', isExpanded ? 'rotate-90' : '')} />
+                    ) : null}
+                    <span>{pathKey === '.' ? 'Query total' : node.name}</span>
                 </div>
-            ))}
+                <div>{displayTime.toFixed(3)}s</div>
+            </div>
+        )
+
+        const childrenRows: JSX.Element[] = []
+        if (isGroup && isExpanded) {
+            node.children.forEach((child) => {
+                childrenRows.push(...renderNode(child, depth + 1))
+            })
+        }
+        return [row, ...childrenRows]
+    }
+
+    return (
+        <div className="deprecated-space-y-2 p-2 divide-y divide-y-2">
+            {rootNodes.flatMap((node) => renderNode(node, 0))}
             {elapsedTime !== undefined && timings.length > 0 ? (
-                <div className={clsx('flex justify-between items-start deprecated-space-x-2')}>
+                <div className={clsx('flex justify-between items-start deprecated-space-x-2 py-1.5')}>
                     <div>+ HTTP overhead</div>
                     <div>{(elapsedTime / 1000 - timings[timings.length - 1].t).toFixed(3)}s</div>
                 </div>

@@ -9,11 +9,8 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
         kind: NodeKind.EventsQuery,
         select: defaultDataTableColumns(NodeKind.EventsQuery),
         orderBy: ['timestamp DESC'],
-        after: '-24h',
+        after: '-1h',
         ...(properties ? { properties } : {}),
-        modifiers: {
-            usePresortedEventsTable: true,
-        },
     },
     propertiesViaUrl: true,
     showSavedQueries: true,

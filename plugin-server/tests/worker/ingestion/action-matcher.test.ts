@@ -48,7 +48,7 @@ describe('ActionMatcher', () => {
     beforeEach(async () => {
         await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
         hub = await createHub()
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         actionCounter = 0

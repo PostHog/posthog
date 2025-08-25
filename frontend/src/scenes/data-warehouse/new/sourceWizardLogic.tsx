@@ -1,36 +1,118 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import {
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldConfig,
+    SourceFieldSwitchGroupConfig,
+    externalDataSources,
+} from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
-    manualLinkSources,
     ManualLinkSourceType,
     PipelineStage,
     PipelineTab,
     ProductKey,
+    manualLinkSources,
 } from '~/types'
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
-import {
-    externalDataSources,
-    ExternalDataSourceType,
-    SourceConfig,
-    SourceFieldConfig,
-} from '~/queries/schema/schema-general'
+
+export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
+    name: 'ssh_tunnel',
+    label: 'Use SSH tunnel?',
+    type: 'switch-group',
+    default: false,
+    fields: [
+        {
+            name: 'host',
+            label: 'Tunnel host',
+            type: 'text',
+            required: true,
+            placeholder: 'localhost',
+        },
+        {
+            name: 'port',
+            label: 'Tunnel port',
+            type: 'number',
+            required: true,
+            placeholder: '22',
+        },
+        {
+            type: 'select',
+            name: 'auth',
+            label: 'Authentication type',
+            required: true,
+            defaultValue: 'password',
+            options: [
+                {
+                    label: 'Password',
+                    value: 'password',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: true,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'password',
+                            label: 'Tunnel password',
+                            type: 'password',
+                            required: true,
+                            placeholder: '',
+                        },
+                    ],
+                },
+                {
+                    label: 'Key pair',
+                    value: 'keypair',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: false,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'private_key',
+                            label: 'Tunnel private key',
+                            type: 'textarea',
+                            required: true,
+                            placeholder: '',
+                        },
+                        {
+                            name: 'passphrase',
+                            label: 'Tunnel passphrase',
+                            type: 'password',
+                            required: false,
+                            placeholder: '',
+                        },
+                    ],
+                },
+            ],
+        },
+    ],
+}
 
 export const buildKeaFormDefaultFromSourceDetails = (
     sourceDetails: Record<string, SourceConfig>
@@ -49,6 +131,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
 
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+
             if (hasOptionFields) {
                 obj[field.name] = {}
                 obj[field.name]['selection'] = field.defaultValue
@@ -67,7 +150,13 @@ export const buildKeaFormDefaultFromSourceDetails = (
     return sourceDetailsKeys.reduce(
         (defaults, cur) => {
             const fields = sourceDetails[cur].fields
-            fields.forEach((f) => fieldDefaults(f, defaults['payload']))
+            fields.forEach((f) => {
+                if (f.type === 'ssh-tunnel') {
+                    fieldDefaults(SSH_FIELD, defaults['payload'])
+                } else {
+                    fieldDefaults(f, defaults['payload'])
+                }
+            })
 
             return defaults
         },
@@ -261,10 +350,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
-        availableSources: [
-            () => [(_, props) => props.availableSources],
-            (availableSources): Record<string, SourceConfig> => availableSources,
-        ],
+        availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
         breadcrumbs: [
             (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
@@ -349,7 +435,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
-            (sources, availableSources): SourceConfig[] => {
+            (sources, availableSources: Record<string, SourceConfig>): SourceConfig[] => {
                 return Object.values(availableSources).map((connector) => ({
                     ...connector,
                     disabledReason:
@@ -687,6 +773,7 @@ export const getErrorsForFields = (
 
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+
             if (!hasOptionFields) {
                 if (field.required && !valueObj[field.name]) {
                     errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
@@ -701,14 +788,18 @@ export const getErrorsForFields = (
             return
         }
 
-        // All other types
-        if (field.required && !valueObj[field.name]) {
+        // All other types - check if required property exists on this field type
+        if ('required' in field && field.required && !valueObj[field.name]) {
             errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
         }
     }
 
     for (const field of fields) {
-        validateField(field, values?.payload ?? {}, errors['payload'])
+        if (field.type === 'ssh-tunnel') {
+            validateField(SSH_FIELD, values?.payload ?? {}, errors['payload'])
+        } else {
+            validateField(field, values?.payload ?? {}, errors['payload'])
+        }
     }
 
     return errors

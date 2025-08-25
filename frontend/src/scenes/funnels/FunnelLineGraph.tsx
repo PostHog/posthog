@@ -1,9 +1,11 @@
 import { useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema/schema-general'
@@ -27,8 +29,9 @@ export function FunnelLineGraph({
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
+    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, querySource, interval, insightData } =
         useValues(funnelDataLogic(insightProps))
+    const { weekStartDay } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
@@ -56,7 +59,12 @@ export function FunnelLineGraph({
                             return 'Trend'
                         }
                         return (
-                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], interval ?? undefined) +
+                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], {
+                                interval,
+                                dateRange: insightData?.resolved_date_range,
+                                timezone: insightData?.timezone,
+                                weekStartDay,
+                            }) +
                             ' ' +
                             (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
                         )

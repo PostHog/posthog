@@ -1,22 +1,23 @@
-from posthog.hogql.ast import FloatType, IntegerType, DateType
+from datetime import UTC, date, datetime
+from typing import Optional
+
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+
+from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.mapping import (
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    HogQLFunctionMeta,
+    compare_types,
+    find_hogql_aggregation,
+    find_hogql_function,
+    find_hogql_posthog_function,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import print_ast
-from posthog.test.base import BaseTest
-from typing import Optional
-from posthog.hogql.functions.mapping import (
-    compare_types,
-    find_hogql_function,
-    find_hogql_aggregation,
-    find_hogql_posthog_function,
-    HogQLFunctionMeta,
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-)
-from datetime import datetime, UTC
-from freezegun import freeze_time
 from posthog.hogql.query import execute_hogql_query
-from datetime import date
 
 
 class TestMappings(BaseTest):
@@ -244,6 +245,28 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["string_agg_null_result"], None)
         self.assertFalse(result_dict["every_null_result"])  # No values > 0
 
+    def test_function_mapping(self):
+        response = execute_hogql_query(
+            """
+            SELECT
+                toFloat(3.14),
+                toFloat(NULL),
+                toFloatOrDefault(3, 7.),
+                toFloatOrDefault(3.14, 7.),
+                toFloatOrZero('3.14'),
+                toFloatOrDefault('3.14', 7.),
+                toFloatOrZero(''),
+                toFloatOrDefault('', 7.),
+                toFloatOrZero('bla'),
+                toFloatOrDefault('bla', 7.),
+                toFloatOrZero(NULL),
+                toFloatOrDefault(NULL, 7.)
+        """,
+            self.team,
+        )
+        assert response.columns is not None
+        assert response.results[0] == (3.14, None, 3.0, 3.14, 3.14, 3.14, 0.0, 7.0, 0.0, 7.0, None, 7.0)
+
     def test_map_function_with_multiple_key_value_pairs(self):
         """Test that the map function accepts multiple key-value pairs."""
         response = execute_hogql_query(
@@ -278,3 +301,25 @@ class TestMappings(BaseTest):
                 "d": "50",
             },
         )
+
+    def test_language_code_to_name_function(self):
+        """Test the languageCodeToName function that maps language codes to full language names."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                languageCodeToName('en') as english_name,
+                languageCodeToName('es') as spanish_name,
+                languageCodeToName('invalid') as invalid_code,
+                languageCodeToName(NULL) as null_code
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        self.assertEqual(result_dict["english_name"], "English")
+        self.assertEqual(result_dict["spanish_name"], "Spanish")
+        self.assertEqual(result_dict["invalid_code"], "Unknown")
+        self.assertEqual(result_dict["null_code"], "Unknown")

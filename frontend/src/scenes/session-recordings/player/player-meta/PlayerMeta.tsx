@@ -1,8 +1,10 @@
 import './PlayerMeta.scss'
 
-import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -14,16 +16,16 @@ import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/playe
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
-import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
+import { playerMetaLogic } from './playerMetaLogic'
 
 export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
     let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
@@ -66,7 +68,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                     <CopyToClipboardInline
                         description={urlToUse}
                         explicitValue={urlToUse}
-                        iconStyle={{ color: 'var(--text-secondary)' }}
+                        iconStyle={{ color: 'var(--color-text-secondary)' }}
                         selectable={true}
                     />
                 </span>
@@ -113,7 +115,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 export function PlayerMeta(): JSX.Element {
-    const { isZenMode } = useValues(playerSettingsLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -203,11 +205,11 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    {!isZenMode && <PlayerMetaLinks size={size} />}
-                    {!isZenMode && <ResolutionView size={size} />}
+                    {!isCinemaMode && <PlayerMetaLinks size={size} />}
+                    {!isCinemaMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                {!isZenMode && <PlayerMetaBottomSettings size={size} />}
+                {!isCinemaMode && <PlayerMetaBottomSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

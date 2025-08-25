@@ -1,25 +1,30 @@
 import os
-from contextlib import contextmanager
-from datetime import datetime, timedelta, UTC
 import re
-from typing import Any, cast, TypedDict
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
 
-import nh3
-import posthoganalytics
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+
+import nh3
+import orjson
+import structlog
+import posthoganalytics
+from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets, exceptions, filters
+from posthoganalytics import capture_exception
+from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -31,32 +36,33 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature, SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
-from posthog.models.activity_logging.activity_log import (
-    Change,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.utils_cors import cors_response
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 from posthog.models.surveys.util import (
-    SurveyFeatureFlags,
-    get_unique_survey_event_uuids_sql_subquery,
     SurveyEventName,
     SurveyEventProperties,
+    get_unique_survey_event_uuids_sql_subquery,
 )
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.utils import UUIDT
+from posthog.utils_cors import cors_response
+
+from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+if "replica" in settings.DATABASES:
+    READ_DB_FOR_SURVEYS = "replica"
+else:
+    READ_DB_FOR_SURVEYS = "default"
 
 
 class EventStats(TypedDict):
@@ -236,18 +242,21 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
-        use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
-            AvailableFeature.SURVEYS_TEXT_HTML
-        )
-
-        if thank_you_description_content_type == "html" and not use_survey_html_descriptions:
-            raise serializers.ValidationError(
-                "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
-            )
-
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
+
+        survey_white_label = value.get("whiteLabel")
+        if survey_white_label is not None and not isinstance(survey_white_label, bool):
+            raise serializers.ValidationError("whiteLabel must be a boolean")
+
+        # Check if the organization has the white labelling feature available
+        use_survey_white_labelling = self.context["request"].user.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        )
+
+        if survey_white_label and not use_survey_white_labelling:
+            raise serializers.ValidationError("You need to upgrade to PostHog Enterprise to use white labelling")
 
         return value
 
@@ -313,15 +322,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if description_content_type and description_content_type not in ["text", "html"]:
                 raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
 
-            use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
-                AvailableFeature.SURVEYS_TEXT_HTML
-            )
-
-            if description_content_type == "html" and not use_survey_html_descriptions:
-                raise serializers.ValidationError(
-                    "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
-                )
-
             choices = raw_question.get("choices")
             if choices:
                 if not isinstance(choices, list):
@@ -361,11 +361,29 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
+        linked_flag = None
         if linked_flag_id:
             try:
-                FeatureFlag.objects.get(pk=linked_flag_id)
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id)
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided
+        linked_flag_variant = data.get("conditions", {}).get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            # Get available variants from the linked feature flag
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
 
         if (
             self.context["request"].method == "POST"
@@ -735,17 +753,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
-    def is_partial_responses_enabled(self) -> bool:
-        distinct_id = "" if self.request.user.is_anonymous else str(self.request.user.distinct_id)
-        return posthoganalytics.feature_enabled(
-            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES,
-            distinct_id,
-            groups={"organization": str(self.organization.id)},
-            group_properties={
-                "organization": {"id": str(self.organization.id), "created_at": self.organization.created_at}
-            },
-        )
-
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
@@ -776,13 +783,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
-        partial_responses_enabled = self.is_partial_responses_enabled()
-        if not partial_responses_enabled:
-            return f"""(
-                NOT JSONHas(properties, '{SurveyEventProperties.SURVEY_COMPLETED}')
-                OR JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_COMPLETED}') = true
-            )"""
-
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
             base_conditions_sql=base_conditions_sql,
         )
@@ -1215,9 +1215,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        if not posthoganalytics.feature_enabled("ai-survey-response-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("survey response summary is not enabled for this user")
-
         end_date: datetime = (survey.end_date or datetime.now()).replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
@@ -1333,12 +1330,18 @@ def get_surveys_opt_in(team: Team) -> bool:
 
 
 def get_surveys_count(team: Team) -> int:
-    return Survey.objects.filter(team__project_id=team.project_id).exclude(archived=True).count()
+    return (
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
+        .exclude(archived=True)
+        .count()
+    )
 
 
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
         .exclude(archived=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
@@ -1387,6 +1390,113 @@ def surveys(request: Request):
         )
 
     return cors_response(request, JsonResponse(get_surveys_response(team)))
+
+
+# Constants for better maintainability
+logger = structlog.get_logger(__name__)
+CACHE_TIMEOUT_SECONDS = 300
+
+
+@csrf_exempt
+@axes_dispatch
+def public_survey_page(request, survey_id: str):
+    """
+    Server-side rendered public survey page with security and performance optimizations
+    """
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
+    # Input validation
+    if not UUIDT.is_valid_uuid(survey_id):
+        logger.warning("survey_page_invalid_id", survey_id=survey_id)
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Invalid request",
+                "error_message": "The requested survey is not available.",
+            },
+            status=400,
+        )
+
+    # Database query with minimal fields and timeout protection
+    try:
+        survey = Survey.objects.select_related("team").get(id=survey_id)
+    except Survey.DoesNotExist:
+        logger.info("survey_page_not_found", survey_id=survey_id)
+        # Use generic error message to prevent survey ID enumeration
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey not available",
+                "error_message": "The requested survey is not available.",
+            },
+            status=404,
+        )
+    except Exception as e:
+        logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
+        capture_exception(e)
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Service unavailable",
+                "error_message": "The service is temporarily unavailable. Please try again later.",
+            },
+            status=503,
+        )
+
+    survey_is_running = (
+        survey.start_date is not None and survey.start_date <= datetime.now(UTC) and survey.end_date is None
+    )
+
+    # Check survey availability (combine checks for consistent error message)
+    if survey.archived or survey.type != Survey.SurveyType.EXTERNAL_SURVEY or not survey_is_running:
+        logger.info(
+            "survey_page_access_denied",
+            survey_id=survey_id,
+            archived=survey.archived,
+            survey_type=survey.type,
+        )
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey not receiving responses",
+                "error_message": "The requested survey is not receiving responses.",
+            },
+            status=404,  # Use 404 instead of 403 to prevent information leakage
+        )
+
+    # Build project config
+    project_config = {
+        "api_host": request.build_absolute_uri("/").rstrip("/"),
+        "token": survey.team.api_token,
+    }
+
+    if hasattr(survey.team, "ui_host") and survey.team.ui_host:
+        project_config["ui_host"] = survey.team.ui_host
+
+    serializer = SurveyAPISerializer(survey)
+    survey_data = serializer.data
+    context = {
+        "name": survey.name,
+        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
+        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
+        "debug": settings.DEBUG,
+    }
+
+    logger.info("survey_page_rendered", survey_id=survey_id, team_id=survey.team.id)
+
+    response = render(request, "surveys/public_survey.html", context)
+
+    response["X-Frame-Options"] = "DENY"  # Override global SAMEORIGIN to prevent iframe embedding
+    # Cache headers
+    response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
+    response["Vary"] = "Accept-Encoding"  # Enable compression caching
+
+    return response
 
 
 @contextmanager

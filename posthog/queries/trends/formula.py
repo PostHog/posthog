@@ -1,9 +1,10 @@
+import re
 import math
 from itertools import accumulate
-import re
-import posthoganalytics
 from string import ascii_uppercase
 from typing import Any
+
+import posthoganalytics
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE

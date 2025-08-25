@@ -3,11 +3,18 @@ import type {
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentStatsBaseValidated,
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
-import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentDataWarehouseNode,
+    ExperimentMetricType,
+    NodeKind,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -39,6 +46,12 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             return getDefaultName(metric.source) || 'Untitled metric'
         case ExperimentMetricType.FUNNEL:
             return getDefaultName(metric.series[0]) || 'Untitled funnel'
+        case ExperimentMetricType.RATIO:
+            const numeratorName = getDefaultName(metric.numerator)
+            const denominatorName = getDefaultName(metric.denominator)
+            return `${numeratorName || 'Numerator'} / ${denominatorName || 'Denominator'}`
+        default:
+            return 'Untitled metric'
     }
 }
 
@@ -75,12 +88,12 @@ export function formatTickValue(value: number): string {
  */
 export function valueToXCoordinate(
     value: number,
-    chartRadius: number,
+    axisRange: number,
     viewBoxWidth: number,
     svgEdgeMargin: number = 20
 ): number {
     // Scale the value to fit within the padded area
-    const percentage = (value / chartRadius + 1) / 2
+    const percentage = (value / axisRange + 1) / 2
     return svgEdgeMargin + percentage * (viewBoxWidth - 2 * svgEdgeMargin)
 }
 
@@ -128,7 +141,7 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
 
 export function formatPValue(pValue: number | null | undefined): string {
     if (!pValue) {
-        return 'N/A'
+        return '—'
     }
 
     if (pValue < 0.001) {
@@ -143,7 +156,7 @@ export function formatPValue(pValue: number | null | undefined): string {
 
 export function formatChanceToWin(chanceToWin: number | null | undefined): string {
     if (chanceToWin == null) {
-        return 'N/A'
+        return '—'
     }
 
     // Convert to percentage and format
@@ -169,13 +182,95 @@ export function isFrequentistResult(result: ExperimentVariantResult): result is 
 
 export function getVariantInterval(result: ExperimentVariantResult): [number, number] | null {
     if (isBayesianResult(result)) {
-        return result.credible_interval
+        return result.credible_interval || null
     } else if (isFrequentistResult(result)) {
-        return result.confidence_interval
+        return result.confidence_interval || null
     }
     return null
 }
 
 export function getIntervalLabel(result: ExperimentVariantResult): string {
     return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
+}
+
+export function getIntervalBounds(result: ExperimentVariantResult): [number, number] {
+    const interval = getVariantInterval(result)
+    return interval ? [interval[0], interval[1]] : [0, 0]
+}
+
+export function formatIntervalPercent(result: ExperimentVariantResult): string {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return '—'
+    }
+    const [lower, upper] = interval
+    return `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]`
+}
+
+export function getDelta(result: ExperimentVariantResult): number {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return 0
+    }
+    const [lower, upper] = interval
+    return (lower + upper) / 2
+}
+
+export function getDeltaPercent(result: ExperimentVariantResult): number {
+    return getDelta(result) * 100
+}
+
+export function isSignificant(result: ExperimentVariantResult): boolean {
+    return result.significant || false
+}
+
+export function isDeltaPositive(result: ExperimentVariantResult): boolean | undefined {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return undefined
+    }
+    return getDelta(result) > 0
+}
+
+export function formatDeltaPercent(result: ExperimentVariantResult, decimals: number = 2): string {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return '—'
+    }
+    const deltaPercent = getDeltaPercent(result)
+    const formatted = deltaPercent.toFixed(decimals)
+    return `${deltaPercent > 0 ? '+' : ''}${formatted}%`
+}
+
+export function formatMetricValue(data: any, metric: ExperimentMetric): string {
+    if (isExperimentRatioMetric(metric)) {
+        // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
+        if (data.denominator_sum && data.denominator_sum > 0) {
+            const ratio = data.sum / data.denominator_sum
+            return ratio.toFixed(2)
+        }
+        return '0.000'
+    }
+
+    const primaryValue = data.sum / data.number_of_samples
+    if (isNaN(primaryValue)) {
+        return '—'
+    }
+    return isExperimentMeanMetric(metric) ? primaryValue.toFixed(2) : `${(primaryValue * 100).toFixed(2)}%`
+}
+
+export function getMetricSubtitleValues(
+    variant: ExperimentStatsBaseValidated,
+    metric: ExperimentMetric
+): { numerator: number; denominator: number } {
+    if (isExperimentRatioMetric(metric)) {
+        return {
+            numerator: variant.sum,
+            denominator: variant.denominator_sum || 0,
+        }
+    }
+    return {
+        numerator: variant.sum,
+        denominator: variant.number_of_samples || 0,
+    }
 }

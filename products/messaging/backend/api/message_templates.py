@@ -2,10 +2,11 @@ from typing import Any
 
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
-from posthog.models import MessageTemplate
+
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.models import MessageTemplate
 
 
 class EmailTemplateSerializer(serializers.Serializer):
@@ -35,6 +36,8 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             "content",
             "created_by",
             "type",
+            "message_category",
+            "deleted",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 

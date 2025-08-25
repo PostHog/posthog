@@ -1,11 +1,12 @@
-import asyncio
-import datetime as dt
-import logging
-import threading
 import time
+import asyncio
+import logging
+import datetime as dt
+import threading
 from contextlib import contextmanager
 
 import pytest
+
 import temporalio.worker
 from asgiref.sync import async_to_sync
 from temporalio.client import Client as TemporalClient
@@ -15,6 +16,7 @@ from temporalio.worker import Worker
 from posthog import constants
 from posthog.batch_exports.models import BatchExport
 from posthog.temporal.common.client import sync_connect
+
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 
 
@@ -99,7 +101,7 @@ def start_test_worker(temporal: TemporalClient):
         client=temporal,
         task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
-        activities=ACTIVITIES,  # type: ignore
+        activities=ACTIVITIES,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=dt.timedelta(seconds=5),
     ).run_in_thread():

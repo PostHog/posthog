@@ -1,10 +1,11 @@
 from random import randrange
 from typing import Any
 
+from django.conf import settings
+
 from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
-from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.tasks.alerts.checks import (
@@ -13,8 +14,10 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
+from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -24,12 +27,12 @@ from posthog.tasks.tasks import (
     clear_clickhouse_deleted_person,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
-    clickhouse_mark_all_materialized,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
     clickhouse_part_count,
     clickhouse_row_count,
     clickhouse_send_license_usage,
+    count_items_in_playlists,
     delete_expired_exported_assets,
     ee_persist_finished_recordings,
     ee_persist_finished_recordings_v2,
@@ -42,6 +45,7 @@ from posthog.tasks.tasks import (
     redis_celery_queue_depth,
     redis_heartbeat,
     replay_count_metrics,
+    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -50,12 +54,8 @@ from posthog.tasks.tasks import (
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
-    count_items_in_playlists,
-    schedule_all_subscriptions,
 )
 from posthog.utils import get_crontab
-
-from posthog.tasks.remote_config import sync_all_remote_configs
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -114,6 +114,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="0", day_of_week="mon"),
         send_all_periodic_digest_reports.s(),
         name="send all weekly digest reports",
+    )
+
+    # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
+    sender.add_periodic_task(
+        crontab(hour="9", minute="30"),
+        send_hog_functions_daily_digest.s(),
+        name="send HogFunctions daily digest",
     )
 
     # PostHog Cloud cron jobs
@@ -285,21 +292,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 name="clickhouse materialize columns",
             )
 
-            sender.add_periodic_task(
-                crontab(hour="*/4", minute="0"),
-                clickhouse_mark_all_materialized.s(),
-                name="clickhouse mark all columns as materialized",
-            )
-
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings.s(),
             name="persist finished recordings",
         )
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings_v2.s(),
             name="persist finished recordings v2",
         )

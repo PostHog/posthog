@@ -32,11 +32,13 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub billing_limiter: RedisLimiter,
+    pub survey_limiter: RedisLimiter,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
+    pub capture_mode: CaptureMode,
     pub is_mirror_deploy: bool,
-    pub base64_detect_percent: f32,
+    pub verbose_sample_percent: f32,
 }
 
 #[derive(Clone)]
@@ -102,6 +104,7 @@ pub fn router<
     sink: S,
     redis: Arc<R>,
     billing_limiter: RedisLimiter,
+    survey_limiter: RedisLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
@@ -111,13 +114,14 @@ pub fn router<
     historical_rerouting_threshold_days: i64,
     historical_tokens_keys: Option<String>,
     is_mirror_deploy: bool,
-    base64_detect_percent: f32,
+    verbose_sample_percent: f32,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
         billing_limiter,
+        survey_limiter,
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
@@ -125,8 +129,9 @@ pub fn router<
             historical_rerouting_threshold_days,
             historical_tokens_keys,
         ),
+        capture_mode: capture_mode.clone(),
         is_mirror_deploy,
-        base64_detect_percent,
+        verbose_sample_percent,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -180,55 +185,52 @@ pub fn router<
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .route("/i/v0", get(index))
-        .route("/i/v0/", get(index))
-        // legacy endpoints registered here
         .route(
             "/e",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/e/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/track",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/track/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/engage",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/engage/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/capture",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/capture/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));

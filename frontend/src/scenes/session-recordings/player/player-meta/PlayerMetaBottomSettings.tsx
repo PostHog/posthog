@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import {
     IconEllipsis,
     IconHourglass,
@@ -6,13 +8,11 @@ import {
     IconSearch,
     IconTortoise,
 } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,
@@ -95,16 +95,13 @@ function Screenshot(): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
-        <>
-            <ScreenShotEditor screenshotKey="replay" />
-            <SettingsButton
-                title="Take a screenshot of the current frame"
-                label="Screenshot"
-                data-attr="screenshot"
-                onClick={takeScreenshot}
-                icon={<IconLlmPromptEvaluation />}
-            />
-        </>
+        <SettingsButton
+            title="Take a screenshot of the current frame"
+            label="Screenshot"
+            data-attr="replay-screenshot"
+            onClick={takeScreenshot}
+            icon={<IconLlmPromptEvaluation />}
+        />
     )
 }
 
@@ -146,24 +143,23 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                 </div>
                 <div className="flex flex-row gap-0.5">
                     <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
-                        <Tooltip title="Use the HTML from this point in the recording as the background for your heatmap data">
-                            <SettingsButton
-                                size="xsmall"
-                                icon={<IconHeatmap />}
-                                onClick={() => {
-                                    setPause()
-                                    openHeatmap()
-                                }}
-                                label="View heatmap"
-                            />
-                        </Tooltip>
+                        <SettingsButton
+                            size="xsmall"
+                            icon={<IconHeatmap />}
+                            onClick={() => {
+                                setPause()
+                                openHeatmap()
+                            }}
+                            label="View heatmap"
+                            tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
+                        />
                     </FlaggedFeature>
                     {noInspector ? null : (
-                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.REPLAY_SCREENSHOT}>
+                        <>
                             <Screenshot />
-                        </FlaggedFeature>
+                            <InspectDOM />
+                        </>
                     )}
-                    {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>
             </div>

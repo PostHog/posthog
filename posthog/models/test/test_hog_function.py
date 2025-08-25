@@ -1,15 +1,18 @@
 import json
+
+from posthog.test.base import QueryMatchingTest
+
 from django.test import TestCase
+
 from inline_snapshot import snapshot
 
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import QueryMatchingTest
 
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 to_dict = lambda x: json.loads(json.dumps(x))
 
@@ -277,19 +280,19 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions,
-        # 7 unrelated due to RemoteConfig refresh
-        with self.assertNumQueries(4 + 7):
+        # 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
+        # Note: RemoteConfig refresh queries are now deferred via async signals
+        with self.assertNumQueries(4):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
         hog_function_3.refresh_from_db()
 
         assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
         )
         assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "event", 1, 1, 11, 3, 3, 4, 1]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "event", 1, 1, 11, 3, 3, 4, 1]'
         )
         assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
 

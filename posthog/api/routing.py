@@ -1,9 +1,9 @@
 from functools import cached_property, lru_cache
-from posthog.clickhouse.query_tagging import tag_queries
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.db.models.query import QuerySet
+
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -17,19 +17,20 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
 )
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.organization import Organization
-from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
-    APIScopePermission,
     AccessControlPermission,
+    APIScopePermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -178,8 +179,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
         # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-        # "insights" is a special one where we always want to include all insights if you're an org admin because the insights retrieve uses a list call :|
-        if self.scope_object == "project" or self.scope_object == "insight":
+        if self.scope_object == "project":
+            include_all_if_admin = True
+
+        # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
+        # individual insights are retrieved
+        if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(

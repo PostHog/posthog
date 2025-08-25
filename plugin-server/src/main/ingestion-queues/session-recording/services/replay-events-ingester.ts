@@ -2,6 +2,9 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
@@ -10,7 +13,7 @@ import { logger } from '../../../../utils/logger'
 import { captureException } from '../../../../utils/posthog'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
-import { createSessionReplayEvent, RRWebEventType } from '../process-event'
+import { RRWebEventType, createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
@@ -32,7 +35,7 @@ export class ReplayEventsIngester {
     constructor(
         private readonly producer: KafkaProducerWrapper,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker,
-        private readonly metadataSwitchoverDate: Date | null = null
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate = null
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -121,8 +124,7 @@ export class ReplayEventsIngester {
         }
 
         try {
-            const switchoverMs = this.metadataSwitchoverDate?.getTime()
-            if (switchoverMs && event.metadata.timestamp >= switchoverMs) {
+            if (eventPassesMetadataSwitchoverTest(event.metadata.timestamp, this.metadataSwitchoverDate)) {
                 return drop('after_switchover_date')
             }
 

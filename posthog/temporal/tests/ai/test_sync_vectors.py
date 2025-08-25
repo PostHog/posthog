@@ -3,16 +3,18 @@ import uuid
 from datetime import timedelta
 from itertools import cycle
 from typing import Annotated, Any
-from unittest.mock import patch
 
 import pytest
+from unittest.mock import patch
+
+from django.conf import settings
+from django.utils import timezone
+
 import pytest_asyncio
 from azure.ai.inference.aio import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
-from django.conf import settings
-from django.utils import timezone
 from pydantic import BaseModel, PlainValidator
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -43,7 +45,11 @@ from posthog.temporal.common.clickhouse import get_client
 @pytest.fixture(autouse=True)
 def cleanup():
     yield
-    sync_execute(TRUNCATE_PG_EMBEDDINGS_TABLE_SQL())
+
+    try:
+        sync_execute(TRUNCATE_PG_EMBEDDINGS_TABLE_SQL())
+    except:
+        pass
 
 
 @pytest.fixture

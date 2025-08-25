@@ -1,22 +1,25 @@
+import time
 import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
-import time
-import structlog
 from typing import Literal, Optional, Union, cast
 
-from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError
+from django.db import DatabaseError, IntegrityError, connections
+from django.db.models import CharField, Expression, F, Func, Q
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
-from django.db import connections
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
-from posthog.metrics import LABEL_TEAM_ID
 
+import structlog
+from prometheus_client import Counter
+
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
+from posthog.metrics import LABEL_TEAM_ID
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
@@ -25,15 +28,10 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
-from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
-from posthog.database_healthcheck import (
-    DATABASE_FOR_FLAG_MATCHING,
-)
 from posthog.utils import label_for_team_id_to_track
-from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
 
 from .feature_flag import (
     FeatureFlag,
@@ -427,7 +425,8 @@ class FeatureFlagMatcher:
         self, feature_flag: FeatureFlag, condition: dict, condition_index: int
     ) -> tuple[bool, FeatureFlagMatchReason]:
         rollout_percentage = condition.get("rollout_percentage")
-        if len(condition.get("properties", [])) > 0:
+        properties = condition.get("properties")
+        if properties and len(properties) > 0:
             properties = Filter(data=condition).property_groups.flat
             if self.can_compute_locally(properties, feature_flag.aggregation_group_type_index):
                 # :TRICKY: If overrides are enough to determine if a condition is a match,
@@ -559,7 +558,8 @@ class FeatureFlagMatcher:
                     property_list, self.cohorts_cache, self.project_id
                 )
 
-                if len(condition.get("properties", {})) > 0:
+                properties = condition.get("properties")
+                if properties and len(properties) > 0:
                     # Feature Flags don't support OR filtering yet
                     target_properties = self.property_value_overrides
                     if feature_flag.aggregation_group_type_index is not None:
@@ -1228,7 +1228,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
 
     # This is a very rough simulation of the actual query that will be run.
     # Only reason we do it this way is to catch any DB level errors that will bork at runtime
-    # but aren't caught by above validation, like a regex valid according to re2 but  not postgresql.
+    # but aren't caught by above validation, like a regex valid according to re2 but not postgresql.
     # We also randomly query for 20 people sans distinct id to make sure the query is valid.
 
     # TODO: Once we move to no DB level evaluation, can get rid of this.

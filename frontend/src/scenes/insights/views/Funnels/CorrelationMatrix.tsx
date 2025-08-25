@@ -1,15 +1,17 @@
 import './CorrelationMatrix.scss'
 
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { IconCancel, IconErrorOutline, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCancel, IconErrorOutline, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
 import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
@@ -207,8 +209,8 @@ export function CorrelationMatrix(): JSX.Element {
                                         correlationScoreStrength === 'strong'
                                             ? 'text-success'
                                             : correlationScoreStrength === 'moderate'
-                                            ? 'text-warning'
-                                            : 'text-danger'
+                                              ? 'text-warning'
+                                              : 'text-danger'
                                     )}
                                 >
                                     {scoreIcon} {correlationScore.toFixed(3)}

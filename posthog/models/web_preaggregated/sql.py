@@ -1,13 +1,15 @@
-from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
-def TABLE_TEMPLATE(table_name, columns, order_by):
+
+def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -20,13 +22,13 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
+def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=True):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -57,8 +59,10 @@ WEB_ANALYTICS_DIMENSIONS = [
     "city_name",
     "region_code",
     "region_name",
+    "has_gclid",
+    "has_gad_source_paid_search",
+    "has_fbclid",
 ]
-
 
 WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
 WEB_BOUNCES_DIMENSIONS = WEB_ANALYTICS_DIMENSIONS
@@ -69,6 +73,8 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+            column_definitions.append(f"{d} Bool")
         else:
             column_definitions.append(f"{d} String")
     return ",\n".join(column_definitions)
@@ -79,6 +85,29 @@ def get_order_by_clause(dimensions, bucket_column="period_bucket"):
     all_columns = base_columns + dimensions
     column_list = ",\n    ".join(all_columns)
     return f"(\n    {column_list}\n)"
+
+
+def get_insert_columns(dimensions, aggregate_columns):
+    shared_columns = ["period_bucket", "team_id", "host", "device_type"]
+    all_columns = shared_columns + dimensions + aggregate_columns
+    return all_columns
+
+
+def get_web_stats_insert_columns():
+    aggregate_columns = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
+    return get_insert_columns(WEB_STATS_DIMENSIONS, aggregate_columns)
+
+
+def get_web_bounces_insert_columns():
+    aggregate_columns = [
+        "persons_uniq_state",
+        "sessions_uniq_state",
+        "pageviews_count_state",
+        "bounces_count_state",
+        "total_session_duration_state",
+        "total_session_count_state",
+    ]
+    return get_insert_columns(WEB_BOUNCES_DIMENSIONS, aggregate_columns)
 
 
 WEB_STATS_COLUMNS = f"""
@@ -144,6 +173,14 @@ def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
     return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
 
 
+def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
+def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
 def WEB_STATS_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
         "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
@@ -156,51 +193,96 @@ def WEB_BOUNCES_HOURLY_SQL():
     )
 
 
-def format_team_ids(team_ids):
+def format_team_ids(team_ids: list[int]) -> str:
     return ", ".join(str(team_id) for team_id in team_ids)
 
 
-def get_team_filters(team_ids):
-    team_ids_str = format_team_ids(team_ids) if team_ids else None
+def get_team_filters(team_ids: list[int] | None) -> dict[str, str]:
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        return {
+            "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})",
+            "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})",
+            "events": f"e.team_id IN({team_ids_str})",
+        }
+    else:
+        return {
+            "raw_sessions": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', raw_sessions.team_id)",
+            "person_distinct_id_overrides": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', person_distinct_id_overrides.team_id)",
+            "events": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', e.team_id)",
+        }
+
+
+def get_date_filters(date_start: str, date_end: str, timezone: str, granularity: str = "daily") -> dict[str, str]:
+    if granularity == "hourly":
+        # For hourly buckets, extend the session window to capture all sessions
+        # that might contribute to hourly buckets within the date range
+        session_start = f"minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(25))"
+        session_end = f"plus(toDateTime('{date_end}', '{timezone}'), toIntervalHour(1))"
+        event_start = f"minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(1))"
+        event_end = f"plus(toDateTime('{date_end}', '{timezone}'), toIntervalHour(1))"
+    else:
+        # Keep existing logic for daily granularity
+        session_start = f"minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))"
+        session_end = f"toDateTime('{date_end}', '{timezone}')"
+        event_start = f"toDateTime('{date_start}', '{timezone}')"
+        event_end = f"toDateTime('{date_end}', '{timezone}')"
+
+    # Target period filters are the same for both granularities
+    target_period_start = f"toDateTime('{date_start}', '{timezone}')"
+    target_period_end = f"toDateTime('{date_end}', '{timezone}')"
+
     return {
-        "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1",
-        "person_distinct_id_overrides": (
-            f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
-        ),
-        "events": f"e.team_id IN({team_ids_str})" if team_ids else "1=1",
+        "session_start_filter": session_start,
+        "session_end_filter": session_end,
+        "event_start_filter": event_start,
+        "event_end_filter": event_end,
+        "target_period_start": target_period_start,
+        "target_period_end": target_period_end,
     }
 
 
-def get_insert_params(team_ids, granularity="daily"):
-    filters = get_team_filters(team_ids)
+def get_all_filters(
+    date_start: str,
+    date_end: str,
+    timezone: str,
+    team_ids: list[int] | None = None,
+    granularity: str = "daily",
+    settings: str = "",
+) -> dict[str, str]:
+    team_filters = get_team_filters(team_ids)
+    date_filters = get_date_filters(date_start, date_end, timezone, granularity)
 
-    if granularity == "hourly":
-        time_bucket_func = "toStartOfHour"
-        bucket_column = "period_bucket"
-    else:
-        time_bucket_func = "toStartOfDay"
-        bucket_column = "period_bucket"
+    time_bucket_func = "toStartOfHour" if granularity == "hourly" else "toStartOfDay"
+    settings_clause = f"SETTINGS {settings}" if settings else ""
 
     return {
-        "team_filter": filters["raw_sessions"],
-        "person_team_filter": filters["person_distinct_id_overrides"],
-        "events_team_filter": filters["events"],
+        "team_filter": team_filters["raw_sessions"],
+        "person_team_filter": team_filters["person_distinct_id_overrides"],
+        "events_team_filter": team_filters["events"],
         "time_bucket_func": time_bucket_func,
-        "bucket_column": bucket_column,
+        "settings_clause": settings_clause,
+        "timezone": timezone,
+        "date_start": date_start,
+        "date_end": date_end,
+        **date_filters,
     }
 
 
 def WEB_STATS_INSERT_SQL(
-    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily", granularity="daily"
-):
-    params = get_insert_params(team_ids, granularity)
-    team_filter = params["team_filter"]
-    person_team_filter = params["person_team_filter"]
-    events_team_filter = params["events_team_filter"]
-    time_bucket_func = params["time_bucket_func"]
+    date_start: str,
+    date_end: str,
+    team_ids: list[int] | None = None,
+    timezone: str = "UTC",
+    settings: str = "",
+    table_name: str = "web_stats_daily",
+    granularity: str = "daily",
+    select_only: bool = False,
+) -> str:
+    # Get all filters and parameters in one place
+    filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
-    return f"""
-    INSERT INTO {table_name}
+    query = """
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -223,6 +305,9 @@ def WEB_STATS_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -250,6 +335,9 @@ def WEB_STATS_INSERT_SQL(
             events__session.end_pathname AS end_pathname,
             events__session.referring_domain AS referring_domain,
             events__session.region_name AS region_name,
+            events__session.has_gclid AS has_gclid,
+            events__session.has_gad_source_paid_search AS has_gad_source_paid_search,
+            events__session.has_fbclid AS has_fbclid,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
@@ -271,14 +359,17 @@ def WEB_STATS_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= {session_start_filter}
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= {session_end_filter}
             GROUP BY
                 raw_sessions.session_id_v7
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
         (
@@ -289,13 +380,13 @@ def WEB_STATS_INSERT_SQL(
             WHERE {person_team_filter}
             GROUP BY person_distinct_id_overrides.distinct_id
             HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__override ON e.distinct_id = events__override.distinct_id
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
             AND (e.`$session_id` IS NOT NULL)
-            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+            AND toTimeZone(e.timestamp, '{timezone}') >= {event_start_filter}
+            AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY
             events__session.session_id,
             e.team_id,
@@ -317,9 +408,15 @@ def WEB_STATS_INSERT_SQL(
             country_code,
             city_name,
             region_code,
-            region_name
-        SETTINGS {settings}
+            region_name,
+            has_gclid,
+            has_gad_source_paid_search,
+            has_fbclid
+        {settings_clause}
     )
+    WHERE
+        period_bucket >= {target_period_start}
+        AND period_bucket < {target_period_end}
     GROUP BY
         period_bucket,
         team_id,
@@ -341,28 +438,39 @@ def WEB_STATS_INSERT_SQL(
         country_code,
         city_name,
         region_code,
-        region_name
-    SETTINGS {settings}
+        region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
+    {settings_clause}
     """
+
+    # Format the query with all parameters from centralized filters
+    formatted_query = query.format(**filters)
+
+    if select_only:
+        return formatted_query
+    else:
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_stats_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
 
 
 def WEB_BOUNCES_INSERT_SQL(
-    date_start,
-    date_end,
-    team_ids=None,
-    timezone="UTC",
-    settings="",
-    table_name="web_bounces_daily",
-    granularity="daily",
-    select_only=False,
-):
-    params = get_insert_params(team_ids, granularity)
-    team_filter = params["team_filter"]
-    person_team_filter = params["person_team_filter"]
-    events_team_filter = params["events_team_filter"]
-    time_bucket_func = params["time_bucket_func"]
+    date_start: str,
+    date_end: str,
+    team_ids: list[int] | None = None,
+    timezone: str = "UTC",
+    settings: str = "",
+    table_name: str = "web_bounces_daily",
+    granularity: str = "daily",
+    select_only: bool = False,
+) -> str:
+    # Get all filters and parameters in one place
+    filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
-    query = f"""
+    query = """
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -384,6 +492,9 @@ def WEB_BOUNCES_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -413,6 +524,9 @@ def WEB_BOUNCES_INSERT_SQL(
             any(e.mat_$os) AS os,
             accurateCastOrNull(any(e.mat_$viewport_width), 'Int64') AS viewport_width,
             accurateCastOrNull(any(e.mat_$viewport_height), 'Int64') AS viewport_height,
+            any(events__session.has_gclid) AS has_gclid,
+            any(events__session.has_gad_source_paid_search) AS has_gad_source_paid_search,
+            any(events__session.has_fbclid) AS has_fbclid,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -435,6 +549,9 @@ def WEB_BOUNCES_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))) AS session_duration,
                 if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
@@ -449,8 +566,8 @@ def WEB_BOUNCES_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
-                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= {session_start_filter}
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= {session_end_filter}
             GROUP BY raw_sessions.session_id_v7
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
@@ -466,12 +583,15 @@ def WEB_BOUNCES_INSERT_SQL(
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
             AND (e.`$session_id` IS NOT NULL)
-            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+            AND toTimeZone(e.timestamp, '{timezone}') >= {event_start_filter}
+            AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY
             session_id,
             team_id
     )
+    WHERE
+        period_bucket >= {target_period_start}
+        AND period_bucket < {target_period_end}
     GROUP BY
         period_bucket,
         team_id,
@@ -492,14 +612,22 @@ def WEB_BOUNCES_INSERT_SQL(
         browser,
         os,
         viewport_width,
-        viewport_height
-    {"SETTINGS " + settings if settings and not select_only else ""}
+        viewport_height,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
+    {settings_clause}
     """
 
+    formatted_query = query.format(**filters)
+
     if select_only:
-        return query
+        return formatted_query
     else:
-        return f"INSERT INTO {table_name}\n{query}"
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_bounces_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
 
 
 def WEB_STATS_EXPORT_SQL(
@@ -568,7 +696,7 @@ def WEB_BOUNCES_EXPORT_SQL(
 
 def create_combined_view_sql(table_prefix):
     return f"""
-    CREATE VIEW IF NOT EXISTS {table_prefix}_combined AS
+    CREATE OR REPLACE VIEW {table_prefix}_combined AS
     SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
     SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')

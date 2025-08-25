@@ -1,35 +1,31 @@
+import json
+import urllib.parse
 from datetime import datetime
 from typing import Any
-from unittest import TestCase
-from unittest.mock import MagicMock, patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
-import json
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from unittest import TestCase
+from unittest.mock import MagicMock, patch
+
+from django.utils.timezone import now
+
 import jwt
 from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from freezegun import freeze_time
-from requests import get, Response
+from requests import Response, get
 from rest_framework import status
-import urllib.parse
+
+from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_types import (
-    BillingPeriod,
-    CustomerInfo,
-    CustomerProduct,
-    CustomerProductAddon,
-)
+from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct, CustomerProductAddon
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
-from posthog.cloud_utils import (
-    TEST_clear_instance_license_cache,
-    get_cached_instance_license,
-)
-from posthog.models.organization import OrganizationMembership
-from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 
 def create_billing_response(**kwargs) -> dict[str, Any]:
@@ -57,6 +53,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             "rows_synced": {"limit": None, "usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0},
+            "surveys": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_product_features=[],
@@ -156,6 +153,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             "rows_synced": {"limit": None, "usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0},
+            "surveys": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
@@ -452,6 +450,7 @@ class TestBillingAPI(APILicensedTest):
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
                 "api_queries_read_bytes": {"limit": None, "usage": 0},
+                "surveys": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
         }
@@ -579,6 +578,7 @@ class TestBillingAPI(APILicensedTest):
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
                 "api_queries_read_bytes": {"limit": None, "usage": 0},
+                "surveys": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
@@ -770,6 +770,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage": 0,
                 },
                 "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+                "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
             },
         )
 
@@ -849,6 +850,7 @@ class TestBillingAPI(APILicensedTest):
             "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+            "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
         }
 
     @patch("ee.api.billing.requests.get")
@@ -880,6 +882,7 @@ class TestBillingAPI(APILicensedTest):
             "rows_synced": 0,
             "feature_flags": 0,
             "api_queries_read_bytes": 17,
+            "surveys": 0,
         }
         self.organization.save()
 
@@ -894,6 +897,7 @@ class TestBillingAPI(APILicensedTest):
             "rows_synced": 0,
             "feature_flags": 0,
             "api_queries_read_bytes": 17,
+            "surveys": 0,
         }
 
     @patch("ee.api.billing.requests.get")

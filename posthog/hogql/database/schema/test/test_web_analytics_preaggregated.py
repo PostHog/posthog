@@ -1,25 +1,27 @@
 from parameterized import parameterized
+
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebStatsDailyTable,
-    WebBouncesDailyTable,
-    WebStatsHourlyTable,
-    WebBouncesHourlyTable,
-    WebStatsCombinedTable,
-    WebBouncesCombinedTable,
-    SHARED_SCHEMA_FIELDS,
+    ATTRIBUTION_FIELDS,
     DEVICE_BROWSER_FIELDS,
     GEOIP_FIELDS,
-    UTM_FIELDS,
     PATH_FIELDS,
-    WEB_STATS_SPECIFIC_FIELDS,
+    SHARED_SCHEMA_FIELDS,
+    UTM_FIELDS,
     WEB_BOUNCES_SPECIFIC_FIELDS,
+    WEB_STATS_SPECIFIC_FIELDS,
+    WebBouncesCombinedTable,
+    WebBouncesDailyTable,
+    WebBouncesHourlyTable,
+    WebStatsCombinedTable,
+    WebStatsDailyTable,
+    WebStatsHourlyTable,
 )
 
 
 class TestWebAnalyticsPreAggregatedSchema:
     DEVICE_BROWSER_FIELD_NAMES = ["browser", "os", "viewport_width", "viewport_height"]
-    GEOIP_FIELD_NAMES = ["country_code", "city_name", "region_code", "region_name", "time_zone"]
+    GEOIP_FIELD_NAMES = ["country_code", "city_name", "region_code", "region_name"]
     UTM_FIELD_NAMES = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "referring_domain"]
     PATH_FIELD_NAMES = ["entry_pathname", "end_pathname"]
     AGGREGATION_FIELD_NAMES = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
@@ -105,6 +107,7 @@ class TestWebAnalyticsPreAggregatedSchema:
                 len(GEOIP_FIELDS),
                 len(UTM_FIELDS),
                 len(PATH_FIELDS),
+                len(ATTRIBUTION_FIELDS),
             ]
         )
 

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
+
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 import { PipelineNode } from './types'
@@ -16,7 +17,7 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
         if (inView && !appMetricsResponse && !appMetricsResponseLoading) {
             loadMetrics()
         }
-    }, [inView])
+    }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     // The metrics response has last 7 days time wise, we're showing the
     // sparkline graph by day, so ignore the potential 8th day

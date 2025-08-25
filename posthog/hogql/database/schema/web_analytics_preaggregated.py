@@ -1,10 +1,11 @@
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
     IntegerDatabaseField,
     StringDatabaseField,
-    DateTimeDatabaseField,
     Table,
-    FieldOrTable,
 )
 
 DEVICE_BROWSER_FIELDS = {
@@ -19,7 +20,6 @@ GEOIP_FIELDS = {
     "city_name": StringDatabaseField(name="city_name", nullable=True),
     "region_code": StringDatabaseField(name="region_code", nullable=True),
     "region_name": StringDatabaseField(name="region_name", nullable=True),
-    "time_zone": StringDatabaseField(name="time_zone", nullable=True),
 }
 
 UTM_FIELDS = {
@@ -31,6 +31,12 @@ UTM_FIELDS = {
     "referring_domain": StringDatabaseField(name="referring_domain", nullable=True),
 }
 
+ATTRIBUTION_FIELDS = {
+    "has_gclid": BooleanDatabaseField(name="has_gclid", nullable=True),
+    "has_gad_source_paid_search": BooleanDatabaseField(name="has_gad_source_paid_search", nullable=True),
+    "has_fbclid": BooleanDatabaseField(name="has_fbclid", nullable=True),
+}
+
 PATH_FIELDS = {
     "entry_pathname": StringDatabaseField(name="entry_pathname", nullable=True),
     "end_pathname": StringDatabaseField(name="end_pathname", nullable=True),
@@ -40,8 +46,10 @@ SHARED_SCHEMA_FIELDS = {
     **DEVICE_BROWSER_FIELDS,
     **GEOIP_FIELDS,
     **UTM_FIELDS,
+    **ATTRIBUTION_FIELDS,
     **PATH_FIELDS,
 }
+
 
 # Web stats daily specific fields
 WEB_STATS_SPECIFIC_FIELDS = {
@@ -62,7 +70,6 @@ web_preaggregated_base_fields = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "host": StringDatabaseField(name="host"),
     "device_type": StringDatabaseField(name="device_type"),
-    "updated_at": DateTimeDatabaseField(name="updated_at"),
 }
 
 
@@ -161,3 +168,33 @@ class WebBouncesCombinedTable(Table):
 
     def to_printed_hogql(self):
         return "web_bounces_combined"
+
+
+class WebPreAggregatedStatsTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_STATS_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_pre_aggregated_stats"
+
+    def to_printed_hogql(self):
+        return "web_pre_aggregated_stats"
+
+
+class WebPreAggregatedBouncesTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_BOUNCES_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_pre_aggregated_bounces"
+
+    def to_printed_hogql(self):
+        return "web_pre_aggregated_bounces"

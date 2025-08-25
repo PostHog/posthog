@@ -1,0 +1,26 @@
+date2,spend2,clicks2,keyworks2,impressions2,campaign2,source2
+2024-09-29,0,0,split testing framework,12,Test-Experimentation-EMEA,TikTok Ads
+2024-10-06,0,0,mobile app tracking,3,TestCorp-Search-AMER-Mobile-Platform,TikTok Ads
+2024-10-13,0,0,multivariate testing tool,9,Test-Experimentation-EMEA,TikTok Ads
+2024-10-20,8.67,2,experiment platform saas,28,Test-AB-Testing-AMER,TikTok Ads
+2024-10-27,0,0,growth analytics solution,7,Test-Growth-Analytics-AMER,TikTok Ads
+2024-11-03,38.92,1,amplitude alternative,48,Test-Competitors-AMER,TikTok Ads
+2024-11-10,7.43,1,testing infrastructure,11,Test-Experimentation-AMER,TikTok Ads
+2024-11-17,47.21,118,testcorp platform,324,Test-Brand-Campaign-EMEA,TikTok Ads
+2024-11-24,0,0,progressive rollout tools,2,Test-Experimentation-EMEA,TikTok Ads
+2024-11-25,0,0,canary deployment platform,4,Test-Experimentation-EMEA,TikTok Ads
+2024-12-08,0,0,gradual feature release,1,Test-Experimentation-EMEA,TikTok Ads
+2024-12-15,6.28,2,statistical significance,76,Test-AB-Testing-AMER,TikTok Ads
+2024-12-22,0,0,user session recording,5,Test-Session-Recording-AMER,TikTok Ads
+2024-12-29,0,0,mobile performance analytics,13,TestCorp-Search-EMEA-Mobile-Platform,TikTok Ads
+2025-01-05,0,0,feature toggle system,6,Test-Experimentation-AMER,TikTok Ads
+2025-01-12,0,0,usability testing platform,4,TestCorp-Search-EMEA-UX-Tools,TikTok Ads
+2025-01-19,0,0,in-app behavior tracking,5,TestCorp-Search-EMEA-Mobile-Platform,TikTok Ads
+2025-01-26,0,0,configuration management,7,Test-Experimentation-AMER,TikTok Ads
+2025-02-02,19.84,6,testcorp insights,82,test_brand_campaign,TikTok Ads
+2025-02-09,0,0,deployment strategies,12,Test-Experimentation-AMER,TikTok Ads
+2025-02-16,0,0,release management tools,8,Test-Experimentation-AMER,TikTok Ads
+2025-02-23,0,0,hypothesis testing methods,2,Test-AB-Testing-EMEA,TikTok Ads
+2025-03-02,0,0,runtime configuration,1,Test-Experimentation-AMER,TikTok Ads
+2025-03-09,0,0,dynamic feature control,8,Test-Experimentation-AMER,TikTok Ads
+2025-03-16,0,0,rollback mechanisms,2,Test-Experimentation-AMER,TikTok Ads

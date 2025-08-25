@@ -1,33 +1,28 @@
 import unittest
-
-from rest_framework.exceptions import ValidationError
-
-from ee.clickhouse.queries.funnels.funnel_correlation import (
-    EventContingencyTable,
-    EventStats,
-    FunnelCorrelation,
-)
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-    FunnelCorrelationActors,
-)
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.action import Action
-from posthog.models.element import Element
-from posthog.models.filters import Filter
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    also_test_with_person_on_events_v2,
 )
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.action import Action
+from posthog.models.element import Element
+from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
 
 def _create_action(**kwargs):
@@ -283,7 +278,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_events_and_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         create_group(
@@ -625,7 +620,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     )
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -828,7 +823,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups_person_on_events(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1654,7 +1649,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_event_properties_and_groups(self):
         # same test as test_funnel_correlation_with_event_properties but with events attached to groups
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=1
         )
 

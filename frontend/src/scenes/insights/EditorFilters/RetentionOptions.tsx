@@ -1,12 +1,14 @@
+import { useValues } from 'kea'
+
 import { Link } from '@posthog/lemon-ui'
 
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { retentionLogic } from 'scenes/retention/retentionLogic'
+
+import { MinimumOccurrencesInput } from '../filters/MinimumOccurrencesInput'
 import { RetentionCumulativeButton } from '../filters/RetentionCumulativeButton'
 import { RetentionMeanDropdown } from '../filters/RetentionMeanDropdown'
 import { RetentionReferencePicker } from '../filters/RetentionReferencePicker'
-import { MinimumOccurrencesInput } from '../filters/MinimumOccurrencesInput'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
-import { useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function RetentionOptions(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union, Optional
+from typing import Optional, Union
 
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr, action_to_expr
-from posthog.models import Action, Team
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -13,15 +10,22 @@ from posthog.schema import (
     MarketingAnalyticsHelperForColumnNames,
     PropertyMathType,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.property import action_to_expr, property_to_expr
+
+from posthog.models import Action, Team
+
 from .adapters.base import MarketingSourceAdapter
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
     CONVERSION_GOAL_PREFIX,
     CONVERSION_GOAL_PREFIX_ABBREVIATION,
     DECIMAL_PRECISION,
-    TOTAL_COST_FIELD,
+    DEFAULT_DISTINCT_ID_FIELD,
     ORGANIC_CAMPAIGN,
     ORGANIC_SOURCE,
+    TOTAL_COST_FIELD,
 )
 
 MAX_ATTRIBUTION_WINDOW_DAYS = 365  # let's start with a year window for the conversions
@@ -95,9 +99,9 @@ class ConversionGoalProcessor:
         """Build DAU (Daily Active Users) select expression"""
         if self.goal.kind == "DataWarehouseNode":
             schema_map = self.goal.schema_map
-            distinct_id_field = schema_map.get("distinct_id_field", "distinct_id")
+            distinct_id_field = schema_map.get("distinct_id_field", DEFAULT_DISTINCT_ID_FIELD)
             return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
-        return ast.Call(name="uniq", args=[ast.Field(chain=["events", "distinct_id"])])
+        return ast.Call(name="uniq", args=[ast.Field(chain=["events", DEFAULT_DISTINCT_ID_FIELD])])
 
     def _build_sum_select(self) -> ast.Expr:
         """Build SUM aggregation select expression"""
@@ -881,7 +885,7 @@ class ConversionGoalProcessor:
             constraint=ast.JoinConstraint(expr=join_condition, constraint_type="ON"),
         )
 
-    def generate_select_columns(self) -> list[ast.Expr]:
+    def generate_select_columns(self) -> list[ast.Alias]:
         """Generate SELECT columns for this conversion goal"""
         goal_name = self.goal.conversion_goal_name
         alias_prefix = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)

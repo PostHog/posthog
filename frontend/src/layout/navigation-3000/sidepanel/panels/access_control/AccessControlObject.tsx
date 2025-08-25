@@ -1,4 +1,9 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
+import { IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -10,15 +15,14 @@ import {
     LemonTable,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { capitalizeFirstLetter, fullName } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -29,11 +33,11 @@ import {
     AccessControlTypeRole,
     AvailableFeature,
     OrganizationMemberType,
+    RoleMemberType,
+    RoleType,
 } from '~/types'
 
-import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
-import { IconWarning } from '@posthog/icons'
-import clsx from 'clsx'
+import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource } = useValues(accessControlLogic(props))
@@ -67,7 +71,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 
                         <AccessControlObjectUsers />
 
-                        {/* Put this inside of Advanced Permissions so two aren't shown at once */}
+                        {/* Put this inside of Advanced Permissions (access control) so two aren't shown at once */}
                         <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                             <AccessControlObjectRoles />
                         </PayGateMini>
@@ -139,7 +143,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             people={(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members?.map(
                                 (member) => ({
                                     email: membersById[member]?.user.email,
-                                    name: membersById[member]?.user.first_name,
+                                    name: fullName(membersById[member]?.user),
                                 })
                             )}
                         />
@@ -155,16 +159,16 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         <div>
                             <p className="font-medium mb-0">
                                 {member(ac as AccessControlTypeMember)?.user.uuid == user.uuid
-                                    ? `${member(ac as AccessControlTypeMember)?.user.first_name} (you)`
-                                    : member(ac as AccessControlTypeMember)?.user.first_name}
+                                    ? `${fullName(member(ac as AccessControlTypeMember)?.user)} (you)`
+                                    : fullName(member(ac as AccessControlTypeMember)?.user)}
                             </p>
                             <p className="text-secondary mb-0">{member(ac as AccessControlTypeMember)?.user.email}</p>
                         </div>
                     </div>
                 ),
             sorter: (a, b) =>
-                member(a as AccessControlTypeMember)?.user.first_name.localeCompare(
-                    member(b as AccessControlTypeMember)?.user.first_name
+                fullName(member(a as AccessControlTypeMember)?.user).localeCompare(
+                    fullName(member(b as AccessControlTypeMember)?.user)
                 ),
         },
         {
@@ -240,9 +244,9 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         setModelOpen(false)
                     }
                 }}
-                options={addableMembers.map((member) => ({
+                options={addableMembers.map((member: OrganizationMemberType) => ({
                     key: member.id,
-                    label: `${member.user.first_name} ${member.user.email}`,
+                    label: `${fullName(member.user)} ${member.user.email}`,
                     labelComponent: <UserSelectItem user={member.user} />,
                 }))}
             />
@@ -285,10 +289,10 @@ function AccessControlObjectRoles(): JSX.Element | null {
                 return (
                     <ProfileBubbles
                         people={
-                            rolesById[role]?.members?.map((member) => ({
+                            rolesById[role]?.members?.map((member: RoleMemberType) => ({
                                 email: member.user.email,
-                                name: member.user.first_name,
-                                title: `${member.user.first_name} <${member.user.email}>`,
+                                name: fullName(member.user),
+                                title: `${fullName(member.user)} <${member.user.email}>`,
                             })) ?? []
                         }
                     />
@@ -353,7 +357,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                         setModelOpen(false)
                     }
                 }}
-                options={addableRoles.map((role) => ({
+                options={addableRoles.map((role: RoleType) => ({
                     key: role.id,
                     label: role.name,
                 }))}
@@ -462,8 +466,8 @@ function AddItemsControlsModal(props: {
                             !canEditAccessControls
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please choose what you want to add and at what level'
-                                : undefined
+                                  ? 'Please choose what you want to add and at what level'
+                                  : undefined
                         }
                     >
                         Add

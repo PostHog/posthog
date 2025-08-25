@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
+import { PostHog } from 'posthog-js'
+import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
+
 import { elementToSelector } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
-import { PostHog } from 'posthog-js'
-import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -529,7 +530,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
-        // eslint-disable-next-line compat/compat
+        // oxlint-disable-next-line compat/compat
         const intersectionObserver = new IntersectionObserver((entries) => {
             const observedElements: [HTMLElement, boolean][] = []
             entries.forEach((entry) => {

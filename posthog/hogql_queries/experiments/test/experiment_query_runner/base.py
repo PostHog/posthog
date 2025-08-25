@@ -1,16 +1,13 @@
+from datetime import timedelta
 from pathlib import Path
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
 from django.test import override_settings
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 from django.utils import timezone
-from datetime import timedelta
+
 from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
@@ -86,7 +83,9 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
                 "id": "String",
                 "ds": "Date",
                 "userid": "String",
-                "usage": "String",
+                "usage": "Float64",
+                "plan": "String",
+                "region": "String",
             },
             test_bucket=TEST_BUCKET,
             team=self.team,

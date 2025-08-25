@@ -2,7 +2,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { fetch, FetchResponse } from '~/utils/request'
+import { FetchResponse, fetch } from '~/utils/request'
 
 import { createHogFunction } from '../_tests/fixtures'
 import { createExampleNativeInvocation } from '../_tests/fixtures-native'
@@ -145,7 +145,7 @@ describe('NativeDestinationExecutorService', () => {
                 functionId: expect.any(String),
                 hogFunction: expect.any(Object),
                 id: expect.any(String),
-                queue: 'native',
+                queue: 'hog',
                 queueMetadata: {
                     tries: 1,
                 },
@@ -205,7 +205,7 @@ describe('NativeDestinationExecutorService', () => {
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
-                queue: 'native',
+                queue: 'hog',
                 queueMetadata: { tries: 1 },
                 queueParameters: undefined,
                 queuePriority: 1,
@@ -232,7 +232,7 @@ describe('NativeDestinationExecutorService', () => {
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
-                queue: 'native',
+                queue: 'hog',
                 queueMetadata: {
                     tries: 2,
                 },
@@ -263,7 +263,7 @@ describe('NativeDestinationExecutorService', () => {
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
-                queue: 'native',
+                queue: 'hog',
                 queueMetadata: { tries: 3 },
                 queueParameters: undefined,
                 queuePriority: 0,

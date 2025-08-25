@@ -1,12 +1,14 @@
 import './SidePanel.scss'
 
-import { IconEllipsis, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { useEffect, useRef } from 'react'
+
+import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
+
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
 
@@ -16,19 +18,21 @@ import {
     SidePanelExportsIcon,
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
-import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
-import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
-import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
-import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
+import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
+import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
-import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
+import { WithinSidePanelContext, sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -47,7 +51,6 @@ export const SIDE_PANEL_TABS: Record<
             )
         },
         Content: SidePanelMax,
-        noModalSupport: true,
     },
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
@@ -113,6 +116,8 @@ export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
+    const { openAccountPopover } = useActions(navigationLogic)
+    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -132,6 +137,8 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
+    const { setSceneContainerRect } = useActions(sceneLayoutLogic)
+    const { sceneContainerRef } = useValues(sceneLayoutLogic)
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -139,6 +146,13 @@ export function SidePanel(): JSX.Element | null {
             setSidePanelAvailable(false)
         }
     }, [setSidePanelAvailable])
+
+    // Trigger scene width recalculation when SidePanel size changes
+    useEffect(() => {
+        if (sceneContainerRef?.current) {
+            setSceneContainerRect(sceneContainerRef.current.getBoundingClientRect())
+        }
+    }, [desiredSize, sidePanelOpen, setSceneContainerRect, sceneContainerRef])
 
     if (!visibleTabs.length) {
         return null
@@ -150,15 +164,39 @@ export function SidePanel(): JSX.Element | null {
         ? [
               {
                   title: 'Open in side panel',
-                  items: extraTabs.map((tab) => {
-                      const { Icon, label } = SIDE_PANEL_TABS[tab]
+                  items: [
+                      ...extraTabs.map((tab) => {
+                          const { Icon, label } = SIDE_PANEL_TABS[tab]
 
-                      return {
-                          label: label,
-                          icon: <Icon />,
-                          onClick: () => openSidePanel(tab),
-                      }
-                  }),
+                          return {
+                              label: label,
+                              icon: <Icon />,
+                              onClick: () => openSidePanel(tab),
+                          }
+                      }),
+                      // This is a off ramp for the feature previews moving from the side panel to the settings page,
+                      // TODO: Remove this in a while so all users have acknowledged the change.
+                      !featurePreviewChangeAcknowledged
+                          ? {
+                                label: 'Feature previews',
+                                icon: <IconFeatures />,
+                                onClick: () => {
+                                    openAccountPopover()
+                                },
+                                tooltip: (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <IconInfo className="size-4 shrink-0" />
+                                            <span>
+                                                <span className="font-bold">Feature previews</span> has moved, click
+                                                here to learn where to access it.
+                                            </span>
+                                        </div>
+                                    </>
+                                ),
+                            }
+                          : null,
+                  ],
               },
           ]
         : undefined
@@ -188,7 +226,7 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
+                width: sidePanelOpenAndAvailable ? (desiredSize ?? DEFAULT_WIDTH) : undefined,
                 ...theme?.sidebarStyle,
             }}
             id="side-panel"

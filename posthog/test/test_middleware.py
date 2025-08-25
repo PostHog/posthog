@@ -1,14 +1,14 @@
-import json
 from datetime import datetime, timedelta
-from urllib.parse import quote
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import patch
 
-from django.test.client import Client
-from django.urls import reverse
-from freezegun import freeze_time
-from rest_framework import status
 from django.conf import settings
 from django.core.cache import cache
+from django.urls import reverse
+
+from rest_framework import status
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -17,7 +17,6 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
-from posthog.test.base import APIBaseTest, override_settings
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -34,12 +33,6 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"PostHog is not available", response.content)
 
-            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1")
-
-            self.assertEqual(
-                response.status_code, status.HTTP_400_BAD_REQUEST
-            )  # Check for a bad request exception because it means the middleware didn't block the request
-
             # /31 block
             response = self.client.get("/", REMOTE_ADDR="192.168.0.1")
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -48,12 +41,6 @@ class TestAccessMiddleware(APIBaseTest):
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"PostHog is not available", response.content)
-
-            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.1")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.2")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
             # /24 block
             response = self.client.get("/", REMOTE_ADDR="127.0.0.1")
@@ -157,7 +144,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 51
+        cls.base_app_num_queries = 50
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -179,7 +166,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
-        with self.assertNumQueries(self.base_app_num_queries + 7):  # AutoProjectMiddleware adds 4 queries
+        with self.assertNumQueries(self.base_app_num_queries + 6):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -227,7 +214,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(self.base_app_num_queries + 3):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(self.base_app_num_queries + 2):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -297,7 +284,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.base_app_num_queries + 7):
+        with self.assertNumQueries(self.base_app_num_queries + 6):
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -311,7 +298,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(self.base_app_num_queries + 3):
+        with self.assertNumQueries(self.base_app_num_queries + 2):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -435,53 +422,6 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(ph_instance_cookie["comment"], "")
         self.assertEqual(ph_instance_cookie["secure"], True)
         self.assertEqual(ph_instance_cookie["max-age"], 31536000)
-
-    def test_ph_project_cookies_are_not_set_on_capture_or_api_endpoints(self):
-        self.client.logout()
-
-        data = {
-            "event": "user did custom action",
-            "properties": {"distinct_id": 2, "token": self.team.api_token},
-        }
-
-        response = self.client.get(
-            "/e/?data={}".format(quote(json.dumps(data))),
-            HTTP_ORIGIN="https://localhost",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
-
-        django_client = Client()
-        response = django_client.post(
-            "/track/",
-            {
-                "data": json.dumps(
-                    [
-                        {
-                            "event": "beep",
-                            "properties": {
-                                "distinct_id": "eeee",
-                                "token": self.team.api_token,
-                            },
-                        }
-                    ]
-                ),
-                "api_key": self.team.api_token,
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
-
-        self.client.force_login(self.user)
-
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
-
-        response = self.client.patch("/api/users/@me/", {"first_name": "Alice"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
 
     def test_logout(self):
         self.client.force_login(self.user)

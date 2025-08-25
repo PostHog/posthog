@@ -1,12 +1,15 @@
-import 'chartjs-adapter-dayjs-3'
-
 import { DeepPartial } from 'chart.js/dist/types/utils'
+import 'chartjs-adapter-dayjs-3'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { LegendOptions, ScaleOptions } from 'lib/Chart'
+import posthog from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
+import { Root, createRoot } from 'react-dom/client'
+
 import {
     ActiveElement,
     Chart,
@@ -18,6 +21,8 @@ import {
     Color,
     GridLineOptions,
     InteractionItem,
+    LegendOptions,
+    ScaleOptions,
     ScriptableLineSegmentContext,
     TickOptions,
     TooltipModel,
@@ -26,18 +31,17 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
-import { createRoot, Root } from 'react-dom/client'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -195,27 +199,6 @@ export function onChartHover(
     target.style.cursor = onClick && point.length ? 'pointer' : 'default'
 }
 
-export const filterNestedDataset = (
-    hiddenLegendIndexes: number[] | undefined,
-    datasets: GraphDataset[]
-): GraphDataset[] => {
-    if (!hiddenLegendIndexes) {
-        return datasets
-    }
-    // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-    const filterFn = (_: any, i: number): boolean => !hiddenLegendIndexes?.includes(i)
-    return datasets.map((_data) => {
-        // Performs a filter transformation on properties that contain arrayed data
-        return Object.fromEntries(
-            Object.entries(_data).map(([key, val]) =>
-                Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
-                    ? [key, val?.filter(filterFn)]
-                    : [key, val]
-            )
-        ) as GraphDataset
-    })
-}
-
 function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPattern {
     const stripeWidth = 8 // 0.5rem
     const stripeAngle = -22.5
@@ -247,7 +230,6 @@ function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPatte
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
-    hiddenLegendIndexes?: number[] | undefined
     labels: string[]
     type: GraphType
     isInProgress?: boolean
@@ -274,6 +256,7 @@ export interface LineGraphProps {
     showMultipleYAxes?: boolean | null
     goalLines?: GoalLine[]
     isStacked?: boolean
+    showTrendLines?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -291,7 +274,6 @@ const LOG_ZERO = 1e-10
 
 export function LineGraph_({
     datasets: _datasets,
-    hiddenLegendIndexes,
     labels,
     type,
     isInProgress = false,
@@ -317,6 +299,7 @@ export function LineGraph_({
     legend = { display: false },
     goalLines: _goalLines,
     isStacked = true,
+    showTrendLines = false,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -325,8 +308,10 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, query } = useValues(insightVizDataLogic(insightProps))
-    const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
+        insightVizDataLogic(insightProps)
+    )
+    const { theme, getTrendsColor, getTrendsHidden } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
@@ -371,15 +356,15 @@ export function LineGraph_({
     }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
         }
-    }, [])
+    })
 
     // Add event listeners to canvas
-    useEffect(() => {
+    useOnMountEffect(() => {
         const canvas = canvasRef.current
 
         if (canvas) {
@@ -410,7 +395,7 @@ export function LineGraph_({
                 canvas.removeEventListener('webglcontextlost', handleEvent)
             }
         }
-    }, [])
+    })
 
     function processDataset(dataset: ChartDataset<any>, index: number): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
@@ -418,8 +403,8 @@ export function LineGraph_({
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
-            ? dataset.backgroundColor
-            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+              ? dataset.backgroundColor
+              : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
@@ -486,7 +471,22 @@ export function LineGraph_({
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
-            yAxisID: type === GraphType.Line && showMultipleYAxes && index > 0 ? `y${index}` : 'y',
+            yAxisID:
+                type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
+                    ? `y${index}`
+                    : dataset.yAxisID
+                      ? dataset.yAxisID
+                      : 'y',
+            ...(showTrendLines
+                ? {
+                      trendlineLinear: {
+                          colorMin: mainColor,
+                          colorMax: mainColor,
+                          lineStyle: 'dotted',
+                          width: 2,
+                      },
+                  }
+                : {}),
         }
     }
 
@@ -575,13 +575,9 @@ export function LineGraph_({
 
     // Build chart
     useEffect(() => {
-        // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
-            if (isHorizontal) {
-                datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
-            } else {
-                datasets = datasets.filter((data) => !hiddenLegendIndexes?.includes(data.id))
-            }
+        // horizontal bar charts handle hidden items one level above
+        if (!isHorizontal) {
+            datasets = datasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
         }
 
         datasets = datasets.map(processDataset)
@@ -664,6 +660,14 @@ export function LineGraph_({
                         return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
+                        // Handle survey view - show count + percentage
+                        if (value !== 0 && inSurveyView && showValuesOnSeries) {
+                            const dataset = context.dataset as any
+                            const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
+                            const percentage = ((value / total) * 100).toFixed(1)
+                            return `${value} (${percentage}%)`
+                        }
+
                         // the type here doesn't allow for undefined, but we see errors where things are undefined
                         const data = context.chart?.data as ExtendedChartData
                         if (!data) {
@@ -721,6 +725,10 @@ export function LineGraph_({
                             const dataset = datasets[referenceDataPoint.datasetIndex]
                             const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                if (tooltipConfig?.filter) {
+                                    return tooltipConfig.filter(dp)
+                                }
+
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
                                     dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
@@ -742,6 +750,8 @@ export function LineGraph_({
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
+                                    interval={interval}
+                                    dateRange={insightData?.resolved_date_range}
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
@@ -806,8 +816,8 @@ export function LineGraph_({
                                         labelGroupType === 'people'
                                             ? 'people'
                                             : labelGroupType === 'none'
-                                            ? ''
-                                            : aggregationLabel(labelGroupType).plural
+                                              ? ''
+                                              : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
                                 />
@@ -922,7 +932,7 @@ export function LineGraph_({
                     },
                 },
                 ...generateYaxesForLineGraph(
-                    datasets.length,
+                    (showMultipleYAxes && new Set(datasets.map((d) => d.yAxisID)).size) || datasets.length,
                     seriesNonZeroMin,
                     goalLines,
                     goalLinesY,
@@ -934,7 +944,9 @@ export function LineGraph_({
             }
         } else if (isHorizontal) {
             if (hideXAxis || hideYAxis) {
-                options.layout = { padding: 20 }
+                options.layout = { padding: inSurveyView ? { top: 20, bottom: 20, left: 20, right: 60 } : 20 }
+            } else if (inSurveyView) {
+                options.layout = { padding: { right: 60 } }
             }
             options.scales = {
                 x: {
@@ -960,7 +972,7 @@ export function LineGraph_({
                             return tick
                         })
 
-                        const ROW_HEIGHT = inSurveyView ? 30 : 20
+                        const ROW_HEIGHT = inSurveyView ? (isHorizontal ? 48 : 30) : 20
                         const height = scale.ticks.length * ROW_HEIGHT
                         const parentNode: any = scale.chart?.canvas?.parentNode
                         parentNode.style.height = `${height}px`
@@ -978,6 +990,14 @@ export function LineGraph_({
                         precision,
                         stepSize: !truncateRows ? 1 : undefined,
                         autoSkip: !truncateRows ? false : undefined,
+                        ...(inSurveyView
+                            ? {
+                                  padding: 10,
+                                  font: {
+                                      size: 14,
+                                  },
+                              }
+                            : {}),
                         callback: function _renderYLabel(_, i) {
                             const d = datasets?.[0]
                             if (!d) {
@@ -1011,12 +1031,13 @@ export function LineGraph_({
         }
         Chart.register(ChartjsPluginStacked100)
         Chart.register(annotationPlugin)
+        Chart.register(chartTrendline)
 
         const chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
-            plugins: [ChartDataLabels],
+            plugins: [ChartDataLabels, ...(showTrendLines ? [chartTrendline as any] : [])],
         })
 
         setLineChart(chart)
@@ -1024,7 +1045,6 @@ export function LineGraph_({
         return () => chart.destroy()
     }, [
         datasets,
-        hiddenLegendIndexes,
         isDarkModeOn,
         trendsFilter,
         formula,
@@ -1033,7 +1053,8 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
-    ])
+        showTrendLines,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

@@ -1,41 +1,44 @@
 import re
-import uuid
 import json
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
+
 from drf_spectacular.utils import OpenApiResponse
-from posthog.schema_migrations.upgrade import upgrade
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
+from rest_framework.exceptions import NotAuthenticated, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from concurrent.futures import ThreadPoolExecutor
+
+from posthog.schema import (
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatusResponse,
+    QueryUpgradeRequest,
+    QueryUpgradeResponse,
+)
+
+from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import settings
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.constants import AvailableFeature
-from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
-
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
-from posthog.clickhouse.client.execute_async import (
-    cancel_query,
-    get_query_status,
-)
-from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
+from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters,
-    apply_dashboard_variables,
-)
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import (
@@ -47,14 +50,9 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
 )
-from posthog.schema import (
-    QueryRequest,
-    QueryResponseAlternative,
-    QueryStatusResponse,
-    QueryUpgradeRequest,
-    QueryUpgradeResponse,
-)
-from posthog.hogql.constants import LimitContext
+from posthog.schema_migrations.upgrade import upgrade
+
+from common.hogvm.python.utils import HogVMException
 
 # Create a dedicated thread pool for query processing
 # Setting max_workers to ensure we don't overwhelm the system
@@ -169,7 +167,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 else status.HTTP_200_OK
             )
             return Response(result, status=response_status)
-        except (ExposedHogQLError, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except ResolutionError as e:
             raise ValidationError(str(e))

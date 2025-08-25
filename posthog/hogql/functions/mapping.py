@@ -2,24 +2,25 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-
-from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArrayType,
     BooleanType,
     DateTimeType,
     DateType,
+    DecimalType,
     FloatType,
+    IntegerType,
     IntervalType,
     StringType,
     TupleType,
-    IntegerType,
-    DecimalType,
     UUIDType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
+from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
+
+from posthog.cloud_utils import is_ci, is_cloud
 
 
 def validate_function_args(
@@ -409,6 +410,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    "toFloatOrZero": HogQLFunctionMeta("toFloat64OrZero", 1, 1, signatures=[((StringType(),), FloatType())]),
+    "toFloatOrDefault": HogQLFunctionMeta(
+        "toFloat64OrDefault",
+        1,
+        2,
+        signatures=[
+            ((DecimalType(), FloatType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+            ((FloatType(), FloatType()), FloatType()),
+            ((StringType(), FloatType()), FloatType()),
+        ],
+    ),
     "toDecimal": HogQLFunctionMeta(
         "accurateCastOrNull",
         2,
@@ -435,6 +448,28 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
             # ((ast.StringType,), "parseDateTime64"),
         ],
+        signatures=[
+            ((StringType(),), DateTimeType()),
+            ((StringType(), IntegerType()), DateTimeType()),
+            ((StringType(), IntegerType(), StringType()), DateTimeType()),
+        ],
+    ),
+    "toDateTime64": HogQLFunctionMeta(
+        "toDateTime64",
+        1,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(),), DateTimeType()),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((DateTimeType(), IntegerType(), StringType()), DateTimeType()),
+        ],
+    ),
+    "toDateTimeUS": HogQLFunctionMeta(
+        "parseDateTime64BestEffortUSOrNull",
+        1,
+        2,
+        tz_aware=True,
         signatures=[
             ((StringType(),), DateTimeType()),
             ((StringType(), IntegerType()), DateTimeType()),
@@ -1608,6 +1643,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
         "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
     ),
+    # Translates languages codes to full language name
+    "languageCodeToName": HogQLFunctionMeta(
+        clickhouse_name="transform",
+        min_args=1,
+        max_args=1,
+        suffix_args=[
+            ast.Constant(value=LANGUAGE_CODES),
+            ast.Constant(value=LANGUAGE_NAMES),
+            ast.Constant(value="Unknown"),
+        ],
+        signatures=[((StringType(),), StringType())],
+    ),
 }
 
 # Permitted HogQL aggregations
@@ -1626,6 +1673,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
     "sumForEach": HogQLFunctionMeta("sumForEach", 1, 1, aggregate=True),
+    "minForEach": HogQLFunctionMeta("minForEach", 1, 1, aggregate=True),
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),
@@ -1949,6 +1997,7 @@ ALL_EXPOSED_FUNCTION_NAMES = [
 # Functions where we use a -OrNull variant by default
 ADD_OR_NULL_DATETIME_FUNCTIONS = (
     "toDateTime",
+    "toDateTimeUS",
     "parseDateTime",
     "parseDateTimeBestEffort",
 )

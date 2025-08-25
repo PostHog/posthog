@@ -14,7 +14,8 @@
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
-        "common/hogvm/__tests__/__snapshots__"
+        "common/hogvm/__tests__/__snapshots__",
+        "common/hogvm/__tests__/__snapshots__/**"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -70,12 +71,6 @@
             "error",
             {
                 "allowExpressions": true
-            }
-        ],
-        "@typescript-eslint/explicit-module-boundary-types": [
-            "error",
-            {
-                "allowArgumentsExplicitlyTypedAsAny": true
             }
         ],
         "curly": "error",

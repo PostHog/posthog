@@ -1,12 +1,15 @@
-import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
-import { CyclotronJobInputType } from '~/types'
-
-import { hogFunctionStepLogic, StepFunctionNode } from './hogFunctionStepLogic'
-import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
+
+import { Spinner } from '@posthog/lemon-ui'
+
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
+
+import { CyclotronJobInputType } from '~/types'
+
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { StepFunctionNode, hogFunctionStepLogic } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
     const { configuration, templateLoading, template } = useValues(hogFunctionStepLogic({ node }))
@@ -21,10 +24,14 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
 
     if (templateLoading) {
         return (
-            <div className="flex items-center justify-center">
+            <div className="flex justify-center items-center">
                 <Spinner />
             </div>
         )
+    }
+
+    if (!template) {
+        return <div>Template not found!</div>
     }
 
     return (
@@ -35,6 +42,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                     inputs_schema: template?.inputs_schema ?? [],
                 }}
                 showSource={false}
+                sampleGlobalsWithInputs={null} // TODO: Load this based on the trigger event
             />
         </Form>
     )

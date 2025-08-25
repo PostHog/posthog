@@ -1,20 +1,17 @@
 import pytest
+
 from braintrust import EvalCase
 
+from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery, NodeKind
+
 from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
-from posthog.schema import (
-    AssistantRetentionEventsNode,
-    AssistantRetentionFilter,
-    AssistantRetentionQuery,
-    NodeKind,
-)
 
 from .conftest import MaxEval
 from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db
-async def eval_retention(call_root_for_insight_generation):
+async def eval_retention(call_root_for_insight_generation, pytestconfig):
     await MaxEval(
         experiment_name="retention",
         task=call_root_for_insight_generation,
@@ -204,4 +201,5 @@ Retention:
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )

@@ -1,12 +1,14 @@
 # Self-Managed Marketing Source Adapters
 
 from posthog.hogql import ast
-from .base import MarketingSourceAdapter, ValidationResult, ExternalConfig
+
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
     UNKNOWN_CAMPAIGN,
     UNKNOWN_SOURCE,
 )
+
+from .base import ExternalConfig, MarketingSourceAdapter, ValidationResult
 
 
 class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
@@ -25,7 +27,6 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
     def validate(self) -> ValidationResult:
         """Validate self-managed table schema and required fields"""
         errors: list[str] = []
-        warnings: list[str] = []
 
         try:
             # Validate required schema fields
@@ -40,9 +41,9 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
                 errors.extend([f"Missing required field: {field}" for field in missing_required_fields])
 
             is_valid = len(errors) == 0
-            self._log_validation_errors(errors, warnings)
+            self._log_validation_errors(errors)
 
-            return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
+            return ValidationResult(is_valid=is_valid, errors=errors)
 
         except Exception as e:
             error_msg = f"Validation error: {str(e)}"

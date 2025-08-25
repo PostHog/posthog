@@ -3,33 +3,30 @@ from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
 from django.dispatch import receiver
+
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
-from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import (
-    ExperimentToSavedMetricSerializer,
-)
+from posthog.schema import ExperimentEventExposureConfig
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-)
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
-from posthog.schema import ExperimentEventExposureConfig
+
+from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -544,6 +541,63 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         warning = requires_flag_warning(filter, self.team)
 
         return Response({"result": warning})
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source_experiment: Experiment = self.get_object()
+
+        # Allow overriding the feature flag key from the request
+        feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
+
+        # Generate a unique name for the duplicate
+        base_name = f"{source_experiment.name} (Copy)"
+        duplicate_name = base_name
+        counter = 1
+        while Experiment.objects.filter(team_id=self.team_id, name=duplicate_name, deleted=False).exists():
+            duplicate_name = f"{base_name} {counter}"
+            counter += 1
+
+        # Prepare saved metrics data for the serializer
+        saved_metrics_data = []
+        for experiment_to_saved_metric in source_experiment.experimenttosavedmetric_set.all():
+            saved_metrics_data.append(
+                {
+                    "id": experiment_to_saved_metric.saved_metric.id,
+                    "metadata": experiment_to_saved_metric.metadata,
+                }
+            )
+
+        # Prepare data for duplication
+        duplicate_data = {
+            "name": duplicate_name,
+            "description": source_experiment.description,
+            "type": source_experiment.type,
+            "parameters": source_experiment.parameters,
+            "filters": source_experiment.filters,
+            "metrics": source_experiment.metrics,
+            "metrics_secondary": source_experiment.metrics_secondary,
+            "stats_config": source_experiment.stats_config,
+            "exposure_criteria": source_experiment.exposure_criteria,
+            "saved_metrics_ids": saved_metrics_data,
+            "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
+            # Reset fields for new experiment
+            "start_date": None,
+            "end_date": None,
+            "archived": False,
+            "deleted": False,
+        }
+
+        # Create the duplicate experiment using the serializer
+        duplicate_serializer = ExperimentSerializer(
+            data=duplicate_data,
+            context=self.get_serializer_context(),
+        )
+        duplicate_serializer.is_valid(raise_exception=True)
+        duplicate_experiment = duplicate_serializer.save()
+
+        return Response(
+            ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -1,5 +1,4 @@
 // Postgres
-
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { PluginsServerConfig } from '../../types'
@@ -16,6 +15,7 @@ export enum PostgresUse {
     PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
     PERSONS_READ, // Person database, read replica
     PERSONS_WRITE, // Person database, write
+    COUNTERS_RW, // Counters database for aggregations
 }
 
 export class TransactionClient {
@@ -47,6 +47,7 @@ export class PostgresRouter {
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
             [PostgresUse.PERSONS_WRITE, commonClient],
+            [PostgresUse.COUNTERS_RW, commonClient],
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
@@ -100,20 +101,33 @@ export class PostgresRouter {
             this.pools.set(PostgresUse.PERSONS_READ, this.pools.get(PostgresUse.PERSONS_WRITE)!)
             logger.info('👍', `Using persons write pool for read-only`)
         }
+        if (serverConfig.COUNTERS_DATABASE_URL) {
+            logger.info('🤔', `Connecting to counters Postgresql...`)
+            this.pools.set(
+                PostgresUse.COUNTERS_RW,
+                createPostgresPool(
+                    serverConfig.COUNTERS_DATABASE_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
+            )
+            logger.info('👍', `Counters Postgresql ready`)
+        }
     }
 
     public async query<R extends QueryResultRow = any, I extends any[] = any[]>(
         target: PostgresUse | TransactionClient,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
-        tag: string
+        tag: string,
+        queryFailureLogLevel: 'error' | 'warn' = 'error'
     ): Promise<QueryResult<R>> {
         if (target instanceof TransactionClient) {
             const wrappedTag = `${PostgresUse[target.target]}:Tx<${tag}>`
-            return postgresQuery(target.client, queryString, values, wrappedTag)
+            return postgresQuery(target.client, queryString, values, wrappedTag, queryFailureLogLevel)
         } else {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
-            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag)
+            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, queryFailureLogLevel)
         }
     }
 
@@ -148,7 +162,11 @@ export class PostgresRouter {
         })
     }
 
-    async end() {
+    public async connect(usage: PostgresUse): Promise<PoolClient> {
+        return await this.pools.get(usage)!.connect()
+    }
+
+    async end(): Promise<void> {
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())
         for (const pool of uniquePools) {
@@ -162,7 +180,8 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     client: Client | Pool | PoolClient,
     queryString: string | QueryConfig<I>,
     values: I | undefined,
-    tag: string
+    tag: string,
+    queryFailureLogLevel: 'error' | 'warn' = 'error'
 ): Promise<QueryResult<R>> {
     return instrumentQuery('query.postgres', tag, async () => {
         const queryConfig =
@@ -184,7 +203,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
                 throw new DependencyUnavailableError(error.message, 'Postgres', error)
             }
 
-            logger.error('🔴', 'Postgres query error', {
+            logger[queryFailureLogLevel]('🔴', 'Postgres query error', {
                 query: queryConfig.text,
                 error,
                 stack: error.stack,

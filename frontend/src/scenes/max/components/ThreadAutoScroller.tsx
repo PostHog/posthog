@@ -109,17 +109,19 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
         scrollToBottom()
     }, [streamingActive, scrollToBottom, threadGrouped]) // Scroll when the thread updates
 
-    // Scroll to bottom when a new thread becomes visible
+    // Scroll to bottom when a new thread becomes visible (conversation changes)
     useEffect(() => {
         if (!conversation || scrollOrigin.current.user) {
             return
         }
+
         // Use a small delay to ensure the thread content is rendered
         const timer = setTimeout(() => {
             scrollToBottom()
         }, 100)
+
         return () => clearTimeout(timer)
-    }, [conversation?.id, scrollToBottom]) // Scroll when conversation changes
+    }, [conversation?.id, scrollToBottom]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>

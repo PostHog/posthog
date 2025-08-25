@@ -1,10 +1,10 @@
-from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
-from posthog.models import Insight, DashboardTile, InsightViewed, Dashboard
-
-from datetime import datetime, timedelta, UTC
-from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
+from posthog.models import Dashboard, DashboardTile, Insight, InsightViewed
 
 
 class TestWarming(APIBaseTest):
@@ -45,13 +45,13 @@ class TestWarming(APIBaseTest):
             team=self.team, user=self.user, insight=self.insight5, last_viewed_at=datetime.now(UTC) - timedelta(days=1)
         )
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
     def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = []
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
     def test_insights_to_keep_fresh_no_stale_dashboard_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "2345:",
@@ -62,7 +62,7 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, exptected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
     def test_insights_to_keep_fresh_only_insights_with_dashboards(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
@@ -74,7 +74,7 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
     def test_insights_to_keep_fresh_mixed_valid_and_invalid_combos(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
@@ -88,19 +88,19 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
     def test_insights_to_keep_fresh_insights_not_viewed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["4567:"]
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
     def test_insights_to_keep_fresh_dashboards_not_accessed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["5678:8901"]
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManager.get_stale_insights")
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
     def test_insights_to_keep_fresh_combination_of_cases(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",

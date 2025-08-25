@@ -1,19 +1,22 @@
 import json
+
 from unittest.mock import MagicMock, patch
+
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
-from posthog.models.personal_api_key import hash_key_value, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
+
+from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class BaseAccessControlTest(APILicensedTest):
@@ -224,6 +227,11 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert creator_user["access_level"] == "manager"
         assert creator_user["access_source"] == AccessSource.CREATOR.value
 
+        # Check that other users have default access level (not "none")
+        other_users = [user for user in data["users"] if user["user_id"] != str(self.user.uuid)]
+        for user in other_users:
+            assert user["access_level"] != "none"
+
     def test_org_admin_has_highest_access(self):
         """Test that org admins get highest access level"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -321,16 +329,16 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
         data = res.json()
-        # Only creator should have access (others have "none" access level)
-        assert data["total_count"] == 4  # All users are included, but with "none" access
+        # Only creator should have access (others are excluded due to "none" access level)
+        assert data["total_count"] == 1  # Only creator has access
         creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
         assert creator_user["access_level"] == "manager"
         assert creator_user["access_source"] == AccessSource.CREATOR.value
 
-        # Other users should have "none" access level
-        other_users = [user for user in data["users"] if user["user_id"] != str(self.user.uuid)]
-        for user in other_users:
-            assert user["access_level"] == "none"
+        # Other users should be excluded entirely
+        other_user_ids = [str(self.user2.uuid), str(self.user3.uuid), str(self.user4.uuid)]
+        for user_id in other_user_ids:
+            assert not any(user["user_id"] == user_id for user in data["users"])
 
     def test_access_level_prioritization(self):
         """Test that higher access levels take precedence"""
@@ -386,7 +394,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
         data = res.json()
-        # Should be sorted: editor (creator), editor (user3), viewer (user2), editor (user4 default)
+        # Should be sorted: manager (creator), editor (user3), editor (user4 default), viewer (user2)
         assert data["users"][0]["access_level"] == "manager"  # creator
         assert data["users"][1]["access_level"] == "editor"  # user3
         assert data["users"][2]["access_level"] == "editor"  # user4 (default)
@@ -459,6 +467,45 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         data = res.json()
         assert data["total_count"] == 1
         assert data["users"][0]["user_id"] == str(self.user.uuid)
+
+    def test_project_level_none_access_excludes_users(self):
+        """Test that when project-level access is set to 'none', users without project access are excluded from the list"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Set project-level access to "none"
+        res = self._put_project_access_control({"access_level": "none"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Give user2 explicit project access so they should still appear
+        res = self._put_project_access_control(
+            {
+                "organization_member": str(self.user2.organization_memberships.get(organization=self.organization).id),
+                "access_level": "member",
+            }
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        # Creator and user2 should have access, others should be excluded due to project-level "none" access
+        assert data["total_count"] == 2
+        user_ids = [user["user_id"] for user in data["users"]]
+        assert str(self.user.uuid) in user_ids  # creator
+        assert str(self.user2.uuid) in user_ids  # explicit project access
+        assert str(self.user3.uuid) not in user_ids  # no project access
+        assert str(self.user4.uuid) not in user_ids  # no project access
+
+        # Check that creator has highest access level
+        creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
+        assert creator_user["access_level"] == "manager"
+        assert creator_user["access_source"] == AccessSource.CREATOR.value
+
+        # Check that user2 has project-level access
+        user2_data = next(user for user in data["users"] if user["user_id"] == str(self.user2.uuid))
+        assert user2_data["access_level"] == "editor"  # default resource access level
+        assert user2_data["access_source"] == AccessSource.PROJECT_ADMIN.value
 
     def test_only_active_users_included(self):
         """Test that only active users are included in the users_with_access endpoint"""
@@ -672,7 +719,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 17
+        baseline = 18
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 4):
@@ -683,12 +730,12 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
         baseline = 7
-        # Getting my own notebook is the same as a dashboard - 2 extra queries
-        with self.assertNumQueries(baseline + 4):
+        # Getting my own notebook is the same as a dashboard - 3 extra queries
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 5):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         baseline = 7
@@ -699,7 +746,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 8
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_with_preload_optimization(self):
@@ -714,11 +761,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 17
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
@@ -727,12 +774,12 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
         baseline = 7
 
-        # Getting my own notebook is the same as a dashboard - 2 extra queries
-        with self.assertNumQueries(baseline + 4):
+        # Getting my own notebook is the same as a dashboard - 3 extra queries
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 5):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
     def test_query_counts_stable_for_project_access(self):
@@ -746,14 +793,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 8
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 8
 
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
@@ -762,14 +809,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         baseline = 45  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
-        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded permissions acs, preloaded acs for the list
+        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
         baseline = baseline + (10 * 3)  # The existing access control adds 3 queries per item :(
-        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded permissions acs, preloaded acs for the list
+        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
 
 
@@ -1045,3 +1092,95 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:write" in response.json()["detail"]
+
+    def test_notebook_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to notebook access_controls endpoint succeed with access_control:write scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_write",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:write"],  # Write scope required for PUT
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_project_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to project access_controls endpoint fail with only access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_project_read",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:read"],  # Only read scope, no write permissions
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/access_controls",
+            {"access_level": "editor"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:write" in response.json()["detail"]
+
+    def test_project_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to project access_controls endpoint succeed with access_control:write scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_project_write",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:write"],  # Write scope required for PUT
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/access_controls",
+            {"access_level": "admin", "resource": "project", "resource_id": str(self.team.id)},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_global_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to global_access_controls endpoint fail with only access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_global_read",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:read"],  # Only read scope, no write permissions
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/global_access_controls",
+            {"access_level": "editor", "resource": "notebook"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:write" in response.json()["detail"]
+
+    def test_global_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to global_access_controls endpoint succeed with access_control:write scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_global_write",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:write"],  # Write scope required for PUT
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/global_access_controls",
+            {"access_level": "editor", "resource": "dashboard"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK

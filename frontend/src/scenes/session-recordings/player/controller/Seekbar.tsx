@@ -75,7 +75,7 @@ export function Seekbar(): JSX.Element {
             setSlider(sliderRef)
             setThumb(thumbRef)
         }
-    }, [sliderRef.current, thumbRef.current, sessionRecordingId])
+    }, [sliderRef.current, thumbRef.current, sessionRecordingId]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">

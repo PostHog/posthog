@@ -6,6 +6,9 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
+import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
+import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -13,9 +16,6 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
-import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
-import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
 import type { Experiment, ExperimentIdType } from '~/types'
 
 interface ChartModalProps {
@@ -75,7 +75,13 @@ export function ChartModal({
                     metricIndex={metricIndex}
                     isPrimary={!isSecondary}
                 >
-                    {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                    {({
+                        query,
+                        breakdownResults,
+                        breakdownResultsLoading,
+                        exposureDifference,
+                        breakdownLastRefresh,
+                    }) => (
                         <>
                             {query && (
                                 <div className="flex justify-end">
@@ -93,7 +99,11 @@ export function ChartModal({
                             {query && breakdownResults && (
                                 <>
                                     <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                    <ResultsQuery
+                                        query={query}
+                                        breakdownResults={breakdownResults}
+                                        breakdownLastRefresh={breakdownLastRefresh}
+                                    />
                                 </>
                             )}
                         </>

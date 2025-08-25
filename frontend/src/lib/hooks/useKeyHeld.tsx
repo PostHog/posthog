@@ -1,5 +1,6 @@
-import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList, useEffect, useRef, useState } from 'react'
+
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export function useKeyHeld(key: string, deps?: DependencyList): boolean {
     const keysHeldRef = useRef(new Set<string>())
@@ -11,7 +12,7 @@ export function useKeyHeld(key: string, deps?: DependencyList): boolean {
 
     useEffect(() => {
         checkKeysHeld()
-    }, [key, ...(deps || [])])
+    }, [key, ...(deps || [])]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEventListener(
         'keydown',

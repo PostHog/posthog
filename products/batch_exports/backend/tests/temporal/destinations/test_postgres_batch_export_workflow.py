@@ -1,18 +1,20 @@
-import asyncio
-import collections.abc
-import dataclasses
-import datetime as dt
-import json
-import operator
 import re
-import unittest.mock
+import json
 import uuid
+import asyncio
+import datetime as dt
+import operator
+import dataclasses
+import collections.abc
 
-import psycopg
 import pytest
-import pytest_asyncio
+import unittest.mock
+
 from django.conf import settings
 from django.test import override_settings
+
+import psycopg
+import pytest_asyncio
 from psycopg import sql
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -21,28 +23,17 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-from products.batch_exports.backend.temporal.batch_exports import (
-    finish_batch_export_run,
-    start_batch_export_run,
-)
+
+from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
-    MissingPrimaryKeyError,
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
@@ -51,12 +42,8 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     postgres_default_fields,
     remove_invalid_json,
 )
-from products.batch_exports.backend.temporal.spmc import (
-    Producer,
-    RecordBatchQueue,
-    RecordBatchTaskError,
-    SessionsRecordBatchModel,
-)
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue, RecordBatchTaskError
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,
     get_record_batch_from_queue,
@@ -718,9 +705,11 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
         **postgres_config,
     )
 
-    with pytest.raises(MissingPrimaryKeyError):
-        with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-            await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+    with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+        result = await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+        assert result.error is not None
+        assert result.error.type == "MissingPrimaryKeyError"
+        assert result.error.message.startswith("An operation could not be completed as")
 
 
 @pytest_asyncio.fixture
@@ -1021,8 +1010,16 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     )
 
 
-async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, postgres_batch_export, interval):
-    """Test that Postgres Export Workflow can gracefully handle errors when inserting Postgres data."""
+async def test_postgres_export_workflow_handles_unexpected_insert_activity_errors(
+    ateam, postgres_batch_export, interval
+):
+    """Test that Postgres Export Workflow can gracefully handle unexpected errors when inserting Postgres data.
+
+    This means we do the right updates to the BatchExportRun model and ensure the workflow fails (since we
+    treat this as an unexpected internal error).
+
+    To simulate an unexpected error, we mock the `Producer.start` activity.
+    """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
     workflow_id = str(uuid.uuid4())
@@ -1034,10 +1031,6 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
         **postgres_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_postgres_activity")
-    async def insert_into_postgres_activity_mocked(_: PostgresInsertInputs) -> str:
-        raise ValueError("A useful error message")
-
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -1045,19 +1038,23 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_postgres_activity_mocked,
+                insert_into_postgres_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
-                await activity_environment.client.execute_workflow(
-                    PostgresBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.postgres_batch_export.Producer.start",
+                side_effect=ValueError("A useful error message"),
+            ):
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        PostgresBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
@@ -1071,7 +1068,13 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
 async def test_postgres_export_workflow_handles_insert_activity_non_retryable_errors(
     ateam, postgres_batch_export, interval
 ):
-    """Test that Postgres Export Workflow can gracefully handle non-retryable errors when inserting Postgres data."""
+    """Test that Postgres Export Workflow can gracefully handle non-retryable errors when inserting Postgres data.
+
+    This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we
+    treat this as a user error).
+
+    To simulate a user error, we mock the `Producer.start` activity.
+    """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
     workflow_id = str(uuid.uuid4())
@@ -1083,12 +1086,8 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
         **postgres_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_postgres_activity")
-    async def insert_into_postgres_activity_mocked(_: PostgresInsertInputs) -> str:
-        class InsufficientPrivilege(Exception):
-            pass
-
-        raise InsufficientPrivilege("A useful error message")
+    class InsufficientPrivilege(Exception):
+        pass
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -1097,12 +1096,15 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_postgres_activity_mocked,
+                insert_into_postgres_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.postgres_batch_export.Producer.start",
+                side_effect=InsufficientPrivilege("A useful error message"),
+            ):
                 await activity_environment.client.execute_workflow(
                     PostgresBatchExportWorkflow.run,
                     inputs,

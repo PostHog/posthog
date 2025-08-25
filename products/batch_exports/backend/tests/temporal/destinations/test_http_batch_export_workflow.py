@@ -1,14 +1,17 @@
+import json
 import asyncio
 import datetime as dt
-import json
 from random import randint
 from uuid import uuid4
 
 import pytest
-import pytest_asyncio
-from aioresponses import aioresponses
+import unittest.mock
+
 from django.conf import settings
 from django.test import override_settings
+
+import pytest_asyncio
+from aioresponses import aioresponses
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -17,11 +20,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
+
 from products.batch_exports.backend.temporal.batch_exports import (
     BackfillDetails,
     finish_batch_export_run,
@@ -33,14 +33,11 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     HttpBatchExportInputs,
     HttpBatchExportWorkflow,
     HttpInsertInputs,
-    NonRetryableResponseError,
     RetryableResponseError,
     http_default_fields,
     insert_into_http_activity,
 )
-from products.batch_exports.backend.tests.temporal.utils import (
-    mocked_start_batch_export_run,
-)
+from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -260,13 +257,20 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         **http_config,
     )
 
+    # this is a non-retryable error, so should not raise an exception but should return a BatchExportResult with the error
     with (
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
         override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
-        m.post(TEST_URL, status=400, repeat=True)
-        with pytest.raises(NonRetryableResponseError):
-            await activity_environment.run(insert_into_http_activity, insert_inputs)
+        m.post(TEST_URL, status=400, body="A useful error message", repeat=True)
+        result = await activity_environment.run(insert_into_http_activity, insert_inputs)
+        assert result.error is not None
+        assert result.error.type == "NonRetryableResponseError"
+        assert result.error.message == "NonRetryableResponseError (status: 400): A useful error message"
+        assert (
+            result.error_repr
+            == "NonRetryableResponseError: NonRetryableResponseError (status: 400): A useful error message"
+        )
 
     with (
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
@@ -468,12 +472,8 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
         **http_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_http_activity")
-    async def insert_into_http_activity_mocked(_: HttpInsertInputs) -> str:
-        class NonRetryableResponseError(Exception):
-            pass
-
-        raise NonRetryableResponseError("A useful error message")
+    class NonRetryableResponseError(Exception):
+        pass
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -482,12 +482,15 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
             workflows=[HttpBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_http_activity_mocked,
+                insert_into_http_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.http_batch_export.aiohttp.ClientSession",
+                side_effect=NonRetryableResponseError("A useful error message"),
+            ):
                 await activity_environment.client.execute_workflow(
                     HttpBatchExportWorkflow.run,
                     inputs,

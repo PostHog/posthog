@@ -1,19 +1,22 @@
-import ast
-import collections.abc
-import dataclasses
-import datetime as dt
-import json
-import operator
 import os
-import unittest.mock
+import ast
+import json
 import uuid
+import datetime as dt
+import operator
 import warnings
+import dataclasses
+import collections.abc
 
-import psycopg
 import pytest
-import pytest_asyncio
+import unittest.mock
+
 from django.conf import settings
 from django.test import override_settings
+
+import psycopg
+import pytest_asyncio
+import temporalio.common
 from psycopg import sql
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -22,26 +25,16 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-from products.batch_exports.backend.temporal.batch_exports import (
-    finish_batch_export_run,
-    start_batch_export_run,
-)
+
+from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
@@ -50,15 +43,9 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     insert_into_redshift_activity,
     redshift_default_fields,
 )
-from products.batch_exports.backend.temporal.spmc import (
-    Producer,
-    RecordBatchQueue,
-    RecordBatchTaskError,
-    SessionsRecordBatchModel,
-)
-from products.batch_exports.backend.temporal.temporary_file import (
-    remove_escaped_whitespace_recursive,
-)
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue, RecordBatchTaskError
+from products.batch_exports.backend.temporal.temporary_file import remove_escaped_whitespace_recursive
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,
     get_record_batch_from_queue,
@@ -549,6 +536,7 @@ async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
         task_queue="test",
         task_token=b"test",
         workflow_namespace="default",
+        priority=temporalio.common.Priority(priority_key=None),
     )
 
     activity_environment.info = fake_info
@@ -642,6 +630,7 @@ async def test_insert_into_redshift_activity_completes_range(
         task_queue="test",
         task_token=b"test",
         workflow_namespace="default",
+        priority=temporalio.common.Priority(priority_key=None),
     )
 
     activity_environment.info = fake_info
@@ -776,7 +765,7 @@ async def test_redshift_export_workflow(
                     id=workflow_id,
                     task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=20),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
@@ -829,10 +818,16 @@ def test_remove_escaped_whitespace_recursive(value, expected):
     assert remove_escaped_whitespace_recursive(value) == expected
 
 
-async def test_redshift_export_workflow_handles_insert_activity_errors(
+async def test_redshift_export_workflow_handles_unexpected_insert_activity_errors(
     event_loop, ateam, redshift_batch_export, interval
 ):
-    """Test that Redshift Export Workflow can gracefully handle errors when inserting Redshift data."""
+    """Test that Redshift Export Workflow can gracefully handle unexpected errors when inserting Redshift data.
+
+    This means we do the right updates to the BatchExportRun model and ensure the workflow fails (since we
+    treat this as an unexpected internal error).
+
+    To simulate an unexpected error, we mock the `Producer.start` activity.
+    """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
     workflow_id = str(uuid.uuid4())
@@ -844,10 +839,6 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
         **redshift_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_redshift_activity")
-    async def insert_into_redshift_activity_mocked(_: RedshiftInsertInputs) -> str:
-        raise ValueError("A useful error message")
-
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -855,20 +846,24 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_redshift_activity_mocked,
+                insert_into_redshift_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
-                await activity_environment.client.execute_workflow(
-                    RedshiftBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=20),
-                )
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.redshift_batch_export.Producer.start",
+                side_effect=ValueError("A useful error message"),
+            ):
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        RedshiftBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=20),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
@@ -882,7 +877,13 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
 async def test_redshift_export_workflow_handles_insert_activity_non_retryable_errors(
     ateam, redshift_batch_export, interval
 ):
-    """Test that Redshift Export Workflow can gracefully handle non-retryable errors when inserting Redshift data."""
+    """Test that Redshift Export Workflow can gracefully handle non-retryable errors when inserting Redshift data.
+
+    This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we
+    treat this as a user error).
+
+    To simulate a user error, we mock the `Producer.start` activity.
+    """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
     workflow_id = str(uuid.uuid4())
@@ -894,12 +895,8 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
         **redshift_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_redshift_activity")
-    async def insert_into_redshift_activity_mocked(_: RedshiftInsertInputs) -> str:
-        class InsufficientPrivilege(Exception):
-            pass
-
-        raise InsufficientPrivilege("A useful error message")
+    class InsufficientPrivilege(Exception):
+        pass
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -908,12 +905,15 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_redshift_activity_mocked,
+                insert_into_redshift_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.redshift_batch_export.Producer.start",
+                side_effect=InsufficientPrivilege("A useful error message"),
+            ):
                 await activity_environment.client.execute_workflow(
                     RedshiftBatchExportWorkflow.run,
                     inputs,

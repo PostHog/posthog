@@ -1,5 +1,5 @@
-from typing import Optional, Literal
 import hashlib
+from typing import Literal, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
@@ -49,6 +49,7 @@ class PersonalAPIKey(models.Model):
     )
     created_at = models.DateTimeField(default=timezone.now)
     last_used_at = models.DateTimeField(null=True, blank=True)
+    last_rolled_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
@@ -61,3 +62,20 @@ class PersonalAPIKey(models.Model):
         null=True,
         blank=True,
     )
+
+
+def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
+    for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+        secure_value = hash_key_value(token, mode=mode, iterations=iterations)
+        try:
+            obj = (
+                PersonalAPIKey.objects.select_related("user")
+                .filter(user__is_active=True)
+                .get(secure_value=secure_value)
+            )
+            return obj, mode
+
+        except PersonalAPIKey.DoesNotExist:
+            pass
+
+    return None

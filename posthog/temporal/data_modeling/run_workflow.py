@@ -1,51 +1,55 @@
-import asyncio
-import collections.abc
-import dataclasses
-import datetime as dt
-import enum
-import itertools
-import json
 import os
 import re
-import typing
+import enum
+import json
 import uuid
+import typing
+import asyncio
+import datetime as dt
+import itertools
+import dataclasses
+import collections.abc
 
-import asyncstdlib
-import deltalake
-import pyarrow as pa
-import pyarrow.compute as pc
-import temporalio.activity
-import temporalio.common
-import temporalio.exceptions
-import temporalio.workflow
-from deltalake import DeltaTable
 from django.conf import settings
 
-from posthog.clickhouse.query_tagging import tag_queries, Product
-from posthog.exceptions_capture import capture_exception
+import pyarrow as pa
+import deltalake
+import asyncstdlib
+import pyarrow.compute as pc
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
+import temporalio.exceptions
+from deltalake import DeltaTable
+from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import FilteringBoundLogger, bind_temporal_worker_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.warehouse.models import (
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    get_s3_client,
-)
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.sync import database_sync_to_async
+from posthog.warehouse.s3 import ensure_bucket_exists
+
+LOGGER = get_logger(__name__)
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -163,14 +167,15 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     6. If the number of models in the completed, failed, and ancestor failed sets is equal
        to the total number of models passed to this activity, exit the loop. Else, goto 5.
     """
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     completed = set()
     ancestor_failed = set()
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -449,8 +454,10 @@ async def materialize_model(
 
         delta_table: deltalake.DeltaTable | None = None
 
-        async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
-            batch = _transform_unsupported_decimals(batch, logger)
+        async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+            batch, ch_types = res
+            batch = _transform_unsupported_decimals(batch)
+            batch = _transform_date_and_datetimes(batch, ch_types)
 
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
@@ -490,6 +497,9 @@ async def materialize_model(
             delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
     except Exception as e:
         error_message = str(e)
+
+        await logger.aerror(f"Error materializing model {model_label}: {error_message}")
+
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -513,6 +523,15 @@ async def materialize_model(
             raise CannotCoerceColumnException(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
+        elif (
+            "Decimal value does not fit in precision" in error_message
+            or "Rescaling Decimal128 value would cause data loss" in error_message
+        ):
+            error_message = f"Decimal precision issue. Try reducing the precision of the decimal columns, or using toInt() or toFloat() to a cast to a different column type."
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+            raise CannotCoerceColumnException(f"Decimal precision error in model {model_label}: {error_message}") from e
         elif "Unknown table" in error_message:
             error_message = (
                 f"Table reference no longer exists for model. This is likely due to a table no longer being available."
@@ -535,9 +554,14 @@ async def materialize_model(
             await logger.ainfo("Query exceeded memory limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
-        else:
-            error_message = f"Query failed to materialize. If this query ran for a long time, try optimizing it."
+        elif "Timeout exceeded" in error_message:
+            error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+        else:
+            saved_query.latest_error = f"Query failed to materialize: {error_message}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
@@ -563,6 +587,7 @@ async def materialize_model(
     job.rows_materialized = row_count
     job.status = DataModelingJob.Status.COMPLETED
     job.last_run_at = dt.datetime.now(dt.UTC)
+    job.error = None  # clear any previous error message
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
@@ -594,6 +619,15 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
 
         saved_query.sync_frequency_interval = None
         saved_query.status = None
+        saved_query.last_run_at = None
+        saved_query.latest_error = None
+
+        # Clear the table reference so consumers will use the on-demand view instead
+        if saved_query.table is not None:
+            saved_query.table = None
+            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
+            await database_sync_to_async(table.soft_delete)()
+
         await database_sync_to_async(saved_query.save)()
 
         await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
@@ -630,6 +664,9 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     query_node = parse_select(count_query)
 
+    settings = HogQLGlobalSettings()
+    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+
     context = HogQLContext(
         team=team,
         team_id=team.id,
@@ -640,12 +677,17 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
     )
+
+    if prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
+
     printed = await database_sync_to_async(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
+        settings=settings,
         stack=[],
     )
 
@@ -657,11 +699,17 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         return count
 
 
+MB_50_IN_BYTES = 50 * 1000 * 1000
+
+
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     """A HogQL table given by a HogQL query."""
 
     query_node = parse_select(query)
     assert query_node is not None
+
+    settings = HogQLGlobalSettings()
+    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
     context = HogQLContext(
         team=team,
@@ -669,46 +717,201 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.output_format = "TabSeparatedWithNamesAndTypes"
     context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
     )
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
+
     printed = await database_sync_to_async(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
+        settings=settings,
         stack=[],
     )
 
-    await logger.adebug(f"Running clickhouse query: {printed}")
+    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
+    arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
+        "FIXED_SIZE_BINARY": ("toString", ()),
+        "JSON": ("toString", ()),
+        "UUID": ("toString", ()),
+        "ENUM": ("toString", ()),
+        "IPv4": ("toString", ()),
+        "IPv6": ("toString", ()),
+        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
+    }
 
+    # Query for types first, check for any types ArrowStream doesn't support
+    # and rewrite the query wrapping those columns in a `toString(..)`
     async with get_client() as client:
-        batch_size_mb = 200
-        async for batch, pa_schema in client.astream_query_in_batches(
-            printed, query_parameters=context.values, batch_size_mb=batch_size_mb
-        ):
-            await logger.adebug(f"Processing {batch_size_mb} MB batch. Batch rows count: {len(batch)}")
-            yield table_from_py_list(batch, pa_schema)
+        query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
+        has_type_to_convert = False
+
+        async with client.apost_query(
+            query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
+        ) as ch_response:
+            table_describe_response = await ch_response.content.read()
+            for line in table_describe_response.decode("utf-8").splitlines():
+                split_arr = line.strip().split("\t")
+                column_name = split_arr[0]
+                ch_type = split_arr[1]
+
+                # Does the clickhouse type exist in our mapping of types to convert?
+                if any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()):
+                    # Find which type we need to convert
+                    call_tuples = [
+                        call_tuple
+                        for uat, call_tuple in arrow_type_conversion.items()
+                        if uat.lower() in ch_type.lower()
+                    ]
+
+                    # We can safely assume there is at least one element in this array due to the outer `if`
+                    call_tuple = call_tuples[0]
+
+                    has_type_to_convert = True
+                    query_typings.append((column_name, ch_type, call_tuple))
+                else:
+                    query_typings.append((column_name, ch_type, None))
+    if has_type_to_convert:
+        await logger.adebug("Query has fields that need converting")
+
+        select_fields: list[ast.Expr] = []
+        for column_name, ch_type, call_tuple in query_typings:
+            if call_tuple:
+                await logger.adebug(
+                    f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                )
+
+                select_fields.append(
+                    ast.Alias(
+                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                        alias=column_name,
+                    )
+                )
+            else:
+                select_fields.append(ast.Field(chain=[column_name]))
+
+        query_node = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=query_node))
+
+    # Re-print the query with `FORMAT = ArrowStream`
+    context.output_format = "ArrowStream"
+    # Set the preferred record batch size to be 50 MB
+    settings.preferred_block_size_bytes = MB_50_IN_BYTES
+
+    arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+        query_node, context=context, dialect="clickhouse", stack=[], settings=settings
+    )
+
+    if arrow_prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
+
+    arrow_printed = await database_sync_to_async(print_prepared_ast)(
+        arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
+    )
+
+    await logger.adebug(f"Running clickhouse query: {arrow_printed}")
+
+    # Set max block size to 50,000 rows
+    async with get_client(max_block_size=50_000) as client:
+        batches = []
+        batches_size = 0
+        async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
+            batches_size = batches_size + batch.nbytes
+            batches.append(batch)
+
+            if batches_size >= MB_50_IN_BYTES:
+                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+
+                yield (
+                    _combine_batches(batches),
+                    [(column_name, column_type) for column_name, column_type, _ in query_typings],
+                )
+                batches_size = 0
+                batches = []
+
+        # Yield any left over batches
+        if len(batches) > 0:
+            await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+            yield (
+                _combine_batches(batches),
+                [(column_name, column_type) for column_name, column_type, _ in query_typings],
+            )
 
 
-def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogger) -> pa.Table:
+def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
+    if len(batches) == 1:
+        return batches[0]
+
+    table = pa.Table.from_batches(batches)
+    table = table.combine_chunks()
+    return table.to_batches(max_chunksize=table.num_rows)[0]
+
+
+def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
+    """Clickhouse can return date/datetimes as UInts. We need to transform the response back into a real date/datetime object
+
+    The return types from clickhouse are:
+    ```
+    Date/Date32 => UInt16 (days since 1970-01-01)
+    DateTime => UInt32 (seconds since 1970-01-01)
+    DateTime64 => Timestamp (no need to convert)
+    ```
+    """
+
+    new_columns: list[pa.Array] = []
+    new_fields: list[pa.Field] = []
+
+    types_to_transform = ["Date", "Date32", "DateTime", "DateTime64"]
+    for column_name, type in types:
+        field = batch.schema.field(column_name)
+        column = batch.column(column_name)
+
+        if not any(t.lower() in type.lower() for t in types_to_transform) or pa.types.is_date(field.type):
+            new_columns.append(column)
+            new_fields.append(field)
+            continue
+
+        if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
+            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
+            new_column = pc.cast(column, new_field.type)
+        elif "datetime" in type.lower():
+            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
+            # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
+            int64_col = pc.cast(column, pa.int64())
+            seconds_col = pc.cast(int64_col, pa.timestamp("s"))
+            new_column = pc.cast(seconds_col, new_field.type)
+        else:
+            new_field = field.with_type(pa.date32())
+            # Gotta upcast from uint16 to int32 first
+            int32_col = pc.cast(column, pa.int32())
+            new_column = pc.cast(int32_col, new_field.type)
+
+        new_fields.append(new_field)
+        new_columns.append(new_column)
+
+    new_metadata: dict[str | bytes, str | bytes] | None = (
+        typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
+    )
+
+    return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+
+
+def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     """
     Transform high-precision decimal columns to types supported by Delta Lake.
-    Delta Lake supports decimal types up to precision 38, but ClickHouse can return
-    Decimal256 types with 76 digit precision.
+    Delta Lake supports decimal up to precision 38; ClickHouse may return Decimal256 (precision 76).
     """
     schema = batch.schema
-    columns_to_cast = {}
+    columns_to_cast: dict[str, pa.DataType] = {}
 
     precision = 38
     scale = 38 - 1
 
     for field in schema:
-        if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
+        if isinstance(field.type, pa.Decimal128Type | pa.Decimal256Type):
             if field.type.precision > 38:
                 original_scale = field.type.scale
                 new_scale = min(original_scale, scale)
@@ -717,34 +920,55 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     if not columns_to_cast:
         return batch
 
-    new_columns: list[pa.ChunkedArray] = []
+    new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
+
     for field in batch.schema:
+        col = batch[field.name]
         if field.name in columns_to_cast:
-            column_data = batch[field.name]
             decimal128_type = columns_to_cast[field.name]
             try:
-                cast_column_decimal = pc.cast(column_data, decimal128_type)
+                cast_col = pc.cast(col, decimal128_type)
                 new_fields.append(field.with_type(decimal128_type))
-                new_columns.append(cast_column_decimal)
+                new_columns.append(cast_col)
             except Exception:
+                # Fallback: cast via string, truncate, then cast to reduced decimal
                 reduced_decimal_type = pa.decimal128(precision, scale)
-                string_column = pc.cast(column_data, pa.string())
-                truncated_string = pc.utf8_slice_codeunits(typing.cast(pa.StringArray, string_column), 0, precision)
-                cast_column_reduced = pc.cast(truncated_string, reduced_decimal_type)
+                string_col = pc.cast(col, pa.string())
+                truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
+                cast_reduced = pc.cast(truncated, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
-                new_columns.append(pa.chunked_array([cast_column_reduced]))
+                new_columns.append(cast_reduced)
         else:
             new_fields.append(field)
-            new_columns.append(batch[field.name])
+            new_columns.append(col)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
-        typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
+        typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
     )
-    return pa.Table.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+
+    return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
 def _get_credentials():
+    if settings.USE_LOCAL_SETUP:
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.AIRBYTE_BUCKET_KEY,
+            settings.AIRBYTE_BUCKET_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     if TEST:
         return {
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
@@ -804,11 +1028,12 @@ class InvalidSelector(Exception):
 @temporalio.activity.defn
 async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     """Construct a DAG from provided selector inputs."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
-    logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -938,7 +1163,8 @@ class CreateJobModelInputs:
 
 @temporalio.activity.defn
 async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     await logger.adebug(f"Creating DataModelingJob for {[selector.label for selector in inputs.select]}")
 
@@ -967,13 +1193,14 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
     Since only one job can run at a time per team, any existing RUNNING jobs
     are orphaned when a new run starts.
     """
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     orphaned_count = await database_sync_to_async(
         DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
     )(
         status=DataModelingJob.Status.FAILED,
-        error="Job was orphaned when a new data modeling run started",
+        error="Job timed out",
         updated_at=dt.datetime.now(dt.UTC),
     )
 
@@ -986,7 +1213,8 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     try:
         async with asyncio.TaskGroup() as tg:
@@ -1021,7 +1249,8 @@ class FinishRunActivityInputs:
 @temporalio.activity.defn
 async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     run_at = dt.datetime.fromisoformat(inputs.run_at)
 
@@ -1057,21 +1286,54 @@ class CreateTableActivityInputs:
 
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
-    """Activity that creates tables for a list of saved queries."""
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    """Create/attach tables and persist their row-count."""
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
     for model in inputs.models:
+        try:
+            model_id = uuid.UUID(model)
+        except ValueError:
+            await logger.aerror(
+                f"Invalid model identifier '{model}': expected UUID format - this indicates a race condition or data integrity issue"
+            )
+            continue  # Skip this model if it's not a valid UUID
+
         await create_table_from_saved_query(model, inputs.team_id)
+
+        try:
+            saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("table").get)(
+                id=model_id, team_id=inputs.team_id
+            )
+
+            if not saved_query.table:
+                await logger.aerror(
+                    f"Saved query {saved_query.name} (ID: {saved_query.id}) has no table - this indicates a data integrity issue"
+                )
+                continue
+
+            table = saved_query.table
+
+            table.row_count = await database_sync_to_async(table.get_count)()
+            await database_sync_to_async(table.save)()
+        except Exception as err:
+            await logger.aexception(f"Failed to update table row count for {model}: {err}")
 
 
 async def update_saved_query_status(
-    label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
+    label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime | None, team_id: int
 ):
+    logger = LOGGER.bind()
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
     try:
         model_id = uuid.UUID(label)
         filter_params["id"] = model_id
     except ValueError:
+        await logger.awarning(
+            f"Label '{label}' is not a valid UUID, falling back to name lookup - this indicates a data integrity issue"
+        )
         filter_params["name"] = label
 
     saved_query = await database_sync_to_async(
@@ -1102,7 +1364,8 @@ class FailJobsActivityInputs:
 @temporalio.activity.defn
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
@@ -1115,7 +1378,9 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 @temporalio.activity.defn
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
-    logger = await bind_temporal_worker_logger(inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
     job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
 
     await mark_job_as_failed(job, inputs.error, logger)

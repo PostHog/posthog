@@ -6,7 +6,7 @@ dependencies = [
     "aioboto3==12.0.0",
     "aiohttp==3.11.10",
     "aiokafka>=0.8",
-    "anthropic==0.49.0",
+    "anthropic==0.52.0",
     "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
@@ -56,15 +56,15 @@ dependencies = [
     "google-genai==1.10.0",
     "gspread==6.2.1",
     "gunicorn==20.1.0",
-    "hogql-parser==1.1.1",
+    "hogql-parser==1.2.0",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.0.2",
     "kombu==5.3.2",
-    "langchain==0.3.25",
-    "langchain-community==0.3.23",
-    "langchain-openai==0.3.16",
-    "langgraph==0.4.1",
+    "langchain==0.3.26",
+    "langchain-community==0.3.27",
+    "langchain-openai==0.3.27",
+    "langgraph==0.4.10",
     "lxml==5.2.1",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
@@ -75,7 +75,7 @@ dependencies = [
     "natsort==8.4.0",
     "nh3==0.2.14",
     "numpy==1.26.4",
-    "openai==1.77.0",
+    "openai==1.91.0",
     "openpyxl==3.1.2",
     "orjson==3.10.15",
     "pandas==2.2.0",
@@ -83,7 +83,7 @@ dependencies = [
     "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
-    "posthoganalytics>=6.0.2",
+    "posthoganalytics>=6.3.1",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.7",
     "psycopg[binary]==3.2.4",
@@ -118,8 +118,8 @@ dependencies = [
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
     "stripe==12.2.0",
-    "structlog==23.2.0",
-    "temporalio==1.8.0",
+    "structlog==25.4.0",
+    "temporalio==1.14.1",
     "tenacity==9.1.2",
     "tiktoken==0.9.*",
     "token-bucket==0.3.0",
@@ -154,6 +154,12 @@ dependencies = [
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
     "asgiref==3.8.1",
+    "claude-code-sdk>=0.0.14",
+    "user-agents>=2.2.0",
+    "django-mcp-server==0.5.6",
+    "django-admin-inline-paginator===0.4.0",
+    "fastavro>=1.12.0",
+    "pydantic-avro>=0.9.0",
 ]
 
 [dependency-groups]
@@ -162,11 +168,12 @@ dev = [
     "autoevals==0.0.129",
     "black~=23.9.1",
     "boto3-stubs[s3]>=1.34.84",
-    "braintrust==0.1.1",
+    "braintrust==0.2.0",
     "braintrust-langchain==0.0.2",
     "datamodel-code-generator==0.28.5",
+    "deepdiff>=8.5.0",
     "django-linear-migrations==2.16.*",
-    "django-stubs==5.0.4",
+    "django-stubs~=5.1.3",
     "djangorestframework-stubs~=3.14.5",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
@@ -174,9 +181,9 @@ dev = [
     "freezegun==1.2.2",
     "inline-snapshot==0.19.*",
     "ipython>=9.3.0",
-    "mypy~=1.11.1",
-    "mypy-baseline~=0.7.2",
-    "mypy-extensions==1.0.0",
+    "mypy~=1.17.1",
+    "mypy-baseline~=0.7.3",
+    "mypy-extensions~=1.1.0",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
@@ -267,6 +274,7 @@ select = [
     "DJ012",
     "E",
     "F",
+    "I",
     "RUF005",
     "RUF013",
     "RUF015",
@@ -284,44 +292,36 @@ max-complexity = 10
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-
-[tool.ruff.lint.per-file-ignores]
-"./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]
-"./posthog/migrations/0027_move_elements_to_group.py" = ["T201"]
-"./posthog/queries/cohort_query.py" = ["F401"]
-"./posthog/client.py" = ["T201"]
-"./posthog/async_migrations/test/test_migrations_not_required.py" = ["T201"]
-"__init__.py" = ["F401"]
-"./posthog/api/capture.py" = ["T201"]
-"./ee/clickhouse/generate_local.py" = ["T201"]
-"./posthog/management/commands/merge_distinct_emails.py" = ["T201"]
-"./posthog/demo/matrix/matrix.py" = ["T201"]
-"./posthog/migrations/0038_migrate_actions_to_precalculate_events.py" = ["T201"]
-"./posthog/settings/overrides.py" = ["T201"]
-"./bin/hobby-ci.py" = ["T201"]
-"./posthog/management/commands/migrate_elementgroup.py" = ["T201"]
-"./posthog/models/plugin.py" = ["T201"]
-"./docker-compose-config.py" = ["T201"]
-"./posthog/management/commands/backfill_persons_and_groups_on_events.py" = [
-    "T201",
+force-wrap-aliases = true
+length-sort-straight = true
+split-on-trailing-comma = false
+section-order = [
+    "future",
+    "standard-library",
+    "testing",
+    "django",
+    "third-party",
+    "posthog.schema",
+    "posthog.hogql",
+    "posthog",
+    "products",
+    "first-party",
+    "local-folder",
 ]
-"./posthog/management/commands/generate_demo_data.py" = ["T201"]
-"./posthog/apps.py" = ["T201"]
-"./posthog/management/commands/partition.py" = ["T201"]
-"./posthog/management/commands/migrate_clickhouse.py" = ["T201"]
-"./posthog/email.py" = ["T201"]
-"./posthog/hogql/grammar/HogQLParser.py" = ["F401", "F841", "E711"]
-"./posthog/celery.py" = ["T201"]
-"./posthog/hogql/grammar/HogQLLexer.py" = ["F401"]
-"./posthog/utils.py" = ["T201"]
-"./posthog/management/commands/sync_feature_flags.py" = ["T201"]
-"./cypress/wait.py" = ["T201"]
-"./posthog/management/commands/notify_helm_install.py" = ["T201", "T203"]
-"./gunicorn.config.py" = ["T201"]
-"./posthog/management/commands/run_async_migrations.py" = ["T201"]
-"./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
-"./posthog/management/commands/api_keys.py" = ["T201"]
-"./posthog/demo/matrix/manager.py" = ["T201"]
+
+[tool.ruff.lint.isort.sections]
+"django" = ["django"] # Group all Django imports into a separate section.
+"testing" = [ # Group all testing imports into a separate section.
+    "freezegun",
+    "pytest",
+    "unittest",
+    "posthog.test.base",
+]
+# Separate groups for our own stuff
+"posthog.schema" = ["posthog.schema"]
+"posthog.hogql" = ["posthog.hogql"]
+"posthog" = ["posthog"]
+"products" = ["products"]
 
 [tool.dagster]
 python_version = "3.11"

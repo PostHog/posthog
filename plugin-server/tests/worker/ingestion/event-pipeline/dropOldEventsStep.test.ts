@@ -61,7 +61,7 @@ describe('dropOldEventsStep()', () => {
         ({
             id: teamId,
             drop_events_older_than_seconds: dropEventsOlderThan,
-        } as Team)
+        }) as Team
 
     describe('basic functionality', () => {
         it('passes through events when no drop threshold is set', async () => {

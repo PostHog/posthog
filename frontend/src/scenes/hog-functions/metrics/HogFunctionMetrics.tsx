@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconCalendar } from '@posthog/icons'
 import {
     LemonButton,
@@ -9,21 +12,22 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { ALL_METRIC_TYPES, hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
+import { ALL_METRIC_TYPES, HogFunctionMetricsLogicProps, hogFunctionMetricsLogic } from './hogFunctionMetricsLogic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
     failed: 'Total number of events that had errors during processing',
     filtered: 'Total number of events that were filtered out',
+    dropped: 'Total number of events that were dropped during processing',
     disabled_temporarily:
         'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
     disabled_permanently:
@@ -37,10 +41,10 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
     const { type } = useValues(hogFunctionConfigurationLogic({ id }))
     const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         loadMetrics()
         loadMetricsTotals()
-    }, [])
+    })
 
     return (
         <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
@@ -57,7 +61,9 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
                         overlay={
                             <div className="overflow-hidden deprecated-space-y-2 max-w-100">
                                 {ALL_METRIC_TYPES.filter(
-                                    ({ value }) => value !== 'fetch' || type !== 'transformation'
+                                    ({ value }) =>
+                                        (value !== 'fetch' || type !== 'transformation') &&
+                                        (value !== 'dropped' || type === 'transformation')
                                 ).map(({ label, value }) => {
                                     return (
                                         <LemonButton
@@ -276,6 +282,9 @@ function colorConfig(name: string): Partial<ChartDataset<'line', any>> {
             break
         case 'failed':
             color = getColorVar('danger')
+            break
+        case 'dropped':
+            color = getColorVar('warning')
             break
         default:
             color = getColorVar('data-color-1')

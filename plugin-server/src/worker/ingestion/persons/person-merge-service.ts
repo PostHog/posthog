@@ -1,18 +1,19 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { Properties } from '@posthog/plugin-scaffold'
+
 import { InternalPerson } from '../../../types'
-import { TransactionClient } from '../../../utils/db/postgres'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
-import { BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
+import { personMergeFailureCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export class SourcePersonNotFoundError extends Error {
     constructor(message: string) {
@@ -66,6 +67,13 @@ export class MergeRaceConditionError extends Error {
     }
 }
 
+export class PersonMergeLimitExceededError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'PersonMergeLimitExceededError'
+    }
+}
+
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 
 // we have seen illegal ids received but wrapped in double quotes
@@ -100,10 +108,8 @@ export const isDistinctIdIllegal = (id: string): boolean => {
  */
 export class PersonMergeService {
     private personCreateService: PersonCreateService
-    private usingBatchWritingStore: boolean
     constructor(private context: PersonContext) {
         this.personCreateService = new PersonCreateService(context)
-        this.usingBatchWritingStore = context.personStore instanceof BatchWritingPersonsStoreForBatch
     }
 
     async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
@@ -154,6 +160,7 @@ export class PersonMergeService {
             mergeFinalFailuresCounter.inc()
             logger.error('handleIdentifyOrAlias failed', {
                 error: e,
+                team_id: this.context.team.id,
                 distinctId: this.context.distinctId,
                 event_name: this.context.event.event,
                 anon_distinct_id: String(this.context.eventProperties['$anon_distinct_id']),
@@ -205,7 +212,11 @@ export class PersonMergeService {
         }
         return promiseRetry(
             () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
-            'merge_distinct_ids'
+            'merge_distinct_ids',
+            undefined,
+            undefined,
+            undefined,
+            [PersonMergeLimitExceededError]
         )
     }
 
@@ -217,10 +228,8 @@ export class PersonMergeService {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.context.updateIsIdentified = true
 
-        await this.capturePersonPropertiesSizeEstimate()
         const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
 
-        await this.capturePersonPropertiesSizeEstimate()
         const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
@@ -260,19 +269,13 @@ export class PersonMergeService {
 
             return await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await this.context.personStore.addPersonlessDistinctIdForMerge(
+                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
                     this.context.team.id,
-                    distinctIdToAdd,
-                    tx
+                    distinctIdToAdd
                 )
                 const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                const kafkaMessages = await this.context.personStore.addDistinctId(
-                    existingPerson,
-                    distinctIdToAdd,
-                    distinctIdVersion,
-                    tx
-                )
+                const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.kafkaProducer.queueMessages(kafkaMessages)
                 return [existingPerson, Promise.resolve()]
             })
@@ -298,18 +301,10 @@ export class PersonMergeService {
 
             return await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await this.context.personStore.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctId1,
-                    tx
-                )
+                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
 
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await this.context.personStore.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctId2,
-                    tx
-                )
+                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
 
                 // `createPerson` uses the first Distinct ID provided to generate the Person
                 // UUID. That means the first Distinct ID definitely doesn't need an override,
@@ -339,24 +334,22 @@ export class PersonMergeService {
                 // never needs an override.
                 const distinctId1Version = 0
 
-                return [
-                    await this.personCreateService.createPerson(
-                        // TODO: in this case we could skip the properties updates later
-                        timestamp,
-                        this.context.eventProperties['$set'] || {},
-                        this.context.eventProperties['$set_once'] || {},
-                        teamId,
-                        null,
-                        true,
-                        this.context.event.uuid,
-                        [
-                            { distinctId: distinctId1, version: distinctId1Version },
-                            { distinctId: distinctId2, version: distinctId2Version },
-                        ],
-                        tx
-                    ),
-                    Promise.resolve(),
-                ]
+                const [person, _] = await this.personCreateService.createPerson(
+                    // TODO: in this case we could skip the properties updates later
+                    timestamp,
+                    this.context.eventProperties['$set'] || {},
+                    this.context.eventProperties['$set_once'] || {},
+                    teamId,
+                    null,
+                    true,
+                    this.context.event.uuid,
+                    [
+                        { distinctId: distinctId1, version: distinctId1Version },
+                        { distinctId: distinctId2, version: distinctId2Version },
+                    ],
+                    tx
+                )
+                return [person, Promise.resolve()]
             })
         }
     }
@@ -388,7 +381,9 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
+                team_id: this.context.team.id,
+            })
             return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
@@ -437,7 +432,9 @@ export class PersonMergeService {
                     },
                     { alwaysSend: true }
                 )
-                logger.warn('🤔', 'merge race condition detected, too many concurrent merges')
+                logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
+                    team_id: this.context.team.id,
+                })
                 return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
             }
             throw error
@@ -475,7 +472,7 @@ export class PersonMergeService {
                 const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                     'mergePeople',
                     async (tx) => {
-                        const [person, updatePersonMessages] = await this.context.personStore.updatePersonForMerge(
+                        const [person, updatePersonMessages] = await tx.updatePersonForMerge(
                             currentTargetPerson,
                             {
                                 created_at: createdAt,
@@ -499,25 +496,24 @@ export class PersonMergeService {
                                 //    Person_1(version:7) will "lose" to this new Person_1.
                                 version: Math.max(currentTargetPerson.version, currentSourcePerson.version) + 1,
                             },
-                            this.context.distinctId,
-                            tx
+                            this.context.distinctId
                         )
 
                         // Merge the distinct IDs
                         // TODO: Doesn't this table need to add updates to CH too?
-                        await this.context.personStore.updateCohortsAndFeatureFlagsForMerge(
+                        await tx.updateCohortsAndFeatureFlagsForMerge(
                             currentSourcePerson.team_id,
                             currentSourcePerson.id,
                             currentTargetPerson.id,
-                            this.context.distinctId,
-                            tx
+                            this.context.distinctId
                         )
 
-                        const distinctIdResult = await this.context.personStore.moveDistinctIds(
+                        const perCallLimit = this.context.personMergeMoveDistinctIdLimit || undefined
+                        const distinctIdResult = await tx.moveDistinctIds(
                             currentSourcePerson,
                             currentTargetPerson,
                             this.context.distinctId,
-                            tx
+                            perCallLimit
                         )
 
                         if (!distinctIdResult.success) {
@@ -528,13 +524,30 @@ export class PersonMergeService {
                             }
                         }
 
-                        const deletePersonMessages = await this.context.personStore.deletePerson(
-                            currentSourcePerson,
-                            this.context.distinctId,
-                            tx
-                        )
-
                         const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
+
+                        // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
+                        const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
+                        const hitLimit = perCallLimit ? movedCount >= perCallLimit : false
+
+                        if (hitLimit) {
+                            const remaining = await tx.fetchPersonDistinctIds(
+                                currentSourcePerson,
+                                this.context.distinctId,
+                                1
+                            )
+                            if (remaining.length > 0) {
+                                personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
+                                // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
+                                logger.error('🤔', 'person merge move limit hit', {
+                                    team_id: this.context.team.id,
+                                    distinct_id: this.context.distinctId,
+                                })
+                                throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+                            }
+                        }
+
+                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
                         return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
                     }
                 )
@@ -597,23 +610,10 @@ export class PersonMergeService {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx?: PersonsStoreTransaction
     ): Promise<void> {
-        const kafkaMessages = await this.context.personStore.addDistinctId(person, distinctId, version, tx)
+        const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
         await this.context.kafkaProducer.queueMessages(kafkaMessages)
-    }
-
-    private async capturePersonPropertiesSizeEstimate(): Promise<void> {
-        if (Math.random() >= this.context.measurePersonJsonbSize) {
-            // no-op if env flag is set to 0 (default) otherwise rate-limit
-            // ramp up of expensive size checking while we test it
-            return
-        }
-
-        await this.context.personStore.personPropertiesSize(this.context.team.id, this.context.distinctId)
-        // Note: Using the same histogram instance from person-state.ts for consistency
-        // This could be moved to a shared location if needed
-        return
     }
 
     private async refreshPersonData(
@@ -631,12 +631,7 @@ export class PersonMergeService {
 
         // Remove the distinct ID from the cache so that we don't try to use it again, if the store is the batch writing store
         // TODO: this should be removed once we clean up the person store code
-        if (this.usingBatchWritingStore) {
-            ;(this.context.personStore as BatchWritingPersonsStoreForBatch).removeDistinctIdFromCache(
-                this.context.team.id,
-                distinctId
-            )
-        }
+        this.context.personStore.removeDistinctIdFromCache(this.context.team.id, distinctId)
 
         // Fetch the refreshed person data using the new distinct ID
         const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)

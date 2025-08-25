@@ -1,6 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
 from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsColumnsSchemaNames
+
 from posthog.hogql import ast
 
 # Magic values
@@ -13,6 +14,7 @@ ORGANIC_CAMPAIGN = "organic"
 ORGANIC_SOURCE = "organic"
 CTR_PERCENTAGE_MULTIPLIER = 100
 DECIMAL_PRECISION = 2
+DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
@@ -28,10 +30,6 @@ TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 
 # Fallback query when no valid adapters are found
 FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST} WHERE 1=0"
-
-
-# Final output columns
-DEFAULT_MARKETING_ANALYTICS_COLUMNS = list(MarketingAnalyticsBaseColumns)
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {

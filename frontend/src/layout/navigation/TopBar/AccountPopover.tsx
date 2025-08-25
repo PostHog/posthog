@@ -1,5 +1,9 @@
 import './AccountPopover.scss'
 
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
 import {
     IconCake,
     IconCheckCircle,
@@ -7,6 +11,7 @@ import {
     IconCopy,
     IconFeatures,
     IconGear,
+    IconInfo,
     IconLeave,
     IconLive,
     IconPlusSmall,
@@ -15,9 +20,7 @@ import {
     IconShieldLock,
 } from '@posthog/icons'
 import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -30,18 +33,15 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import {
-    AccessLevelIndicator,
-    NewOrganizationButton,
-    OtherOrganizationButton,
-} from '~/layout/navigation/OrganizationSwitcher'
+import { NewOrganizationButton, OtherOrganizationButton } from '~/layout/navigation/OrganizationSwitcher'
 import { getTreeItemsGames } from '~/products'
 
-import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from '../../../scenes/organizationLogic'
 import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
 import { OrganizationBasicType, SidePanelTab } from '../../../types'
+import { AccessLevelIndicator } from '../AccessLevelIndicator'
 import { navigationLogic } from '../navigationLogic'
 
 function AccountPopoverSection({
@@ -216,16 +216,34 @@ function DjangoAdmin(): JSX.Element {
 }
 
 function FeaturePreviewsButton(): JSX.Element {
-    const { closeAccountPopover } = useActions(navigationLogic)
+    const { closeAccountPopover, acknowledgeFeaturePreviewChange } = useActions(navigationLogic)
+    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
+                acknowledgeFeaturePreviewChange()
                 router.actions.push(urls.settings('user-feature-previews'))
             }}
+            className={!featurePreviewChangeAcknowledged ? 'animate-mark' : ''}
             icon={<IconFeatures />}
             fullWidth
+            // TODO: Remove this in a while so all users have acknowledged the change
+            tooltipForceMount={!featurePreviewChangeAcknowledged}
+            tooltipPlacement="right"
+            tooltip={
+                !featurePreviewChangeAcknowledged ? (
+                    <>
+                        <div className="flex items-center gap-2">
+                            <IconInfo className="size-4" />
+                            <span>
+                                <span className="font-bold">Feature previews</span> now live in settings.
+                            </span>
+                        </div>
+                    </>
+                ) : null
+            }
         >
             Feature previews
         </LemonButton>

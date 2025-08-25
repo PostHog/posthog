@@ -1,24 +1,31 @@
 # EE extended functions for SessionRecording model
 from datetime import timedelta
 
-import structlog
 from django.utils import timezone
-from prometheus_client import Histogram, Counter
+
+import structlog
+from prometheus_client import Counter, Histogram
 
 from posthog import settings
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-from posthog.session_recordings.session_recording_v2_service import list_blocks
 
 logger = structlog.get_logger(__name__)
 
+# in the debug dev environment, we want to persist recordings immediately since we are only interested in few LTS recordings for testing
+# in production, we wait for 24 hours, since we don't want to persist recordings that are still being ingested
 MINIMUM_AGE_FOR_RECORDING = timedelta(
-    minutes=int(settings.get_from_env("SESSION_RECORDING_MINIMUM_AGE_MINUTES", 24 * 60))
+    minutes=int(
+        settings.get_from_env(
+            "SESSION_RECORDING_MINIMUM_AGE_MINUTES", 2 if settings.DEBUG and not settings.TEST else 24 * 60
+        )
+    )
 )
 
 MAXIMUM_AGE_FOR_RECORDING_V2 = timedelta(
-    minutes=int(settings.get_from_env("SESSION_RECORDING_V2_MAXIMUM_AGE_MINUTES", 7 * 24 * 60))
+    minutes=int(settings.get_from_env("SESSION_RECORDING_V2_MAXIMUM_AGE_MINUTES", 90 * 24 * 60))
 )
 
 # we have 30, 90, and 365-day retention possible

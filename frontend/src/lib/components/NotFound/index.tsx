@@ -1,19 +1,22 @@
 import './NotFound.scss'
 
-import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, lemonToast, ProfilePicture, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
+import { useState } from 'react'
+
+import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
+import { LemonButton, ProfilePicture, SpinnerOverlay, lemonToast } from '@posthog/lemon-ui'
+
 import { getCookie } from 'lib/api'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
@@ -38,9 +41,9 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
 
     const appContext = getAppContext()
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         posthog.capture('not_found_shown', { object })
-    }, [])
+    })
 
     return (
         <div className="NotFoundComponent" data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}>

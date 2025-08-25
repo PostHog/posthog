@@ -10,21 +10,27 @@ import {
     HogFunctionType,
     MinimalLogEntry,
 } from '../../../types'
-import { buildGlobalsWithInputs, HogExecutorService } from '../../hog-executor.service'
+import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
+
+type FunctionActionType = 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook'
+
+type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
+        private recipientPreferencesService: RecipientPreferencesService
     ) {}
 
     async execute(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>,
+        action: Action,
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): Promise<ActionHandlerResult> {
         const functionResult = await this.executeHogFunction(invocation, action)
@@ -55,7 +61,7 @@ export class HogFunctionHandler implements ActionHandler {
 
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>
+        action: Action
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
 
@@ -72,7 +78,8 @@ export class HogFunctionHandler implements ActionHandler {
             deleted: false,
             hog: '<<TEMPLATE>>',
             bytecode: template.bytecode,
-            is_addon_required: false,
+            inputs: action.config.inputs,
+            inputs_schema: template.inputs_schema,
             created_at: '',
             updated_at: '',
         }
@@ -98,14 +105,27 @@ export class HogFunctionHandler implements ActionHandler {
             ...invocation,
             hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await buildGlobalsWithInputs(globals, action.config.inputs),
+                globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globals),
                 timings: [],
                 attempts: 0,
             },
         }
 
-        // TODO: Swap to `executeWithAsync` or something
-        // TODO: Take logs and metrics - modify them to have the correct app_source_id, instance_id as well as pre-pending the logs with the action ID
+        if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
+            return {
+                finished: true,
+                invocation: hogFunctionInvocation,
+                logs: [
+                    {
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Recipient opted out for action ${action.id}`,
+                    },
+                ],
+                metrics: [],
+                capturedPostHogEvents: [],
+            }
+        }
 
         return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
     }

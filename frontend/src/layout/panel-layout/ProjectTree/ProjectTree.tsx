@@ -1,14 +1,19 @@
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { RefObject, useEffect, useRef, useState } from 'react'
+
+import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -27,23 +32,23 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
-import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
+import { TreeSearchField } from './TreeSearchField'
+import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { BrowserLikeMenuItems } from './menus/BrowserLikeMenuItems'
 import { ProductAnalyticsMenuItems } from './menus/ProductAnalyticsMenuItems'
 import { SessionReplayMenuItems } from './menus/SessionReplayMenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
-import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
-import { TreeSearchField } from './TreeSearchField'
-import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -57,6 +62,10 @@ export interface ProjectTreeProps {
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
+
+export const isExternalLinkItem = (item: TreeDataItem): boolean => {
+    return item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
+}
 
 export function ProjectTree({
     logicKey,
@@ -119,7 +128,9 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
+    const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
@@ -131,7 +142,7 @@ export function ProjectTree({
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
             setSortMethod(sortMethod ?? 'folder')
         }
-    }, [sortMethod, projectSortMethod])
+    }, [sortMethod, projectSortMethod, setSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -141,6 +152,38 @@ export function ProjectTree({
             clearScrollTarget()
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
+
+    // Show active state for items that are active in the URL
+    function isItemActive(item: TreeDataItem): boolean {
+        if (!item.record?.href) {
+            return false
+        }
+
+        const currentPath = removeProjectIdIfPresent(window.location.pathname)
+        const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+
+        if (currentPath === itemHref) {
+            return true
+        }
+
+        // Current path is a sub-path of item (e.g., /insights/new under /insights)
+        if (currentPath.startsWith(itemHref + '/')) {
+            return true
+        }
+
+        // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+        if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+            return true
+        }
+        if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+            return true
+        }
+        if (item.name === 'Messaging' && currentPath.startsWith('/messaging/')) {
+            return true
+        }
+
+        return false
+    }
 
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
@@ -216,7 +259,12 @@ export function ProjectTree({
 
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                     <>
-                        <BrowserLikeMenuItems href={item.record?.href} MenuItem={MenuItem} />
+                        <BrowserLikeMenuItems
+                            href={item.record?.href}
+                            MenuItem={MenuItem}
+                            canOpenInPostHogTab={canOpenInPostHogTab}
+                            resetPanelLayout={resetPanelLayout}
+                        />
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -378,24 +426,25 @@ export function ProjectTree({
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
-            isItemActive={(item) => {
-                if (!item.record?.href) {
-                    return false
-                }
-                return window.location.href.endsWith(item.record?.href)
-            }}
+            isItemActive={isItemActive}
             size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
             disableScroll={onlyTree ? true : false}
-            onItemClick={(item) => {
+            onItemClick={(item, event) => {
+                event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
                 }
                 if (item?.record?.href) {
-                    router.actions.push(
+                    const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
-                    )
+                    // Check if it's an external link
+                    if (typeof href === 'string' && href.startsWith('https://')) {
+                        window.open(href, '_blank')
+                    } else {
+                        router.actions.push(href)
+                    }
                 }
 
                 if (item?.record?.path) {
@@ -448,8 +497,8 @@ export function ProjectTree({
                 const folder = newItem
                     ? newItem.path || ''
                     : newId && String(newId).startsWith('project://')
-                    ? String(newId).substring(10)
-                    : ''
+                      ? String(newId).substring(10)
+                      : ''
 
                 if (checkedItems[oldId]) {
                     moveCheckedItems(folder)
@@ -482,9 +531,10 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.id.startsWith('project-folder-empty/')) {
+                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
                     return undefined
                 }
+
                 return (
                     <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
                         {renderMenuItems(item, 'context')}
@@ -492,9 +542,10 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                if (item.id.startsWith('project-folder-empty/')) {
+                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
                     return undefined
                 }
+
                 return (
                     <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
                         {renderMenuItems(item, 'dropdown')}
@@ -621,8 +672,8 @@ export function ProjectTree({
                                             {header.formatComponent
                                                 ? header.formatComponent(value, item)
                                                 : header.formatString
-                                                ? header.formatString(value, item)
-                                                : value}
+                                                  ? header.formatString(value, item)
+                                                  : value}
                                         </span>
                                     </Tooltip>
                                 </span>
@@ -635,7 +686,27 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
                 if (root === 'products://' || root === 'data://' || root === 'persons://') {
-                    return <>View {nameNode}</>
+                    return (
+                        <>
+                            {nameNode}
+                            {item.record?.protocol === 'products://' && item.tags?.length && (
+                                <>
+                                    {item.tags?.map((tag) => (
+                                        <LemonTag
+                                            key={tag}
+                                            type={
+                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
+                                            }
+                                            size="small"
+                                            className="ml-2 relative top-[-1px]"
+                                        >
+                                            {tag.toUpperCase()}
+                                        </LemonTag>
+                                    ))}
+                                </>
+                            )}
+                        </>
+                    )
                 }
                 if (root === 'new://') {
                     if (item.children) {
@@ -677,6 +748,7 @@ export function ProjectTree({
             }}
             renderItem={(item) => {
                 const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
+
                 return (
                     <span className="truncate">
                         <span
@@ -712,6 +784,8 @@ export function ProjectTree({
                                 ))}
                             </>
                         )}
+
+                        {isExternalLinkItem(item) && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}

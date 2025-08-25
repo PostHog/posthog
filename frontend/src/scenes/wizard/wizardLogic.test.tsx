@@ -1,10 +1,13 @@
-import { initKeaTests } from '~/test/init'
-import { wizardLogic } from './wizardLogic'
-import { expectLogic } from 'kea-test-utils'
-import { router } from 'kea-router'
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-import { AppContext } from '~/types'
+
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
 import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
+
+import { wizardLogic } from './wizardLogic'
 
 const MOCK_HASH = 'mock-hash'
 
@@ -78,7 +81,7 @@ describe('wizardLogic', () => {
         it('sets view to invalid when authentication fails', async () => {
             useMocks({
                 post: {
-                    '/api/organizations/@current/authenticate_wizard/': () => [400, { status: 0 }],
+                    '/api/wizard/authenticate/': () => [400, { status: 0 }],
                 },
             })
 
@@ -98,7 +101,7 @@ describe('wizardLogic', () => {
         it('sets view to success when authentication succeeds', async () => {
             useMocks({
                 post: {
-                    '/api/organizations/@current/authenticate_wizard/': () => [200, { status: 1 }],
+                    '/api/wizard/authenticate/': () => [200, { status: 1 }],
                 },
             })
 
