@@ -88,6 +88,7 @@ class SingleSessionSummaryManager(models.Manager):
         team: Team,
         session_ids: list[str],
         extra_summary_context: ExtraSummaryContext | None = None,
+        # Summaries could be up to 50kb in JSON, so playing it safe
         limit: int = 100,
         offset: int = 0,
     ) -> SessionSummaryPage:
