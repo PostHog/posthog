@@ -19,7 +19,7 @@ _nodeid_to_results_url_map: dict[str, str] = {}
 
 
 @pytest.fixture(scope="package")
-def setup_evals(django_db_setup):  # noqa: F811
+def set_up_evals(django_db_setup):  # noqa: F811
     yield
 
 

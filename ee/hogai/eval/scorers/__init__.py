@@ -8,7 +8,7 @@ from braintrust import Score
 
 from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyAssistantSupportedQuery
 
 from .sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 
@@ -64,7 +64,7 @@ class ToolRelevance(ScorerWithPartial):
 
 class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
-    query: AnyAssistantGeneratedQuery | AnyAssistantGeneratedQuery | None
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | None
     query_generation_retry_count: int | None
 
 

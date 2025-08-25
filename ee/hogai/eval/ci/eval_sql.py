@@ -1,21 +1,18 @@
 import pytest
 
+from asgiref.sync import sync_to_async
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
+from posthog.models import Team
+
+from ee.hogai.eval.scorers.sql import evaluate_sql_query
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 
 from ..base import MaxPublicEval
-from ..scorers import (
-    PlanAndQueryOutput,
-    PlanCorrectness,
-    QueryAndPlanAlignment,
-    QueryKindSelection,
-    SQLSyntaxCorrectness,
-    TimeRangeRelevancy,
-)
+from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 QUERY_GENERATION_MAX_RETRIES = 3
 
@@ -43,16 +40,23 @@ class RetryEfficiency(Scorer):
         return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
 
 
-class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return await super()._run_eval_async(
-            output["query"].query if output and output.get("query") else None, expected, **kwargs
-        )
+class HogQLQuerySyntaxCorrectness(Scorer):
+    def _name(self):
+        return "sql_syntax_correctness"
 
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return super()._run_eval_sync(
-            output["query"].query if output and output.get("query") else None, expected, **kwargs
-        )
+    async def _run_eval_async(self, output: PlanAndQueryOutput, *args, **kwargs):
+        return await sync_to_async(self._evaluate)(output)
+
+    def _run_eval_sync(self, output: PlanAndQueryOutput, *args, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: PlanAndQueryOutput) -> Score:
+        team = Team.objects.latest("created_at")
+        if isinstance(output["query"], AssistantHogQLQuery):
+            query = output["query"].query
+        else:
+            query = None
+        return evaluate_sql_query(self._name(), query, team)
 
 
 @pytest.mark.django_db

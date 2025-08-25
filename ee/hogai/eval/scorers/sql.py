@@ -10,34 +10,37 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
 
 
+def evaluate_sql_query(name: str, output: str | None, team: Team | None = None) -> Score:
+    if not output:
+        return Score(name=name, score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"})
+    if not team:
+        return Score(name=name, score=None, metadata={"reason": "No team provided, skipping evaluation"})
+    query = {"query": output}
+    try:
+        # Try to parse, print, and run the query
+        HogQLQueryRunner(query, team).calculate()
+    except BaseHogQLError as e:
+        return Score(name=name, score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
+    except InternalCHQueryError as e:
+        return Score(name=name, score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
+    else:
+        return Score(name=name, score=1.0)
+
+
 class SQLSyntaxCorrectness(Scorer):
     """Evaluate if the generated SQL query has correct syntax."""
 
     def _name(self):
         return "sql_syntax_correctness"
 
-    async def _run_eval_async(self, output: str, expected: str | None, **kwargs):
-        return await sync_to_async(self._evaluate)(output)
+    async def _run_eval_async(self, output: str | None, team: Team | None = None, **kwargs):
+        return await sync_to_async(self._evaluate)(output, team)
 
-    def _run_eval_sync(self, output: str, expected: str | None, **kwargs):
-        return self._evaluate(output)
+    def _run_eval_sync(self, output: str | None, team: Team | None = None, **kwargs):
+        return self._evaluate(output, team)
 
-    def _evaluate(self, output: str):
-        if not output:
-            return Score(
-                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
-            )
-        query = {"query": output}
-        team = Team.objects.latest("created_at")
-        try:
-            # Try to parse, print, and run the query
-            HogQLQueryRunner(query, team).calculate()
-        except BaseHogQLError as e:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
-        except InternalCHQueryError as e:
-            return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
-        else:
-            return Score(name=self._name(), score=1.0)
+    def _evaluate(self, output: str | None, team: Team | None = None) -> Score:
+        return evaluate_sql_query(self._name(), output, team)
 
 
 SQL_SEMANTICS_CORRECTNESS_PROMPT = """

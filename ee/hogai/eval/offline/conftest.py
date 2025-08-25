@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, SkipValidation
 
 from posthog.models import Organization, User
 
-# We want the PostHog setup_evals fixture here
-from ee.hogai.eval.conftest import setup_evals  # noqa: F401
+# We want the PostHog set_up_evals fixture here
+from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
 from ee.hogai.eval.offline.snapshot_loader import SnapshotLoader
 from ee.hogai.eval.schema import DatasetInput
 
@@ -22,6 +22,7 @@ def dagster_context() -> Generator[PipesContext, None, None]:
 
 
 class EvaluationContext(BaseModel):
+    # We don't want to validate Django models here.
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     organization: Annotated[Organization, SkipValidation]
@@ -31,7 +32,11 @@ class EvaluationContext(BaseModel):
 
 
 @pytest.fixture(scope="package", autouse=True)
-def eval_ctx(setup_evals, dagster_context: PipesContext, django_db_blocker) -> Generator[EvaluationContext, None, None]:  # noqa: F811
+def eval_ctx(
+    set_up_evals,  # noqa: F811
+    dagster_context: PipesContext,
+    django_db_blocker,
+) -> Generator[EvaluationContext, None, None]:
     """
     Script that restores dumped Django models and patches AI query runners.
     Creates teams with team_id=project_id for the same single user and organization,
