@@ -62,12 +62,10 @@
             > h1 {
                 font-size: 1.75rem; // Larger, clean title
                 color: var(--text-3000);
-                border-bottom: 1px solid var(--notebook-heading-rule-color);
             }
 
             > h2 {
                 font-size: 1.25rem; // Subheading scale
-                border-bottom: 1px solid var(--notebook-heading-rule-color);
             }
 
             > h3 {
@@ -260,7 +258,7 @@
                 padding: 0.6rem 0.9rem;
                 margin: 1rem 0;
                 background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 45%);
-                border-left: 3px solid var(--notebook-heading-rule-color);
+                border-left-width: 3px;
                 border-radius: var(--radius);
             }
 
@@ -271,8 +269,7 @@
             // Horizontal rule
             > hr {
                 margin: 1.25em 0;
-                border: 0;
-                border-top: 1px solid var(--notebook-heading-rule-color);
+                border-top-width: 1px;
             }
 
             // Images
