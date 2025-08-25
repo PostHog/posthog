@@ -59,11 +59,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
         sessionRecordingDataLogic(recordingLogicProps)
     )
-    const { loadRecordingMeta, loadSnapshots, loadTargetedSnapshot } = useActions(
-        sessionRecordingDataLogic(recordingLogicProps)
+    const { loadRecordingMeta, loadSnapshots } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+    const { seekToTimestamp, seekToTime, setPlay, setPause } = useActions(
+        sessionRecordingPlayerLogic(recordingLogicProps)
     )
-    const { seekToTimestamp, setPlay, setPause } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
-    const { isPlaying } = useValues(sessionRecordingPlayerLogic(recordingLogicProps))
 
     // TODO Only load data when in view...
     useOnMountEffect(loadRecordingMeta)
@@ -110,40 +109,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
         })
     })
 
-    // Preload snapshots as soon as the widget expands so the player can render a still frame
-    useEffect(() => {
-        if (expanded) {
-            // Ensure we start paused and just show a still frame
-            setPause()
-            // Use targeted loading if we have a timestamp - this loads only the specific frame needed
-            // If no timestamp, fall back to loading all snapshots
-            if (timestampMs && sessionPlayerData?.start) {
-                const targetTimestamp = sessionPlayerData.start.valueOf() + timestampMs
-                loadTargetedSnapshot(targetTimestamp)
-            } else {
-                loadSnapshots()
-            }
-        }
-    }, [expanded, timestampMs, sessionPlayerData?.start]) // oxlint-disable-line exhaustive-deps
-
     // Seek to timestamp when widget is expanded and has a timestamp
     useEffect(() => {
         if (expanded && timestampMs && sessionPlayerData?.start) {
-            // Convert relative ms to absolute recording timestamp and seek (paused)
             setPause()
-            const desired = sessionPlayerData.start.valueOf() + timestampMs
-            seekToTimestamp(desired)
+            loadSnapshots()
+            seekToTime(timestampMs) // seekToTime only works when sessionPlayerData.start is available
         }
     }, [expanded, timestampMs, sessionPlayerData?.start]) // oxlint-disable-line exhaustive-deps
-
-    // When user starts playing, ensure we have all snapshots loaded (not just the target frame)
-    useEffect(() => {
-        if (isPlaying && expanded && timestampMs) {
-            // User is actually playing and we initially loaded with a target timestamp
-            // Load all snapshots for smooth playback (without target timestamp)
-            loadSnapshots()
-        }
-    }, [isPlaying, expanded, timestampMs]) // oxlint-disable-line exhaustive-deps
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />
