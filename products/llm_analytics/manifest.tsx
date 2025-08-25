@@ -38,7 +38,7 @@ export const manifest: ProductManifest = {
             name: 'LLM playground',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/start-here',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
     },
     routes: {
