@@ -253,7 +253,7 @@ def generate_notebook_content_from_summary(
     content.append(create_heading_with_text(_create_notebook_title(team_name=project_name), 1))
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
-    content.append(create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
+    content.append(create_heading_with_text(f"Issues to review – based on {total_sessions} {session_text}", 2))
     # Summary table
     table_content = _create_summary_table(patterns, total_sessions)
     content.extend(table_content)
