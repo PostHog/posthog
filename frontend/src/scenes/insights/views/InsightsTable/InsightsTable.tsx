@@ -230,7 +230,7 @@ export function InsightsTable({
         })
     }
 
-    if (!isMainInsightView) {
+    if (!isMainInsightView && !embedded) {
         columns.push({
             title: <ColorCustomizationColumnTitle />,
             render: (_, item) => <ColorCustomizationColumnItem item={item} />,
