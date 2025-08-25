@@ -71,6 +71,16 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
+    def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [url for url in value if url]
+
+    def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [domain for domain in value if domain]
+
     class Meta:
         model = Project
         fields = (
