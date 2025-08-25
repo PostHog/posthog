@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { PipelineStage, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -155,7 +155,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
                             sideIcon={<IconDatabase />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                                router.actions.push(urls.dataWarehouseSourceNew('stripe'))
                             }}
                             data-attr="create-revenue-source"
                         >
@@ -182,7 +182,7 @@ const RevenueAnalyticsTables = (): JSX.Element => {
         <div className="flex flex-col gap-4 mt-4">
             <OverviewTile />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <RevenueTile />
                 <MetricsTile />
                 <RevenueGrowthRateTile />

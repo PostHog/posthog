@@ -13,7 +13,7 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -59,7 +59,7 @@ export function ExternalDataSourceConfiguration({
                     icon={<IconPlus />}
                     size="small"
                     onClick={() => {
-                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                        router.actions.push(urls.dataWarehouseSourceNew('stripe'))
                     }}
                 >
                     Add new source
@@ -84,13 +84,7 @@ export function ExternalDataSourceConfiguration({
                         title: 'Source',
                         render: (_, item: ExternalDataSource) => {
                             return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Source,
-                                        `managed-${item.id}`,
-                                        PipelineNodeTab.Schemas
-                                    )}
-                                >
+                                <Link to={urls.dataWarehouseSource(`managed-${item.id}`)}>
                                     {item.source_type}&nbsp;{item.prefix && `(${item.prefix})`}
                                 </Link>
                             )

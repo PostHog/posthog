@@ -51,6 +51,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
                     {
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
+                        path: urls.dataPipelines(),
                     },
                     {
                         key: [Scene.DataPipelines, kind],
@@ -68,7 +69,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
     urlToAction(({ actions, values }) => {
         return {
             // All possible routes for this scene need to be listed here
-            [urls.dataPipelines(':kind')]: ({ kind }) => {
+            [urls.dataPipelines(':kind' as any)]: ({ kind }) => {
                 const possibleTab: DataPipelinesSceneTab = (kind as DataPipelinesSceneTab) ?? 'overview'
 
                 const tab = DATA_PIPELINES_SCENE_TABS.includes(possibleTab) ? possibleTab : 'overview'

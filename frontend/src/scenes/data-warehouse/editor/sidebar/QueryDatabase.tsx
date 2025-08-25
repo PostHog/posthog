@@ -15,7 +15,6 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -100,8 +99,8 @@ export const QueryDatabase = (): JSX.Element => {
                                 className="font-mono text-xs"
                             />
                         ) : (
-                            <div className="flex flex-row justify-between gap-1">
-                                <span className="truncate font-mono text-xs">{item.name}</span>
+                            <div className="flex flex-row gap-1 justify-between">
+                                <span className="font-mono text-xs truncate">{item.name}</span>
                                 {renderTableCount(item.record?.row_count)}
                             </div>
                         )}
@@ -310,7 +309,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
                         >

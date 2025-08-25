@@ -4,13 +4,13 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
-import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
-import { PipelineNodeMetrics } from 'scenes/pipeline/PipelineNodeMetrics'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportService, Breadcrumb, PipelineStage } from '~/types'
+import { BatchExportService, Breadcrumb } from '~/types'
 
+import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
+import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportConfigurationLogicProps } from './batchExportConfigurationLogic'
@@ -119,7 +119,7 @@ export function BatchExportScene(): JSX.Element {
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: <PipelineNodeLogs id={id} stage={PipelineStage.Destination} />,
+                  content: <PipelineNodeLogs id={id} />,
               }
             : null,
         id
