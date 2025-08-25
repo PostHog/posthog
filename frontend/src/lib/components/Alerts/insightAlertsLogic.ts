@@ -27,30 +27,22 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     key(({ insightId }) => `insight-${insightId}`),
     actions({
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
+        refreshInsightAlerts: true,
     }),
 
     connect((props: InsightAlertsLogicProps) => ({
-        actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
+        actions: [
+            insightVizDataLogic(props.insightLogicProps), ['setQuery'],
+            insightLogic(props.insightLogicProps), ['loadInsight']
+        ],
         values: [
             insightVizDataLogic(props.insightLogicProps), ['showAlertThresholdLines'],
             insightLogic(props.insightLogicProps), ['insight']
         ],
     })),
 
-    loaders(({ props }) => ({
-        alerts: {
-            __default: [] as AlertType[],
-            loadAlerts: async () => {
-                const response = await api.alerts.list(props.insightId)
-                return response.results
-            },
-        },
-    })),
 
     reducers({
-        alerts: {
-            deleteAlert: (state, { alertId }) => state.filter((a) => a.id !== alertId),
-        },
         shouldShowAlertDeletionWarning: [
             false,
             {
@@ -61,13 +53,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     selectors({
         effectiveAlerts: [
-            (s) => [s.insight, s.alerts],
-            (insight, alerts): AlertType[] => {
-                // Use embedded alerts from insight if available (including empty arrays), otherwise use loaded alerts
-                if (insight?.alerts && Array.isArray(insight.alerts)) {
-                    return insight.alerts
-                }
-                return alerts
+            (s) => [s.insight],
+            (insight): AlertType[] => {
+                // Use embedded alerts from insight data
+                return insight?.alerts && Array.isArray(insight.alerts) ? insight.alerts : []
             },
         ],
         alertThresholdLines: [
@@ -105,9 +94,12 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        deleteAlert: async ({ alertId }) => {
-            await api.alerts.delete(alertId)
+    listeners(({ actions, values, props }) => ({
+        refreshInsightAlerts: async () => {
+            // Refresh the insight data to get updated alerts
+            if (values.insight?.short_id) {
+                actions.loadInsight(values.insight.short_id)
+            }
         },
         setQuery: ({ query }) => {
             if (values.effectiveAlerts.length === 0 || areAlertsSupportedForInsight(query)) {
@@ -118,10 +110,4 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        // Only load alerts if they're not already embedded in the insight data
-        if (!values.insight?.alerts || !Array.isArray(values.insight.alerts)) {
-            actions.loadAlerts()
-        }
-    }),
 ])

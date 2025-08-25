@@ -646,12 +646,8 @@ class InsightSerializer(InsightBasicSerializer):
         if not are_alerts_supported_for_insight(insight):
             return []
         
-        # Get alerts from prefetched data or query if not prefetched
-        if hasattr(insight, '_prefetched_alerts'):
-            alerts = insight._prefetched_alerts
-        else:
-            alerts = AlertConfiguration.objects.filter(insight=insight).select_related('created_by')
-        
+        # Use prefetched alerts data
+        alerts = getattr(insight, '_prefetched_alerts', [])
         return AlertSerializer(alerts, many=True, context=self.context).data
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
