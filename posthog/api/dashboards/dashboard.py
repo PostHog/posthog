@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from typing import Any, Optional, cast
 from collections.abc import Generator
 
@@ -47,25 +46,6 @@ from opentelemetry import trace
 
 
 logger = structlog.get_logger(__name__)
-
-
-def format_datetime_like_drf(dt: Optional[datetime]) -> Optional[str]:
-    """Format datetime to match DRF DateTimeField output (ISO format with Z timezone)"""
-    if not dt:
-        return None
-    # Convert +00:00 to Z to match DRF format
-    return dt.isoformat().replace("+00:00", "Z")
-
-
-def safe_json_dumps(obj):
-    """JSON dumps with datetime handling to match DRF format"""
-
-    def json_serializer(obj):
-        if isinstance(obj, datetime):
-            return format_datetime_like_drf(obj)
-        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
-
-    return json.dumps(obj, default=json_serializer)
 
 
 tracer = trace.get_tracer(__name__)
@@ -573,12 +553,6 @@ class DashboardSerializer(DashboardBasicSerializer):
             ),
         )
 
-        # Apply tile limit if specified, but only if there are enough tiles to make it worthwhile
-        # For dashboards with < 10 tiles, return all tiles even if limit_tiles is specified
-        total_tiles = len(sorted_tiles)
-        if limit_tiles is not None and limit_tiles > 0 and total_tiles >= 10:
-            sorted_tiles = sorted_tiles[:limit_tiles]
-
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -589,8 +563,6 @@ class DashboardSerializer(DashboardBasicSerializer):
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 
         return serialized_tiles
-
-
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -710,6 +682,9 @@ class DashboardsViewSet(
         dashboard = self.get_object()
 
         def tile_stream_generator() -> Generator[str, None, None]:
+            # Create renderer once for all messages
+            renderer = SafeJSONRenderer()
+
             try:
                 # First, stream the dashboard metadata
                 dashboard.last_accessed_at = now()
@@ -718,7 +693,8 @@ class DashboardsViewSet(
                 metadata_data = metadata_serializer.data
                 # Ensure tiles field is present (empty array for streaming)
                 metadata_data["tiles"] = []
-                yield f"data: {safe_json_dumps({'type': 'metadata', 'dashboard': metadata_data})}\n\n"
+                metadata_json = renderer.render({"type": "metadata", "dashboard": metadata_data}).decode()
+                yield f"data: {metadata_json}\n\n"
 
                 # Create serializer context for tiles
                 context = self.get_serializer_context()
@@ -752,17 +728,21 @@ class DashboardsViewSet(
                 for order, tile in enumerate(sorted_tiles):
                     try:
                         order, tile_data = serialize_tile_with_context(tile, order, context)
-                        yield f"data: {safe_json_dumps({'type': 'tile', 'order': order, 'tile': tile_data})}\n\n"
+                        tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
+                        yield f"data: {tile_json}\n\n"
                     except Exception as e:
                         logger.exception(f"Error serializing tile {tile.id}: {e}")
-                        yield f"data: {safe_json_dumps({'type': 'error', 'tile_id': tile.id, 'error': str(e)})}\n\n"
+                        error_json = renderer.render({"type": "error", "tile_id": tile.id, "error": str(e)}).decode()
+                        yield f"data: {error_json}\n\n"
 
                 # Send completion signal
-                yield f"data: {safe_json_dumps({'type': 'complete'})}\n\n"
+                complete_json = renderer.render({"type": "complete"}).decode()
+                yield f"data: {complete_json}\n\n"
 
             except Exception as e:
                 logger.exception(f"Error in tile streaming: {e}")
-                yield f"data: {safe_json_dumps({'type': 'error', 'error': str(e)})}\n\n"
+                error_json = renderer.render({"type": "error", "error": str(e)}).decode()
+                yield f"data: {error_json}\n\n"
 
         # Create streaming response
         response = StreamingHttpResponse(
