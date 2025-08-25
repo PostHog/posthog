@@ -513,8 +513,7 @@ class SnowflakeClient:
             else:
                 await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
-    # TODO - rename to put_file_to_snowflake_table_stage
-    async def put_file_to_snowflake_table(
+    async def put_file_to_snowflake_table_stage(
         self,
         file: BatchExportTemporaryFile | NamedBytesIO,
         table_stage_prefix: str,
@@ -574,18 +573,21 @@ class SnowflakeClient:
         table_name: str,
         table_stage_prefix: str,
         table_fields: list[SnowflakeField],
-        known_variant_columns: list[str],
+        known_json_columns: list[str],
     ) -> None:
-        """Execute a COPY query in Snowflake to load any files PUT into the table.
+        """Execute a COPY query in Snowflake to load any files PUT into the table stage.
 
         The query is executed asynchronously using Snowflake's polling API.
 
         Args:
-            connection: A SnowflakeConnection as returned by snowflake.connector.connect.
             table_name: The table we are COPY-ing files into.
+            table_stage_prefix: The prefix of the table stage.
+            table_fields: The fields of the table.
+            known_json_columns: The columns that are JSON (NOTE: we can't just inspect the schema of the table fields to
+                check for VARIANT columns since not all VARIANT columns will be JSON, eg `elements`).
         """
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field[0]}")' if field[0] in known_variant_columns else f'$1:"{field[0]}"'
+            f'PARSE_JSON($1:"{field[0]}")' if field[0] in known_json_columns else f'$1:"{field[0]}"'
             for field in table_fields
         )
         query = f"""
@@ -770,7 +772,7 @@ class SnowflakeConsumer(Consumer):
             self.snowflake_table,
         )
 
-        await self.snowflake_client.put_file_to_snowflake_table(
+        await self.snowflake_client.put_file_to_snowflake_table_stage(
             batch_export_file,
             self.snowflake_table_stage_prefix,
             self.snowflake_table,
@@ -903,7 +905,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
 
         self.current_buffer.seek(0)
 
-        await self.snowflake_client.put_file_to_snowflake_table(
+        await self.snowflake_client.put_file_to_snowflake_table_stage(
             file=self.current_buffer,
             table_stage_prefix=self.snowflake_table_stage_prefix,
             table_name=self.snowflake_table,
@@ -1144,7 +1146,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                         snow_stage_table if requires_merge else snow_table,
                         data_interval_end_str,
                         table_fields,
-                        known_variant_columns=known_variant_columns,
+                        known_json_columns=known_variant_columns,
                     )
 
                     if requires_merge:
@@ -1266,7 +1268,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     snow_stage_table if requires_merge else snow_table,
                     data_interval_end_str,
                     table_fields,
-                    known_variant_columns=known_variant_columns,
+                    known_json_columns=known_variant_columns,
                 )
 
                 if requires_merge:
