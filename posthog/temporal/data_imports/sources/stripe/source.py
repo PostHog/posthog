@@ -68,6 +68,7 @@ Currently, **read permissions are required** for the following resources:
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
+                # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
                 supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
             )
