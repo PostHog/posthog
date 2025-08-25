@@ -40,7 +40,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -48,6 +47,8 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -215,7 +216,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         overlay={
                                             dashboard ? (
                                                 <>
-                                                    {/* ✅ transfered to scene */}
                                                     {dashboard.created_by && (
                                                         <>
                                                             <div className="flex p-2 text-secondary">
@@ -228,7 +228,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             <LemonDivider />
                                                         </>
                                                     )}
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && hasDashboardColors && (
                                                         <LemonButton
                                                             onClick={() => showInsightColorsModal(dashboard.id)}
@@ -238,7 +237,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
                                                         <LemonButton
                                                             onClick={() =>
@@ -253,7 +251,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() =>
                                                             setDashboardMode(
@@ -266,7 +263,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Go full screen (F)
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard &&
                                                         (dashboard.pinned ? (
                                                             <LemonButton
@@ -293,11 +289,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 Pin dashboard
                                                             </LemonButton>
                                                         ))}
-                                                    {/* ✅ transfered to scene */}
                                                     <SubscribeButton dashboardId={dashboard.id} />
-                                                    {/* ✅ transfered to scene */}
                                                     <ExportButton fullWidth items={exportOptions} />
-                                                    {/* ✅ transfered to scene */}
                                                     {user?.is_staff && (
                                                         <LemonButton
                                                             onClick={() => {
@@ -313,7 +306,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                     )}
                                                     <LemonDivider />
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => {
                                                             showDuplicateDashboardModal(dashboard.id, dashboard.name)
@@ -323,7 +315,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Duplicate dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => createNotebookFromDashboard(dashboard)}
                                                         fullWidth
@@ -331,7 +322,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Create notebook from dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
                                                         <AccessControlledLemonButton
                                                             userAccessLevel={dashboard.user_access_level}
@@ -635,6 +625,8 @@ export function DashboardHeader(): JSX.Element | null {
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }
                 markdown
+                canEdit={canEditDashboard}
+                isLoading={dashboardLoading}
             />
             <SceneDivider />
         </>

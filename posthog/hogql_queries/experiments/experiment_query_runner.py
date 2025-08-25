@@ -1,23 +1,29 @@
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import structlog
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.exceptions_capture import capture_exception
+from posthog.schema import (
+    CachedExperimentQueryResponse,
+    ExperimentDataWarehouseNode,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentQueryResponse,
+    ExperimentRatioMetric,
+    ExperimentStatsBase,
+    IntervalType,
+    MultipleVariantHandling,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.experiments import (
-    CONTROL_VARIANT_KEY,
-    MULTIPLE_VARIANT_KEY,
-)
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
     get_experiment_exposure_query,
@@ -26,6 +32,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_source_aggregation_expr,
     get_winsorized_metric_values_query,
 )
+from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
@@ -40,19 +47,6 @@ from posthog.hogql_queries.experiments.utils import (
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
-from posthog.schema import (
-    CachedExperimentQueryResponse,
-    ExperimentDataWarehouseNode,
-    ExperimentMeanMetric,
-    ExperimentQuery,
-    ExperimentQueryResponse,
-    ExperimentRatioMetric,
-    ExperimentStatsBase,
-    ExperimentVariantFunnelsBaseStats,
-    ExperimentVariantTrendsBaseStats,
-    IntervalType,
-    MultipleVariantHandling,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -62,7 +56,6 @@ MAX_EXECUTION_TIME = 600
 
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
-    response: ExperimentQueryResponse
     cached_response: CachedExperimentQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -427,33 +420,14 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
-        try:
-            response = execute_hogql_query(
-                query_type="ExperimentQuery",
-                query=self._get_experiment_query(),
-                team=self.team,
-                timings=self.timings,
-                modifiers=create_default_modifiers_for_team(self.team),
-                settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME),
-            )
-        except InternalHogQLError as e:
-            # Log essential context for debugging (no PII/secrets)
-            logger.error(
-                "Internal HogQL error in experiment query execution",
-                experiment_id=self.experiment.id,
-                metric_type=self.metric.__class__.__name__,
-                metric_kind=getattr(self.metric, "kind", None),
-                metric_math=getattr(getattr(self.metric, "source", None), "math", None),
-                error_type=type(e).__name__,
-                error_start=getattr(e, "start", None),
-                error_end=getattr(e, "end", None),
-                exc_info=True,
-            )
-            # Convert to user-friendly error
-            raise ValidationError("Unable to execute experiment analysis. Please check your experiment configuration.")
-        except ExposedHogQLError:
-            # Let these bubble up - they're already handled properly by the error exposure logic
-            raise
+        response = execute_hogql_query(
+            query_type="ExperimentQuery",
+            query=self._get_experiment_query(),
+            team=self.team,
+            timings=self.timings,
+            modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME),
+        )
 
         # Remove the $multiple variant only when using exclude handling
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
@@ -463,70 +437,44 @@ class ExperimentQueryRunner(QueryRunner):
 
         return sorted_results
 
+    @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
-        try:
-            sorted_results = self._evaluate_experiment_query()
+        sorted_results = self._evaluate_experiment_query()
 
-            if self.stats_method == "frequentist":
-                frequentist_variants = get_new_variant_results(sorted_results)
+        variant_results = get_new_variant_results(sorted_results)
+        variant_results = self._add_missing_variants(variant_results)
 
-                self._validate_event_variants(frequentist_variants)
+        control_variant, test_variants = split_baseline_and_test_variants(variant_results)
 
-                control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
-
-                return get_frequentist_experiment_result(
-                    metric=self.metric,
-                    control_variant=control_variant,
-                    test_variants=test_variants,
-                )
-            else:
-                # We default to bayesian
-                bayesian_variants = get_new_variant_results(sorted_results)
-
-                control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
-
-                return get_bayesian_experiment_result(
-                    metric=self.metric,
-                    control_variant=control_variant,
-                    test_variants=test_variants,
-                )
-
-        except Exception as e:
-            capture_exception(
-                e,
-                additional_properties={
-                    "query_runner": "ExperimentQueryRunner",
-                    "experiment_id": self.experiment.id,
-                },
+        if self.stats_method == "frequentist":
+            return get_frequentist_experiment_result(
+                metric=self.metric,
+                control_variant=control_variant,
+                test_variants=test_variants,
             )
-            raise
+        else:
+            # We default to bayesian
+            return get_bayesian_experiment_result(
+                metric=self.metric,
+                control_variant=control_variant,
+                test_variants=test_variants,
+            )
 
-    def _validate_event_variants(
-        self,
-        variants: list[ExperimentVariantTrendsBaseStats]
-        | list[ExperimentVariantFunnelsBaseStats]
-        | list[ExperimentStatsBase],
-    ):
-        errors = {
-            ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-            ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-            ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-        }
+    def _add_missing_variants(self, variants: list[ExperimentStatsBase]):
+        """
+        Check if the variants configured in the experiment is seen in the collected data.
+        If not, add them to the result set with values set to 0.
+        """
 
-        if not variants:
-            raise ValidationError(code="no-results", detail=json.dumps(errors))
+        variants_seen = [v.key for v in variants]
 
-        errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
+        variants_missing = []
+        for key in self.variants:
+            if key not in variants_seen:
+                empty_variant = ExperimentStatsBase(key=key, number_of_samples=0, sum=0, sum_squares=0)
+                variants_missing.append(empty_variant)
 
-        for variant in variants:
-            if variant.key == CONTROL_VARIANT_KEY:
-                errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
-            else:
-                errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
-
-        has_errors = any(errors.values())
-        if has_errors:
-            raise ValidationError(detail=json.dumps(errors))
+        return variants + variants_missing
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")

@@ -16,6 +16,9 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
     TrendsQuery,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
@@ -192,7 +195,7 @@ export function getViewRecordingFilters(
      * for mean metrics, we add the single action/event to the filters
      */
     if (
-        metric.metric_type === ExperimentMetricType.MEAN &&
+        isExperimentMeanMetric(metric) &&
         (metric.source.kind === NodeKind.EventsNode || metric.source.kind === NodeKind.ActionsNode)
     ) {
         const meanFilter = seriesToFilter(metric.source)
@@ -204,7 +207,7 @@ export function getViewRecordingFilters(
     /**
      * for funnel metrics, we need to add each element in the series as a filter
      */
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+    if (isExperimentFunnelMetric(metric)) {
         metric.series.forEach((series) => {
             const funnelMetric = seriesToFilter(series)
             if (funnelMetric) {
@@ -216,7 +219,7 @@ export function getViewRecordingFilters(
     /**
      * for ratio metrics, we add both numerator and denominator events to the filters
      */
-    if (metric.metric_type === ExperimentMetricType.RATIO) {
+    if (isExperimentRatioMetric(metric)) {
         const numeratorFilter = seriesToFilter(metric.numerator)
         const denominatorFilter = seriesToFilter(metric.denominator)
 
@@ -238,7 +241,7 @@ export function getViewRecordingFiltersLegacy(
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
     if (metric.kind === NodeKind.ExperimentMetric) {
-        if (metric.metric_type === ExperimentMetricType.MEAN) {
+        if (isExperimentMeanMetric(metric)) {
             if (metric.source.kind === NodeKind.EventsNode) {
                 return [
                     {
@@ -620,10 +623,10 @@ export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLega
 export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
     let series: AnyEntityNode[] = []
 
-    if (metric.metric_type === ExperimentMetricType.MEAN || metric.metric_type === ExperimentMetricType.RATIO) {
+    if (isExperimentMeanMetric(metric) || isExperimentRatioMetric(metric)) {
         let source: ExperimentMetricSource
         // For now, we simplify things by just showing the number of numerator events for ratio metrics
-        if (metric.metric_type === ExperimentMetricType.RATIO) {
+        if (isExperimentRatioMetric(metric)) {
             source = metric.numerator
         } else {
             source = metric.source
@@ -663,7 +666,7 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
                 },
             ]
         }
-    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+    } else if (isExperimentFunnelMetric(metric)) {
         const lastStep = metric.series[metric.series.length - 1]
         if (lastStep) {
             if (lastStep.kind === NodeKind.EventsNode) {

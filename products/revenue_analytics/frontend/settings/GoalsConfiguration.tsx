@@ -15,7 +15,7 @@ import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SceneSection } from '~/layout/scenes/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

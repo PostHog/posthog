@@ -8,10 +8,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.database.database import create_hogql_database
+
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.hogql.database.database import create_hogql_database
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.warehouse.data_load.service import (
@@ -310,7 +312,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
 
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
-        schemas = new_source.get_schemas(config, self.team_id)
+
+        credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
+        try:
+            schemas = new_source.get_schemas(config, self.team_id)
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": str(e)},
+            )
 
         schema: SourceSchema | None = None
 

@@ -1,5 +1,6 @@
 import typing
 from enum import StrEnum
+
 from django.db import models
 
 

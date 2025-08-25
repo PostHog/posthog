@@ -1,15 +1,14 @@
-import json
 import os
-import typing
+import json
 import uuid
+import typing
 import warnings
 
 import pytest
+
 from google.cloud import bigquery
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
-    BigQueryHeartbeatDetails,
-)
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryHeartbeatDetails
 
 
 @pytest.fixture

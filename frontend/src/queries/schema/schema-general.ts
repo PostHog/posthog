@@ -1288,7 +1288,9 @@ export type FunnelTimeToConvertResults = {
 }
 export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
-    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+    // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+    // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
+    results: any
     isUdf?: boolean
 }
 
@@ -1772,16 +1774,17 @@ export enum WebAnalyticsOrderByFields {
     Errors = 'Errors',
 }
 export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
+export type WebAnalyticsSampling = {
+    enabled?: boolean
+    forceSamplingRate?: SamplingRate
+}
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
     compareFilter?: CompareFilter
     doPathCleaning?: boolean
-    sampling?: {
-        enabled?: boolean
-        forceSamplingRate?: SamplingRate
-    }
+    sampling?: WebAnalyticsSampling
     filterTestAccounts?: boolean
     includeRevenue?: boolean
     orderBy?: WebAnalyticsOrderBy
@@ -1824,6 +1827,7 @@ export enum WebStatsBreakdown {
     InitialPage = 'InitialPage',
     ExitPage = 'ExitPage', // not supported in the legacy version
     ExitClick = 'ExitClick',
+    PreviousPage = 'PreviousPage', // $prev_pageview_pathname || $referrer
     ScreenName = 'ScreenName',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
@@ -2034,9 +2038,18 @@ export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<
     interval: IntervalType
 }
 
+export interface RevenueAnalyticsRevenueQueryResultItem {
+    total: unknown
+    new: unknown
+    expansion: unknown
+    contraction: unknown
+    churn: unknown
+}
+
 export interface RevenueAnalyticsRevenueQueryResult {
+    // This is just the total, while mrr is then split with all of the individual total/new/expansion/contraction/churn calculations
     gross: unknown[]
-    mrr: unknown[]
+    mrr: RevenueAnalyticsRevenueQueryResultItem[]
 }
 export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
     results: RevenueAnalyticsRevenueQueryResult
@@ -2355,6 +2368,7 @@ export type FileSystemIconType =
     | 'insightStickiness'
     | 'insightHogQL'
     | 'insightCalendarHeatmap'
+    | 'code'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType

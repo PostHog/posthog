@@ -1,5 +1,5 @@
-from functools import cache
 import logging
+from functools import cache
 
 from infi.clickhouse_orm import migrations
 

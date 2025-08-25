@@ -1,5 +1,6 @@
-from posthog.models import Team, User
 from posthog.test.base import BaseTest
+
+from posthog.models import Team, User
 
 
 class TestUser(BaseTest):

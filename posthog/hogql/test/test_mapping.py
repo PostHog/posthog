@@ -1,22 +1,23 @@
-from posthog.hogql.ast import FloatType, IntegerType, DateType
+from datetime import UTC, date, datetime
+from typing import Optional
+
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+
+from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.mapping import (
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    HogQLFunctionMeta,
+    compare_types,
+    find_hogql_aggregation,
+    find_hogql_function,
+    find_hogql_posthog_function,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import print_ast
-from posthog.test.base import BaseTest
-from typing import Optional
-from posthog.hogql.functions.mapping import (
-    compare_types,
-    find_hogql_function,
-    find_hogql_aggregation,
-    find_hogql_posthog_function,
-    HogQLFunctionMeta,
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-)
-from datetime import datetime, UTC
-from freezegun import freeze_time
 from posthog.hogql.query import execute_hogql_query
-from datetime import date
 
 
 class TestMappings(BaseTest):

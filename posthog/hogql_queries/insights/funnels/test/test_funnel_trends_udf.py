@@ -1,23 +1,25 @@
 import datetime
 from typing import cast
-from unittest.mock import patch, Mock
+
+from posthog.test.base import _create_event, _create_person
+from unittest.mock import Mock, patch
+
+from posthog.schema import (
+    BreakdownAttributionType,
+    BreakdownFilter,
+    DateRange,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    FunnelVizType,
+    IntervalType,
+)
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_trends import BaseTestFunnelTrends
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.schema import (
-    FunnelsQuery,
-    FunnelsQueryResponse,
-    EventsNode,
-    BreakdownFilter,
-    FunnelsFilter,
-    FunnelVizType,
-    BreakdownAttributionType,
-    DateRange,
-    IntervalType,
-)
-from posthog.test.base import _create_person, _create_event
 from posthog.test.test_journeys import journeys_for
 
 

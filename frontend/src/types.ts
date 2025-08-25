@@ -232,6 +232,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
+    MCP_SERVER = 'mcp_server',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -443,6 +444,7 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
+    default_role_id?: string | null
 }
 
 export interface OrganizationDomainType {
@@ -1527,6 +1529,11 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+}
+
+export enum GroupsTabType {
+    NOTES = 'notes',
+    OVERVIEW = 'overview',
 }
 
 export enum LayoutView {
@@ -5651,6 +5658,39 @@ export interface LineageEdge {
 export interface LineageGraph {
     nodes: LineageNode[]
     edges: LineageEdge[]
+}
+
+export interface DataWarehouseSourceRowCount {
+    breakdown_of_rows_by_source: Record<string, number>
+    billing_available: boolean
+    billing_interval: string
+    billing_period_end: string
+    billing_period_start: string
+    materialized_rows_in_billing_period: number
+    total_rows: number
+    tracked_billing_rows: number
+    pending_billing_rows: number
+}
+
+export interface DataWarehouseActivityRecord {
+    id: string
+    type: string
+    name: string | null
+    status: string
+    rows: number
+    created_at: string
+    finished_at: string | null
+    latest_error: string | null
+    workflow_run_id?: string
+}
+
+export interface DataWarehouseDashboardDataSource {
+    id: string
+    name: string
+    status: string | null
+    lastSync: string | null
+    rowCount: number | null
+    url: string
 }
 
 export enum OnboardingStepKey {

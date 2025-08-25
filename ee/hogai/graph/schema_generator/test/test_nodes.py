@@ -1,23 +1,20 @@
 import json
+
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
+
 from langchain_core.agents import AgentAction
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda
+
+from posthog.schema import AssistantMessage, AssistantTrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
 
 from ee.hogai.graph.schema_generator.nodes import RETRIES_ALLOWED, SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import (
-    AssistantMessage,
-    AssistantTrendsQuery,
-    FailureMessage,
-    HumanMessage,
-    VisualizationMessage,
-)
-from posthog.test.base import BaseTest
 
 DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 

@@ -1,22 +1,25 @@
+import os
+
 from django.conf import settings
-from openai import AsyncStream
+
 import structlog
-from ee.hogai.session_summaries.constants import (
-    SESSION_SUMMARIES_REASONING_EFFORT,
-    SESSION_SUMMARIES_TEMPERATURE,
-    SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS,
-    SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS,
-)
-from posthoganalytics.ai.openai import OpenAI, AsyncOpenAI
-from posthog.cloud_utils import is_cloud
-from posthog.utils import get_instance_region
+import posthoganalytics
+from openai import AsyncStream
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
-import os
+from posthoganalytics.ai.openai import AsyncOpenAI, OpenAI
 from posthoganalytics.client import Client
-
-import posthoganalytics
 from rest_framework import exceptions
+
+from posthog.cloud_utils import is_cloud
+from posthog.utils import get_instance_region
+
+from ee.hogai.session_summaries.constants import (
+    SESSION_SUMMARIES_REASONING_EFFORT,
+    SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS,
+    SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS,
+    SESSION_SUMMARIES_TEMPERATURE,
+)
 
 logger = structlog.get_logger(__name__)
 
