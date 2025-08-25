@@ -29,10 +29,12 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(log.detail)
         detail = log.detail
+        assert detail is not None
         self.assertEqual(detail["name"], "Test API Key")
         self.assertIsNotNone(detail.get("context"))
 
         context = detail["context"]
+        assert context is not None
         self.assertEqual(context["user_id"], self.user.id)
         self.assertEqual(context["user_email"], self.user.email)
         self.assertEqual(context["organization_name"], self.organization.name)
@@ -51,6 +53,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(update_log)
         assert update_log is not None
         self.assertIsNotNone(update_log.detail)
+        assert update_log.detail is not None
 
         changes = update_log.detail.get("changes", [])
         label_change = next((change for change in changes if change.get("field") == "label"), None)
@@ -73,6 +76,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(update_log)
         assert update_log is not None
         self.assertIsNotNone(update_log.detail)
+        assert update_log.detail is not None
 
         changes = update_log.detail.get("changes", [])
         scopes_change = next((change for change in changes if change.get("field") == "scopes"), None)
@@ -101,10 +105,12 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(delete_log.detail)
         detail = delete_log.detail
+        assert detail is not None
         self.assertEqual(detail["name"], "To Delete API Key")
         self.assertIsNotNone(detail.get("context"))
 
         context = detail["context"]
+        assert context is not None
         self.assertEqual(context["user_id"], self.user.id)
         self.assertEqual(context["user_email"], self.user.email)
 
@@ -122,6 +128,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(update_log)
         assert update_log is not None
         self.assertIsNotNone(update_log.detail)
+        assert update_log.detail is not None
 
         changes = update_log.detail.get("changes", [])
         self.assertTrue(len(changes) >= 0)
@@ -146,6 +153,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(log.detail)
         detail = log.detail
+        assert detail is not None
         self.assertEqual(detail["name"], "Properties Test Key")
         self.assertIsNotNone(detail.get("context"))
         self.assertIsNotNone(detail.get("changes"))
@@ -168,6 +176,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
 
         for log in logs:
             self.assertIsNone(log.team_id)
+            assert log.detail is not None
             self.assertEqual(log.detail["context"]["team_name"], "Unknown Project")
 
     def test_personal_api_key_scoped_teams_logging(self):
@@ -193,6 +202,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
 
         for log in logs:
             self.assertIsNotNone(log.team_id)
+            assert log.detail is not None
             if log.team_id == self.team.id:
                 self.assertEqual(log.detail["context"]["team_name"], self.team.name)
             elif log.team_id == second_team.id:
@@ -242,10 +252,12 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(log.detail)
         detail = log.detail
+        assert detail is not None
         self.assertEqual(detail["name"], "Team Scoped Key")
         self.assertIsNotNone(detail.get("context"))
 
         context = detail["context"]
+        assert context is not None
         self.assertEqual(context["user_id"], self.user.id)
         self.assertEqual(context["user_email"], self.user.email)
         self.assertEqual(context["organization_name"], self.organization.name)

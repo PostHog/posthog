@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
 from uuid import UUID
 
 from django.conf import settings
@@ -757,24 +757,25 @@ def log_activity(
         return None
 
 
-def bulk_log_activity(log_entries: list[dict], batch_size: int = 500) -> list[ActivityLog]:
+class LogActivityEntry(TypedDict, total=False):
+    organization_id: Optional[UUID]
+    team_id: Optional[int]
+    user: Optional["User"]
+    item_id: Optional[Union[int, str, UUID]]
+    scope: Required[str]
+    activity: Required[str]
+    detail: Required[Detail]
+    was_impersonated: Optional[bool]
+    force_save: bool
+
+
+def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500) -> list[ActivityLog]:
     if not log_entries:
         return []
 
     activity_logs = []
     for entry in log_entries:
-        log = log_activity(
-            organization_id=entry.get("organization_id"),
-            team_id=entry.get("team_id"),
-            user=entry.get("user"),
-            item_id=entry.get("item_id"),
-            scope=entry.get("scope"),
-            activity=entry.get("activity"),
-            detail=entry.get("detail"),
-            was_impersonated=entry.get("was_impersonated"),
-            force_save=entry.get("force_save", False),
-            instance_only=True,  # only create the instance, don't save it to the database
-        )
+        log = log_activity(**entry, instance_only=True)
 
         if log:
             activity_logs.append(log)

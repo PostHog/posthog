@@ -6,7 +6,12 @@ from typing import Optional
 from django.db.models import Count
 
 from posthog.models import PersonalAPIKey
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, bulk_log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Detail,
+    LogActivityEntry,
+    bulk_log_activity,
+)
 from posthog.models.team.team import Team
 from posthog.user_permissions import UserPermissions
 
@@ -167,7 +172,7 @@ def log_personal_api_key_scope_change(
     """Log activity for PersonalAPIKey scope changes with proper created/revoked logic."""
     log_entries = calculate_scope_change_logs(before_api_key, after_api_key, changes)
 
-    bulk_entries = []
+    bulk_entries: list[LogActivityEntry] = []
     for log_entry in log_entries:
         team_id = log_entry["team_id"]
         org_id = log_entry["organization_id"]
@@ -230,7 +235,7 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
     """Create activity logs for PersonalAPIKey operations at appropriate organization/team levels."""
     access_locations = get_personal_api_key_access_locations(api_key)
 
-    log_entries = []
+    log_entries: list[LogActivityEntry] = []
     for location in access_locations:
         log_entries.append(
             {
