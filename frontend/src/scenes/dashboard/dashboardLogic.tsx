@@ -456,7 +456,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardLayouts: [
             {} as Record<DashboardTile['id'], DashboardTile['layouts']>,
             {
-                loadDashboardSuccess: ({ dashboard }) => {
+                loadDashboardSuccess: (_, { dashboard }) => {
                     const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
                     dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
                         tileIdToLayouts[tile.id] = tile.layouts
