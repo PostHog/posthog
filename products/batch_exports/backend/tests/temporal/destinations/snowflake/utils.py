@@ -4,6 +4,7 @@ import gzip
 import json
 import typing as t
 import datetime as dt
+import operator
 from collections import deque
 from uuid import uuid4
 
