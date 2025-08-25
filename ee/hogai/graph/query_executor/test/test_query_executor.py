@@ -332,3 +332,27 @@ class TestAssistantQueryExecutor(BaseTest):
 
         result, used_fallback = self.query_runner.run_and_format_query(query)
         self.assertIn("Date|test2", result)
+
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    async def test_runs_in_async_context(self, mock_process_query):
+        """Test successful execution and formatting of funnels query"""
+        mock_process_query.return_value = {
+            "results": [
+                {
+                    "action_id": "test",
+                    "name": "test",
+                    "order": 0,
+                    "count": 100,
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                }
+            ]
+        }
+
+        query = AssistantFunnelsQuery(series=[])
+        result, used_fallback = await self.query_runner.arun_and_format_query(query)
+
+        self.assertIsInstance(result, str)
+        self.assertFalse(used_fallback)
+        self.assertIn("Metric|test", result)
+        mock_process_query.assert_called_once()
