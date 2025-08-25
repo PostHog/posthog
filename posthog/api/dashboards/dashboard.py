@@ -717,11 +717,8 @@ class DashboardsViewSet(
                     )
                 )
 
-                # Get layout size for tile ordering
                 layout_size = self._get_layout_size_from_request(request)
-                logger.info(f"🖥️ Streaming with layout_size: {layout_size}")
 
-                # Sort tiles by layout for proper visual order
                 sorted_tiles = sorted(
                     tiles,
                     key=lambda tile: (
@@ -730,9 +727,6 @@ class DashboardsViewSet(
                     ),
                 )
 
-                # For streaming, we always send all tiles (no limiting)
-
-                # Stream each tile as it's rendered
                 for order, tile in enumerate(sorted_tiles):
                     try:
                         order, tile_data = serialize_tile_with_context(tile, order, context)
