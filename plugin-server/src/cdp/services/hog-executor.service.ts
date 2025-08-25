@@ -565,6 +565,11 @@ export class HogExecutorService {
             const accessToken: string = integrationInputs.oauth.value.access_token_raw
             const placeholder: string = integrationInputs.oauth.value.access_token
 
+            console.log('trying to replace the placeholder', {
+                placeholder,
+                accessToken,
+            })
+
             if (placeholder && accessToken) {
                 params.body = params.body?.replaceAll(placeholder, accessToken)
                 headers = Object.fromEntries(
