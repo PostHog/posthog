@@ -43,6 +43,7 @@ import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
 import { textContent } from '../utils'
+import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
 import { SlashCommandsExtension } from './SlashCommands'
@@ -80,7 +81,9 @@ export function Editor(): JSX.Element {
                     document: false,
                     gapcursor: false,
                     link: false,
+                    heading: false, // replaced by CollapsibleHeading
                 }),
+                CollapsibleHeading.configure(),
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,
                     onUpdate(content) {

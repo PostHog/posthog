@@ -670,6 +670,9 @@ importers:
       '@tiptap/extension-floating-menu':
         specifier: ^3.0.7
         version: 3.0.9(@floating-ui/dom@1.7.3)(@tiptap/core@3.0.9(@tiptap/pm@3.0.9))(@tiptap/pm@3.0.9)
+      '@tiptap/extension-heading':
+        specifier: ^3.0.7
+        version: 3.0.9(@tiptap/core@3.0.9(@tiptap/pm@3.0.9))
       '@tiptap/extension-list':
         specifier: ^3.0.7
         version: 3.0.9(@tiptap/core@3.0.9(@tiptap/pm@3.0.9))(@tiptap/pm@3.0.9)
@@ -16961,8 +16964,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.296.0:
-    resolution: {integrity: sha512-o4KMz2X9t/PNjGKkT+kGbwURRG4JnmfHvc1U3bjREglKNXP/XQGJ2lAd9x/o0xRp3IXtw9QZpBip/kjF9Vw2LQ==}
+  unlayer-types@1.298.0:
+    resolution: {integrity: sha512-LiOO3KxYDfd1Ag9dmzu0yxQulaLw7oj2JbTyA0XMuUaCP0hHmbfu2y1JmuOcL9KlqI+j87ElDLiMGYpWDJe9Bg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -34992,7 +34995,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.296.0
+      unlayer-types: 1.298.0
 
   react-error-overlay@6.0.9: {}
 
@@ -36975,7 +36978,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.296.0: {}
+  unlayer-types@1.298.0: {}
 
   unpipe@1.0.0: {}
 
