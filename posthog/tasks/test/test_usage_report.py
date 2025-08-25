@@ -1,7 +1,7 @@
 import gzip
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -88,7 +88,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id=session_id,
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
             size=10,
         )
 
@@ -99,7 +99,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id="a-single-mobile-recording",
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
             snapshot_source="mobile",
             size=6,
         )
@@ -113,7 +113,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id=id1,
             distinct_id=str(uuid4()),
             first_timestamp=timestamp1,
-            last_timestamp=timestamp1,
+            last_timestamp=timestamp1 + timedelta(seconds=1),
             size=10,
         )
         # we maybe also include a single mobile recording out of period
@@ -123,7 +123,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
                 session_id=f"{id1}-mobile",
                 distinct_id=str(uuid4()),
                 first_timestamp=timestamp1,
-                last_timestamp=timestamp1,
+                last_timestamp=timestamp1 + timedelta(seconds=1),
                 snapshot_source="mobile",
                 size=6,
             )
@@ -138,7 +138,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=timestamp2,
-        last_timestamp=timestamp2,
+        last_timestamp=timestamp2 + timedelta(seconds=1),
         size=10,
     )
     produce_replay_summary(
@@ -146,7 +146,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=start_of_day,
-        last_timestamp=start_of_day,
+        last_timestamp=start_of_day + timedelta(seconds=1),
         size=10,
     )
     timestamp3 = start_of_day + relativedelta(hours=1)
@@ -155,7 +155,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=timestamp3,
-        last_timestamp=timestamp3,
+        last_timestamp=timestamp3 + timedelta(seconds=1),
         size=10,
     )
 
