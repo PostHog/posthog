@@ -1,6 +1,6 @@
-# Products Imports
-from products.early_access_features.backend.models import EarlyAccessFeature
-from products.tasks.backend.models import Task
+# Need to skip autoimporting because this file is severely prone to circular imports errors
+# You should try and make them alphabetically sorted manually if possible
+# isort: skip_file
 
 from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from ..session_recordings.models.session_recording import SessionRecording
@@ -90,6 +90,10 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+
+# Keeping products imports at the bottom to avoid circular imports errors
+from products.tasks.backend.models import Task
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 __all__ = [
     "AlertConfiguration",
@@ -193,6 +197,7 @@ __all__ = [
     "Survey",
     "Tag",
     "TaggedItem",
+    "Task",
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
