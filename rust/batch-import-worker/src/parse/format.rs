@@ -44,6 +44,9 @@ impl FormatConfig {
         let transform_context = TransformContext {
             team_id: model.team_id,
             token: context.get_token_for_team_id(model.team_id).await?,
+            identify_cache: context.identify_cache.clone(),
+            import_events: model.import_config.import_events,
+            generate_identify_events: model.import_config.generate_identify_events,
         };
 
         match content {
@@ -84,15 +87,16 @@ impl FormatConfig {
                 let parser = move |data| {
                     let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
-                    let result: Result<_, Error> = parsed
+                    let result: Vec<_> = parsed
                         .data
                         .into_par_iter()
                         .map(&event_transform)
-                        .filter_map(|x| x.transpose())
+                        .filter_map(|x| x.ok())
+                        .flatten()
                         .collect();
 
                     Ok(Parsed {
-                        data: result?,
+                        data: result,
                         consumed,
                     })
                 };
