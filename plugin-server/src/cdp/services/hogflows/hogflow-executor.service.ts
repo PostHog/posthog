@@ -140,6 +140,11 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
 
+        const earlyExitResult = await this.shouldExitEarly(invocation)
+        if (earlyExitResult) {
+            return earlyExitResult
+        }
+
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
@@ -208,6 +213,91 @@ export class HogFlowExecutorService {
         }
 
         return finalResult
+    }
+
+    /**
+     * Determines if the invocation should exit early based on the hogflow's exit condition
+     */
+    private async shouldExitEarly(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
+        let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
+
+        // Respect exit_condition before executing actions
+        const hogFlow = invocation.hogFlow
+        const person = invocation.person
+        const triggerFilters = hogFlow.trigger?.filters
+        const conversionFilters = hogFlow.conversion?.filters
+        let shouldExit = false
+        let exitReason = ''
+
+        // Always evaluate both filter matches up front using filterFunctionInstrumented
+        let triggerMatch: boolean | undefined = undefined
+        let conversionMatch: boolean | undefined = undefined
+
+        // Use the same filter evaluation as in buildHogFlowInvocations
+        if (triggerFilters && person) {
+            const filterResult = await filterFunctionInstrumented({
+                fn: hogFlow,
+                filters: triggerFilters,
+                filterGlobals: invocation.filterGlobals,
+                eventUuid: invocation.state?.event?.uuid,
+            })
+            triggerMatch = filterResult.match
+        }
+        if (conversionFilters && person) {
+            const filterResult = await filterFunctionInstrumented({
+                fn: hogFlow,
+                filters: conversionFilters,
+                filterGlobals: invocation.filterGlobals,
+                eventUuid: invocation.state?.event?.uuid,
+            })
+            conversionMatch = filterResult.match
+        }
+
+        switch (hogFlow.exit_condition) {
+            case 'exit_on_trigger_not_matched':
+                if (triggerMatch === false) {
+                    shouldExit = true
+                    exitReason = 'Person no longer matches trigger filters'
+                }
+                break
+            case 'exit_on_conversion':
+                if (conversionMatch === true) {
+                    shouldExit = true
+                    exitReason = 'Person matches conversion filters'
+                }
+                break
+            case 'exit_on_trigger_not_matched_or_conversion':
+                if (triggerMatch === false || conversionMatch === true) {
+                    shouldExit = true
+                    exitReason =
+                        triggerMatch === false
+                            ? 'Person no longer matches trigger filters'
+                            : 'Person matches conversion filters'
+                }
+                break
+        }
+
+        if (shouldExit) {
+            earlyExitResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+            earlyExitResult.finished = true
+            earlyExitResult.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `Workflow exited early due to exit_condition: ${hogFlow.exit_condition} (${exitReason})`,
+            })
+            earlyExitResult.metrics.push({
+                team_id: hogFlow.team_id,
+                app_source_id: hogFlow.id,
+                instance_id: invocation.state?.currentAction?.id || 'exit_condition',
+                metric_kind: 'other',
+                metric_name: 'filtered',
+                count: 1,
+            })
+        }
+
+        return earlyExitResult
     }
 
     private async executeCurrentAction(
