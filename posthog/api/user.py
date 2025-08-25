@@ -53,6 +53,7 @@ from posthog.auth import (
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
+from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
@@ -66,7 +67,6 @@ from posthog.tasks.email import (
     send_two_factor_auth_disabled_email,
     send_two_factor_auth_enabled_email,
 )
-from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.user_permissions import UserPermissions
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")

@@ -1,10 +1,12 @@
-import datetime
 import time
-from django.http import HttpRequest
+import datetime
+
 from django.conf import settings
+from django.http import HttpRequest
+
 from loginas.utils import is_impersonated_session
-from two_factor.utils import default_device
 from rest_framework.exceptions import PermissionDenied
+from two_factor.utils import default_device
 
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 8, 25)
