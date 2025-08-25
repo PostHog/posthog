@@ -8,8 +8,9 @@ from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
-from .utils import generate_random_token
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+
+from .utils import generate_random_token
 
 ModeType = Literal["sha256", "pbkdf2"]
 PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (

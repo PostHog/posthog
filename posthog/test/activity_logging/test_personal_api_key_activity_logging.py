@@ -1,8 +1,9 @@
 from unittest.mock import MagicMock, patch
-from posthog.models.activity_logging.personal_api_key_utils import calculate_scope_change_logs
+
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.team.team import Team
+from posthog.models.activity_logging.personal_api_key_utils import calculate_scope_change_logs
 from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 

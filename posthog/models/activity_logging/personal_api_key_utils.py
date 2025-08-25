@@ -1,13 +1,14 @@
 import uuid
+import dataclasses
 from collections import namedtuple
 from typing import Optional
 
 from django.db.models import Count
+
 from posthog.models import PersonalAPIKey
-from posthog.models.activity_logging.activity_log import Detail, bulk_log_activity, ActivityContextBase
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, bulk_log_activity
 from posthog.models.team.team import Team
 from posthog.user_permissions import UserPermissions
-import dataclasses
 
 LogScope = namedtuple("LogScope", ["org_id", "team_id"])
 
