@@ -1,47 +1,40 @@
 import { FEATURE_FLAGS } from 'lib/constants'
-import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-const EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS: Record<string, string[]> = {
-    prioritized: ['Product analytics', 'Web analytics'],
-    prioritized_web_first: ['Web analytics', 'Product analytics'],
+import { FileSystemImport } from '~/queries/schema/schema-general'
+
+import { getDefaultTreeProducts } from './defaultTree'
+
+const EXPERIMENT_ANALYTICS_VISUAL_ORDER: Record<string, Record<string, number>> = {
+    prioritized: {
+        'Product analytics': 10,
+        'Web analytics': 20,
+    },
+    prioritized_web_first: {
+        'Web analytics': 10,
+        'Product analytics': 20,
+    },
 }
 
-export const getSortOverride = (
-    featureFlags: FeatureFlagsSet
-): ((a: TreeDataItem, b: TreeDataItem) => number | null) | undefined => {
+export const getExperimentalProductsTree = (featureFlags: FeatureFlagsSet): FileSystemImport[] | null => {
     const flagValue = featureFlags[FEATURE_FLAGS.SIDEBAR_ANALYTICS_PRIORITIZATION]
 
     // Early return if experiment is not enabled
-    if (!flagValue || typeof flagValue !== 'string' || !(flagValue in EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS)) {
-        return undefined
-    }
-
-    const prioritizedItems = EXPERIMENT_PRIORITIZED_ANALYTICS_ITEMS[flagValue]
-
-    return (a: TreeDataItem, b: TreeDataItem): number | null => {
-        // Only apply custom sorting to Analytics category items
-        if (a.record?.category !== 'Analytics' || b.record?.category !== 'Analytics') {
-            return null
-        }
-
-        const aIndex = prioritizedItems.indexOf(a.name)
-        const bIndex = prioritizedItems.indexOf(b.name)
-
-        // If both are in prioritized list, sort by their position on our priority list
-        if (aIndex !== -1 && bIndex !== -1) {
-            return aIndex - bIndex
-        }
-
-        // If only one is prioritized, it comes first
-        if (aIndex !== -1) {
-            return -1
-        }
-        if (bIndex !== -1) {
-            return 1
-        }
-
-        // If neither is prioritized, maintain default sort (return null for fallback)
+    if (!flagValue || typeof flagValue !== 'string' || !(flagValue in EXPERIMENT_ANALYTICS_VISUAL_ORDER)) {
         return null
     }
+
+    const visualOrders = EXPERIMENT_ANALYTICS_VISUAL_ORDER[flagValue]
+    const products = getDefaultTreeProducts()
+
+    // Override visualOrder for analytics items based on experiment
+    return products.map((product) => {
+        if (product.category === 'Analytics' && product.path in visualOrders) {
+            return {
+                ...product,
+                visualOrder: visualOrders[product.path],
+            }
+        }
+        return product
+    })
 }
