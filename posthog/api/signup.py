@@ -6,7 +6,6 @@ import structlog
 import posthoganalytics
 from django import forms
 from django.conf import settings
-from django.utils import timezone
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -38,8 +37,7 @@ from posthog.models import (
 )
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupIPThrottle
-from posthog.utils import get_can_create_org, is_relative_url, get_short_user_agent, get_ip_address
-from posthog.tasks.email import login_from_new_device_notification
+from posthog.utils import get_can_create_org, is_relative_url
 from posthog.helpers.email_utils import EmailValidationHelper
 
 logger = structlog.get_logger(__name__)
@@ -662,20 +660,3 @@ def social_create_user(
     )
 
     return {"is_new": True, "user": user}
-
-
-def social_login_notification(strategy: DjangoStrategy, backend, user: Optional[User] = None, **kwargs):
-    """Final pipeline step to notify on OAuth/SAML login"""
-    if not user:
-        return
-
-    request = strategy.request
-
-    # If the user is re-authenticating, we don't want to send a notification
-    reauth = strategy.session_get("reauth")
-    if reauth == "true":
-        return
-
-    short_user_agent = get_short_user_agent(request)
-    ip_address = get_ip_address(request)
-    login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
