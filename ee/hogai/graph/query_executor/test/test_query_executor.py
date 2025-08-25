@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import Mock, patch
 
 from django.test import override_settings
@@ -14,6 +14,7 @@ from posthog.schema import (
     AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
+    AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     FunnelsQuery,
     HogQLQuery,
@@ -333,26 +334,18 @@ class TestAssistantQueryExecutor(BaseTest):
         result, used_fallback = self.query_runner.run_and_format_query(query)
         self.assertIn("Date|test2", result)
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
-    async def test_runs_in_async_context(self, mock_process_query):
+
+class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        with freeze_time("2025-01-20T12:00:00Z"):
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+
+    async def test_runs_in_async_context(self):
         """Test successful execution and formatting of funnels query"""
-        mock_process_query.return_value = {
-            "results": [
-                {
-                    "action_id": "test",
-                    "name": "test",
-                    "order": 0,
-                    "count": 100,
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                }
-            ]
-        }
-
-        query = AssistantFunnelsQuery(series=[])
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="event")])
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
-
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
-        self.assertIn("Metric|test", result)
-        mock_process_query.assert_called_once()

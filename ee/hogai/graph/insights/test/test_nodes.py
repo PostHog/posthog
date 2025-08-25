@@ -1,7 +1,7 @@
 import asyncio
 from datetime import timedelta
 
-from posthog.test.base import BaseTest
+from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -28,7 +28,12 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
 
-class TestInsightSearchNode(BaseTest):
+# TRICKY: Preserve the non-atomic setup for the test. Otherwise, threads would stall because
+# `query_executor.arun_and_format_query` spawns threads with a new connection.
+class TestInsightSearchNode(NonAtomicBaseTest):
+    # TRICKY: See above.
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self):
         super().setUp()
         self.node = InsightSearchNode(self.team, self.user)
@@ -107,11 +112,11 @@ class TestInsightSearchNode(BaseTest):
     async def test_load_insights_page_unique_only(self):
         """Test that load_insights_page returns unique insights only."""
         # Update existing insight view to simulate multiple views
-        InsightViewed.objects.filter(
+        await InsightViewed.objects.filter(
             team=self.team,
             user=self.user,
             insight=self.insight1,
-        ).update(last_viewed_at=timezone.now())
+        ).aupdate(last_viewed_at=timezone.now())
 
         first_page = await self.node._load_insights_page(0)
 
@@ -475,8 +480,8 @@ class TestInsightSearchNode(BaseTest):
     async def test_team_filtering(self):
         """Test that insights are filtered by team."""
         # Create insight for different team
-        other_team = self.organization.teams.create()
-        other_insight = Insight.objects.create(
+        other_team = await self.organization.teams.acreate()
+        other_insight = await Insight.objects.acreate(
             team=other_team,
             name="Other Team Insight",
             query={
@@ -488,7 +493,7 @@ class TestInsightSearchNode(BaseTest):
             },
             created_by=self.user,
         )
-        InsightViewed.objects.create(
+        await InsightViewed.objects.acreate(
             team=other_team,
             user=self.user,
             insight=other_insight,
@@ -607,7 +612,7 @@ class TestInsightSearchNode(BaseTest):
         mock_final_response.tool_calls = None
 
         mock_llm = MagicMock()
-        mock_llm.invoke.side_effect = [mock_tool_response, mock_final_response]
+        mock_llm.ainvoke = AsyncMock(side_effect=[mock_tool_response, mock_final_response])
         mock_openai.return_value.bind_tools.return_value = mock_llm
 
         result = await self.node._evaluate_insights_with_tools(
@@ -691,8 +696,8 @@ class TestInsightSearchNode(BaseTest):
             ]
 
             mock_llm = MagicMock()
-            mock_llm.invoke.return_value = mock_response
-            mock_openai.return_value = mock_llm
+            mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+            mock_openai.return_value.bind_tools.return_value = mock_llm
 
             # Test evaluation with non-executable insight
             result = await self.node._evaluate_insights_with_tools([99999], "test query", max_selections=1)
@@ -720,7 +725,7 @@ class TestInsightSearchNode(BaseTest):
         ]
 
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = mock_response
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
         mock_openai.return_value.bind_tools.return_value = mock_llm
 
         result = await self.node._evaluate_insights_with_tools(
@@ -758,7 +763,7 @@ class TestInsightSearchNode(BaseTest):
         mock_final_response.tool_calls = None
 
         mock_llm = MagicMock()
-        mock_llm.invoke.side_effect = [mock_tool_response, mock_final_response]
+        mock_llm.ainvoke = AsyncMock(side_effect=[mock_tool_response, mock_final_response])
         mock_openai.return_value.bind_tools.return_value = mock_llm
 
         # Test with max_selections=2
@@ -821,7 +826,7 @@ class TestInsightSearchNode(BaseTest):
                 )
             )
         )
-        insight = Insight.objects.create(
+        insight = await Insight.objects.acreate(
             team=self.team,
             name="Retention Query",
             description="Retention Query",
@@ -829,7 +834,7 @@ class TestInsightSearchNode(BaseTest):
             filters={},
             created_by=self.user,
         )
-        InsightViewed.objects.create(
+        await InsightViewed.objects.acreate(
             team=self.team,
             user=self.user,
             insight=insight,
@@ -854,7 +859,7 @@ class TestInsightSearchNode(BaseTest):
     async def test_returns_visualization_message_with_hogql_query(self):
         """Test that VisualizationMessage answer field contains HogQLQuery."""
         query = DataTableNode(source=HogQLQuery(query="SELECT 1"))
-        insight = Insight.objects.create(
+        insight = await Insight.objects.acreate(
             team=self.team,
             name="HogQL Query",
             description="HogQL Query",
@@ -862,7 +867,7 @@ class TestInsightSearchNode(BaseTest):
             filters={},
             created_by=self.user,
         )
-        InsightViewed.objects.create(
+        await InsightViewed.objects.acreate(
             team=self.team,
             user=self.user,
             insight=insight,
