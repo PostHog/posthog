@@ -8,6 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { colonDelimitedDuration } from 'lib/utils'
+import { parseTimestampToMs } from 'lib/utils/timestamps'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { asDisplay } from 'scenes/persons/person-utils'
 import {
@@ -219,31 +220,4 @@ export function buildRecordingContent(sessionRecordingId: string): JSONContent {
             id: sessionRecordingId,
         },
     }
-}
-
-// Utilities: parse and format timestamps like "54s", "1:23", "00:01:23"
-function parseTimestampToMs(input?: string | null): number | undefined {
-    if (!input) {
-        return undefined
-    }
-    const value = String(input).trim()
-    if (!value) {
-        return undefined
-    }
-    // mm:ss or hh:mm:ss
-    const parts = value.split(':').map((p) => parseInt(p, 10))
-    if (parts.every((n) => !Number.isNaN(n))) {
-        let seconds = 0
-        if (parts.length === 2) {
-            const [mm, ss] = parts
-            seconds = mm * 60 + ss
-        } else if (parts.length === 3) {
-            const [hh, mm, ss] = parts
-            seconds = hh * 3600 + mm * 60 + ss
-        }
-        if (seconds > 0) {
-            return seconds * 1000
-        }
-    }
-    return undefined
 }
