@@ -247,12 +247,7 @@ fn evaluate_cohort_values(
                     let cohort_result =
                         apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
                     // Apply negation if specified
-                    let final_result = if filter.negation.unwrap_or(false) {
-                        !cohort_result
-                    } else {
-                        cohort_result
-                    };
-                    if !final_result {
+                    if cohort_result == filter.negation.unwrap_or(false) {
                         return Ok(false);
                     }
                 } else {
