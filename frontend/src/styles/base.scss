@@ -607,24 +607,24 @@
     --data-color-15: #30d5c8;
 
     // Lifecycle series (compiled)
-    --lifecycle-new: #1d4aff;
-    --lifecycle-returning: #388600;
-    --lifecycle-resurrecting: #a56eff;
-    --lifecycle-dormant: #db3707;
-    --lifecycle-new-hover: rgb(0 36.23894 182);
-    --lifecycle-returning-hover: rgb(13.37313 32 0);
-    --lifecycle-resurrecting-hover: rgb(101.68966 8 255);
-    --lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
+    --color-lifecycle-new: #1d4aff;
+    --color-lifecycle-returning: #388600;
+    --color-lifecycle-resurrecting: #a56eff;
+    --color-lifecycle-dormant: #db3707;
+    --color-lifecycle-new-hover: rgb(0 36.23894 182);
+    --color-lifecycle-returning-hover: rgb(13.37313 32 0);
+    --color-lifecycle-resurrecting-hover: rgb(101.68966 8 255);
+    --color-lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
 
     // Revenue analytics MRR series (compiled)
-    --revenue-analytics-revenue-new: #1d4aff;
-    --revenue-analytics-revenue-expansion: #388600;
-    --revenue-analytics-revenue-contraction: #ffa500;
-    --revenue-analytics-revenue-churn: #db3707;
-    --revenue-analytics-revenue-new-hover: rgb(0 36.23894 182);
-    --revenue-analytics-revenue-expansion-hover: rgb(13.37313 32 0);
-    --revenue-analytics-revenue-contraction-hover: rgb(162 108 7);
-    --revenue-analytics-revenue-churn-hover: rgb(120.15929 30.17699 3.84071);
+    --color-revenue-analytics-new: #1d4aff;
+    --color-revenue-analytics-expansion: #388600;
+    --color-revenue-analytics-contraction: #ffa500;
+    --color-revenue-analytics-churn: #db3707;
+    --color-revenue-analytics-new-hover: rgb(0 36.23894 182);
+    --color-revenue-analytics-expansion-hover: rgb(13.37313 32 0);
+    --color-revenue-analytics-contraction-hover: rgb(162 108 7);
+    --color-revenue-analytics-churn-hover: rgb(120.15929 30.17699 3.84071);
 
     // Z-indexes
     --z-bottom-notice: 1450;

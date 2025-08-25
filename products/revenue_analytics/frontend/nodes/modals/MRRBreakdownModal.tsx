@@ -10,22 +10,22 @@ import { mrrBreakdownModalLogic } from './mrrBreakdownModalLogic'
 
 const LEGEND_ITEMS = [
     {
-        key: 'new',
+        key: 'revenue-analytics-new',
         label: 'New',
         description: 'Revenue from new customers',
     },
     {
-        key: 'expansion',
+        key: 'revenue-analytics-expansion',
         label: 'Expansion',
         description: 'Additional revenue from existing customers',
     },
     {
-        key: 'contraction',
+        key: 'revenue-analytics-contraction',
         label: 'Contraction',
         description: 'Revenue lost from existing customers due to downgrades/less usage',
     },
     {
-        key: 'churn',
+        key: 'revenue-analytics-churn',
         label: 'Churn',
         description: 'Revenue lost from customers who cancelled/stopped using the product',
     },
@@ -42,7 +42,7 @@ function MRRLegend(): JSX.Element {
                     <div key={item.key} className="flex items-center gap-3">
                         <div
                             className="w-4 h-4 rounded-sm flex-shrink-0"
-                            style={{ backgroundColor: `var(--revenue-analytics-revenue-${item.key})` }}
+                            style={{ backgroundColor: `var(--color-${item.key})` }}
                         />
                         <div>
                             <span className="font-semibold text-primary">{item.label}:</span>

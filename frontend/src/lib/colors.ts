@@ -96,7 +96,7 @@ export function getTrendLikeSeriesColor(index: number, isPrevious: boolean): str
  * Hexadecimal is necessary as Chart.js doesn't work with CSS vars.
  */
 export function getBarColorFromStatus(
-    status: LifecycleToggle | keyof RevenueAnalyticsRevenueQueryResultItem,
+    status: LifecycleToggle | `revenue-analytics-${keyof RevenueAnalyticsRevenueQueryResultItem}`,
     hover?: boolean
 ): string {
     switch (status) {
@@ -104,12 +104,12 @@ export function getBarColorFromStatus(
         case 'returning':
         case 'resurrecting':
         case 'dormant':
-            return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
-        case 'new': // Wont' work because of the switch statement above,  but it's same color, it's fine
-        case 'expansion':
-        case 'contraction':
-        case 'churn':
-            return getColorVar(`revenue-analytics-revenue-${status}${hover ? '-hover' : ''}`)
+            return getColorVar(`color-lifecycle-${status}${hover ? '-hover' : ''}`)
+        case 'revenue-analytics-new':
+        case 'revenue-analytics-expansion':
+        case 'revenue-analytics-contraction':
+        case 'revenue-analytics-churn':
+            return getColorVar(`color-${status}${hover ? '-hover' : ''}`)
         default:
             throw new Error(`Unknown lifecycle status: ${status}`)
     }

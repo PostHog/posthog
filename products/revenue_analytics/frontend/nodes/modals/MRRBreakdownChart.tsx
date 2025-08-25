@@ -23,10 +23,10 @@ export function MRRBreakdownChart(): JSX.Element {
     }
 
     const { labels, datasets } = extractLabelAndDatasets([
-        ...newDatasets.map((dataset) => ({ ...dataset, status: 'new' })),
-        ...expansionDatasets.map((dataset) => ({ ...dataset, status: 'expansion' })),
-        ...contractionDatasets.map((dataset) => ({ ...dataset, status: 'contraction' })),
-        ...churnDatasets.map((dataset) => ({ ...dataset, status: 'churn' })),
+        ...newDatasets.map((dataset) => ({ ...dataset, status: 'revenue-analytics-new' })),
+        ...expansionDatasets.map((dataset) => ({ ...dataset, status: 'revenue-analytics-expansion' })),
+        ...contractionDatasets.map((dataset) => ({ ...dataset, status: 'revenue-analytics-contraction' })),
+        ...churnDatasets.map((dataset) => ({ ...dataset, status: 'revenue-analytics-churn' })),
     ])
 
     // Make sure they're properly sorted by id in the order we want above
