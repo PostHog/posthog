@@ -573,6 +573,8 @@ class SnowflakeClient:
         table_name: str,
         table_stage_prefix: str,
         table_fields: list[SnowflakeField],
+        # TODO: remove this once we've migrated to the new pipeline
+        file_format: typing.Literal["Parquet", "JSONLines"],
         known_json_columns: list[str],
     ) -> None:
         """Execute a COPY query in Snowflake to load any files PUT into the table stage.
@@ -583,21 +585,31 @@ class SnowflakeClient:
             table_name: The table we are COPY-ing files into.
             table_stage_prefix: The prefix of the table stage.
             table_fields: The fields of the table.
+            file_format: The format of the files to load.
             known_json_columns: The columns that are JSON (NOTE: we can't just inspect the schema of the table fields to
                 check for VARIANT columns since not all VARIANT columns will be JSON, eg `elements`).
         """
-        select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field[0]}")' if field[0] in known_json_columns else f'$1:"{field[0]}"'
-            for field in table_fields
-        )
-        query = f"""
-        COPY INTO "{table_name}"
-        FROM (
-            SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
-        )
-        FILE_FORMAT = (TYPE = 'PARQUET')
-        PURGE = TRUE
-        """
+        if file_format == "Parquet":
+            select_fields = ", ".join(
+                f'PARSE_JSON($1:"{field[0]}")' if field[0] in known_json_columns else f'$1:"{field[0]}"'
+                for field in table_fields
+            )
+            query = f"""
+            COPY INTO "{table_name}"
+            FROM (
+                SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
+            )
+            FILE_FORMAT = (TYPE = 'PARQUET')
+            PURGE = TRUE
+            """
+        else:
+            query = f"""
+            COPY INTO "{table_name}"
+            FROM '@%"{table_name}"/{table_stage_prefix}'
+            FILE_FORMAT = (TYPE = 'JSON')
+            MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
+            PURGE = TRUE
+            """
 
         # We need to explicitly catch the exception here because otherwise it seems to be swallowed
         try:
@@ -1146,6 +1158,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                         snow_stage_table if requires_merge else snow_table,
                         data_interval_end_str,
                         table_fields,
+                        file_format="JSONLines",
                         known_json_columns=known_variant_columns,
                     )
 
@@ -1268,6 +1281,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     snow_stage_table if requires_merge else snow_table,
                     data_interval_end_str,
                     table_fields,
+                    file_format="Parquet",
                     known_json_columns=known_variant_columns,
                 )
 
