@@ -1,5 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -25,22 +27,27 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     key(({ insightId }) => `insight-${insightId}`),
     actions({
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
-        refreshInsightAlerts: true,
+        refreshAlertsFromAPI: true,
     }),
 
     connect((props: InsightAlertsLogicProps) => ({
-        actions: [
-            insightVizDataLogic(props.insightLogicProps),
-            ['setQuery'],
-            insightLogic(props.insightLogicProps),
-            ['loadInsight'],
-        ],
+        actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
         values: [
             insightVizDataLogic(props.insightLogicProps),
             ['showAlertThresholdLines'],
             insightLogic(props.insightLogicProps),
             ['insight'],
         ],
+    })),
+
+    loaders(({ props }) => ({
+        alertsFromAPI: {
+            __default: [] as AlertType[],
+            loadAlerts: async () => {
+                const response = await api.alerts.list(props.insightId)
+                return response.results
+            },
+        },
     })),
 
     reducers({
@@ -53,15 +60,21 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     selectors({
-        effectiveAlerts: [
-            (s) => [s.insight],
-            (insight): AlertType[] => {
-                // Use embedded alerts from insight data
+        // Use embedded alerts from insight (efficient for dashboard loading)
+        // but fall back to API alerts when available (for when we refresh after operations)
+        alerts: [
+            (s) => [s.insight, s.alertsFromAPI, s.alertsFromAPILoading],
+            (insight, alertsFromAPI, alertsFromAPILoading): AlertType[] => {
+                if (!alertsFromAPILoading && alertsFromAPI.length > 0) {
+                    // Use fresh API data when available
+                    return alertsFromAPI
+                }
+                // Fall back to embedded insight data (efficient for dashboard loading)
                 return insight?.alerts && Array.isArray(insight.alerts) ? insight.alerts : []
             },
         ],
         alertThresholdLines: [
-            (s) => [s.effectiveAlerts, s.showAlertThresholdLines],
+            (s) => [s.alerts, s.showAlertThresholdLines],
             (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
                 const result = alerts.flatMap((alert) => {
                     if (
@@ -98,14 +111,11 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        refreshInsightAlerts: async () => {
-            // Refresh the insight data to get updated alerts
-            if (values.insight?.short_id) {
-                actions.loadInsight(values.insight.short_id)
-            }
+        refreshAlertsFromAPI: async () => {
+            actions.loadAlerts()
         },
         setQuery: ({ query }) => {
-            if (values.effectiveAlerts.length === 0 || areAlertsSupportedForInsight(query)) {
+            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)

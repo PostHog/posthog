@@ -20,7 +20,7 @@ export type AlertsButtonProps = LemonButtonProps & {
 export function AlertsButton({ insight, insightLogicProps, text, ...props }: AlertsButtonProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
-    const { effectiveAlerts } = useValues(logic)
+    const { alerts } = useValues(logic)
 
     return (
         <LemonButton
@@ -33,7 +33,7 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
             }
             {...props}
             icon={
-                <IconWithCount count={effectiveAlerts?.length} showZero={false}>
+                <IconWithCount count={alerts?.length} showZero={false}>
                     <IconBell />
                 </IconWithCount>
             }

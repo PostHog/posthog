@@ -15,8 +15,8 @@ import {
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
-import { AlertType, AlertTypeWrite } from './types'
 import { insightAlertsLogic } from './insightAlertsLogic'
+import { AlertType, AlertTypeWrite } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -69,13 +69,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     connect((props: AlertFormLogicProps) => ({
         values: [trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }), ['goalLines']],
-        actions: props.insightVizDataLogicProps ? [
-            insightAlertsLogic({ 
-                insightId: props.insightId, 
-                insightLogicProps: props.insightVizDataLogicProps 
-            }), 
-            ['refreshInsightAlerts']
-        ] : [],
+        actions: props.insightVizDataLogicProps
+            ? [
+                  insightAlertsLogic({
+                      insightId: props.insightId,
+                      insightLogicProps: props.insightVizDataLogicProps,
+                  }),
+                  ['loadAlerts'],
+              ]
+            : [],
     })),
 
     actions({
@@ -172,12 +174,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             await api.alerts.delete(values.alertForm.id)
             lemonToast.success('Alert deleted.')
-            
-            // Refresh insight alerts data
+
+            // Refresh alerts data using API (more efficient than reloading whole insight)
             if (props.insightVizDataLogicProps) {
-                actions.refreshInsightAlerts()
+                actions.loadAlerts()
             }
-            
+
             props.onEditSuccess(undefined)
         },
         snoozeAlert: async ({ snoozeUntil }) => {
@@ -186,12 +188,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot snooze alert that doesn't exist")
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
-            
-            // Refresh insight alerts data
+
+            // Refresh alerts data using API (more efficient than reloading whole insight)
             if (props.insightVizDataLogicProps) {
-                actions.refreshInsightAlerts()
+                actions.loadAlerts()
             }
-            
+
             props.onEditSuccess(values.alertForm.id)
         },
         clearSnooze: async () => {
@@ -200,18 +202,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot resolve alert that doesn't exist")
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: null })
-            
-            // Refresh insight alerts data
+
+            // Refresh alerts data using API (more efficient than reloading whole insight)
             if (props.insightVizDataLogicProps) {
-                actions.refreshInsightAlerts()
+                actions.loadAlerts()
             }
-            
+
             props.onEditSuccess(values.alertForm.id)
         },
         // Also refresh after successful form submission (create/update)
         submitAlertFormSuccess: async () => {
             if (props.insightVizDataLogicProps) {
-                actions.refreshInsightAlerts()
+                actions.loadAlerts()
             }
         },
     })),
