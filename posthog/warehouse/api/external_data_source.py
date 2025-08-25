@@ -1,7 +1,9 @@
 import uuid
+import dataclasses
 from typing import Any
 
 from django.db.models import Prefetch, Q
+from django.dispatch import receiver
 
 import structlog
 import temporalio
@@ -16,6 +18,8 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.signals import model_activity_signal
 from posthog.models.user import User
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.config import Config
@@ -30,10 +34,6 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
-from django.dispatch import receiver
-from posthog.models.signals import model_activity_signal
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
-import dataclasses
 
 logger = structlog.get_logger(__name__)
 
@@ -634,8 +634,8 @@ def handle_external_data_source_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     from posthog.models.activity_logging.external_data_utils import (
-        get_external_data_source_detail_name,
         get_external_data_source_created_by_info,
+        get_external_data_source_detail_name,
     )
 
     # Use after_update for create/update, before_update for delete

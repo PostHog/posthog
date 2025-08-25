@@ -1,5 +1,5 @@
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.test.activity_log_utils import ActivityLogTestHelper
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
 class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
@@ -20,8 +20,9 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         self.assertIn("sync_frequency_interval", external_data_schema_exclusions)
 
     def test_external_data_schema_scope_in_activity_log_types(self):
-        from posthog.models.activity_logging.activity_log import ActivityScope
         from typing import get_args
+
+        from posthog.models.activity_logging.activity_log import ActivityScope
 
         self.assertIn("ExternalDataSchema", get_args(ActivityScope))
 
