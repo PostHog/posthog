@@ -27,7 +27,7 @@ export function SceneAlertsButton({
     const { push } = useActions(router)
 
     const logic = insightAlertsLogic({ insightId, insightLogicProps })
-    const { alerts } = useValues(logic)
+    const { effectiveAlerts } = useValues(logic)
 
     return (
         <ButtonPrimitive
@@ -35,7 +35,7 @@ export function SceneAlertsButton({
             onClick={() => push(urls.insightAlerts(insightShortId))}
             data-attr={`${dataAttrKey}-alerts-dropdown-menu-item`}
         >
-            <IconWithCount count={alerts?.length} showZero={false}>
+            <IconWithCount count={effectiveAlerts?.length} showZero={false}>
                 <IconWarning />
             </IconWithCount>
             Alerts

@@ -74,7 +74,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts } = useValues(logic)
+    const { effectiveAlerts } = useValues(logic)
 
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
@@ -91,13 +91,13 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     </Link>
                 </div>
 
-                {alerts.length ? (
+                {effectiveAlerts.length ? (
                     <div className="deprecated-space-y-2">
                         <div>
-                            <strong>{alerts?.length}</strong> {pluralize(alerts.length || 0, 'alert', 'alerts', false)}
+                            <strong>{effectiveAlerts?.length}</strong> {pluralize(effectiveAlerts.length || 0, 'alert', 'alerts', false)}
                         </div>
 
-                        {alerts.map((alert) => (
+                        {effectiveAlerts.map((alert) => (
                             <AlertListItem
                                 key={alert.id}
                                 alert={alert}

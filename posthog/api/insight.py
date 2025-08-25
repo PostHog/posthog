@@ -80,7 +80,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.alert import are_alerts_supported_for_insight
+from posthog.models.alert import are_alerts_supported_for_insight, AlertConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -353,6 +353,7 @@ class InsightSerializer(InsightBasicSerializer):
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    alerts = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Insight
@@ -392,6 +393,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "_create_in_folder",
+            "alerts",
         ]
         read_only_fields = (
             "created_at",
@@ -638,6 +640,20 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
+    def get_alerts(self, insight: Insight):
+        from posthog.api.alert import AlertSerializer
+        
+        if not are_alerts_supported_for_insight(insight):
+            return []
+        
+        # Get alerts from prefetched data or query if not prefetched
+        if hasattr(insight, '_prefetched_alerts'):
+            alerts = insight._prefetched_alerts
+        else:
+            alerts = AlertConfiguration.objects.filter(insight=insight).select_related('created_by')
+        
+        return AlertSerializer(alerts, many=True, context=self.context).data
+
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -882,6 +898,11 @@ class InsightViewSet(
             Prefetch(
                 "dashboard_tiles",
                 queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
+            ),
+            Prefetch(
+                "alertconfiguration_set",
+                queryset=AlertConfiguration.objects.select_related("created_by"),
+                to_attr="_prefetched_alerts",
             ),
         )
 

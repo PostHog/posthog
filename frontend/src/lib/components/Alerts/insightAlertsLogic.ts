@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
@@ -30,7 +31,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     connect((props: InsightAlertsLogicProps) => ({
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
-        values: [insightVizDataLogic(props.insightLogicProps), ['showAlertThresholdLines']],
+        values: [
+            insightVizDataLogic(props.insightLogicProps), ['showAlertThresholdLines'],
+            insightLogic(props.insightLogicProps), ['insight']
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -38,7 +42,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             __default: [] as AlertType[],
             loadAlerts: async () => {
                 const response = await api.alerts.list(props.insightId)
-
                 return response.results
             },
         },
@@ -57,8 +60,18 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     selectors({
+        effectiveAlerts: [
+            (s) => [s.insight, s.alerts],
+            (insight, alerts): AlertType[] => {
+                // Use embedded alerts from insight if available (including empty arrays), otherwise use loaded alerts
+                if (insight?.alerts && Array.isArray(insight.alerts)) {
+                    return insight.alerts
+                }
+                return alerts
+            },
+        ],
         alertThresholdLines: [
-            (s) => [s.alerts, s.showAlertThresholdLines],
+            (s) => [s.effectiveAlerts, s.showAlertThresholdLines],
             (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
                 alerts.flatMap((alert) => {
                     if (
@@ -97,7 +110,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             await api.alerts.delete(alertId)
         },
         setQuery: ({ query }) => {
-            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
+            if (values.effectiveAlerts.length === 0 || areAlertsSupportedForInsight(query)) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)
@@ -105,5 +118,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => actions.loadAlerts()),
+    afterMount(({ actions, values }) => {
+        // Only load alerts if they're not already embedded in the insight data
+        if (!values.insight?.alerts || !Array.isArray(values.insight.alerts)) {
+            actions.loadAlerts()
+        }
+    }),
 ])
