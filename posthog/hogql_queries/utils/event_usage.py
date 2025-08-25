@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Any, Optional
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer
