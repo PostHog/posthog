@@ -47,6 +47,10 @@ pub struct InjectArgs {
     /// One or more directory glob patterns to ignore
     #[arg(short, long)]
     ignore: Vec<String>,
+
+    /// Whether to use stable IDs by hashing file contents instead of generating UUIDs
+    #[arg(long, default_value = "false")]
+    stable_ids: bool,
 }
 
 #[derive(clap::Args)]
@@ -78,6 +82,10 @@ pub struct UploadArgs {
     /// self-deployed instances
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
+
+    /// Whether to use stable IDs by hashing file contents instead of generating UUIDs
+    #[arg(long, default_value = "false")]
+    stable_ids: bool,
 }
 
 #[derive(Subcommand)]
@@ -100,7 +108,11 @@ impl Cli {
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
-                    sourcemap::inject::inject(&input_args.directory, &input_args.ignore)?;
+                    sourcemap::inject::inject(
+                        &input_args.directory,
+                        &input_args.ignore,
+                        input_args.stable_ids,
+                    )?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
                     let UploadArgs {
@@ -110,6 +122,7 @@ impl Cli {
                         version,
                         delete_after,
                         skip_ssl_verification,
+                        stable_ids: _,
                     } = upload_args;
                     sourcemap::upload::upload(
                         command.host,
@@ -129,9 +142,10 @@ impl Cli {
                         version,
                         delete_after,
                         skip_ssl_verification,
+                        stable_ids,
                     } = args;
 
-                    sourcemap::inject::inject(directory, ignore)?;
+                    sourcemap::inject::inject(directory, ignore, *stable_ids)?;
                     sourcemap::upload::upload(
                         command.host,
                         directory,
