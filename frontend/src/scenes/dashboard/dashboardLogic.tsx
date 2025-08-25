@@ -358,8 +358,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     try {
                         // Start unified streaming - metadata followed by tiles
-                        let tileCount = 0
-                        let dashboardMetadata = null
 
                         api.dashboards.streamTiles(
                             props.id,
@@ -369,24 +367,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             // onMessage callback - handles both metadata and tiles
                             (data) => {
                                 if (data.type === 'metadata') {
-                                    // Store metadata for when first tile arrives
-                                    dashboardMetadata = data.dashboard
+                                    const dashboardWithTiles = { ...data.dashboard, tiles: [] }
+                                    actions.loadDashboardMetadataSuccess(getQueryBasedDashboard(dashboardWithTiles))
                                 } else if (data.type === 'tile') {
-                                    tileCount++
-
-                                    // Add delays for progressive rendering
-                                    if (tileCount === 1) {
-                                        // First tile - create dashboard structure and render immediately
-
-                                        actions.receiveTileFromStream({
-                                            ...data,
-                                            dashboardMetadata,
-                                            createDashboard: true,
-                                        })
-                                    } else {
-                                        // Remaining tiles - render with progressive delays
-                                        setTimeout(() => actions.receiveTileFromStream(data), 1)
-                                    }
+                                    actions.receiveTileFromStream(data)
                                 }
                             },
                             // onComplete callback
@@ -400,11 +384,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         )
 
-                        // Return basic dashboard structure - streaming will populate it
+                        // Return basic dashboard structure - metadata will update the name
                         return {
                             id: props.id,
                             tiles: [],
-                            name: 'Loading...',
                         }
                     } catch (error: any) {
                         console.warn('⚠️ Streaming approach failed, falling back to regular loading:', error)
@@ -723,41 +706,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles,
                     } as DashboardType<QueryBasedInsightModel>
                 },
-                loadDashboardMetadataSuccess: (_, { dashboard }) => dashboard,
-                receiveTileFromStream: (state, { tile, createDashboard, dashboardMetadata }) => {
-                    // If this is the first tile, create the dashboard structure
-                    if (createDashboard && dashboardMetadata) {
-                        const dashboard = getQueryBasedDashboard({ ...dashboardMetadata, tiles: [] })
-                        state = dashboard
+                loadDashboardMetadataSuccess: (state, { dashboard }) => {
+                    // Merge metadata with existing state, preserving tiles
+                    return {
+                        ...dashboard,
+                        tiles: state?.tiles || [],
                     }
-
+                },
+                receiveTileFromStream: (state, { tile }) => {
                     if (!state || !state.tiles) {
                         return state
                     }
 
-                    // Transform the tile's insight to query-based format (same as getQueryBasedDashboard does)
                     const transformedTile = {
                         ...tile,
                         ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
                     }
 
-                    // Add or update tile in the dashboard
-                    const existingTileIndex = state.tiles.findIndex((t) => t.id === tile.id)
-                    let newTiles
-
-                    if (existingTileIndex >= 0) {
-                        // Update existing tile
-                        newTiles = [...state.tiles]
-                        newTiles[existingTileIndex] = transformedTile
-                    } else {
-                        // Add new tile in the correct order
-                        newTiles = [...state.tiles, transformedTile]
-                        newTiles.sort((a, b) => {
-                            const aOrder = a.order || 0
-                            const bOrder = b.order || 0
-                            return aOrder - bOrder
-                        })
-                    }
+                    let newTiles = [...state.tiles, transformedTile]
 
                     return {
                         ...state,

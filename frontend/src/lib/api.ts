@@ -2140,7 +2140,7 @@ const api = {
         async streamTiles(
             id: number,
             params: { layoutSize?: 'sm' | 'xs' } = {},
-            onTile: (tile: any) => void,
+            onMessage: (data: any) => void,
             onComplete: () => void,
             onError: (error: any) => void
         ): Promise<() => void> {
@@ -2163,12 +2163,12 @@ const api = {
                 onmessage: (event: EventSourceMessage) => {
                     try {
                         const data = JSON.parse(event.data)
-                        if (data.type === 'tile') {
-                            onTile(data)
-                        } else if (data.type === 'complete') {
+                        if (data.type === 'complete') {
                             onComplete()
                         } else if (data.type === 'error') {
                             onError(new Error(data.error || 'Streaming error'))
+                        } else {
+                            onMessage(data)
                         }
                     } catch (error) {
                         onError(error)
