@@ -81,7 +81,7 @@ class SQLFunctionCorrectness:
 
         functions = self._extract_functions_from_sql(output)
         if not functions:
-            return Score(name=self._name(), score=0, metadata={"reason": "No functions found in query"})
+            return Score(name=self._name(), score=None, metadata={"reason": "No functions found in query"})
 
         invalid_functions = set()
         for func in functions:

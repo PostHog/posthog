@@ -335,11 +335,11 @@ class TestMappings(BaseTest):
 
         self.assertEqual(get_correct_function_name("upper"), "upper")
         self.assertEqual(get_correct_function_name("UPPER"), "upper")
-        self.assertEqual(get_correct_function_name("upper"), "upper")
+        self.assertEqual(get_correct_function_name("Upper"), "upper")
 
         self.assertEqual(get_correct_function_name("concat"), "concat")
         self.assertEqual(get_correct_function_name("CONCAT"), "concat")
-        self.assertEqual(get_correct_function_name("concat"), "concat")
+        self.assertEqual(get_correct_function_name("Concat"), "concat")
 
         # Test case-sensitive functions - should normalize to correct casing regardless
         self.assertEqual(get_correct_function_name("toString"), "toString")
