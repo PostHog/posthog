@@ -109,12 +109,12 @@ class Command(BaseCommand):
 
             if candidates_for_deletion:
                 templates_to_delete = HogFunctionTemplate.objects.filter(template_id__in=candidates_for_deletion)
-                delete_count = templates_to_delete.count()
-                templates_to_delete.delete()
-                deleted_count += delete_count
+                deleted_count += templates_to_delete.delete()[0]
 
                 self.stdout.write(
-                    self.style.WARNING(f"Deleted {delete_count} unused templates: {', '.join(candidates_for_deletion)}")
+                    self.style.WARNING(
+                        f"Deleted {deleted_count} unused templates: {', '.join(candidates_for_deletion)}"
+                    )
                 )
         except Exception as e:
             logger.error("Error checking for unused templates", error=str(e), exc_info=True)
