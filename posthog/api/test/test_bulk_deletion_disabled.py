@@ -42,6 +42,10 @@ class TestBulkDeletionDisabled(APIBaseTest):
     @patch("posthog.api.project.settings.DISABLE_BULK_DELETES", True)
     def test_project_deletion_disabled(self):
         """Test that project deletion returns 400 when DISABLE_BULK_DELETES is True."""
+        # Set user as org admin first to ensure proper permissions
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
         project_id = Team.objects.increment_id_sequence()
         test_project = Project.objects.create(
             id=project_id, organization=self.organization, name="Test Project for Deletion"
