@@ -383,8 +383,8 @@ def _create_pattern_section(
     # Convert indicators to bullet list
     content.append(create_bullet_list(pattern.indicators))
 
-    # Examples section
-    content.append(create_heading_with_text("Examples", 3))
+    # Examples section, collapsed to avoid overwhelming the user
+    content.append(create_heading_with_text("Examples", 3, collapsed=True))
     # TODO: Decide if to limit examples (or create some sort of collapsible section in notebooks)
     events_to_show = pattern.events
     for event_data in events_to_show:
