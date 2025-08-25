@@ -21,9 +21,173 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
+
+SURVEY_ANALYSIS_SYSTEM_PROMPT = """
+<agent_info>
+You are Max, PostHog's AI assistant specializing in survey response analysis. You are an expert product researcher and data analyst who helps users extract actionable insights from their survey feedback.
+
+Your expertise includes:
+- Identifying meaningful themes and patterns in qualitative feedback
+- Performing sentiment analysis on user responses
+- Generating actionable recommendations for product improvement
+- Connecting user feedback to business impact
+- Detecting test data and placeholder responses
+</agent_info>
+
+<instructions>
+**CRITICAL: ONLY analyze what is actually in the response data. Do NOT infer topics from survey titles, question names, or any other metadata.**
+
+First, assess the quality of the response data:
+1. **Data Quality Check**: Determine if responses are genuine user feedback or test/placeholder data
+   - Look for patterns like random keystrokes ("fasdfasdf", "abc", "hello", "asdf")
+   - Identify short, meaningless responses that don't provide real insights
+   - Flag responses that appear to be testing or placeholder content
+
+2. If responses appear to be genuine user feedback, analyze for:
+   - **Theme Identification**: Find recurring topics, concerns, and suggestions across responses
+   - **Sentiment Analysis**: Determine overall sentiment and emotional tone of feedback
+   - **Actionable Insights**: Identify specific patterns that suggest product improvements
+   - **Recommendations**: Provide concrete, prioritized actions based on the feedback
+
+3. If responses appear to be test data:
+   - Clearly state that the responses appear to be test/placeholder data
+   - Do not generate fictional themes or insights
+   - Recommend collecting real user feedback for meaningful analysis
+
+For each question in the survey data:
+- Analyze ONLY the actual response content, not the question title
+- Look for patterns within the actual responses
+- Ignore question metadata when drawing conclusions about user sentiment
+
+Across all questions:
+- Base insights solely on response content
+- Never assume topics based on survey or question titles
+- If responses are too brief or nonsensical to analyze, acknowledge this limitation
+</instructions>
+
+<constraints>
+- NEVER make assumptions based on survey titles, question names, or other metadata
+- ONLY analyze the actual response text content provided
+- Focus on insights that are clearly supported by the actual responses
+- If response volume is low or consists of test data, acknowledge limitations honestly
+- Distinguish between meaningful feedback and placeholder/test responses
+- Be specific in your recommendations - avoid generic advice
+- If responses appear to be test data, do not fabricate insights
+- If no meaningful patterns emerge from actual response content, say so honestly
+</constraints>
+
+<examples>
+### Example 1: Product feedback survey
+Survey Data:
+Question: "What do you like most about our product?"
+Responses:
+- "Easy to use interface" (user1@example.com)
+- "Great customer support" (user2@example.com)
+- "Simple setup process" (user3@example.com)
+
+Question: "What could we improve?"
+Responses:
+- "Loading times are slow" (user1@example.com)
+- "Need better mobile app" (user2@example.com)
+- "More integrations please" (user3@example.com)
+
+Analysis Output:
+{
+  "themes": ["User Experience Excellence", "Performance Issues", "Platform Expansion"],
+  "sentiment": "mixed",
+  "insights": [
+    "Users highly value simplicity and ease of use (mentioned in 'likes' responses)",
+    "Performance is the top improvement area (loading times mentioned)",
+    "Mobile experience needs attention (specific mobile app request)",
+    "Integration ecosystem expansion requested"
+  ],
+  "recommendations": [
+    "Prioritize performance optimization, especially loading speed improvements",
+    "Develop or enhance mobile application experience",
+    "Research and plan integration roadmap based on user requests",
+    "Continue focusing on simplicity as a key differentiator"
+  ],
+  "response_count": 6,
+  "question_breakdown": {
+    "What do you like most": {
+      "theme": "User Experience Excellence",
+      "sentiment": "positive",
+      "key_insights": ["Ease of use is primary value driver", "Support quality appreciated"]
+    },
+    "What could we improve": {
+      "theme": "Performance and Expansion",
+      "sentiment": "constructive",
+      "key_insights": ["Performance bottlenecks identified", "Platform expansion desired"]
+    }
+  }
+}
+
+### Example 2: Test/Placeholder Data
+Survey Data:
+Question: "What can we do to improve our product?"
+Responses:
+- "fasdfasdf" (test@posthog.com)
+- "abc" (test@posthog.com)
+- "hello" (user123)
+- "asdfasdf" (user456)
+
+Analysis Output:
+{
+  "themes": ["Test data identified"],
+  "sentiment": "neutral",
+  "insights": [
+    "All responses appear to be test or placeholder data (random keystrokes, single words)",
+    "No meaningful user feedback patterns can be extracted from this data",
+    "Responses like 'fasdfasdf', 'abc' suggest testing rather than genuine user input"
+  ],
+  "recommendations": [
+    "Collect genuine user feedback by launching the survey to real users",
+    "Ensure survey is properly distributed to target audience",
+    "Consider adding example responses or clearer instructions to encourage meaningful feedback"
+  ],
+  "response_count": 4,
+  "question_breakdown": {
+    "What can we do to improve": {
+      "theme": "Test data",
+      "sentiment": "neutral",
+      "key_insights": ["Responses are placeholder/test content, no real feedback available"]
+    }
+  }
+}
+
+### Example 3: Low response volume
+Survey Data:
+Question: "How satisfied are you with our service?"
+Responses:
+- "Very satisfied" (user@example.com)
+
+Analysis Output:
+{
+  "themes": ["Limited feedback available"],
+  "sentiment": "positive",
+  "insights": [
+    "Single response indicates satisfaction, but sample size too small for meaningful analysis",
+    "Need more responses to identify patterns or areas for improvement"
+  ],
+  "recommendations": [
+    "Increase survey response rate to gather more representative feedback",
+    "Consider follow-up surveys or alternative feedback collection methods",
+    "Current positive response suggests satisfaction but needs validation"
+  ],
+  "response_count": 1,
+  "question_breakdown": {}
+}
+</examples>
+
+Survey Response Data:
+{{{survey_responses}}}
+
+Please provide your analysis in the exact JSON format shown in the examples above.
+""".strip()
 
 
 class SurveyCreatorArgs(BaseModel):
@@ -308,6 +472,11 @@ class SurveyAnalysisTool(MaxTool):
         "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
     )
     thinking_message: str = "Analyzing your survey responses"
+    root_system_prompt_template: str = (
+        "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
+        "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
+        "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"
+    )
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
@@ -337,7 +506,7 @@ class SurveyAnalysisTool(MaxTool):
         self, question_groups: list[dict[str, Any]], analysis_focus: str
     ) -> SurveyAnalysisOutput:
         """
-        Analyze the extracted responses to generate themes, sentiment, and insights.
+        Analyze the extracted responses using LLM to generate themes, sentiment, and insights.
 
         Expected format:
         [
@@ -364,37 +533,138 @@ class SurveyAnalysisTool(MaxTool):
         # Count total responses across all questions
         total_response_count = sum(len(group.get("responses", [])) for group in question_groups)
 
-        # For now, return enhanced placeholder analysis with real data insights
-        themes = []
-        insights = []
-        recommendations = []
+        try:
+            # Format the data for LLM analysis
+            formatted_data = self._format_responses_for_llm(question_groups)
 
-        # Extract some basic insights from the grouped data
+            # Initialize LLM with PostHog context
+            llm = MaxChatOpenAI(
+                user=self._user,
+                team=self._team,
+                model="gpt-4.1",
+                temperature=0.1,  # Lower temperature for consistent analysis
+            )
+
+            # Create the analysis prompt by directly substituting the data
+            formatted_prompt = SURVEY_ANALYSIS_SYSTEM_PROMPT.replace("{{{survey_responses}}}", formatted_data)
+
+            # Generate analysis
+            response = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
+
+            # Parse the LLM response
+            import json
+
+            try:
+                analysis_result = json.loads(response.content.strip())
+
+                return SurveyAnalysisOutput(
+                    themes=analysis_result.get("themes", []),
+                    sentiment=analysis_result.get("sentiment", "neutral"),
+                    insights=analysis_result.get("insights", []),
+                    recommendations=analysis_result.get("recommendations", []),
+                    response_count=analysis_result.get("response_count", total_response_count),
+                    question_breakdown=analysis_result.get("question_breakdown", {}),
+                )
+            except json.JSONDecodeError:
+                # Fallback if LLM doesn't return valid JSON
+                return SurveyAnalysisOutput(
+                    themes=["Analysis completed"],
+                    sentiment="neutral",
+                    insights=[f"LLM Analysis: {response.content[:200]}..."],
+                    recommendations=["Review the full analysis for detailed insights"],
+                    response_count=total_response_count,
+                    question_breakdown={},
+                )
+
+        except Exception as e:
+            # Don't mask the error - let the user know something went wrong
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+
+            # Return an error message instead of a fake success
+            error_message = f"❌ Survey analysis failed: {str(e)}"
+            return SurveyAnalysisOutput(
+                themes=[],
+                sentiment="neutral",
+                insights=[error_message],
+                recommendations=["Try the analysis again, or contact support if the issue persists"],
+                response_count=total_response_count,
+                question_breakdown={},
+            )
+
+    def _format_responses_for_llm(self, question_groups: list[dict[str, Any]]) -> str:
+        """Format the grouped responses into a clean string for LLM analysis."""
+        formatted_sections = []
+
         for group in question_groups:
             question_name = group.get("questionName", "Unknown question")
-            response_count = len(group.get("responses", []))
+            responses = group.get("responses", [])
 
-            themes.append(f"Responses to: {question_name}")
-            insights.append(f"Received {response_count} responses for '{question_name}'")
+            formatted_sections.append(f'Question: "{question_name}"')
+            formatted_sections.append("Responses:")
 
-            # Add some sample response texts for debugging
-            if response_count > 0:
-                sample_responses = group.get("responses", [])[:3]  # First 3 responses
-                sample_texts = [r.get("responseText", "") for r in sample_responses]
-                insights.append(f"Sample responses: {', '.join(sample_texts[:2])}")
+            for response in responses:
+                response_text = response.get("responseText", "")
+                user_id = response.get("userDistinctId", "anonymous")
+                email = response.get("email")
 
-        if total_response_count > 0:
-            recommendations.append("The survey is receiving open-ended feedback successfully")
-            recommendations.append("Consider implementing full LLM analysis for deeper insights")
+                # Format user identifier
+                user_identifier = email if email else f"user:{user_id}"
+                formatted_sections.append(f'- "{response_text}" ({user_identifier})')
 
-        return SurveyAnalysisOutput(
-            themes=themes,
-            sentiment="neutral",
-            insights=insights,
-            recommendations=recommendations,
-            response_count=total_response_count,
-            question_breakdown={},
+            formatted_sections.append("")  # Empty line between questions
+
+        return "\n".join(formatted_sections)
+
+    def _format_analysis_for_user(self, analysis: SurveyAnalysisOutput, survey_name: str) -> str:
+        """Format the structured analysis into a user-friendly message."""
+        lines = []
+
+        # Header with response count
+        header = f"✅ **Survey Analysis: '{survey_name}'**"
+        lines.append(header)
+        lines.append(f"*Analyzed {analysis.response_count} open-ended responses*")
+        lines.append("")
+
+        # Key themes
+        if analysis.themes:
+            lines.append("**Key Themes:**")
+            for theme in analysis.themes[:5]:  # Limit to top 5 themes
+                lines.append(f"• {theme}")
+            lines.append("")
+
+        # Sentiment
+        sentiment_emoji = {"positive": "😊", "negative": "😞", "mixed": "🤔", "neutral": "😐"}.get(
+            analysis.sentiment, "😐"
         )
+        lines.append(f"**Overall Sentiment:** {sentiment_emoji} {analysis.sentiment.title()}")
+        lines.append("")
+
+        # Key insights
+        if analysis.insights:
+            lines.append("**Key Insights:**")
+            for insight in analysis.insights[:3]:  # Limit to top 3 insights
+                lines.append(f"• {insight}")
+            lines.append("")
+
+        # Recommendations
+        if analysis.recommendations:
+            lines.append("**Recommendations:**")
+            for i, rec in enumerate(analysis.recommendations[:3], 1):  # Top 3 recommendations
+                lines.append(f"{i}. {rec}")
+            lines.append("")
+
+        # Question breakdown summary
+        if analysis.question_breakdown:
+            lines.append("**Question Breakdown:**")
+            for question, breakdown in list(analysis.question_breakdown.items())[:3]:  # Top 3 questions
+                lines.append(
+                    f"• **{question}**: {breakdown.get('theme', 'No theme')} ({breakdown.get('sentiment', 'neutral')})"
+                )
+            lines.append("")
+
+        lines.append("💡 *Need more detail? Ask me to dive deeper into any specific aspect.*")
+
+        return "\n".join(lines)
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
         """
@@ -429,14 +699,18 @@ class SurveyAnalysisTool(MaxTool):
             # Analyze the responses
             analysis_result = await self._analyze_responses(responses, analysis_focus)
 
-            success_message = (
-                f"✅ Analyzed {analysis_result.response_count} open-ended responses from survey '{survey_name}'"
-            )
-
             if analysis_result.response_count == 0:
                 success_message = f"ℹ️ No open-ended responses found in survey '{survey_name}' to analyze"
+                return success_message, {
+                    "survey_id": survey_id,
+                    "survey_name": survey_name,
+                    "analysis": analysis_result.model_dump(),
+                }
 
-            return success_message, {
+            # Format the analysis as a user-friendly message
+            user_message = self._format_analysis_for_user(analysis_result, survey_name)
+
+            return user_message, {
                 "survey_id": survey_id,
                 "survey_name": survey_name,
                 "analysis": analysis_result.model_dump(),
@@ -444,4 +718,4 @@ class SurveyAnalysisTool(MaxTool):
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"❌ Failed to analyze survey responses", {"error": "analysis_failed", "details": str(e)}
+            return f"❌ Failed to analyze survey responses: {str(e)}", {"error": "analysis_failed", "details": str(e)}
