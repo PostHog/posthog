@@ -75,11 +75,17 @@ export function MRRBreakdownModal(): JSX.Element | null {
             closable={true}
         >
             <LemonModal.Content embedded>
-                <div className="flex flex-col gap-4">
-                    <MRRLegend />
-                    <MRRBreakdownChart />
-                </div>
+                <MRRBreakdownModalContent />
             </LemonModal.Content>
         </LemonModal>
+    )
+}
+
+export function MRRBreakdownModalContent(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-4">
+            <MRRLegend />
+            <MRRBreakdownChart />
+        </div>
     )
 }

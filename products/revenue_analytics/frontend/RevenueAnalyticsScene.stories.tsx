@@ -18,7 +18,6 @@ import revenueAnalyticsMetricsQueryMock from './__mocks__/RevenueAnalyticsMetric
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsRevenueQueryMock from './__mocks__/RevenueAnalyticsRevenueQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
-import { mrrBreakdownModalLogic } from './nodes/modals'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
 const meta: Meta = {
@@ -117,16 +116,6 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
         setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
-
-    return <App />
-}
-
-export function RevenueAnalyticsDashboardWithMRRBreakdown(): JSX.Element {
-    const { openModal } = useActions(mrrBreakdownModalLogic)
-
-    useEffect(() => {
-        openModal(revenueAnalyticsRevenueQueryMock.results.mrr)
-    }, [openModal])
 
     return <App />
 }
