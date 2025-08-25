@@ -154,7 +154,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Load dashboard with streaming tiles approach. */
         loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => payload,
         /** Dashboard metadata loaded successfully. */
-        loadDashboardMetadataSuccess: (dashboard: DashboardType<InsightModel>) => ({ dashboard }),
+        loadDashboardMetadataSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
         /** Dashboard metadata load failed. */
         loadDashboardMetadataFailure: (error: any) => ({ error }),
         /** Single tile received from stream. */
@@ -296,8 +296,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                loadDashboardStreaming: async ({ action, manualDashboardRefresh }, breakpoint) => {
-                    actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
+                loadDashboardStreaming: async ({ action }, breakpoint) => {
+                    actions.loadingDashboardItemsStarted(action)
                     await breakpoint(200)
                     actions.resetIntermittentFilters()
 
@@ -313,7 +313,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             (data) => {
                                 if (data.type === 'metadata') {
                                     const dashboardWithTiles = { ...data.dashboard, tiles: [] }
-                                    actions.loadDashboardMetadataSuccess(getQueryBasedDashboard(dashboardWithTiles))
+                                    actions.loadDashboardMetadataSuccess(
+                                        getQueryBasedDashboard(dashboardWithTiles as DashboardType<InsightModel>)
+                                    )
                                 } else if (data.type === 'tile') {
                                     actions.receiveTileFromStream(data)
                                 }
@@ -329,11 +331,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         )
 
-                        // Return basic dashboard structure - metadata will update the name
-                        return {
-                            id: props.id,
-                            tiles: [],
-                        }
+                        // Return null - metadata will update the dashboard
+                        return null
                     } catch (error: any) {
                         console.warn('⚠️ Streaming approach failed, falling back to regular loading:', error)
 
@@ -341,8 +340,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         try {
                             const apiUrl = values.apiUrl(
                                 'force_cache',
-                                values.temporaryFilters,
-                                values.temporaryVariables,
+                                values.intermittentFilters,
+                                values.urlVariables,
                                 values.currentLayoutSize
                             )
                             const dashboardResponse: Response = await api.getResponse(apiUrl)
@@ -648,6 +647,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 loadDashboardMetadataSuccess: (state, { dashboard }) => {
+                    if (!dashboard) {
+                        return state
+                    }
                     // Merge metadata with existing state, preserving tiles
                     return {
                         ...dashboard,
