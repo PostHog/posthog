@@ -1,13 +1,13 @@
+import json
+import uuid
+import typing as t
 import datetime as dt
 import ipaddress
-import json
-import typing as t
-import uuid
 from dataclasses import dataclass
 
-import dns.resolver
 import grpc.aio
 import requests
+import dns.resolver
 import temporalio.common
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -28,10 +28,7 @@ from posthog.temporal.proxy_service.common import (
     get_grpc_client,
     get_record,
 )
-from posthog.temporal.proxy_service.proto import (
-    CertificateState_READY,
-    StatusRequest,
-)
+from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusRequest
 
 LOGGER = get_logger(__name__)
 

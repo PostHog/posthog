@@ -1,17 +1,17 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
-    DateTimeDatabaseField,
     DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    FloatDatabaseField,
     IntegerDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
-    StringArrayDatabaseField,
-    FloatDatabaseField,
-    DateDatabaseField,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {

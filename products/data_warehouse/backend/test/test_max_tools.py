@@ -1,10 +1,12 @@
-from unittest.mock import patch, AsyncMock
+from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import AsyncMock, patch
+
+from posthog.schema import AssistantToolCall
+
+from products.data_warehouse.backend.max_tools import FinalAnswerArgs, HogQLGeneratorTool
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import AssistantToolCall
-from posthog.test.base import NonAtomicBaseTest
-from products.data_warehouse.backend.max_tools import HogQLGeneratorTool, FinalAnswerArgs
 
 
 class TestDataWarehouseMaxTools(NonAtomicBaseTest):

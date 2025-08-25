@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
-from typing import Generic, Optional, cast
 from collections.abc import Sequence
+from typing import Generic, Optional, cast
 from uuid import uuid4
 
 from langchain_core.agents import AgentAction
@@ -13,20 +13,16 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 
+from posthog.schema import FailureMessage, VisualizationMessage
+
+from posthog.models.group_type_mapping import GroupTypeMapping
+
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    FailureMessage,
-    VisualizationMessage,
-)
 
 from ..base import AssistantNode
-from .parsers import (
-    PydanticOutputParserException,
-    parse_pydantic_structured_output,
-)
+from .parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
     FAILOVER_OUTPUT_PROMPT,
     FAILOVER_PROMPT,
@@ -35,7 +31,7 @@ from .prompts import (
     PLAN_PROMPT,
     QUESTION_PROMPT,
 )
-from .utils import SchemaGeneratorOutput, Q
+from .utils import Q, SchemaGeneratorOutput
 
 RETRIES_ALLOWED = 2
 

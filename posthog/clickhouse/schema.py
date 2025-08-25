@@ -6,11 +6,8 @@ from posthog.clickhouse.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
 )
-from posthog.clickhouse.log_entries import (
-    KAFKA_LOG_ENTRIES_TABLE_SQL,
-    LOG_ENTRIES_TABLE_MV_SQL,
-    LOG_ENTRIES_TABLE_SQL,
-)
+from posthog.clickhouse.distributed_system_processes import DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL
+from posthog.clickhouse.log_entries import KAFKA_LOG_ENTRIES_TABLE_SQL, LOG_ENTRIES_TABLE_MV_SQL, LOG_ENTRIES_TABLE_SQL
 from posthog.clickhouse.plugin_log_entries import (
     KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL,
     PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
@@ -29,9 +26,7 @@ from posthog.heatmaps.sql import (
     KAFKA_HEATMAPS_TABLE_SQL,
     WRITABLE_HEATMAPS_TABLE_SQL,
 )
-from posthog.models.ai.pg_embeddings import (
-    PG_EMBEDDINGS_TABLE_SQL,
-)
+from posthog.models.ai.pg_embeddings import PG_EMBEDDINGS_TABLE_SQL
 from posthog.models.app_metrics.sql import (
     APP_METRICS_DATA_TABLE_SQL,
     APP_METRICS_MV_TABLE_SQL,
@@ -49,14 +44,7 @@ from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.exchange_rate.sql import (
-    EXCHANGE_RATE_DATA_BACKFILL_SQL,
-    EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_TABLE_SQL,
-)
-from posthog.models.cohort.sql import (
-    CREATE_COHORTPEOPLE_TABLE_SQL,
-)
+from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.error_tracking.sql import (
     ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL,
     ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
@@ -73,11 +61,12 @@ from posthog.models.event.sql import (
     KAFKA_EVENTS_TABLE_JSON_SQL,
     WRITABLE_EVENTS_TABLE_SQL,
 )
-from posthog.models.group.sql import (
-    GROUPS_TABLE_MV_SQL,
-    GROUPS_TABLE_SQL,
-    KAFKA_GROUPS_TABLE_SQL,
+from posthog.models.exchange_rate.sql import (
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
 )
+from posthog.models.group.sql import GROUPS_TABLE_MV_SQL, GROUPS_TABLE_SQL, KAFKA_GROUPS_TABLE_SQL
 from posthog.models.ingestion_warnings.sql import (
     DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL,
     INGESTION_WARNINGS_DATA_TABLE_SQL,
@@ -127,14 +116,14 @@ from posthog.models.sessions.sql import (
     WRITABLE_SESSIONS_TABLE_SQL,
 )
 from posthog.models.web_preaggregated.sql import (
-    WEB_STATS_COMBINED_VIEW_SQL,
     WEB_BOUNCES_COMBINED_VIEW_SQL,
-    WEB_STATS_DAILY_SQL,
     WEB_BOUNCES_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
     WEB_BOUNCES_HOURLY_SQL,
-    WEB_STATS_SQL,
     WEB_BOUNCES_SQL,
+    WEB_STATS_COMBINED_VIEW_SQL,
+    WEB_STATS_DAILY_SQL,
+    WEB_STATS_HOURLY_SQL,
+    WEB_STATS_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -155,7 +144,6 @@ from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
     SESSION_REPLAY_EVENTS_V2_TEST_KAFKA_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_MV_SQL,
 )
-from posthog.clickhouse.distributed_system_processes import DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL
 
 # Queries to create tables, you must pass function, otherwise the table is created before
 # objects are mocked and the ambr will go into infinite loop update.

@@ -1,12 +1,8 @@
 import pytest
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
-from ee.tasks.subscriptions.subscription_utils import (
-    DEFAULT_MAX_ASSET_COUNT,
-    generate_assets_async,
-)
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -14,6 +10,9 @@ from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+
+from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets_async
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 

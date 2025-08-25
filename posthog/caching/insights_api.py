@@ -1,13 +1,12 @@
+import zoneinfo
 from datetime import datetime, timedelta
 from math import ceil
 from time import sleep
 from typing import Optional, Union
-import zoneinfo
+
 from rest_framework import request
 
-from posthog.caching.calculate_results import (
-    calculate_cache_key,
-)
+from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.models import DashboardTile, Insight
 from posthog.models.filters.utils import get_filter

@@ -1,19 +1,21 @@
 import os
-from datetime import datetime
-from typing import Optional, Union, Any
 from collections.abc import AsyncIterator
-from unittest.mock import patch, Mock
-from rest_framework import exceptions
-from django.http import HttpResponse
+from datetime import datetime
+from typing import Any, Optional, Union
+
 from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
+
+from django.http import HttpResponse
+
+from rest_framework import exceptions
+
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep, SessionSummaryStreamUpdate
+
 from ee.hogai.session_summaries.session_group.patterns import (
-    EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
+    EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPatternStats,
-)
-from posthog.temporal.ai.session_summary.types.group import (
-    SessionSummaryStreamUpdate,
-    SessionSummaryStep,
 )
 
 

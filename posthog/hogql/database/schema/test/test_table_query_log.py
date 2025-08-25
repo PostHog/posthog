@@ -1,13 +1,11 @@
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from posthog.clickhouse.client import sync_execute
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-)
+
+from posthog.clickhouse.client import sync_execute
 
 
 class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):

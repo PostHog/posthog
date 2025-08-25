@@ -3,30 +3,27 @@ from datetime import datetime
 from io import StringIO
 from typing import TYPE_CHECKING, Any, Optional, TypeAlias
 from uuid import UUID
-import chdb
+
 from django.db import models
 from django.db.models import Q
+
+import chdb
+
+from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import FieldOrTable
+from posthog.hogql.database.s3_table import S3Table, build_function_call
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    FieldOrTable,
-)
-from posthog.hogql.database.s3_table import S3Table, build_function_call
 from posthog.models.team import Team
-from posthog.models.utils import (
-    CreatedMetaFields,
-    DeletedMetaFields,
-    UpdatedMetaFields,
-    UUIDTModel,
-    sane_repr,
-)
-from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.settings import TEST
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.util import (
@@ -35,7 +32,6 @@ from posthog.warehouse.models.util import (
     clean_type,
     remove_named_tuples,
 )
-from posthog.sync import database_sync_to_async
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables

@@ -1,14 +1,18 @@
 import pytest
+
 from asgiref.sync import sync_to_async
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
-from posthog.errors import InternalCHQueryError
+from posthog.schema import AssistantHogQLQuery, NodeKind
+
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
-from posthog.schema import AssistantHogQLQuery, NodeKind
+
+from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 
 from .conftest import MaxEval
 from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
