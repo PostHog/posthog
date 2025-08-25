@@ -1,9 +1,13 @@
-from dataclasses import dataclass
-import datetime
 import json
+import datetime
+from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
+
+from posthog.session_recordings.models.metadata import RecordingMetadata
+from posthog.sync import database_sync_to_async
+
 from ee.hogai.session_summaries.session.input_data import (
     add_context_and_filter_events,
     get_session_events,
@@ -11,8 +15,6 @@ from ee.hogai.session_summaries.session.input_data import (
 )
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.utils import load_custom_template, shorten_url
-from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 

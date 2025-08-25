@@ -1,14 +1,14 @@
-import csv
-import datetime
 import os
 import re
-
-from .currencies import SUPPORTED_CURRENCY_CODES
+import csv
+import datetime
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
+
+from .currencies import SUPPORTED_CURRENCY_CODES
 
 
 # This loads historical data from `historical.csv`

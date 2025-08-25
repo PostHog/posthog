@@ -1,25 +1,23 @@
 import json
-from functools import lru_cache
 import logging
+from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
-from posthog.api.insight_variable import map_stale_to_latest
-from posthog.schema_migrations.upgrade import upgrade
-from posthog.schema_migrations.upgrade_manager import upgrade_query
-import posthoganalytics
-from pydantic import BaseModel
-import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
+
+import structlog
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
+from pydantic import BaseModel
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
@@ -28,10 +26,16 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog import schema
 from posthog.schema import QueryStatus
+
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.timings import HogQLTimings
+
+from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -41,27 +45,16 @@ from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.constants import (
-    INSIGHT,
-    INSIGHT_FUNNELS,
-    INSIGHT_STICKINESS,
-    TRENDS_STICKINESS,
-    FunnelVizType,
-)
+from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import groups
-from posthog.helpers.multi_property_breakdown import (
-    protect_old_clients_from_multi_property_default,
-)
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.timings import HogQLTimings
+from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
+from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method, hogql_insights_replace_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
@@ -70,7 +63,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User, Cohort
+from posthog.models import Cohort, DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -85,31 +78,27 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.models.insight_variable import InsightVariable
-from posthog.queries.funnels import (
-    ClickhouseFunnelTimeToConvert,
-    ClickhouseFunnelTrends,
-)
+from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import (
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-)
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.schema_migrations.upgrade import upgrade
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
+    filters_override_requested_by_client,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
-    filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
 

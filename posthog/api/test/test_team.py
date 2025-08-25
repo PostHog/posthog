@@ -1,13 +1,15 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from datetime import UTC, datetime
 from typing import Any, Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
 from django.core.cache import cache
 from django.http import HttpResponse
-from freezegun import freeze_time
+
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
@@ -26,7 +28,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.test.base import APIBaseTest
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
 from ee.models.rbac.access_control import AccessControl
@@ -462,10 +464,7 @@ def team_api_test_factory():
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             from posthog.models.cohort import Cohort, CohortPeople
-            from posthog.models.feature_flag.feature_flag import (
-                FeatureFlag,
-                FeatureFlagHashKeyOverride,
-            )
+            from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person

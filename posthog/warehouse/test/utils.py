@@ -1,23 +1,23 @@
-import s3fs
-import pandas as pd
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
-from collections.abc import Mapping
+
+import s3fs
+import pandas as pd
 
 from posthog.models.team import Team
-from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING, clean_type
-from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import ExternalDataSourceType
-
 from posthog.settings import (
-    OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
     XDIST_SUFFIX,
 )
+from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def create_data_warehouse_table_from_csv(

@@ -1,7 +1,6 @@
 import uuid
 from typing import Any
 
-
 # Type aliases for TipTap editor nodes
 TipTapNode = dict[str, Any]
 TipTapContent = list[TipTapNode]

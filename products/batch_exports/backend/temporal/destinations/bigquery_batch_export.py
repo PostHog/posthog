@@ -1,14 +1,15 @@
-import asyncio
-import collections.abc
-import contextlib
-import dataclasses
-import datetime as dt
 import io
 import json
 import typing
+import asyncio
+import datetime as dt
+import contextlib
+import dataclasses
+import collections.abc
+
+from django.conf import settings
 
 import pyarrow as pa
-from django.conf import settings
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -26,10 +27,8 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import (
-    get_produce_only_logger,
-    get_write_only_logger,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -47,12 +46,8 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
     Consumer as ConsumerFromStage,
     run_consumer_from_stage,
 )
-from products.batch_exports.backend.temporal.pipeline.entrypoint import (
-    execute_batch_export_using_internal_stage,
-)
-from products.batch_exports.backend.temporal.pipeline.producer import (
-    Producer as ProducerFromInternalStage,
-)
+from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -62,10 +57,7 @@ from products.batch_exports.backend.temporal.spmc import (
     run_consumer,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    WriterFormat,
-)
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,

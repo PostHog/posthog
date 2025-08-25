@@ -1,27 +1,26 @@
 from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Optional
-import posthoganalytics
-
 
 import structlog
+import posthoganalytics
 from celery import shared_task
 from prometheus_client import Counter
 
-from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
-from ee.tasks.subscriptions.slack_subscriptions import (
-    send_slack_subscription_report,
-    send_slack_message_with_integration,
-    send_slack_message_with_integration_async,
-    get_slack_integration_for_team,
-)
-from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_assets_async
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks.utils import CeleryQueue
+
+from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.slack_subscriptions import (
+    get_slack_integration_for_team,
+    send_slack_message_with_integration_async,
+    send_slack_subscription_report,
+)
+from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_assets_async
 
 logger = structlog.get_logger(__name__)
 
