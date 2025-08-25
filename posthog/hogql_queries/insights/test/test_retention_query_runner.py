@@ -3484,7 +3484,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, interval, query, select=None, actor="person"):
+    def run_actors_query(self, interval, query, select=None, actor="person", breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
@@ -3497,6 +3497,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                     "kind": "InsightActorsQuery",
                     "interval": interval,
                     "source": query,
+                    "breakdown": breakdown,
                 },
             },
         )
@@ -4158,3 +4159,68 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             all_users_results,
             pad([[1, 0], [0]]),
         )
+
+    def test_retention_actor_query_with_multiple_cohort_breakdowns(self):
+        # Person 1 in cohort 1
+        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
+        # Person 2 in cohort 2
+        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
+
+        flush_persons_and_events()
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "person1", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort2",
+            groups=[{"properties": [{"key": "name", "value": "person2", "type": "person"}]}],
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        # Create events
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person1", _date(1)),
+                ("person2", _date(2)),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Run retention actors query for cohort1
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            },
+            breakdown=[str(cohort1.pk)],
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["id"], person1.uuid)
+        self.assertEqual(result[0][1], [0, 1])
+
+        # Run retention actors query for cohort2
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            },
+            breakdown=[str(cohort2.pk)],
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["id"], person2.uuid)
+        self.assertEqual(result[0][1], [0, 2])
