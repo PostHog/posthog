@@ -72,21 +72,53 @@ const buildGetHealth =
             // a 500 status code.
             services.map(async (service) => {
                 try {
-                    return { service: service.id, status: (await service.healthcheck()) ? 'ok' : 'error' }
+                    const result = await service.healthcheck()
+
+                    // Handle both boolean and HealthCheckResult returns
+                    if (typeof result === 'boolean') {
+                        return {
+                            service: service.id,
+                            status: result ? 'ok' : 'error',
+                        }
+                    } else {
+                        return {
+                            service: service.id,
+                            status: result.healthy ? 'ok' : 'error',
+                            message: result.message,
+                            details: result.details,
+                        }
+                    }
                 } catch (error) {
-                    return { service: service.id, status: 'error', error: error.message }
+                    return {
+                        service: service.id,
+                        status: 'error',
+                        message: error.message || 'Unknown error',
+                    }
                 }
             })
         )
 
         const statusCode = checkResults.every((result) => result.status === 'ok') ? 200 : 503
 
-        const checkResultsMapping = Object.fromEntries(checkResults.map((result) => [result.service, result.status]))
+        const checkResultsMapping = Object.fromEntries(
+            checkResults.map((result) => [
+                result.service,
+                result.message ? { status: result.status, message: result.message } : result.status,
+            ])
+        )
 
         if (statusCode === 200) {
             logger.info('💚', 'Server liveness check succeeded')
         } else {
-            logger.error('💔', 'Server liveness check failed', { checkResults: checkResultsMapping })
+            // Log detailed information for failures
+            const failedServices = checkResults.filter((r) => r.status === 'error')
+            logger.error('💔', 'Server liveness check failed', {
+                failedServices: failedServices.map((s) => ({
+                    service: s.service,
+                    message: s.message,
+                    details: s.details,
+                })),
+            })
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
