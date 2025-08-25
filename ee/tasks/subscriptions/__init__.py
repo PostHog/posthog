@@ -15,7 +15,7 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     send_slack_message_with_integration_async,
     get_slack_integration_for_team,
 )
-from ee.tasks.subscriptions.subscription_utils import generate_assets
+from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_assets_async
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -48,32 +48,50 @@ async def deliver_subscription_report_async(
     invite_message: Optional[str] = None,
 ) -> None:
     """Async function for delivering subscription reports."""
+    logger.info("deliver_subscription_report_async.starting", subscription_id=subscription_id)
+
     # Fetch subscription asynchronously
+    logger.info("deliver_subscription_report_async.loading_subscription", subscription_id=subscription_id)
     subscription = await database_sync_to_async(
-        Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard")
-        .get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard").get,
         thread_sensitive=False,
     )(pk=subscription_id)
+
+    logger.info(
+        "deliver_subscription_report_async.subscription_loaded",
+        subscription_id=subscription_id,
+        has_dashboard=bool(subscription.dashboard_id),
+        has_insight=bool(subscription.insight_id),
+    )
 
     is_new_subscription_target = False
     if previous_value is not None:
         # If previous_value is set we are triggering a "new" or "invite" message
         is_new_subscription_target = subscription.target_value != previous_value
+        logger.info(
+            "deliver_subscription_report_async.checking_target_change",
+            subscription_id=subscription_id,
+            is_new_target=is_new_subscription_target,
+        )
 
         if not is_new_subscription_target:
             # Same value as before so nothing to do
+            logger.info("deliver_subscription_report_async.no_change_skipping", subscription_id=subscription_id)
             return
 
-    insights, assets = await database_sync_to_async(generate_assets, thread_sensitive=False)(
-        subscription, use_celery=False
+    logger.info("deliver_subscription_report_async.generating_assets", subscription_id=subscription_id)
+    insights, assets = await generate_assets_async(subscription)
+    logger.info(
+        "deliver_subscription_report_async.assets_generated", subscription_id=subscription_id, asset_count=len(assets)
     )
 
     if not assets:
+        logger.warning("deliver_subscription_report_async.no_assets", subscription_id=subscription_id)
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
         return
 
     if subscription.target_type == "email":
+        logger.info("deliver_subscription_report_async.sending_email", subscription_id=subscription_id)
         SUBSCRIPTION_QUEUED.labels(destination="email").inc()
 
         # Send emails
@@ -82,8 +100,15 @@ async def deliver_subscription_report_async(
             previous_emails = previous_value.split(",") if previous_value else []
             emails = list(set(emails) - set(previous_emails))
 
+        logger.info(
+            "deliver_subscription_report_async.email_list", subscription_id=subscription_id, email_count=len(emails)
+        )
+
         for email in emails:
             try:
+                logger.info(
+                    "deliver_subscription_report_async.sending_to_email", subscription_id=subscription_id, email=email
+                )
                 await database_sync_to_async(send_email_subscription_report, thread_sensitive=False)(
                     email,
                     subscription,
@@ -92,12 +117,16 @@ async def deliver_subscription_report_async(
                     total_asset_count=len(insights),
                     send_async=False,
                 )
+                logger.info(
+                    "deliver_subscription_report_async.email_sent", subscription_id=subscription_id, email=email
+                )
                 SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
             except Exception as e:
                 SUBSCRIPTION_FAILURE.labels(destination="email").inc()
                 logger.error(
-                    "sending subscription failed",
+                    "deliver_subscription_report_async.email_failed",
                     subscription_id=subscription.id,
+                    email=email,
                     next_delivery_date=subscription.next_delivery_date,
                     destination=subscription.target_type,
                     exc_info=True,
@@ -105,18 +134,21 @@ async def deliver_subscription_report_async(
                 capture_exception(e)
 
     elif subscription.target_type == "slack":
+        logger.info("deliver_subscription_report_async.sending_slack", subscription_id=subscription_id)
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
 
         try:
+            logger.info("deliver_subscription_report_async.loading_slack_integration", subscription_id=subscription_id)
             integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
                 subscription.team_id
             )
 
             if not integration:
-                logger.error("No Slack integration found for team...")
+                logger.error("deliver_subscription_report_async.no_slack_integration", subscription_id=subscription_id)
                 SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
                 return
 
+            logger.info("deliver_subscription_report_async.sending_slack_message", subscription_id=subscription_id)
             await send_slack_message_with_integration_async(
                 integration,
                 subscription,
@@ -124,11 +156,12 @@ async def deliver_subscription_report_async(
                 total_asset_count=len(insights),
                 is_new_subscription=is_new_subscription_target,
             )
+            logger.info("deliver_subscription_report_async.slack_sent", subscription_id=subscription_id)
             SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
         except Exception as e:
             SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
             logger.error(
-                "sending subscription failed",
+                "deliver_subscription_report_async.slack_failed",
                 subscription_id=subscription.id,
                 next_delivery_date=subscription.next_delivery_date,
                 destination=subscription.target_type,
@@ -136,11 +169,19 @@ async def deliver_subscription_report_async(
             )
             capture_exception(e)
     else:
+        logger.error(
+            "deliver_subscription_report_async.unsupported_target",
+            subscription_id=subscription_id,
+            target_type=subscription.target_type,
+        )
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
     if not is_new_subscription_target:
+        logger.info("deliver_subscription_report_async.updating_next_delivery", subscription_id=subscription_id)
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
+
+    logger.info("deliver_subscription_report_async.completed", subscription_id=subscription_id)
 
 
 def deliver_subscription_report_sync(
@@ -149,11 +190,7 @@ def deliver_subscription_report_sync(
     invite_message: Optional[str] = None,
 ) -> None:
     """Sync function for delivering subscription reports."""
-    subscription = (
-        Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard")
-        .get(pk=subscription_id)
-    )
+    subscription = Subscription.objects.select_related("created_by", "insight", "dashboard").get(pk=subscription_id)
 
     is_new_subscription_target = False
     if previous_value is not None:

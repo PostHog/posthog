@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest.mock import patch, MagicMock, AsyncMock
 from django.utils import timezone
 import asyncio
@@ -7,8 +8,20 @@ from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import Insight, InsightViewed
-from posthog.schema import AssistantToolCallMessage, HumanMessage
+from posthog.schema import (
+    AssistantToolCallMessage,
+    DataTableNode,
+    EntityType,
+    HogQLQuery,
+    HumanMessage,
+    InsightVizNode,
+    RetentionEntity,
+    RetentionFilter,
+    RetentionQuery,
+    VisualizationMessage,
+)
 from posthog.test.base import BaseTest
+from posthog.schema import TrendsQuery, FunnelsQuery
 
 
 class TestInsightSearchNode(BaseTest):
@@ -750,3 +763,115 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn(self.insight1.id, result["selected_insights"])
         self.assertIn(self.insight2.id, result["selected_insights"])
         self.assertIn("Found 2 relevant insights", result["explanation"])
+
+    def test_returns_visualization_message_with_trends_query(self):
+        """Test that VisualizationMessage answer field contains TrendsQuery."""
+
+        # Load insights first
+        self.node._load_insights_page(0)
+
+        # Test the full query processing
+        query_obj1, _ = self.node._process_insight_query(self.insight1)
+        self.assertIsNotNone(query_obj1, f"Query object should not be None for insight1. Query: {self.insight1.query}")
+        self.assertIsInstance(query_obj1, TrendsQuery)
+
+        # Test insight1 visualization message creation
+        viz_message1 = self.node._create_visualization_message_for_insight(self.insight1)
+        assert isinstance(viz_message1, VisualizationMessage), "Should create visualization message for insight1"
+        assert hasattr(viz_message1, "answer"), "VisualizationMessage should have answer attribute"
+
+        # Verify the answer contains the correct query type
+        answer1 = viz_message1.answer
+        self.assertIsInstance(answer1, TrendsQuery)
+
+    def test_returns_visualization_message_with_funnels_query(self):
+        """Test that VisualizationMessage answer field contains FunnelsQuery."""
+
+        # Load insights first
+        self.node._load_insights_page(0)
+
+        query_obj2, _ = self.node._process_insight_query(self.insight2)
+        self.assertIsNotNone(query_obj2, f"Query object should not be None for insight2. Query: {self.insight2.query}")
+        self.assertIsInstance(query_obj2, FunnelsQuery)
+
+        # Test insight2 visualization message creation
+        viz_message2 = self.node._create_visualization_message_for_insight(self.insight2)
+        assert isinstance(viz_message2, VisualizationMessage), "Should create visualization message for insight2"
+        assert hasattr(viz_message2, "answer"), "VisualizationMessage should have answer attribute"
+
+        # Verify the answer contains the correct query type
+        answer2 = viz_message2.answer
+        self.assertIsInstance(answer2, FunnelsQuery)
+
+    def test_returns_visualization_message_with_retention_query(self):
+        """Test that VisualizationMessage answer field contains RetentionQuery."""
+        query = InsightVizNode(
+            source=RetentionQuery(
+                retentionFilter=RetentionFilter(
+                    targetEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+                    returningEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+                )
+            )
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Retention Query",
+            description="Retention Query",
+            query=query.model_dump(),
+            filters={},
+            created_by=self.user,
+        )
+        InsightViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            insight=insight,
+            last_viewed_at=timezone.now() - timedelta(days=1),
+        )
+
+        self.node._load_insights_page(0)
+
+        query_obj, _ = self.node._process_insight_query(insight)
+        self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight.query}")
+        self.assertIsInstance(query_obj, RetentionQuery)
+
+        # Test insight visualization message creation
+        viz_message = self.node._create_visualization_message_for_insight(insight)
+        assert isinstance(viz_message, VisualizationMessage), "Should create visualization message for insight"
+        assert hasattr(viz_message, "answer"), "VisualizationMessage should have answer attribute"
+
+        # Verify the answer contains the correct query type
+        answer = viz_message.answer
+        self.assertIsInstance(answer, RetentionQuery)
+
+    def test_returns_visualization_message_with_hogql_query(self):
+        """Test that VisualizationMessage answer field contains HogQLQuery."""
+        query = DataTableNode(source=HogQLQuery(query="SELECT 1"))
+        insight = Insight.objects.create(
+            team=self.team,
+            name="HogQL Query",
+            description="HogQL Query",
+            query=query.model_dump(),
+            filters={},
+            created_by=self.user,
+        )
+        InsightViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            insight=insight,
+            last_viewed_at=timezone.now(),
+        )
+
+        self.node._load_insights_page(0)
+
+        query_obj, _ = self.node._process_insight_query(insight)
+        self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight.query}")
+        self.assertIsInstance(query_obj, HogQLQuery)
+
+        # Test insight visualization message creation
+        viz_message = self.node._create_visualization_message_for_insight(insight)
+        assert isinstance(viz_message, VisualizationMessage), "Should create visualization message for insight"
+        assert hasattr(viz_message, "answer"), "VisualizationMessage should have answer attribute"
+
+        # Verify the answer contains the correct query type
+        answer = viz_message.answer
+        self.assertIsInstance(answer, HogQLQuery)
