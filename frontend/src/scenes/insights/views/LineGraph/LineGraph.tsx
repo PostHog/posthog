@@ -52,6 +52,8 @@ import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
+let isMouseOverTooltip = false
+let hideTooltipTimeout: NodeJS.Timeout | null = null
 
 export function ensureTooltip(): [Root, HTMLElement] {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -62,6 +64,31 @@ export function ensureTooltip(): [Root, HTMLElement] {
             tooltipEl.id = 'InsightTooltipWrapper'
             tooltipEl.classList.add('InsightTooltipWrapper')
             document.body.appendChild(tooltipEl)
+
+            // Add mouse tracking
+            tooltipEl.addEventListener(
+                'mouseenter',
+                () => {
+                    isMouseOverTooltip = true
+                    if (hideTooltipTimeout) {
+                        clearTimeout(hideTooltipTimeout)
+                        hideTooltipTimeout = null
+                    }
+                },
+                { passive: true }
+            )
+            tooltipEl.addEventListener(
+                'mouseleave',
+                () => {
+                    isMouseOverTooltip = false
+                    hideTooltipTimeout = setTimeout(() => {
+                        if (tooltipEl && !isMouseOverTooltip) {
+                            tooltipEl.classList.add('opacity-0', 'invisible')
+                        }
+                    }, 100)
+                },
+                { passive: true }
+            )
         }
 
         tooltipRoot = createRoot(tooltipEl)
@@ -70,10 +97,20 @@ export function ensureTooltip(): [Root, HTMLElement] {
 }
 
 export function hideTooltip(): void {
-    const tooltipEl = document.getElementById('InsightTooltipWrapper')
-    if (tooltipEl) {
-        tooltipEl.style.opacity = '0'
+    if (hideTooltipTimeout) {
+        clearTimeout(hideTooltipTimeout)
+        hideTooltipTimeout = null
     }
+    if (isMouseOverTooltip) {
+        return
+    }
+
+    hideTooltipTimeout = setTimeout(() => {
+        const tooltipEl = document.getElementById('InsightTooltipWrapper')
+        if (tooltipEl && !isMouseOverTooltip) {
+            tooltipEl.classList.add('opacity-0', 'invisible')
+        }
+    }, 100)
 }
 
 function truncateString(str: string, num: number): string {
@@ -710,15 +747,23 @@ export function LineGraph_({
 
                         const [tooltipRoot, tooltipEl] = ensureTooltip()
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '0'
+                            // Don't hide if mouse is over tooltip
+                            if (!isMouseOverTooltip) {
+                                tooltipEl.classList.add('opacity-0', 'invisible')
+                            }
                             return
+                        }
+
+                        if (hideTooltipTimeout) {
+                            clearTimeout(hideTooltipTimeout)
+                            hideTooltipTimeout = null
                         }
 
                         // Set caret position
                         // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                        tooltipEl.style.opacity = '1'
+                        tooltipEl.classList.remove('opacity-0', 'invisible')
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
