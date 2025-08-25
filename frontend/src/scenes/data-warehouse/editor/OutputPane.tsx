@@ -260,6 +260,7 @@ export function OutputPane(): JSX.Element {
     const { editingView } = useValues(multitabEditorLogic)
 
     const {
+        tabId,
         sourceQuery,
         exportContext,
         editorKey,
@@ -285,7 +286,7 @@ export function OutputPane(): JSX.Element {
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
-    const vizKey = useMemo(() => `SQLEditorScene`, [])
+    const vizKey = `SQLEditorScene.${tabId}`
 
     const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
 
