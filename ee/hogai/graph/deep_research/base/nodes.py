@@ -16,6 +16,7 @@ from ee.hogai.graph.base import BaseAssistantNode
 
 class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchState]):
     notebook: Notebook | None = None
+    _notebook_serializer: NotebookSerializer | None = None
 
     def _get_model(self, instructions: str, previous_response_id: Optional[str] = None):
         return MaxChatOpenAI(
@@ -74,6 +75,12 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
         return notebook_update_message
 
+    def _get_notebook_serializer(self, context: Optional[NotebookContext] = None) -> NotebookSerializer:
+        """Get or create a reusable notebook serializer to avoid repeated query conversions during streaming."""
+        if self._notebook_serializer is None or (context and self._notebook_serializer.context != context):
+            self._notebook_serializer = NotebookSerializer(context=context)
+        return self._notebook_serializer
+
     async def _llm_chunk_to_notebook_update_message(
         self, response: AIMessageChunk, context: Optional[NotebookContext] = None
     ) -> NotebookUpdateMessage:
@@ -82,7 +89,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
         content = extract_content_from_ai_message(response)
 
-        serializer = NotebookSerializer(context=context)
+        serializer = self._get_notebook_serializer(context=context)
         title = None
         json_content = serializer.from_markdown_to_json(content)
         if json_content.content:

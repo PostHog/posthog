@@ -6,9 +6,38 @@ from typing import Optional
 from pydantic import BaseModel
 
 from ee.hogai.utils.types import InsightArtifact
-from posthog.schema import ProsemirrorJSONContent, Mark
+from posthog.schema import (
+    ProsemirrorJSONContent,
+    Mark,
+    AssistantTrendsQuery,
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
+    AssistantHogQLQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    HogQLQuery,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def cast_assistant_query(
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery,
+) -> TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery:
+    """
+    Convert AssistantQuery types to regular Query types that the frontend expects.
+    """
+    if query.kind == "TrendsQuery":
+        return TrendsQuery(**query.model_dump())
+    elif query.kind == "FunnelsQuery":
+        return FunnelsQuery(**query.model_dump())
+    elif query.kind == "RetentionQuery":
+        return RetentionQuery(**query.model_dump())
+    elif query.kind == "HogQLQuery":
+        return HogQLQuery(**query.model_dump())
+    else:
+        raise ValueError(f"Unsupported query type: {query.kind}")
 
 
 class NotebookContext(BaseModel):
@@ -275,6 +304,8 @@ class NotebookSerializer:
 
     def __init__(self, context: Optional[NotebookContext] = None):
         self.context = context
+        # Cache for converted queries to avoid repeated conversions during streaming
+        self._converted_query_cache: dict[str, dict] = {}
 
     def to_json_paragraph(self, input: str | list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
         if isinstance(input, list):
@@ -657,6 +688,34 @@ class NotebookSerializer:
 
         return result
 
+    def _convert_assistant_query_to_insight_viz_node(self, query) -> dict:
+        """
+        Convert AssistantQuery types to InsightVizNode format for frontend compatibility.
+
+        The frontend expects ph-query nodes to have an InsightVizNode structure:
+        {
+            "kind": "InsightVizNode",
+            "source": <actual query>
+        }
+        """
+        # Cache key
+        query_id = id(query)
+        if query_id in self._converted_query_cache:
+            return self._converted_query_cache[query_id]
+
+        if isinstance(
+            query, AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+        ):
+            # Convert AssistantQuery to regular Query type, then wrap in InsightVizNode structure
+            regular_query = cast_assistant_query(query)
+            converted = {"kind": "InsightVizNode", "source": regular_query}
+            self._converted_query_cache[query_id] = converted
+            return converted
+        else:
+            # If it's already in the right format or unknown type, return as-is
+            self._converted_query_cache[query_id] = query
+            return query
+
     def _create_ph_query_node(self, insight_id: str) -> Optional[ProsemirrorJSONContent]:
         """
         Create a ph-query node for the given insight id.
@@ -676,7 +735,9 @@ class NotebookSerializer:
             )
 
         # Create the ph-query node
-        return ProsemirrorJSONContent(type="ph-query", attrs={"query": query})
+        return ProsemirrorJSONContent(
+            type="ph-query", attrs={"query": self._convert_assistant_query_to_insight_viz_node(query)}
+        )
 
     def from_json_to_markdown(self, input: ProsemirrorJSONContent) -> str:
         """
