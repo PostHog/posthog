@@ -86,8 +86,8 @@ from products.tasks.backend.temporal import (
 )
 
 # TODO: Add billing workflows and activities once ready
-BILLING_WORKFLOWS = []
-BILLING_ACTIVITIES = []
+BILLING_WORKFLOWS: list = []
+BILLING_ACTIVITIES: list = []
 
 # Workflow and activity index
 WORKFLOWS_DICT = {
