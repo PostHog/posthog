@@ -450,12 +450,14 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
         # Create safe key names for metadata (replace special chars)
         safe_key = metric_key.replace(" ", "_").replace("%", "pct").lower()
 
-        metadata.update({
-            f"{safe_key}_pre_agg": MetadataValue.float(metric_data.get("pre_aggregated", 0.0)),
-            f"{safe_key}_regular": MetadataValue.float(metric_data.get("regular", 0.0)),
-            f"{safe_key}_pct_diff": MetadataValue.float(metric_data.get("pct_difference", 0.0)),
-            f"{safe_key}_within_tolerance": MetadataValue.bool(metric_data.get("within_tolerance", True)),
-        })
+        metadata.update(
+            {
+                f"{safe_key}_pre_agg": MetadataValue.float(metric_data.get("pre_aggregated", 0.0)),
+                f"{safe_key}_regular": MetadataValue.float(metric_data.get("regular", 0.0)),
+                f"{safe_key}_pct_diff": MetadataValue.float(metric_data.get("pct_difference", 0.0)),
+                f"{safe_key}_within_tolerance": MetadataValue.bool(metric_data.get("within_tolerance", True)),
+            }
+        )
 
     # Add timing metadata if available
     if comparison_data and not comparison_data.get("skipped") and "timing" in comparison_data:
