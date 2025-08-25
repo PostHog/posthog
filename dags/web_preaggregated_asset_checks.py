@@ -417,7 +417,7 @@ def execute_accuracy_check(
 
 
 def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, table_version: str) -> AssetCheckResult:
-    """Create AssetCheckResult from comparison data."""
+    """Create AssetCheckResult from comparison data with individual metric metadata for Dagster plotting."""
     total_metrics_checked = len(comparison_data.get("metrics", {}))
     failed_metrics = sum(
         1 for metric in comparison_data.get("metrics", {}).values() if not metric.get("within_tolerance", True)
@@ -443,6 +443,19 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
         "table_version": MetadataValue.text(table_version),
         "detailed_results": MetadataValue.json(comparison_data),
     }
+
+    # Add individual metric metadata for Dagster plotting
+    metrics = comparison_data.get("metrics", {})
+    for metric_key, metric_data in metrics.items():
+        # Create safe key names for metadata (replace special chars)
+        safe_key = metric_key.replace(" ", "_").replace("%", "pct").lower()
+
+        metadata.update({
+            f"{safe_key}_pre_agg": MetadataValue.float(metric_data.get("pre_aggregated", 0.0)),
+            f"{safe_key}_regular": MetadataValue.float(metric_data.get("regular", 0.0)),
+            f"{safe_key}_pct_diff": MetadataValue.float(metric_data.get("pct_difference", 0.0)),
+            f"{safe_key}_within_tolerance": MetadataValue.bool(metric_data.get("within_tolerance", True)),
+        })
 
     # Add timing metadata if available
     if comparison_data and not comparison_data.get("skipped") and "timing" in comparison_data:
