@@ -170,7 +170,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_d
 
 
 @freeze_time("2022-01-10T00:01:00Z")
-class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
+class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -954,7 +954,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
 
 @freeze_time("2022-01-09T00:01:00Z")
-class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
@@ -1073,7 +1073,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
 
 
-class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_hogql_queries(self) -> None:
@@ -2226,7 +2226,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
 
-class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -2442,7 +2442,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
 
-class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2455,7 +2455,7 @@ class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
         mock_post.assert_not_called()
 
 
-class SendUsageNoLicenseTest(APIBaseTest):
+class TestSendUsageNoLicense(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
