@@ -2,28 +2,29 @@ import copy
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional, TypedDict, cast, Any
+from typing import Any, Optional, TypedDict, cast
+
+from django.db.models import Q
+from django.utils import timezone
 
 import dateutil.parser
 import posthoganalytics
-from django.db.models import Q
-from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
 
 from posthog.cache_utils import cache_for
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_organization_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
+    get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
-    get_teams_with_recording_count_in_period,
-    get_teams_with_rows_synced_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
-    get_teams_with_api_queries_metrics,
+    get_teams_with_recording_count_in_period,
+    get_teams_with_rows_synced_in_period,
     get_teams_with_survey_responses_count_in_period,
 )
 from posthog.utils import get_current_day

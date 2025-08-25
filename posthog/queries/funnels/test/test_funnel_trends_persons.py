@@ -1,16 +1,11 @@
 from datetime import datetime, timedelta
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
 filter_data = {

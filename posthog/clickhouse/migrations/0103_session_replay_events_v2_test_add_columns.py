@@ -1,10 +1,10 @@
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions, NodeRole
+from posthog.clickhouse.client.migration_tools import NodeRole, run_sql_with_exceptions
 from posthog.session_recordings.sql.session_replay_event_v2_test_migrations_sql import (
-    ADD_MISSING_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
-    ADD_MISSING_COLUMNS_SHARDED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
     ADD_MISSING_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
-    DROP_SESSION_REPLAY_EVENTS_V2_TEST_MV_TABLE_SQL,
+    ADD_MISSING_COLUMNS_SHARDED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+    ADD_MISSING_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_V2_TEST_MV_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
     SESSION_REPLAY_EVENTS_V2_TEST_KAFKA_TABLE_SQL,

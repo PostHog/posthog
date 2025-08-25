@@ -1,12 +1,12 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.web_preaggregated.sql import (
-    WEB_STATS_DAILY_SQL,
+    WEB_BOUNCES_COMBINED_VIEW_SQL,
     WEB_BOUNCES_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
     WEB_BOUNCES_HOURLY_SQL,
     WEB_STATS_COMBINED_VIEW_SQL,
-    WEB_BOUNCES_COMBINED_VIEW_SQL,
+    WEB_STATS_DAILY_SQL,
+    WEB_STATS_HOURLY_SQL,
 )
 
 operations = [

@@ -1,24 +1,19 @@
 from random import random
-from typing import Any, Union
+from typing import Any, Optional, Union
 
-import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+
+import structlog
+from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import status
-from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
-from typing import Optional
-from opentelemetry import trace
 
-from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.error_tracking import get_suppression_rules
-from posthog.api.utils import (
-    get_project_id,
-    get_token,
-    on_permitted_recording_domain,
-)
+from posthog.api.survey import get_surveys_count, get_surveys_opt_in
+from posthog.api.utils import get_project_id, get_token, on_permitted_recording_domain
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
@@ -26,6 +21,7 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
@@ -37,11 +33,7 @@ from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
-from posthog.utils import (
-    get_ip_address,
-    label_for_team_id_to_track,
-    load_data_from_request,
-)
+from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
@@ -175,11 +167,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
         with tracer.start_as_current_span("quota_check"):
-            from ee.billing.quota_limiting import (
-                QuotaLimitingCaches,
-                QuotaResource,
-                list_limited_team_attributes,
-            )
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
             limited_tokens_recordings = list_limited_team_attributes(
                 QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY

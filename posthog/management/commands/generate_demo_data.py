@@ -1,21 +1,25 @@
-import datetime as dt
+# ruff: noqa: T201 allow print statements
+
 import logging
 import secrets
+import datetime as dt
 from time import monotonic
 from typing import Optional
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+from dagster_graphql import DagsterGraphQLClient
+
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
-from dagster_graphql import DagsterGraphQLClient
 from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
+from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
+
+from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 
@@ -137,6 +141,11 @@ class Command(BaseCommand):
                         password=password,
                         email_collision_handling="disambiguate",
                     )
+                    # Optionally generate demo issues for issue tracker if extension is available
+                    gen_issues = getattr(self, "generate_demo_issues", None)
+                    team_for_issues = getattr(matrix_manager, "team", None)
+                    if callable(gen_issues) and team_for_issues is not None:
+                        gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
             else:

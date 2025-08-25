@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass, field
-
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
@@ -35,8 +34,8 @@ class AST:
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
     def to_hogql(self):
-        from posthog.hogql.printer import print_prepared_ast
         from posthog.hogql.context import HogQLContext
+        from posthog.hogql.printer import print_prepared_ast
 
         return print_prepared_ast(
             node=self,

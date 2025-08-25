@@ -1,15 +1,18 @@
 import json
+
+from posthog.test.base import QueryMatchingTest
+
 from django.test import TestCase
+
 from inline_snapshot import snapshot
 
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import QueryMatchingTest
 
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 to_dict = lambda x: json.loads(json.dumps(x))
 
@@ -277,9 +280,9 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions,
-        # 7 unrelated due to RemoteConfig refresh
-        with self.assertNumQueries(4 + 7):
+        # 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
+        # Note: RemoteConfig refresh queries are now deferred via async signals
+        with self.assertNumQueries(4):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

@@ -1,10 +1,32 @@
 from typing import Any, cast
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
 import unittest
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest import skip
 
-from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import (
+    EventPropertyFilter,
+    EventsNode,
+    FunnelCorrelationQuery,
+    FunnelCorrelationResultsType,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+    GroupPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+)
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import (
@@ -18,28 +40,8 @@ from posthog.models.action import Action
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
-from posthog.schema import (
-    EventPropertyFilter,
-    EventsNode,
-    FunnelCorrelationQuery,
-    FunnelsActorsQuery,
-    FunnelsQuery,
-    FunnelCorrelationResultsType,
-    GroupPropertyFilter,
-    PersonPropertyFilter,
-    PropertyOperator,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-    also_test_with_person_on_events_v2,
-)
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def _create_action(**kwargs):

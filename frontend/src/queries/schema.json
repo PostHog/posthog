@@ -406,6 +406,40 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnyAssistantGeneratedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantHogQLQuery"
+                }
+            ],
+            "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
+        },
+        "AnyAssistantSupportedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            ],
+            "description": "The union type with all supported base queries for the assistant."
+        },
         "AnyDataNode": {
             "anyOf": [
                 {
@@ -901,8 +935,10 @@
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
+                "create_message_template",
                 "navigate",
-                "search_error_tracking_issues",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
                 "search_docs",
@@ -3655,22 +3691,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -9695,6 +9716,7 @@
                     "type": "string"
                 },
                 "last_seen": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "library": {
@@ -10030,6 +10052,58 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "ErrorTrackingIssueFilteringToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "newFilters": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "orderBy": {
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "removedFilterIndexes": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ErrorTrackingIssueImpactToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10203,45 +10277,6 @@
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
-            "type": "object"
-        },
-        "ErrorTrackingSceneToolOutput": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "newFilters": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
-                },
-                "orderDirection": {
-                    "enum": ["ASC", "DESC"],
-                    "type": "string"
-                },
-                "removedFilterIndexes": {
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "searchQuery": {
-                    "type": "string"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-                    "type": "string"
-                }
-            },
             "type": "object"
         },
         "EventDefinition": {
@@ -12059,7 +12094,8 @@
                 "insightLifecycle",
                 "insightStickiness",
                 "insightHogQL",
-                "insightCalendarHeatmap"
+                "insightCalendarHeatmap",
+                "code"
             ],
             "type": "string"
         },
@@ -12921,22 +12957,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -15326,16 +15347,7 @@
                     "$ref": "#/definitions/MarketingAnalyticsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -19790,22 +19802,7 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/FunnelStepsResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTimeToConvertResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTrendsResults"
-                                }
-                            ]
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -21841,11 +21838,25 @@
                     "type": "array"
                 },
                 "mrr": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResultItem"
+                    },
                     "type": "array"
                 }
             },
             "required": ["gross", "mrr"],
+            "type": "object"
+        },
+        "RevenueAnalyticsRevenueQueryResultItem": {
+            "additionalProperties": false,
+            "properties": {
+                "churn": {},
+                "contraction": {},
+                "expansion": {},
+                "new": {},
+                "total": {}
+            },
+            "required": ["total", "new", "expansion", "contraction", "churn"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersGroupBy": {
@@ -24634,16 +24645,10 @@
                 "answer": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
                         }
                     ]
                 },
@@ -24822,6 +24827,18 @@
             },
             "type": "array"
         },
+        "WebAnalyticsSampling": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "forceSamplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                }
+            },
+            "type": "object"
+        },
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
@@ -24871,16 +24888,7 @@
                     "$ref": "#/definitions/WebExternalClicksTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "stripQueryParams": {
                     "type": "boolean"
@@ -25007,16 +25015,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25169,16 +25168,7 @@
                     "$ref": "#/definitions/WebOverviewQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25296,16 +25286,7 @@
                     "$ref": "#/definitions/WebPageURLSearchQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "searchTerm": {
                     "type": "string"
@@ -25380,6 +25361,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "PreviousPage",
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
@@ -25463,16 +25445,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25645,16 +25618,7 @@
                     "$ref": "#/definitions/WebVitalsPathBreakdownQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25809,16 +25773,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"

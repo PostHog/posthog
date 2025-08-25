@@ -1,8 +1,8 @@
+import signal
 import asyncio
 import datetime as dt
-import faulthandler
 import functools
-import signal
+import faulthandler
 
 import structlog
 from temporalio import workflow
@@ -21,22 +21,39 @@ from posthog.constants import (
     GENERAL_PURPOSE_TASK_QUEUE,
     MAX_AI_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
+    TASKS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
-from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.common.logger import configure_logger_async, get_logger
+from posthog.temporal.ai import (
+    ACTIVITIES as AI_ACTIVITIES,
+    WORKFLOWS as AI_WORKFLOWS,
+)
+from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import create_worker
-from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
-from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
+from posthog.temporal.data_imports.settings import (
+    ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    WORKFLOWS as DATA_SYNC_WORKFLOWS,
+)
+from posthog.temporal.data_modeling import (
+    ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    WORKFLOWS as DATA_MODELING_WORKFLOWS,
+)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
+)
+from posthog.temporal.exports_video import (
+    ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
+    WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
 )
 from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
     WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
-from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
+from posthog.temporal.proxy_service import (
+    ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
+    WORKFLOWS as PROXY_SERVICE_WORKFLOWS,
+)
 from posthog.temporal.quota_limiting import (
     ACTIVITIES as QUOTA_LIMITING_ACTIVITIES,
     WORKFLOWS as QUOTA_LIMITING_WORKFLOWS,
@@ -49,15 +66,27 @@ from posthog.temporal.session_recordings import (
     ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
     WORKFLOWS as SESSION_RECORDINGS_WORKFLOWS,
 )
-from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
-from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
-from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from posthog.temporal.subscriptions import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from posthog.temporal.tests.utils.workflow import (
+    ACTIVITIES as TEST_ACTIVITIES,
+    WORKFLOWS as TEST_WORKFLOWS,
+)
+from posthog.temporal.usage_reports import (
+    ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
+)
+
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
-
-from posthog.temporal.exports_video import ACTIVITIES as VIDEO_EXPORT_ACTIVITIES, WORKFLOWS as VIDEO_EXPORT_WORKFLOWS
+from products.tasks.backend.temporal import (
+    ACTIVITIES as TASKS_ACTIVITIES,
+    WORKFLOWS as TASKS_WORKFLOWS,
+)
 
 # Workflow and activity index
 WORKFLOWS_DICT = {
@@ -75,6 +104,7 @@ WORKFLOWS_DICT = {
     + PRODUCT_ANALYTICS_WORKFLOWS
     + SUBSCRIPTION_WORKFLOWS
     + VIDEO_EXPORT_WORKFLOWS,
+    TASKS_TASK_QUEUE: TASKS_WORKFLOWS,
     MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
     TEST_TASK_QUEUE: TEST_WORKFLOWS,
 }
@@ -93,6 +123,7 @@ ACTIVITIES_DICT = {
     + PRODUCT_ANALYTICS_ACTIVITIES
     + SUBSCRIPTION_ACTIVITIES
     + VIDEO_EXPORT_ACTIVITIES,
+    TASKS_TASK_QUEUE: TASKS_ACTIVITIES,
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
@@ -210,9 +241,9 @@ class Command(BaseCommand):
             shutdown_task = loop.create_task(worker.shutdown())
 
         with asyncio.Runner() as runner:
-            if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
-                configure_logger_async(loop=runner.get_loop())
+            loop = runner.get_loop()
 
+            configure_logger(loop=loop)
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,
@@ -222,7 +253,6 @@ class Command(BaseCommand):
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
             )
-
             logger.info("Starting Temporal Worker")
 
             worker = runner.run(
@@ -246,7 +276,6 @@ class Command(BaseCommand):
                 )
             )
 
-            loop = runner.get_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,

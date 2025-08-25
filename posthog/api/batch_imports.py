@@ -1,22 +1,24 @@
+import uuid
 import dataclasses
+from datetime import timedelta
+from enum import Enum
+
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
+
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-import posthoganalytics
-import uuid
-from datetime import timedelta
-from enum import Enum
-from django.dispatch import receiver
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
-from posthog.models.user import User
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
 from posthog.models.signals import model_activity_signal
-from django.db.models.signals import pre_delete
+from posthog.models.user import User
 
 
 class BatchImportKafkaTopic(str, Enum):
@@ -481,11 +483,11 @@ def handle_batch_import_change(
 @receiver(pre_delete, sender=BatchImport)
 def handle_batch_import_delete(sender, instance, **kwargs):
     """Handle BatchImport deletion activity logging"""
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
     from posthog.models.activity_logging.batch_import_utils import (
         extract_batch_import_info,
         get_batch_import_created_by_info,
     )
+    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 
     user = get_current_user()
     was_impersonated = get_was_impersonated()

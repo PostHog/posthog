@@ -1,8 +1,8 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
-
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
+QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
@@ -127,9 +127,9 @@ MODIFY_QUERY_LOG_ARCHIVE_TABLE_V2 = [
 ADD_TEAM_ID_ALIAS_COLUMN = "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS team_id Int64 ALIAS lc_team_id"
 
 
-def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(on_cluster=True):
+def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new", on_cluster=True):
     return """
-CREATE TABLE IF NOT EXISTS query_log_archive_new {on_cluster_clause} (
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     hostname                              LowCardinality(String),
     user                                  LowCardinality(String),
     query_id                              String,
@@ -231,14 +231,17 @@ PARTITION BY toYYYYMM(event_date)
 ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)
     """.format(
+        table_name=table_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW(),
     )
 
 
-def QUERY_LOG_ARCHIVE_NEW_MV(on_cluster=True):
-    return """CREATE MATERIALIZED VIEW query_log_archive_new_mv {on_cluster_clause}
-TO query_log_archive_new
+def QUERY_LOG_ARCHIVE_NEW_MV_SQL(
+    view_name="query_log_archive_new_mv", dest_table="query_log_archive_new", on_cluster=True
+):
+    return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name} {on_cluster_clause}
+TO {dest_table}
 AS SELECT
     hostname,
     user,
@@ -345,6 +348,8 @@ WHERE
     type != 'QueryStart'
     AND is_initial_query
     """.format(
+        view_name=view_name,
+        dest_table=dest_table,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
@@ -379,7 +384,7 @@ ORDER BY (event_date, event_time)
     )
 
 
-def QUERY_LOG_ARCHIVE_MV(on_cluster=True):
+def QUERY_LOG_ARCHIVE_MV_SQL(on_cluster=True):
     return """CREATE MATERIALIZED VIEW query_log_archive_mv {on_cluster_clause}
 TO {table_name}
 AS SELECT

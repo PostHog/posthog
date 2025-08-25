@@ -2,16 +2,17 @@ import secrets
 from datetime import timedelta
 from typing import Optional
 
-import structlog
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
-from rest_framework.exceptions import NotFound
-from posthog.exceptions_capture import capture_exception
 
+import structlog
+from rest_framework.exceptions import NotFound
+
+from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.utils import UUIDT
 from posthog.settings import DEBUG
