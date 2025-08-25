@@ -130,12 +130,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ['variables'],
             dataThemeLogic,
             ['getTheme'],
-            featureFlagLogic,
-            ['featureFlags'],
-            variableDataLogic,
-            ['variables'],
-            dataThemeLogic,
-            ['getTheme'],
         ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
@@ -1335,10 +1329,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
-                        // Streaming loading: load metadata + stream tiles
-                        actions.loadDashboardStreaming({
-                            action: DashboardLoadAction.InitialLoad,
-                        })
+                        if (values.featureFlags[FEATURE_FLAGS.SSE_DASHBOARDS]) {
+                            // Streaming loading: load metadata + stream tiles
+                            actions.loadDashboardStreaming({
+                                action: DashboardLoadAction.InitialLoad,
+                            })
+                        } else {
+                            // Regular loading
+                            actions.loadDashboard({
+                                action: DashboardLoadAction.InitialLoad,
+                            })
+                        }
                     }
                 }
             }
@@ -1745,9 +1746,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
-                actions.loadDashboardStreaming({
-                    action: DashboardLoadAction.InitialLoadWithVariables,
-                })
+                if (values.featureFlags[FEATURE_FLAGS.SSE_DASHBOARDS]) {
+                    actions.loadDashboardStreaming({
+                        action: DashboardLoadAction.InitialLoadWithVariables,
+                    })
+                } else {
+                    actions.loadDashboard({
+                        action: DashboardLoadAction.InitialLoadWithVariables,
+                    })
+                }
             }
 
             actions.setInitialVariablesLoaded(true)
