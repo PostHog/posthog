@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
@@ -115,6 +115,8 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
             return obj.__dict__
         if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, time):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
             return str(obj)
