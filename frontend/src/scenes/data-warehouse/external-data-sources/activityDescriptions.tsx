@@ -1,9 +1,10 @@
 import {
     ActivityLogItem,
-    defaultDescriber,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+
 import { ActivityScope } from '~/types'
 
 const getDisplayName = (logItem: ActivityLogItem): string => {
@@ -14,8 +15,8 @@ const getDisplayName = (logItem: ActivityLogItem): string => {
 
     // Handle ExternalDataSource display name
     if (logItem.scope === ActivityScope.EXTERNAL_DATA_SOURCE) {
-        const sourceType = logItem?.detail?.source_type
-        const prefix = logItem?.detail?.prefix
+        const sourceType = (logItem?.detail as any)?.source_type
+        const prefix = (logItem?.detail as any)?.prefix
 
         if (sourceType && prefix) {
             return `${sourceType} (${prefix})`
@@ -27,8 +28,8 @@ const getDisplayName = (logItem: ActivityLogItem): string => {
     // Handle ExternalDataSchema display name
     if (logItem.scope === ActivityScope.EXTERNAL_DATA_SCHEMA) {
         const schemaName = logItem?.detail?.name || 'Unnamed Schema'
-        const syncType = logItem?.detail?.sync_type
-        const syncFrequency = logItem?.detail?.sync_frequency
+        const syncType = (logItem?.detail as any)?.sync_type
+        const syncFrequency = (logItem?.detail as any)?.sync_frequency
 
         if (syncType && syncFrequency) {
             return `${schemaName} (${syncType}, ${syncFrequency})`
