@@ -1,12 +1,12 @@
 """Test that bulk deletion operations can be disabled via environment variable."""
 
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import Team, Organization, OrganizationMembership
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.project import Project
-from posthog.test.base import APIBaseTest
 
 
 class TestBulkDeletionDisabled(APIBaseTest):
@@ -45,6 +45,10 @@ class TestBulkDeletionDisabled(APIBaseTest):
         project_id = Team.objects.increment_id_sequence()
         test_project = Project.objects.create(
             id=project_id, organization=self.organization, name="Test Project for Deletion"
+        )
+        # Create the associated Team with the same ID so the user has permission to access the project
+        Team.objects.create(
+            id=project_id, project=test_project, organization=self.organization, name="Test Team for Deletion"
         )
 
         response = self.client.delete(f"/api/projects/{test_project.id}/")
