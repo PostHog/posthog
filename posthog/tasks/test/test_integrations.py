@@ -1,11 +1,11 @@
 import time
 from typing import Optional
-from unittest.mock import patch
 
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from posthog.models.integration import Integration
 from posthog.tasks.integrations import refresh_integrations
-from posthog.test.base import APIBaseTest
 
 
 class TestIntegrationsTasks(APIBaseTest):

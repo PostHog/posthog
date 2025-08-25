@@ -8,8 +8,9 @@ Adding a new filter/breakdown option in Revenue Analytics requires changes acros
 
 1. **Frontend schema definitions** - Define the new property type
 1. **Taxonomy system** - Define filter metadata for the UI
-1. **Database view updates** - Ensure required fields are available
-1. **HogQL property handling** - Map the property to database fields
+1. **Database view schema updates** - Ensure required fields are defined in the schema
+1. **Database view updates** - Ensure required fields are available in the view definitions
+1. **HogQL property mapping** - Map the property to database fields
 1. **Base query runner updates** - Handles making sure the revenue query runners handle new properties
 1. **Insights query runner update** - Handles making sure we know how to breakdown by new property
     1. This will be updated soon to be much more simple and generic, similar to the point above
@@ -53,9 +54,9 @@ Add to the `CORE_FILTER_DEFINITIONS_BY_GROUP` under the `"revenue_analytics"` gr
 
 **Important**: After updating this file, run `pnpm build:taxonomy` to generate the JSON file used by the frontend.
 
-### 3. Database View Updates
+### 3. Database View Schema Updates
 
-**File**: `products/revenue_analytics/backend/views/revenue_analytics_customer_view.py`
+**File**: `products/revenue_analytics/backend/views/schema/customer.py`
 
 Ensure required fields are available in the view:
 
@@ -89,9 +90,34 @@ def get_query_for_source(cls, source: ExternalDataSource) -> ast.SelectQuery:
     ],
 ```
 
-**Purpose**: Ensures the database view includes all fields needed for the new property.
+**Purpose**: Ensures the database view schema includes all fields needed for the new property.
 
-### 4. HogQL Property Mapping
+### 4. Database View Updates
+
+**File**: `products/revenue_analytics/backend/views/sources/*/customer.py`
+
+Ensure required fields are available in the view. This needs to be done for all sources:
+
+```python
+# Add to select fields in query generation
+def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
+    # ... existing code ...
+    select=[
+        ast.Alias(alias="id", expr=ast.Field(chain=["outer", "id"])),
+        ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
+        ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+
+        # ... existing code ...
+
+        # These two were added
+        ast.Alias(alias="address", expr=ast.Field(chain=["address"])),
+        ast.Alias(alias="country", expr=ast.Call(name="JSONExtractString", args=[ast.Field(chain=["address"]), ast.Constant(value="country")])),
+    ],
+```
+
+**Purpose**: Ensures the database view source includes all fields needed for the new property.
+
+### 5. HogQL Property Mapping
 
 **File**: `posthog/hogql/property.py`
 
@@ -110,7 +136,7 @@ def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropert
 
 **Purpose**: Maps the property key to the actual database field path for use in HogQL queries.
 
-### 5. Query Runner Property Dependencies
+### 6. Query Runner Property Dependencies
 
 **File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_query_runner.py`
 
@@ -132,7 +158,7 @@ def joins_set_for_properties(self) -> set[str]:
 
 **Purpose**: Ensures that when the property is used in filters, the necessary table joins are automatically included.
 
-### 6. GroupBy Implementation
+### 7. GroupBy Implementation
 
 **File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_revenue_query_runner.py`
 
@@ -148,7 +174,7 @@ def _join_to_and_field_name_for_group_by(self, group_by: RevenueAnalyticsGroupBy
 
 **Purpose**: Implements the actual groupBy logic for breakdowns, combining revenue data with the new dimension.
 
-### 7. API Values Endpoint
+### 8. API Values Endpoint
 
 **File**: `products/revenue_analytics/backend/api.py`
 
@@ -176,7 +202,7 @@ You might need to create a new equivalent to `self._customer_selects` that shoul
 
 **Purpose**: Provides the dropdown values for the filter UI by querying all unique values available in the database.
 
-### 8. Frontend Component Integration
+### 9. Frontend Component Integration
 
 **File**: `products/revenue_analytics/frontend/RevenueAnalyticsFilters.tsx`
 
@@ -212,7 +238,8 @@ When adding a new Revenue Analytics filter/breakdown option, you need to modify 
 1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_query_runner.py`** - Join requirements
 1. **`products/revenue_analytics/backend/api.py`** - API values endpoint
 1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_revenue_query_runner.py`** - GroupBy implementation
-1. **Database view files** (e.g., `revenue_analytics_customer_view.py`) - Ensure required fields exist
+1. **Database view schema files** (e.g., `views/schema/*.py`) - Ensure required fields exist in the schema
+1. **Database view source files** (e.g., `views/sources/**/*.py`) - Ensure required fields exist in the query source
 1. **Frontend component files** (e.g., `RevenueAnalyticsFilters.tsx`) - UI integration
 
 The key pattern is that each new property needs to be defined at the schema level, mapped to database fields, integrated into the query building logic, and exposed through both filtering and groupBy interfaces.

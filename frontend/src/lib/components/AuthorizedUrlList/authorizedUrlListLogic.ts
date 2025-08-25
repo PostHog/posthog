@@ -15,6 +15,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
@@ -329,8 +330,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             [] as string[],
             {
                 setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
-                addUrl: (state, { url }) => (!state.includes(url) ? state.concat([url]) : state),
-                updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
+                addUrl: (state, { url }) => (url && !state.includes(url) ? state.concat([url]) : state),
+                updateUrl: (state, { index, url }) => (url ? Object.assign([...state], { [index]: url }) : state),
                 removeUrl: (state, { index }) => {
                     const newUrls = [...state]
                     newUrls.splice(index, 1)

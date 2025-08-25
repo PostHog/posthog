@@ -5,10 +5,6 @@
             "enum": ["$ai_generation", "$ai_embedding", "$ai_span", "$ai_trace", "$ai_metric", "$ai_feedback"],
             "type": "string"
         },
-        "AccessControlLevel": {
-            "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
-            "type": "string"
-        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -406,6 +402,40 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnyAssistantGeneratedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantHogQLQuery"
+                }
+            ],
+            "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
+        },
+        "AnyAssistantSupportedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            ],
+            "description": "The union type with all supported base queries for the assistant."
+        },
         "AnyDataNode": {
             "anyOf": [
                 {
@@ -669,168 +699,6 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQueryResponse"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "_create_in_folder": {
-                            "description": "Only used when creating objects",
-                            "type": ["string", "null"]
-                        },
-                        "cache_target_age": {
-                            "type": ["string", "null"]
-                        },
-                        "created_at": {
-                            "type": "string"
-                        },
-                        "created_by": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/UserBasicType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "dashboard_tiles": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/DashboardTileBasicType"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "dashboards": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "type": "number"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "deprecated": "Use `dashboard_tiles` instead"
-                        },
-                        "deleted": {
-                            "type": "boolean"
-                        },
-                        "derived_name": {
-                            "type": ["string", "null"]
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "disable_baseline": {
-                            "description": "Only used in the frontend to toggle showing Baseline in funnels or not",
-                            "type": "boolean"
-                        },
-                        "effective_privilege_level": {
-                            "$ref": "#/definitions/DashboardPrivilegeLevel"
-                        },
-                        "effective_restriction_level": {
-                            "$ref": "#/definitions/DashboardRestrictionLevel"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "id": {
-                            "description": "The primary key in the database, used as well in API endpoints",
-                            "type": "number"
-                        },
-                        "is_sample": {
-                            "type": "boolean"
-                        },
-                        "last_modified_at": {
-                            "type": "string"
-                        },
-                        "last_modified_by": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/UserBasicType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "last_refresh": {
-                            "type": ["string", "null"]
-                        },
-                        "name": {
-                            "type": "string"
-                        },
-                        "next": {
-                            "description": "Only used in the frontend to store the next breakdown url",
-                            "type": "string"
-                        },
-                        "next_allowed_client_refresh": {
-                            "type": ["string", "null"]
-                        },
-                        "order": {
-                            "type": ["number", "null"]
-                        },
-                        "query": {
-                            "anyOf": [
-                                {
-                                    "additionalProperties": false,
-                                    "description": "Node base class, everything else inherits from here.",
-                                    "properties": {
-                                        "kind": {
-                                            "$ref": "#/definitions/NodeKind"
-                                        },
-                                        "response": {
-                                            "type": "object"
-                                        },
-                                        "version": {
-                                            "description": "version of the node, used for schema migrations",
-                                            "type": "number"
-                                        }
-                                    },
-                                    "required": ["kind"],
-                                    "type": "object"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus"
-                        },
-                        "result": {},
-                        "saved": {
-                            "type": "boolean"
-                        },
-                        "short_id": {
-                            "$ref": "#/definitions/InsightShortId",
-                            "description": "The unique key we use when communicating with the user, e.g. in URLs"
-                        },
-                        "tags": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "timezone": {
-                            "type": ["string", "null"]
-                        },
-                        "updated_at": {
-                            "type": "string"
-                        },
-                        "user_access_level": {
-                            "$ref": "#/definitions/AccessControlLevel"
-                        }
-                    },
-                    "type": "object"
                 }
             ]
         },
@@ -901,11 +769,15 @@
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
+                "create_message_template",
                 "navigate",
-                "search_error_tracking_issues",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
-                "search_docs"
+                "search_docs",
+                "search_insights",
+                "session_summarization"
             ],
             "type": "string"
         },
@@ -966,7 +838,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "event_metadata", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2369,7 +2241,14 @@
                     "type": "boolean"
                 },
                 "property": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
                 },
                 "type": {
                     "anyOf": [
@@ -3646,22 +3525,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -7300,32 +7164,6 @@
             },
             "type": "object"
         },
-        "DashboardPrivilegeLevel": {
-            "description": "Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel.",
-            "enum": [21, 37, 888, 999],
-            "type": "number"
-        },
-        "DashboardRestrictionLevel": {
-            "description": "Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel.",
-            "enum": [21, 37],
-            "type": "number"
-        },
-        "DashboardTileBasicType": {
-            "additionalProperties": false,
-            "properties": {
-                "dashboard_id": {
-                    "type": "number"
-                },
-                "deleted": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "number"
-                }
-            },
-            "required": ["id", "dashboard_id"],
-            "type": "object"
-        },
         "DataColorToken": {
             "enum": [
                 "preset-1",
@@ -9686,6 +9524,7 @@
                     "type": "string"
                 },
                 "last_seen": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "library": {
@@ -10021,6 +9860,58 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "ErrorTrackingIssueFilteringToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "newFilters": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "orderBy": {
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "removedFilterIndexes": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ErrorTrackingIssueImpactToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10194,45 +10085,6 @@
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
-            "type": "object"
-        },
-        "ErrorTrackingSceneToolOutput": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "newFilters": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
-                    "type": "string"
-                },
-                "orderDirection": {
-                    "enum": ["ASC", "DESC"],
-                    "type": "string"
-                },
-                "removedFilterIndexes": {
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "searchQuery": {
-                    "type": "string"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-                    "type": "string"
-                }
-            },
             "type": "object"
         },
         "EventDefinition": {
@@ -11298,6 +11150,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetric"
                 }
             ]
         },
@@ -11361,7 +11216,7 @@
             ]
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean"],
+            "enum": ["funnel", "mean", "ratio"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -11371,6 +11226,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetricTypeProps"
                 }
             ]
         },
@@ -11491,6 +11349,63 @@
             },
             "type": "object"
         },
+        "ExperimentRatioMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["denominator", "kind", "metric_type", "numerator"],
+            "type": "object"
+        },
+        "ExperimentRatioMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "metric_type": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                }
+            },
+            "required": ["metric_type", "numerator", "denominator"],
+            "type": "object"
+        },
         "ExperimentSignificanceCode": {
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
             "type": "string"
@@ -11498,11 +11413,20 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -11517,11 +11441,20 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "sum": {
                     "type": "number"
@@ -11680,6 +11613,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11689,6 +11628,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "significant": {
                     "type": "boolean"
@@ -11720,6 +11662,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "denominator_sum": {
+                    "type": "number"
+                },
+                "denominator_sum_squares": {
+                    "type": "number"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -11729,6 +11677,9 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "numerator_denominator_sum_product": {
+                    "type": "number"
                 },
                 "p_value": {
                     "type": "number"
@@ -11951,7 +11902,8 @@
                 "insightLifecycle",
                 "insightStickiness",
                 "insightHogQL",
-                "insightCalendarHeatmap"
+                "insightCalendarHeatmap",
+                "code"
             ],
             "type": "string"
         },
@@ -12813,22 +12765,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -15218,16 +15155,7 @@
                     "$ref": "#/definitions/MarketingAnalyticsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -15924,7 +15852,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -19682,22 +19610,7 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/FunnelStepsResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTimeToConvertResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTrendsResults"
-                                }
-                            ]
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -20602,6 +20515,10 @@
                         {
                             "const": "visited_page",
                             "type": "string"
+                        },
+                        {
+                            "const": "comment_text",
+                            "type": "string"
                         }
                     ]
                 },
@@ -20630,6 +20547,9 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "comment_text": {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 "console_log_filters": {
                     "items": {
@@ -20782,9 +20702,11 @@
             "properties": {
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["color"],
             "type": "object"
         },
         "ResultCustomizationBy": {
@@ -20800,9 +20722,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "ResultCustomizationByValue": {
@@ -20814,9 +20739,12 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "hidden": {
+                    "type": "boolean"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": ["assignmentBy"],
             "type": "object"
         },
         "RetentionDashboardDisplayType": {
@@ -21718,11 +21646,25 @@
                     "type": "array"
                 },
                 "mrr": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResultItem"
+                    },
                     "type": "array"
                 }
             },
             "required": ["gross", "mrr"],
+            "type": "object"
+        },
+        "RevenueAnalyticsRevenueQueryResultItem": {
+            "additionalProperties": false,
+            "properties": {
+                "churn": {},
+                "contraction": {},
+                "expansion": {},
+                "new": {},
+                "total": {}
+            },
+            "required": ["total", "new", "expansion", "contraction", "churn"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersGroupBy": {
@@ -23096,6 +23038,31 @@
                     },
                     "type": "array"
                 },
+                "resultCustomizationBy": {
+                    "$ref": "#/definitions/ResultCustomizationBy",
+                    "default": "value",
+                    "description": "Whether result datasets are associated by their values or by their order."
+                },
+                "resultCustomizations": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByValue"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Customizations for the appearance of result datasets."
+                },
                 "showLegend": {
                     "type": "boolean"
                 },
@@ -23430,6 +23397,9 @@
                     "type": "number"
                 },
                 "iteration_frequency_days": {
+                    "type": "number"
+                },
+                "linked_flag_id": {
                     "type": "number"
                 },
                 "name": {
@@ -24508,16 +24478,10 @@
                 "answer": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
                         }
                     ]
                 },
@@ -24696,6 +24660,18 @@
             },
             "type": "array"
         },
+        "WebAnalyticsSampling": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "forceSamplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                }
+            },
+            "type": "object"
+        },
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
@@ -24745,16 +24721,7 @@
                     "$ref": "#/definitions/WebExternalClicksTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "stripQueryParams": {
                     "type": "boolean"
@@ -24881,16 +24848,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25043,16 +25001,7 @@
                     "$ref": "#/definitions/WebOverviewQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25170,16 +25119,7 @@
                     "$ref": "#/definitions/WebPageURLSearchQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "searchTerm": {
                     "type": "string"
@@ -25254,6 +25194,7 @@
                 "InitialPage",
                 "ExitPage",
                 "ExitClick",
+                "PreviousPage",
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
@@ -25337,16 +25278,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25519,16 +25451,7 @@
                     "$ref": "#/definitions/WebVitalsPathBreakdownQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25683,16 +25606,7 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/WebAnalyticsSampling"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
@@ -25787,6 +25701,22 @@
         },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentRatioMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentRatioMetric",
             "properties": {
                 "namedArgs": {
                     "additionalProperties": false,

@@ -48,6 +48,9 @@ jobs:
                     - image: log-capture
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
+                    - image: kafka-deduplicator
+                      dockerfile: ./rust/Dockerfile
+                      project: vznmbshh6q
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -66,6 +69,7 @@ jobs:
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
             log-capture_digest: ${{ steps.digest.outputs.log-capture_digest }}
+            kafka-deduplicator_digest: ${{ steps.digest.outputs.kafka-deduplicator_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -193,6 +197,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.log-capture_digest }}'
+                    - release: kafka-deduplicator
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.kafka-deduplicator_digest }}'
         steps:
             - name: get deployer token
               id: deployer

@@ -1,17 +1,21 @@
-import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+
 import { RecordingUniversalFilters } from '~/types'
+import { ReplayTabs } from '~/types'
+
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
-    MAX_SELECTED_RECORDINGS,
     DELETE_CONFIRMATION_TEXT,
+    MAX_SELECTED_RECORDINGS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { ReplayTabs } from '~/types'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -330,7 +334,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     onChange={(checked) => handleSelectUnselectAll(checked, type)}
                     stopPropagation
                     className="ml-2"
-                    dataAttr="select-all-recordings"
+                    data-attr="select-all-recordings"
                     aria-label="Select all recordings"
                 />
                 {filters && setFilters ? (

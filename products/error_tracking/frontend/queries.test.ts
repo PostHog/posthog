@@ -1,5 +1,5 @@
-import { errorTrackingQuery } from './queries'
 import { FilterLogicalOperator } from '../../../frontend/src/types'
+import { errorTrackingQuery } from './queries'
 
 describe('queries', () => {
     describe('errorTrackingQuery', () => {

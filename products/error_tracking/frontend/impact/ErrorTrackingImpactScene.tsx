@@ -1,17 +1,22 @@
-import { SceneExport } from 'scenes/sceneTypes'
-
-import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
 import { useActions, useValues } from 'kea'
-import { EventName } from 'products/actions/frontend/components/EventName'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
-import { IssueListTitleColumn, IssueListTitleHeader } from '../components/TableColumns'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
+
+import { EventName } from 'products/actions/frontend/components/EventName'
+
+import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { BulkActions } from '../components/IssueActions/BulkActions'
+import { ErrorTrackingIssueImpactTool } from '../components/IssueImpactTool'
+import { IssueListTitleColumn, IssueListTitleHeader } from '../components/TableColumns'
 import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
+import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
 
 export const scene: SceneExport = {
     component: ErrorTrackingImpactScene,
@@ -24,6 +29,8 @@ export function ErrorTrackingImpactScene(): JSX.Element | null {
 
     return hasIssueCorrelation ? (
         <ErrorTrackingSetupPrompt>
+            <ErrorTrackingIssueImpactTool />
+
             {!issuesLoading && !completedInitialLoad ? (
                 <InitialState />
             ) : (
@@ -41,7 +48,7 @@ const Table = (): JSX.Element => {
 
     const columns: LemonTableColumns<ErrorTrackingCorrelatedIssue> = [
         {
-            title: <IssueListTitleHeader results={issues} columnName="Issue" />,
+            title: <IssueListTitleHeader results={issues} />,
             render: function RenderTitle(_, record, recordIndex) {
                 return <IssueListTitleColumn results={issues} record={record} recordIndex={recordIndex} />
             },
@@ -86,9 +93,6 @@ const Table = (): JSX.Element => {
 }
 
 const InitialState = (): JSX.Element => {
-    const { event } = useValues(errorTrackingImpactSceneLogic)
-    const { setEvent } = useActions(errorTrackingImpactSceneLogic)
-
     return (
         <div className="flex flex-col flex-1 items-center mt-24 text-center mb-1">
             <h2 className="text-xl font-bold">Understand the impact of issues</h2>
@@ -96,24 +100,38 @@ const InitialState = (): JSX.Element => {
                 See what issues are causing the most impact on your conversion, activation or any other event you're
                 tracking in PostHog.
             </div>
-            <EventName value={event} onChange={setEvent} allEventsOption="clear" placement="bottom" />
+
+            <EventSelector />
         </div>
     )
 }
 
 export const Options = (): JSX.Element => {
     const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
-    const { event, issues } = useValues(errorTrackingImpactSceneLogic)
-    const { setEvent } = useActions(errorTrackingImpactSceneLogic)
+    const { issues } = useValues(errorTrackingImpactSceneLogic)
 
     return (
         <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary">
             {selectedIssueIds.length > 0 ? (
                 <BulkActions issues={issues} selectedIds={selectedIssueIds} />
             ) : (
-                <EventName value={event} onChange={setEvent} allEventsOption="clear" placement="bottom" />
+                <EventSelector />
             )}
         </div>
+    )
+}
+
+const EventSelector = (): JSX.Element => {
+    const { events } = useValues(errorTrackingImpactSceneLogic)
+    const { setEvents } = useActions(errorTrackingImpactSceneLogic)
+
+    return (
+        <EventName
+            value={events && events.length > 0 ? events[0] : null}
+            onChange={(event) => setEvents(event ? [event] : [])}
+            allEventsOption="clear"
+            placement="bottom"
+        />
     )
 }
 

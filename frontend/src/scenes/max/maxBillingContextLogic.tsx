@@ -1,19 +1,21 @@
 import { connect, kea, path, selectors } from 'kea'
+
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isAddonVisible } from 'scenes/billing/billing-utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
+import { billingUsageLogic } from 'scenes/billing/billingUsageLogic'
+import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
+import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
+import { Destination } from 'scenes/pipeline/types'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { BillingType, TeamType } from '~/types'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { billingUsageLogic } from 'scenes/billing/billingUsageLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
-import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
-import { Destination } from 'scenes/pipeline/types'
-import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
-import { isAddonVisible } from 'scenes/billing/billing-utils'
 import type { maxBillingContextLogicType } from './maxBillingContextLogicType'
-import { billingSpendLogic, BillingSpendResponse } from 'scenes/billing/billingSpendLogic'
-import { dayjs } from 'lib/dayjs'
 
 export const DEFAULT_BILLING_DATE_FROM = dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
 export const DEFAULT_BILLING_DATE_TO = dayjs().subtract(1, 'day').format('YYYY-MM-DD')

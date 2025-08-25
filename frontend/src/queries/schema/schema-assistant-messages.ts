@@ -1,8 +1,5 @@
-import type { MaxUIContext } from 'scenes/max/maxTypes'
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
-
-// re-export MaxBillingContext to make it available in the schema
-export type { MaxBillingContext }
+import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import {
     AssistantFunnelsQuery,
@@ -10,6 +7,10 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
+import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from './schema-general'
+
+// re-export MaxBillingContext to make it available in the schema
+export type { MaxBillingContext }
 
 // Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
 // which leads to improper type naming
@@ -84,12 +85,26 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
+/**
+ * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
+ */
+export type AnyAssistantGeneratedQuery =
+    | AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
+
+/**
+ * The union type with all supported base queries for the assistant.
+ */
+export type AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+
 export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
     /** @default '' */
     query: string
     plan?: string
-    answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
     initiator?: string
 }
 
@@ -151,11 +166,15 @@ export type AssistantContextualTool =
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
+    | 'create_message_template'
     | 'navigate'
-    | 'search_error_tracking_issues'
+    | 'filter_error_tracking_issues'
+    | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'search_docs'
+    | 'search_insights'
+    | 'session_summarization'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

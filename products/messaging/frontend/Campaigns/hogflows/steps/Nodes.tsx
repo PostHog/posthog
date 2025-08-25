@@ -1,15 +1,16 @@
-import { IconPlus } from '@posthog/icons'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { IconPlus } from '@posthog/icons'
+
+import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
+import { StepView } from './components/StepView'
 import { HogFlowStepNodeProps } from './types'
-import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
 

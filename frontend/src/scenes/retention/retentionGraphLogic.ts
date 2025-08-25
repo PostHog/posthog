@@ -1,5 +1,6 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
-import { dayjs, QUnitType } from 'lib/dayjs'
+
+import { QUnitType, dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
@@ -24,7 +25,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
-            ['hasValidBreakdown', 'results', 'selectedBreakdownValue', 'retentionMeans'],
+            ['hasValidBreakdown', 'results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
             teamLogic,
             ['timezone'],
         ],
@@ -116,6 +117,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 s.retentionMeans,
                 s.retentionFilter,
                 s.shouldShowMeanPerBreakdown,
+                s.breakdownDisplayNames,
             ],
             (
                 hasValidBreakdown: boolean,
@@ -123,7 +125,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 selectedBreakdownValue: string | number | boolean | null,
                 retentionMeans: Record<string, MeanRetentionValue>,
                 retentionFilter: any,
-                shouldShowMeanPerBreakdown: boolean
+                shouldShowMeanPerBreakdown: boolean,
+                breakdownDisplayNames: Record<string, string>
             ): RetentionTrendPayload[] => {
                 if (shouldShowMeanPerBreakdown) {
                     // Generate series from the mean retention data for each breakdown
@@ -145,8 +148,11 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         const numIntervals = meanData.meanPercentages.length
                         const days = Array.from({ length: numIntervals }, (_, i) => `${period} ${i}`)
 
+                        // Use centralized breakdown display names
+                        const displayLabel = breakdownDisplayNames[String(meanData.label ?? '')] || meanData.label
+
                         meanSeries.push({
-                            breakdown_value: meanData.label,
+                            breakdown_value: displayLabel,
                             data: meanData.meanPercentages,
                             days: days,
                             labels: days,

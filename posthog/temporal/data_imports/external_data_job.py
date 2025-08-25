@@ -1,18 +1,21 @@
-import dataclasses
-import datetime as dt
-import json
 import re
+import json
 import typing
+import datetime as dt
+import dataclasses
+
+from django.db import close_old_connections
 
 import posthoganalytics
-from django.db import close_old_connections
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
@@ -38,14 +41,13 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import (
-    create_warehouse_templates_for_source,
-)
+from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
-from posthog.temporal.common.client import sync_connect
+from posthog.warehouse.types import ExternalDataSourceType
+
+LOGGER = get_logger(__name__)
 
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
@@ -81,7 +83,6 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "Name or service not known",
         "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
         "InsufficientPrivilege",
-        "Unable to connect to the database. Please check your connection details and network access",
     ],
     ExternalDataSourceType.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSourceType.MYSQL: [
@@ -132,7 +133,8 @@ class UpdateExternalDataJobStatusInputs:
 
 @activity.defn
 def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     close_old_connections()
 
@@ -245,7 +247,7 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     schema = ExternalDataSchema.objects.get(id=schedule_id)
-    logger = bind_temporal_worker_logger_sync(team_id=schema.team.pk)
+    logger = LOGGER.bind(team_id=schema.team.pk)
 
     logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
 
@@ -439,18 +441,6 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
     if source_type == ExternalDataSourceType.HUBSPOT and "missing or invalid refresh token" in error_lower:
         return "Your HubSpot connection is invalid or expired. Please reconnect it."
 
-    # Database connection errors
-    if source_type in [ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL, ExternalDataSourceType.MSSQL]:
-        if any(
-            keyword in error_lower
-            for keyword in ["authentication failed", "password authentication failed", "access denied"]
-        ):
-            return "Database authentication failed. Please check your username and password."
-        if any(keyword in error_lower for keyword in ["connection refused", "could not connect", "timeout"]):
-            return "Unable to connect to the database. Please check your connection details and network access."
-        if "does not exist" in error_lower or "database" in error_lower and "not found" in error_lower:
-            return "Database or table not found. Please verify your database name and table names."
-
     # Snowflake account issues
     if source_type == ExternalDataSourceType.SNOWFLAKE:
         if any(keyword in error_lower for keyword in ["account suspended", "trial ended", "decommission"]):
@@ -474,16 +464,5 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
     if source_type == ExternalDataSourceType.CHARGEBEE:
         if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
             return "Chargebee authentication failed. Please check your API key and site name."
-
-    # Cloud storage errors (S3, GCS, R2, Azure)
-    if source_type in ["aws", "google-cloud", "cloudflare-r2", "azure"]:
-        if any(keyword in error_lower for keyword in ["access denied", "forbidden", "403", "unauthorized", "401"]):
-            return "Access denied to cloud storage. Please check your credentials and bucket permissions."
-        if any(keyword in error_lower for keyword in ["bucket not found", "container not found", "no such bucket"]):
-            return "Storage bucket/container not found. Please verify your bucket name and region."
-        if any(keyword in error_lower for keyword in ["invalid credentials", "authentication failed"]):
-            return "Cloud storage authentication failed. Please check your access keys or service account."
-        if any(keyword in error_lower for keyword in ["network error", "connection timeout", "timeout"]):
-            return "Unable to connect to cloud storage. Please check your network connection and region settings."
 
     return raw_error

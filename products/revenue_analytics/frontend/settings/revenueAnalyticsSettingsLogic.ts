@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,7 +21,6 @@ import {
 import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],

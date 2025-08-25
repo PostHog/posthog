@@ -1,12 +1,13 @@
 import random
 import string
+
+from posthog.test.base import BaseTest
 from unittest import mock
 
 from dateutil import parser
 
 from posthog.models import Dashboard, DashboardTile, Insight, Tag
 from posthog.models.activity_logging.activity_log import Change, changes_between
-from posthog.test.base import BaseTest
 
 
 class TestChangesBetweenInsights(BaseTest):

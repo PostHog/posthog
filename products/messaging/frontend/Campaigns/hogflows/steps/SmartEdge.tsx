@@ -1,7 +1,9 @@
-import { BaseEdge, EdgeProps, useEdges, Edge, EdgeLabelRenderer } from '@xyflow/react'
-import { HogFlowEdge } from '../types'
+import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, useEdges } from '@xyflow/react'
+
 import { LemonTag } from '@posthog/lemon-ui'
+
 import { MINIMUM_EDGE_SPACING } from '../constants'
+import { HogFlowEdge } from '../types'
 
 // Programmatic function to get smart step path with horizontal branching
 // Handles both edge-to-edge spacing and edge-to-node collision avoidance

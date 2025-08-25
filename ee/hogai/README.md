@@ -60,17 +60,17 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
 
-   ```tsx
-   export const TOOL_DEFINITIONS: ... = {
-       // ... existing tools ...
-       your_tool_name: {
-           name: 'Do something',
-           description: 'Do something to blah blah',
-           product: Scene.YourProduct, // or null for the rare global tool
-           flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
-       },
-   }
-   ```
+    ```tsx
+    export const TOOL_DEFINITIONS: ... = {
+        // ... existing tools ...
+        your_tool_name: {
+            name: 'Do something',
+            description: 'Do something to blah blah',
+            product: Scene.YourProduct, // or null for the rare global tool
+            flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+        },
+    }
+    ```
 
 For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
 
@@ -114,7 +114,7 @@ For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUn
 
 Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: prompt, description, `root_system_prompt_template`, context from the frontend.
 
-When developing, get full visibility into what the tool is doing using local PostHog LLM observability: [http://localhost:8010/llm-observability/traces](http://localhost:8010/llm-observability/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
+When developing, get full visibility into what the tool is doing using local PostHog LLM analytics: [http://localhost:8010/llm-analytics/traces](http://localhost:8010/llm-analytics/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
 
 If you've got any requests for Max, including around tools, let us know at #team-max-ai in Slack!
 

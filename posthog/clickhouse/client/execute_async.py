@@ -1,5 +1,5 @@
-import datetime
 import uuid
+import datetime
 from typing import TYPE_CHECKING, Optional
 
 import orjson as json
@@ -8,16 +8,18 @@ from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
+from posthog.schema import ClickhouseQueryProgress, QueryStatus
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.renderers import SafeJSONRenderer
-from posthog.schema import ClickhouseQueryProgress, QueryStatus
-from posthog.tasks.tasks import process_query_task
 from posthog.exceptions_capture import capture_exception
+from posthog.renderers import SafeJSONRenderer
+from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team

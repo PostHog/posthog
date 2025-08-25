@@ -1,18 +1,20 @@
-import { kea, selectors, path, reducers, actions, listeners, connect, beforeUnmount, afterMount } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { PaginationManual } from '@posthog/lemon-ui'
+
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { processCohort } from '~/models/cohortsModel'
 import { Breadcrumb, CohortType, ExporterFormat } from '~/types'
 
 import type { cohortsSceneLogicType } from './cohortsSceneLogicType'
-import { loaders } from 'kea-loaders'
-import api, { CountedPaginatedResponse } from 'lib/api'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { processCohort } from '~/models/cohortsModel'
-import { PaginationManual } from '@posthog/lemon-ui'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 
 export interface CohortFilters {
     search?: string

@@ -1,5 +1,4 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { UUIDT } from '../../utils/utils'
 import {
     CyclotronJobInvocation,

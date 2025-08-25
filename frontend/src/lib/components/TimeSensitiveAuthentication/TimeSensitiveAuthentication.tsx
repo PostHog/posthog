@@ -1,11 +1,13 @@
-import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { SocialLoginButtons, SSOEnforcedLoginButton } from '../SocialLoginButton/SocialLoginButton'
+import { SSOEnforcedLoginButton, SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const {

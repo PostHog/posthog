@@ -1,9 +1,12 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
+import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
+import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import {
     DataTableNode,
     DateRange,
@@ -11,11 +14,9 @@ import {
     SessionAttributionExplorerQuery,
     SessionAttributionGroupBy,
 } from '~/queries/schema/schema-general'
-import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
-import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
 export const initialProperties = [] as SessionPropertyFilter[]
 export const initialGroupBy = [

@@ -1,21 +1,23 @@
 import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { IconEllipsis, IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { cn } from 'lib/utils/css-classes'
 import React, {
     CSSProperties,
     ForwardedRef,
-    forwardRef,
     HTMLAttributes,
+    forwardRef,
     useCallback,
     useEffect,
     useImperativeHandle,
     useRef,
     useState,
 } from 'react'
+
+import { IconEllipsis, IconUpload } from '@posthog/icons'
+
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { cn } from 'lib/utils/css-classes'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'

@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import posthog from 'posthog-js'
+
 import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils'
-import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -66,6 +67,7 @@ export enum DashboardEventSource {
     DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
+    DashboardHeaderOverridesBanner = 'dashboard_header_overrides_banner',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',

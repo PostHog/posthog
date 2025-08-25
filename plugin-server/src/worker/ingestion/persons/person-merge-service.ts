@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { InternalPerson } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
@@ -8,6 +9,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
+import { personMergeFailureCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
@@ -62,6 +64,13 @@ export class MergeRaceConditionError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'MergeRaceConditionError'
+    }
+}
+
+export class PersonMergeLimitExceededError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'PersonMergeLimitExceededError'
     }
 }
 
@@ -151,6 +160,7 @@ export class PersonMergeService {
             mergeFinalFailuresCounter.inc()
             logger.error('handleIdentifyOrAlias failed', {
                 error: e,
+                team_id: this.context.team.id,
                 distinctId: this.context.distinctId,
                 event_name: this.context.event.event,
                 anon_distinct_id: String(this.context.eventProperties['$anon_distinct_id']),
@@ -202,7 +212,11 @@ export class PersonMergeService {
         }
         return promiseRetry(
             () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
-            'merge_distinct_ids'
+            'merge_distinct_ids',
+            undefined,
+            undefined,
+            undefined,
+            [PersonMergeLimitExceededError]
         )
     }
 
@@ -367,7 +381,9 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
+                team_id: this.context.team.id,
+            })
             return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
@@ -416,7 +432,9 @@ export class PersonMergeService {
                     },
                     { alwaysSend: true }
                 )
-                logger.warn('🤔', 'merge race condition detected, too many concurrent merges')
+                logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
+                    team_id: this.context.team.id,
+                })
                 return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
             }
             throw error
@@ -490,10 +508,12 @@ export class PersonMergeService {
                             this.context.distinctId
                         )
 
+                        const perCallLimit = this.context.personMergeMoveDistinctIdLimit || undefined
                         const distinctIdResult = await tx.moveDistinctIds(
                             currentSourcePerson,
                             currentTargetPerson,
-                            this.context.distinctId
+                            this.context.distinctId,
+                            perCallLimit
                         )
 
                         if (!distinctIdResult.success) {
@@ -504,9 +524,30 @@ export class PersonMergeService {
                             }
                         }
 
-                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
-
                         const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
+
+                        // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
+                        const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
+                        const hitLimit = perCallLimit ? movedCount >= perCallLimit : false
+
+                        if (hitLimit) {
+                            const remaining = await tx.fetchPersonDistinctIds(
+                                currentSourcePerson,
+                                this.context.distinctId,
+                                1
+                            )
+                            if (remaining.length > 0) {
+                                personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
+                                // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
+                                logger.error('🤔', 'person merge move limit hit', {
+                                    team_id: this.context.team.id,
+                                    distinct_id: this.context.distinctId,
+                                })
+                                throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+                            }
+                        }
+
+                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
                         return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
                     }
                 )
