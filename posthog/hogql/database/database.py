@@ -1,21 +1,28 @@
 import dataclasses
 from collections.abc import Callable
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Literal,
-    Optional,
-    TypeAlias,
-    Union,
-    cast,
-)
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
+
+from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
-from posthog.exceptions_capture import capture_exception
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaPostHogTable,
+    DatabaseSchemaSchema,
+    DatabaseSchemaSource,
+    DatabaseSchemaViewTable,
+    DatabaseSerializedFieldType,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+    SessionTableVersion,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -40,14 +47,8 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.parser import parse_expr
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
-from posthog.hogql.database.schema.channel_type import (
-    create_initial_channel_type,
-    create_initial_domain_type,
-)
-from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
+from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -70,15 +71,9 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
     RawPersonDistinctIdOverridesTable,
     join_with_person_distinct_id_overrides_table,
 )
-from posthog.hogql.database.schema.person_distinct_ids import (
-    PersonDistinctIdsTable,
-    RawPersonDistinctIdsTable,
-)
-from posthog.hogql.database.schema.persons import (
-    PersonsTable,
-    RawPersonsTable,
-    join_with_persons_table,
-)
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
@@ -86,10 +81,7 @@ from posthog.hogql.database.schema.session_replay_events import (
     SessionReplayEventsTable,
     join_replay_table_to_sessions_table_v2,
 )
-from posthog.hogql.database.schema.sessions_v1 import (
-    RawSessionsTableV1,
-    SessionsTableV1,
-)
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import (
     RawSessionsTableV2,
     SessionsTableV2,
@@ -97,35 +89,25 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebStatsDailyTable,
-    WebBouncesDailyTable,
-    WebStatsHourlyTable,
-    WebBouncesHourlyTable,
-    WebStatsCombinedTable,
     WebBouncesCombinedTable,
-    WebPreAggregatedStatsTable,
+    WebBouncesDailyTable,
+    WebBouncesHourlyTable,
     WebPreAggregatedBouncesTable,
+    WebPreAggregatedStatsTable,
+    WebStatsCombinedTable,
+    WebStatsDailyTable,
+    WebStatsHourlyTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import (
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaField,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaPostHogTable,
-    DatabaseSchemaSchema,
-    DatabaseSchemaSource,
-    DatabaseSchemaViewTable,
-    DatabaseSerializedFieldType,
-    HogQLQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-    SessionTableVersion,
-)
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from opentelemetry import trace
+
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
@@ -469,6 +451,7 @@ def create_hogql_database(
 ) -> Database:
     from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
+
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
@@ -947,6 +930,7 @@ def serialize_database(
     context: HogQLContext,
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
     tables: dict[str, DatabaseSchemaTable] = {}

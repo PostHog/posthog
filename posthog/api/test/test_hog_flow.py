@@ -1,10 +1,11 @@
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.test.base import APIBaseTest
+
 from inline_snapshot import snapshot
 
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 

@@ -1,22 +1,20 @@
+import uuid
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from typing import (
-    Any,
-    Optional,
-)
-import uuid
+from typing import Any, Optional
 
-import mimesis
-import mimesis.random
 from django.conf import settings
 from django.utils import timezone
+
+import mimesis
+import tiktoken
+import mimesis.random
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
 from posthog.models.utils import UUIDT, uuid7
-import tiktoken
 
 from .models import Effect, SimPerson, SimServerClient
 

@@ -1,9 +1,14 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 import dagster
-import pytest
 from dagster import OpExecutionContext
 from dagster_aws.s3.resources import S3Resource
+
+from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
+
+from posthog.models import GroupTypeMapping, Organization, Project, Team
+from posthog.models.property_definition import PropertyDefinition
 
 from dags.max_ai.snapshot_project_data import (
     snapshot_actors_property_taxonomy,
@@ -13,9 +18,6 @@ from dags.max_ai.snapshot_project_data import (
     snapshot_properties_taxonomy,
 )
 from ee.hogai.eval.schema import PostgresProjectDataSnapshot, TeamSnapshot
-from posthog.models import GroupTypeMapping, Organization, Project, Team
-from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 
 
 @pytest.fixture

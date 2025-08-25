@@ -1,7 +1,7 @@
-import collections.abc
-import dataclasses
 import enum
 import uuid
+import dataclasses
+import collections.abc
 
 from django.contrib.postgres import indexes as pg_indexes
 from django.core.exceptions import ObjectDoesNotExist
@@ -12,14 +12,10 @@ from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
+
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import (
-    CreatedMetaFields,
-    UpdatedMetaFields,
-    UUIDTModel,
-    uuid7,
-)
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, uuid7
 from posthog.warehouse.models import S3Table
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
