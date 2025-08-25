@@ -17,6 +17,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -155,7 +156,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
-        loadDashboard: (payload: { action: DashboardLoadAction }) => payload,
+        loadDashboard: (payload: {
+            action: DashboardLoadAction
+            limitTiles?: number // optional limit for progressive loading
+        }) => payload,
+        /** Load remaining tiles after partial dashboard load. */
+        loadRemainingTiles: true,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
@@ -266,13 +272,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                loadDashboard: async ({ action }, breakpoint) => {
+                loadDashboard: async ({ action, limitTiles }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action)
 
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.urlFilters, values.urlVariables)
+                        const apiUrl = values.apiUrl(
+                            'force_cache',
+                            values.urlFilters,
+                            values.urlVariables,
+                            values.currentLayoutSize,
+                            limitTiles
+                        )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -287,6 +299,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             actions.setAccessDeniedToDashboard()
                         }
                         throw error
+                    }
+                },
+                loadRemainingTiles: async (_, breakpoint) => {
+                    if (!values.dashboard) {
+                        return values.dashboard
+                    }
+
+                    await breakpoint(200)
+
+                    try {
+                        const apiUrl = values.apiUrl(
+                            'force_cache',
+                            values.urlFilters,
+                            values.urlVariables,
+                            values.currentLayoutSize
+                        )
+                        const dashboardResponse: Response = await api.getResponse(apiUrl)
+                        const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
+                        return getQueryBasedDashboard(dashboard)
+                    } catch (error: any) {
+                        // If loading remaining tiles fails, just return current dashboard
+                        console.warn('Failed to load remaining tiles:', error)
+                        return values.dashboard
                     }
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
@@ -724,6 +759,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardFailure: () => false,
             },
         ],
+        loadingRemainingTiles: [
+            false,
+            {
+                loadRemainingTiles: () => true,
+                loadRemainingTilesSuccess: () => false,
+                loadRemainingTilesFailure: () => false,
+            },
+        ],
         /** Dashboard variables */
         initialVariablesLoaded: [
             false,
@@ -924,13 +967,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
-                    variablesOverride?: Record<string, HogQLVariable>
+                    variablesOverride?: Record<string, HogQLVariable>,
+                    layoutSize?: 'sm' | 'xs',
+                    limitTiles?: number
                 ) =>
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
+                        layout_size: layoutSize,
+                        limit_tiles: limitTiles,
                     })}`
+            },
+        ],
+        currentLayoutSize: [
+            (s) => [s.containerWidth],
+            (containerWidth): 'sm' | 'xs' => {
+                // Use precise container width when available, otherwise estimate from window width
+                if (containerWidth !== null) {
+                    return containerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
+                }
+                // Estimate from window width, accounting for ~300px of sidebars
+                const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
+                const estimatedContainerWidth = windowWidth - 300
+                return estimatedContainerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
             },
         ],
         tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
@@ -1139,7 +1199,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
-                        actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                        actions.loadDashboard({ action: DashboardLoadAction.InitialLoad, limitTiles: 4 })
                     }
                 }
             }
@@ -1487,6 +1547,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
+            if (values.dashboard.has_more_tiles) {
+                actions.loadRemainingTiles()
+            }
+
             if (values.placement !== DashboardPlacement.Export) {
                 // access stored values from dashboardLoadData
                 // as we can't pass them down to this listener
@@ -1497,6 +1561,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
                 actions.reportDashboardViewed()
+            }
+        },
+        loadRemainingTilesSuccess: () => {
+            // Refresh all tiles using the same logic as initial dashboard load
+            if (values.placement !== DashboardPlacement.Export) {
+                const action = values.dashboardLoadData.action!
+                actions.refreshDashboardItems({ action, forceRefresh: false })
             }
         },
         reportDashboardViewed: async (_, breakpoint) => {
@@ -1591,7 +1662,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
-                actions.loadDashboard({ action: DashboardLoadAction.InitialLoadWithVariables })
+                actions.loadDashboard({ action: DashboardLoadAction.InitialLoadWithVariables, limitTiles: 4 })
             }
 
             actions.setInitialVariablesLoaded(true)
