@@ -1,9 +1,8 @@
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
-from django.conf import settings
-from django.db import transaction
 
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
