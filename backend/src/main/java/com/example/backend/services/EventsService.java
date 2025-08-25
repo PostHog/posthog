@@ -39,15 +39,20 @@ public class EventsService {
     public List<ApiHeatmapGetDTO> getRightClickHeatmap(String type, String date, String urlExact, String aggregation) {
         Map<KeyMap, Integer> heatmapResult = new HashMap<>();
         List<ApiHeatmapGetDTO> results = new ArrayList<>();
+        if (type.equals("gridscroll")) {
+            type = "$table_scroll";
+        } else if (type.equals("rightclick")) {
+            type = "$right_click";
+        }
         try {
             urlExact = getUrlExact(urlExact);
             date = getTheDate(date).toString();
             StringBuilder sql = new StringBuilder(
-                    "SELECT * FROM events WHERE event = '$right_click'");
+                    "SELECT * FROM events WHERE event = '" + type + "'");
 
             sql.append(" And timestamp >= '" + date + "'");
 
-            if(aggregation.equals("unique_visitors")) {
+            if (aggregation.equals("unique_visitors")) {
                 String unique_visitor;
                 StringBuilder sqlVisitor = new StringBuilder(
                         "SELECT person_id FROM events ORDER BY rand() LIMIT 1");
@@ -104,7 +109,7 @@ public class EventsService {
         return results;
     }
 
-    public List<ApiHeatmapGetDTO> getAllHeatmap(String type, String date, String urlExact,  String aggregation) {
+    public List<ApiHeatmapGetDTO> getAllHeatmap(String type, String date, String urlExact, String aggregation) {
         Map<KeyMap, Integer> heatmapResult = new HashMap<>();
         List<ApiHeatmapGetDTO> results = new ArrayList<>();
         try {
@@ -115,7 +120,7 @@ public class EventsService {
 
             sql.append(" And timestamp >= '" + date + "'");
 
-            if(aggregation.equals("unique_visitors")) {
+            if (aggregation.equals("unique_visitors")) {
                 String unique_visitor;
                 StringBuilder sqlVisitor = new StringBuilder(
                         "SELECT person_id FROM events ORDER BY rand() LIMIT 1");
