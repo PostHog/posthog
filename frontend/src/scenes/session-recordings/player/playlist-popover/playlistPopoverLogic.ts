@@ -10,6 +10,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { SessionRecordingPlaylistType } from '~/types'
@@ -65,12 +66,24 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             addToPlaylist: async ({ playlist }) => {
                 await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 actions.reportRecordingPinnedToList(true)
+
+                const collectionLogic = sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: playlist.short_id })
+                if (collectionLogic) {
+                    collectionLogic.actions.loadPinnedRecordings()
+                }
+
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
                 await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 actions.reportRecordingPinnedToList(false)
+
+                const collectionLogic = sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: playlist.short_id })
+                if (collectionLogic) {
+                    collectionLogic.actions.loadPinnedRecordings()
+                }
+
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },
