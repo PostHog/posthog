@@ -9,85 +9,101 @@ from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 
 
+def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
+    """Build filters to exclude test account events."""
+    if not filters.get("filter_test_accounts", False):
+        return []
+    return [property_to_expr(property, team) for property in team.test_account_filters]
+
+
+def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
+    """Build global property filters that apply to all events."""
+    if not filters.get("properties"):
+        return []
+    return [property_to_expr(prop, team) for prop in filters["properties"]]
+
+
+def _build_event_filter_expr(filter: dict) -> ast.Expr:
+    """Build expression for a single event filter."""
+    event_name = filter["id"]
+    if event_name is None:
+        return ast.Constant(value=1)  # Match all events
+    return parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})
+
+
+def _build_action_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+    """Build expression for a single action filter."""
+    try:
+        action_id = int(filter["id"])
+        action = actions.get(action_id)
+        if not action:
+            action = Action.objects.get(id=action_id, team__project_id=team.project_id)
+        return action_to_expr(action)
+    except KeyError:
+        return parse_expr("1 = 2")  # No events match
+
+
+def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+    """Build expression for a single event or action filter with its properties."""
+    filter_exprs: list[ast.Expr] = []
+
+    # Add event or action expression
+    if filter.get("type") == "events" and filter.get("id"):
+        filter_exprs.append(_build_event_filter_expr(filter))
+    elif filter.get("type") == "actions":
+        filter_exprs.append(_build_action_filter_expr(filter, actions, team))
+
+    # Add per-filter properties
+    if filter.get("properties"):
+        filter_exprs.append(property_to_expr(filter.get("properties"), team))
+
+    # Return single expression or AND combination
+    if not filter_exprs:
+        return ast.Constant(value=True)
+    elif len(filter_exprs) == 1:
+        return filter_exprs[0]
+    else:
+        return ast.And(exprs=filter_exprs)
+
+
+def _combine_expressions(expressions: list[ast.Expr]) -> ast.Expr:
+    """Combine a list of expressions into a single expression."""
+    if not expressions:
+        return ast.Constant(value=True)
+    elif len(expressions) == 1:
+        return expressions[0]
+    else:
+        return ast.And(exprs=expressions)
+
+
 def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
-    # Build test account filters that should exclude events
-    test_account_filters: list[ast.Expr] = []
-    if filters.get("filter_test_accounts", False):
-        test_account_filters = [property_to_expr(property, team) for property in team.test_account_filters]
+    """
+    Build a HogQL expression from hog function filters.
 
-    # Build global property filters
-    global_property_filters: list[ast.Expr] = []
-    if filters.get("properties"):
-        for prop in filters["properties"]:
-            global_property_filters.append(property_to_expr(prop, team))
+    Optimized to evaluate test account filters only once at the top level,
+    rather than duplicating them for each event/action check.
+    """
+    # Build component filters
+    test_account_filters = _build_test_account_filters(filters, team)
+    global_property_filters = _build_global_property_filters(filters, team)
 
+    # Get all event and action filters
     all_filters = filters.get("events", []) + filters.get("actions", [])
 
-    # If no event/action filters, just return the filters we have
+    # If no event/action filters, return just the account and property filters
     if not all_filters:
-        combined_filters = test_account_filters + global_property_filters
-        if combined_filters:
-            return ast.And(exprs=combined_filters)
-        return ast.Constant(value=True)
+        return _combine_expressions(test_account_filters + global_property_filters)
 
-    # Build event/action filters
-    event_action_exprs: list[ast.Expr] = []
+    # Build expressions for each event/action filter
+    event_action_exprs = [_build_single_filter_expr(filter, actions, team) for filter in all_filters]
 
-    for filter in all_filters:
-        exprs: list[ast.Expr] = []
-
-        # Events
-        if filter.get("type") == "events" and filter.get("id"):
-            event_name = filter["id"]
-
-            if event_name is None:
-                # all events
-                exprs.append(ast.Constant(value=1))
-            else:
-                exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=event_name)}))
-
-        # Actions
-        if filter.get("type") == "actions":
-            try:
-                action_id = int(filter["id"])
-                action = actions.get(action_id, None)
-                if not action:
-                    action = Action.objects.get(id=action_id, team__project_id=team.project_id)
-                exprs.append(action_to_expr(action))
-            except KeyError:
-                exprs.append(parse_expr("1 = 2"))  # No events match
-
-        # Per-filter properties (if any)
-        if filter.get("properties"):
-            exprs.append(property_to_expr(filter.get("properties"), team))
-
-        if len(exprs) == 0:
-            event_action_exprs.append(ast.Constant(value=True))
-        elif len(exprs) == 1:
-            event_action_exprs.append(exprs[0])
-        else:
-            event_action_exprs.append(ast.And(exprs=exprs))
-
-    # Combine event/action filters with OR
+    # Combine event/action filters with OR (match any of these events/actions)
     combined_events_expr = ast.Or(exprs=event_action_exprs) if len(event_action_exprs) > 1 else event_action_exprs[0]
 
-    # Now combine everything: test account filters, global properties, and events
-    # Structure: (test_account_filter1 AND test_account_filter2 AND ...) AND global_properties AND (event1 OR event2 OR ...)
-    final_exprs: list[ast.Expr] = []
-
-    # Add test account filters (these exclude matching events)
-    final_exprs.extend(test_account_filters)
-
-    # Add global property filters
-    final_exprs.extend(global_property_filters)
-
-    # Add the event/action expression
-    final_exprs.append(combined_events_expr)
-
-    if len(final_exprs) == 1:
-        return final_exprs[0]
-
-    return ast.And(exprs=final_exprs)
+    # Combine everything: test account filters AND global properties AND (events OR actions)
+    # This structure ensures test account filters are evaluated only once
+    final_exprs = test_account_filters + global_property_filters + [combined_events_expr]
+    return _combine_expressions(final_exprs)
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
