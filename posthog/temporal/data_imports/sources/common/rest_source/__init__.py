@@ -17,8 +17,6 @@ from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 
-from posthog.temporal.common.logger import get_logger
-
 from .config_setup import (
     IncrementalParam,
     build_resource_dependency_graph,
@@ -39,15 +37,10 @@ from .typing import (
 )
 from .utils import exclude_keys  # noqa: F401
 
-LOGGER = get_logger(__name__)
-
 
 def convert_types(
     data: Iterator[Any] | list[Any], types: Optional[dict[str, dict[str, Any]]]
 ) -> Iterator[dict[str, Any]]:
-    logger = LOGGER.bind()
-    logger.info("Converting types:", data=types)
-    logger.info("Converting types:", data=data)
     if types is None:
         yield from data
         return
