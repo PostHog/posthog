@@ -4,24 +4,15 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { Editor, ReactRenderer } from '@tiptap/react'
 
-import { IconTriangleDownFilled, IconTriangleUpFilled } from '@posthog/icons'
+import { IconTriangleDownFilled, IconTriangleRightFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { humanList, identifierToHuman, pluralize } from 'lib/utils'
+
+import { NotebookNodeType } from '../types'
 
 /** h1-h3 are collapsible */
 const MAX_COLLAPSIBLE_H_LEVEL = 3
-
-function HeadingToggle({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }): JSX.Element {
-    return (
-        <LemonButton
-            type="tertiary"
-            size="xxsmall"
-            tooltip={collapsed ? 'Click to expand' : 'Click to collapse'}
-            aria-expanded={!collapsed}
-            onClick={onClick}
-            icon={collapsed ? <IconTriangleUpFilled /> : <IconTriangleDownFilled />}
-        />
-    )
-}
 
 // This is how the collapsed/expanded state is persisted - via the `collapsed` attribute on the node
 export const CollapsibleHeading = Heading.extend({
@@ -104,12 +95,11 @@ function createDecorations(doc: PMNode, editor: Editor): DecorationSet {
                         if (!node) {
                             return
                         }
-                        const tr = editor.state.tr.setNodeMarkup(headingStart, undefined, {
+                        const transaction = editor.state.tr.setNodeMarkup(headingStart, undefined, {
                             ...node.attrs,
                             collapsed: !node.attrs.collapsed,
                         })
-                        tr.setMeta('forceDecorations', true)
-                        editor.view.dispatch(tr)
+                        editor.view.dispatch(transaction)
                     },
                 },
             })
@@ -117,30 +107,114 @@ function createDecorations(doc: PMNode, editor: Editor): DecorationSet {
         }
     }
 
-    // Hierarchy-aware hiding
+    // Hierarchy-aware hiding and content analysis
     let activeCollapsedLevel: number | null = null
+    let activeCollapsedHeadingPos: number | null = null
+    let hiddenNodes: any[] = []
+
     for (const info of topNodes) {
         if (info.isHeading) {
             if (activeCollapsedLevel !== null) {
-                const nodeHLevel = info.level ?? Infinity
-                if (nodeHLevel <= activeCollapsedLevel) {
+                const level = info.level ?? Infinity
+                if (level <= activeCollapsedLevel) {
+                    // Collapsed section starting
+                    if (hiddenNodes.length > 0 && activeCollapsedHeadingPos !== null) {
+                        decorations.push(
+                            createCollapsedContentDecoration(editor, doc, activeCollapsedHeadingPos, hiddenNodes)
+                        )
+                    }
                     activeCollapsedLevel = null
+                    activeCollapsedHeadingPos = null
+                    hiddenNodes = []
+                } else {
+                    // Nested heading inside collapsed region – hide it
+                    decorations.push(
+                        Decoration.node(info.pos, info.pos + info.node.nodeSize, { style: 'display: none' })
+                    )
+                    continue
                 }
             }
             if (info.collapsed) {
                 activeCollapsedLevel = info.level ?? null
+                activeCollapsedHeadingPos = info.pos
+                hiddenNodes = []
                 continue
             }
-        }
-
-        if (activeCollapsedLevel !== null) {
-            decorations.push(
-                Decoration.node(info.pos, info.pos + info.node.nodeSize, {
-                    'data-collapsed-by': String(activeCollapsedLevel),
-                })
-            )
+        } else if (activeCollapsedLevel !== null) {
+            hiddenNodes.push(info.node)
+            decorations.push(Decoration.node(info.pos, info.pos + info.node.nodeSize, { style: 'display: none' }))
         }
     }
 
+    // If still in a collapsed region at EOF, emit summary here (same flow, not a special section)
+    if (activeCollapsedLevel !== null && hiddenNodes.length > 0 && activeCollapsedHeadingPos !== null) {
+        decorations.push(createCollapsedContentDecoration(editor, doc, activeCollapsedHeadingPos, hiddenNodes))
+    }
+
     return DecorationSet.create(doc as any, decorations)
+}
+
+function HeadingToggle({ collapsed, onClick }: { collapsed: boolean; onClick?: () => void }): JSX.Element {
+    return (
+        <LemonButton
+            type="tertiary"
+            size="xxsmall"
+            tooltip={collapsed ? 'Click to expand' : 'Click to collapse'}
+            aria-expanded={!collapsed}
+            onClick={onClick}
+            icon={collapsed ? <IconTriangleRightFilled /> : <IconTriangleDownFilled />}
+        />
+    )
+}
+const createCollapsedContentDecoration = (
+    editor: Editor,
+    doc: PMNode,
+    headingPos: number,
+    nodes: any[]
+): Decoration => {
+    const summaryRenderer = new ReactRenderer(CollapsedContentSummary, {
+        editor,
+        props: {
+            summary: summarizeCollapsedContent(nodes),
+            onClick: () => {
+                const node = editor.state.doc.nodeAt(headingPos)
+                if (!node) {
+                    console.error('No node found at headingPos', headingPos)
+                    return
+                }
+                const tr = editor.state.tr.setNodeMarkup(headingPos, undefined, { ...node.attrs, collapsed: false })
+                editor.view.dispatch(tr)
+            },
+        },
+    })
+    const headingNode = doc.nodeAt(headingPos)! // Assuming it exists, because - well - it's simpler
+    return Decoration.widget(headingPos + headingNode.nodeSize, summaryRenderer.element, { side: 1 })
+}
+
+function CollapsedContentSummary({ summary, onClick }: { summary: string; onClick: () => void }): JSX.Element {
+    return (
+        <LemonButton type="tertiary" size="xxsmall" onClick={onClick} className="italic ml-4 opacity-80">
+            Expand to see {summary}
+        </LemonButton>
+    )
+}
+
+function summarizeCollapsedContent(nodes: any[]): string {
+    const counts: Partial<Record<NotebookNodeType, number>> = {}
+    for (const node of nodes) {
+        const nodeTypeName = node.type.name
+        if (Object.values(NotebookNodeType).includes(nodeTypeName as NotebookNodeType)) {
+            if (!counts[nodeTypeName as NotebookNodeType]) {
+                counts[nodeTypeName as NotebookNodeType] = 0
+            }
+            counts[nodeTypeName as NotebookNodeType]! += 1
+        }
+    }
+    return (
+        humanList(
+            Object.entries(counts).map(([nodeTypeName, count]) =>
+                pluralize(count, identifierToHuman(nodeTypeName, 'sentence').replace('Ph ', ''))
+            )
+        ) || 'collapsed content'
+    )
 }
