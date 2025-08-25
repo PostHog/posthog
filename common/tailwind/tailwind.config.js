@@ -142,14 +142,24 @@ const deprecatedColors = {
     'data-color-15': 'var(--data-color-15)',
 
     // Lifecycle series (compiled)
-    'lifecycle-new': 'var(--lifecycle-new)',
-    'lifecycle-returning': 'var(--lifecycle-returning)',
-    'lifecycle-resurrecting': 'var(--lifecycle-resurrecting)',
-    'lifecycle-dormant': 'var(--lifecycle-dormant)',
-    'lifecycle-new-hover': 'var(--lifecycle-new-hover)',
-    'lifecycle-returning-hover': 'var(--lifecycle-returning-hover)',
-    'lifecycle-resurrecting-hover': 'var(--lifecycle-resurrecting-hover)',
-    'lifecycle-dormant-hover': 'var(--lifecycle-dormant-hover)',
+    'color-lifecycle-new': 'var(--color-lifecycle-new)',
+    'color-lifecycle-returning': 'var(--color-lifecycle-returning)',
+    'color-lifecycle-resurrecting': 'var(--color-lifecycle-resurrecting)',
+    'color-lifecycle-dormant': 'var(--color-lifecycle-dormant)',
+    'color-lifecycle-new-hover': 'var(--color-lifecycle-new-hover)',
+    'color-lifecycle-returning-hover': 'var(--color-lifecycle-returning-hover)',
+    'color-lifecycle-resurrecting-hover': 'var(--color-lifecycle-resurrecting-hover)',
+    'color-lifecycle-dormant-hover': 'var(--color-lifecycle-dormant-hover)',
+
+    // Revenue analytics MRR series (compiled)
+    'color-revenue-analytics-new': 'var(--color-revenue-analytics-new)',
+    'color-revenue-analytics-expansion': 'var(--color-revenue-analytics-expansion)',
+    'color-revenue-analytics-contraction': 'var(--color-revenue-analytics-contraction)',
+    'color-revenue-analytics-churn': 'var(--color-revenue-analytics-churn)',
+    'color-revenue-analytics-new-hover': 'var(--color-revenue-analytics-new-hover)',
+    'color-revenue-analytics-expansion-hover': 'var(--color-revenue-analytics-expansion-hover)',
+    'color-revenue-analytics-contraction-hover': 'var(--color-revenue-analytics-contraction-hover)',
+    'color-revenue-analytics-churn-hover': 'var(--color-revenue-analytics-churn-hover)',
 
     // Z-indexes
     'z-top': 'var(--z-top)',

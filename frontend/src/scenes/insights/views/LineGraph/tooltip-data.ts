@@ -43,9 +43,11 @@ export function createTooltipData(
                 (a.label === undefined || b.label === undefined ? -1 : a.label.localeCompare(b.label))
             )
         })
+
     if (filterFn) {
         data = data.filter(filterFn)
     }
+
     return data.map((s, id) => ({
         ...s,
         id,
