@@ -1,9 +1,6 @@
 from collections import defaultdict
 from typing import Literal
 
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.schema import (
     ActorsPropertyTaxonomyQueryResponse,
     ActorsPropertyTaxonomyResponse,
@@ -12,6 +9,10 @@ from posthog.schema import (
     TeamTaxonomyItem,
     TeamTaxonomyQueryResponse,
 )
+
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 
 # This is a global state that is used to store the patched results for the team taxonomy query.
 TEAM_TAXONOMY_QUERY_DATA_SOURCE: dict[int, list[TeamTaxonomyItem]] = {}

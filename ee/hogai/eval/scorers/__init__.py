@@ -10,10 +10,11 @@ from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
 
-from .sql import SQLSemanticsCorrectness
+from .sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 
 __all__ = [
     "SQLSemanticsCorrectness",
+    "SQLSyntaxCorrectness",
     "ToolRelevance",
     "QueryKindSelection",
     "PlanCorrectness",
@@ -63,7 +64,7 @@ class ToolRelevance(ScorerWithPartial):
 
 class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
-    query: AnyAssistantGeneratedQuery | None
+    query: AnyAssistantGeneratedQuery | AnyAssistantGeneratedQuery | None
     query_generation_retry_count: int | None
 
 

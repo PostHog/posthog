@@ -2,20 +2,17 @@ from collections.abc import Generator
 from typing import Annotated
 
 import pytest
+
 from asgiref.sync import async_to_sync
 from dagster_pipes import PipesContext, open_dagster_pipes
 from pydantic import BaseModel, ConfigDict, SkipValidation
 
+from posthog.models import Organization, User
+
 # We want the PostHog setup_evals fixture here
 from ee.hogai.eval.conftest import setup_evals  # noqa: F401
 from ee.hogai.eval.offline.snapshot_loader import SnapshotLoader
-from ee.hogai.eval.schema import (
-    DatasetInput,
-)
-from posthog.models import (
-    Organization,
-    User,
-)
+from ee.hogai.eval.schema import DatasetInput
 
 
 @pytest.fixture(scope="package")

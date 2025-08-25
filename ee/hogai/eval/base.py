@@ -1,9 +1,10 @@
-import asyncio
 import os
+import asyncio
 from collections.abc import Sequence
 from functools import partial
 
 import pytest
+
 from braintrust import EvalAsync, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 

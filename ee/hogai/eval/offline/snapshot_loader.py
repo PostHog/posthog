@@ -1,16 +1,20 @@
-import asyncio
 import os
+import asyncio
 from collections.abc import Generator
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
+
 from unittest.mock import patch
 
-import aioboto3
 import backoff
+import aioboto3
 from asgiref.sync import sync_to_async
 from dagster_pipes import PipesContext
 from fastavro import reader
 from pydantic_avro import AvroBase
+
+from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
+from posthog.warehouse.models.table import DataWarehouseTable
 
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
@@ -24,15 +28,6 @@ from ee.hogai.eval.schema import (
     TeamSnapshot,
     TeamTaxonomyItemSnapshot,
 )
-from posthog.models import (
-    GroupTypeMapping,
-    Organization,
-    Project,
-    PropertyDefinition,
-    Team,
-    User,
-)
-from posthog.warehouse.models.table import DataWarehouseTable
 
 from .query_patches import (
     ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,

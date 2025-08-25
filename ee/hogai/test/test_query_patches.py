@@ -1,11 +1,5 @@
-from ee.hogai.eval.offline.query_patches import (
-    ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,
-    EVENT_TAXONOMY_QUERY_DATA_SOURCE,
-    TEAM_TAXONOMY_QUERY_DATA_SOURCE,
-    PatchedActorsPropertyTaxonomyQueryRunner,
-    PatchedEventTaxonomyQueryRunner,
-    PatchedTeamTaxonomyQueryRunner,
-)
+from posthog.test.base import BaseTest
+
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsPropertyTaxonomyResponse,
@@ -14,7 +8,15 @@ from posthog.schema import (
     TeamTaxonomyItem,
     TeamTaxonomyQuery,
 )
-from posthog.test.base import BaseTest
+
+from ee.hogai.eval.offline.query_patches import (
+    ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,
+    EVENT_TAXONOMY_QUERY_DATA_SOURCE,
+    TEAM_TAXONOMY_QUERY_DATA_SOURCE,
+    PatchedActorsPropertyTaxonomyQueryRunner,
+    PatchedEventTaxonomyQueryRunner,
+    PatchedTeamTaxonomyQueryRunner,
+)
 
 
 class TestQueryPatches(BaseTest):

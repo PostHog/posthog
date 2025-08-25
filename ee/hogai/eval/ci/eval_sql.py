@@ -1,21 +1,21 @@
 import pytest
 
-from asgiref.sync import sync_to_async
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
-from posthog.hogql.errors import BaseHogQLError
-
-from posthog.errors import InternalCHQueryError
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.models.team.team import Team
-
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 
 from ..base import MaxPublicEval
-from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
+from ..scorers import (
+    PlanAndQueryOutput,
+    PlanCorrectness,
+    QueryAndPlanAlignment,
+    QueryKindSelection,
+    SQLSyntaxCorrectness,
+    TimeRangeRelevancy,
+)
 
 QUERY_GENERATION_MAX_RETRIES = 3
 
@@ -41,47 +41,6 @@ class RetryEfficiency(Scorer):
         score = 1.0 if retry_count == 0 else 1 - (retry_count / QUERY_GENERATION_MAX_RETRIES)
 
         return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
-
-
-class SQLSyntaxCorrectness(Scorer):
-    """Evaluate if the generated SQL query has correct syntax."""
-
-    def _name(self):
-        return "sql_syntax_correctness"
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        if not output:
-            return Score(
-                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
-            )
-        query = {"query": output}
-        team = await Team.objects.alatest("created_at")
-        try:
-            # Try to parse, print, and run the query
-            await sync_to_async(HogQLQueryRunner(query, team).calculate)()
-        except BaseHogQLError as e:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
-        except InternalCHQueryError as e:
-            return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
-        else:
-            return Score(name=self._name(), score=1.0)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        if not output:
-            return Score(
-                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
-            )
-        query = {"query": output}
-        team = Team.objects.latest("created_at")
-        try:
-            # Try to parse, print, and run the query
-            HogQLQueryRunner(query, team).calculate()
-        except BaseHogQLError as e:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
-        except InternalCHQueryError as e:
-            return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
-        else:
-            return Score(name=self._name(), score=1.0)
 
 
 class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):

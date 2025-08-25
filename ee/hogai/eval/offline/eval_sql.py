@@ -2,8 +2,17 @@ import asyncio
 from typing import TypedDict, cast
 
 import pytest
+
 from braintrust import EvalCase, Score
 from pydantic import BaseModel, Field
+
+from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
+
+from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext
@@ -14,11 +23,6 @@ from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.warehouse import serialize_database_schema
 from ee.models import Conversation
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
-from posthog.models import Team
-from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
-from posthog.sync import database_sync_to_async
 
 
 class EvalOutput(BaseModel):
