@@ -438,7 +438,7 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
         "success_rate": MetadataValue.float(success_rate),
         "failed_metrics": MetadataValue.int(failed_metrics),
         "total_metrics": MetadataValue.int(total_metrics_checked),
-        "tolerance_pct": MetadataValue.float(comparison_data.get("tolerance_pct", 0.0)),
+        "tolerance_percentage": MetadataValue.float(comparison_data.get("tolerance_pct", 0.0)),
         "date_range": MetadataValue.text(f"{comparison_data.get('date_from')} to {comparison_data.get('date_to')}"),
         "table_version": MetadataValue.text(table_version),
         "detailed_results": MetadataValue.json(comparison_data),
@@ -449,9 +449,9 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
     for metric_name, metric_values in metrics.items():
         metadata.update(
             {
-                f"{metric_name}_pre_agg": MetadataValue.float(metric_values.get("pre_aggregated", 0.0)),
+                f"{metric_name}_pre_aggregated": MetadataValue.float(metric_values.get("pre_aggregated", 0.0)),
                 f"{metric_name}_regular": MetadataValue.float(metric_values.get("regular", 0.0)),
-                f"{metric_name}_pct_diff": MetadataValue.float(metric_values.get("pct_difference", 0.0)),
+                f"{metric_name}_percentage_difference": MetadataValue.float(metric_values.get("pct_difference", 0.0)),
                 f"{metric_name}_within_tolerance": MetadataValue.bool(metric_values.get("within_tolerance", True)),
             }
         )
