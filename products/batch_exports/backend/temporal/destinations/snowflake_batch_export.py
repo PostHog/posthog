@@ -590,12 +590,12 @@ class SnowflakeClient:
                 check for VARIANT columns since not all VARIANT columns will be JSON, eg `elements`).
         """
         if file_format == "Parquet":
+            col_names = [field[0] for field in table_fields]
             select_fields = ", ".join(
-                f'PARSE_JSON($1:"{field[0]}")' if field[0] in known_json_columns else f'$1:"{field[0]}"'
-                for field in table_fields
+                f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
             )
             query = f"""
-            COPY INTO "{table_name}"
+            COPY INTO "{table_name} ({', '.join(col_names)})"
             FROM (
                 SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
             )
@@ -807,6 +807,7 @@ def _get_snowflake_table_settings(
         [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
     )
 
+    # although `elements` is JSON, it is extremely expensive to parse it as JSON, so we'll just keep it as a string.
     known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
 
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
@@ -814,7 +815,6 @@ def _get_snowflake_table_settings(
             ("uuid", "STRING"),
             ("event", "STRING"),
             ("properties", "VARIANT"),
-            # should elements be string?
             ("elements", "VARIANT"),
             ("people_set", "VARIANT"),
             ("people_set_once", "VARIANT"),
