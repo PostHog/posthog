@@ -77,7 +77,8 @@ class SingleSessionSummaryManager(models.Manager):
             team=team,
             session_id=session_id,
             summary=summary,
-            exception_event_ids=exception_event_ids,
+            # Enforce max 100 limit, just in case
+            exception_event_ids=exception_event_ids[:100],
             extra_summary_context=extra_summary_context_dict,
             run_metadata=run_metadata_dict,
             created_by=created_by,
