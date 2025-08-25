@@ -8,13 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MRRBreakdownChart } from './MRRBreakdownChart'
 import { mrrBreakdownModalLogic } from './mrrBreakdownModalLogic'
 
-interface MRRLegendItem {
-    key: string
-    label: string
-    description: string
-}
-
-const legendItems: MRRLegendItem[] = [
+const LEGEND_ITEMS = [
     {
         key: 'new',
         label: 'New',
@@ -35,7 +29,7 @@ const legendItems: MRRLegendItem[] = [
         label: 'Churn',
         description: 'Revenue lost from customers who cancelled/stopped using the product',
     },
-]
+] as const
 
 function MRRLegend(): JSX.Element {
     return (
@@ -44,7 +38,7 @@ function MRRLegend(): JSX.Element {
                 This chart shows the breakdown of Monthly Recurring Revenue (MRR) by category:
             </p>
             <div className="grid grid-cols-2 gap-3">
-                {legendItems.map((item) => (
+                {LEGEND_ITEMS.map((item) => (
                     <div key={item.key} className="flex items-center gap-3">
                         <div
                             className="w-4 h-4 rounded-sm flex-shrink-0"
