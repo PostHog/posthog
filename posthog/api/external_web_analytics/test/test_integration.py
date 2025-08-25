@@ -1,16 +1,13 @@
-from unittest.mock import patch
 from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
+
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
-from posthog.models.utils import uuid7
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
+from posthog.models.utils import uuid7
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
 
 class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
@@ -234,7 +231,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test the overview endpoint with real pre-aggregated data returns structured format."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "host": "example.com",
@@ -277,7 +274,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test the overview endpoint with comparison enabled."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "host": "example.com",
@@ -299,7 +296,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test the breakdown endpoint with real pre-aggregated data."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/breakdown/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "breakdown_by": "DeviceType",
@@ -332,7 +329,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test browser breakdown with real data."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/breakdown/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "breakdown_by": "Browser",
@@ -364,7 +361,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test page breakdown includes bounce rate data."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/breakdown/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "breakdown_by": "Page",
@@ -398,7 +395,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         # Test with matching host
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "host": "example.com",
@@ -412,7 +409,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         # Test with non-matching host
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "host": "different.com",
@@ -428,7 +425,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test breakdown endpoint with pathname filtering."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/breakdown/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "breakdown_by": "DeviceType",
@@ -446,7 +443,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test breakdown endpoint pagination works correctly."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/breakdown/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "breakdown_by": "Page",
@@ -471,7 +468,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test overview endpoint works without host parameter."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
             },
@@ -488,7 +485,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test overview endpoint validates date format correctly."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "invalid-date",
                 "date_to": "2024-01-02",
             },
@@ -500,7 +497,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         """Test breakdown endpoint validates breakdown_by parameter."""
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/breakdown/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "breakdown_by": "InvalidBreakdown",
@@ -514,7 +511,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         # Test with test account filtering enabled (default)
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "host": "example.com",
@@ -529,7 +526,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
         # Test with test account filtering disabled
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "host": "example.com",
@@ -552,7 +549,7 @@ class TestExternalWebAnalyticsIntegration(WebAnalyticsPreAggregatedTestBase):
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/web_analytics/overview/",
-            data={
+            {
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
                 "host": "example.com",
