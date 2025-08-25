@@ -1,8 +1,10 @@
+import { useRef } from 'react'
+
 import { Tooltip } from '@posthog/lemon-ui'
+
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { useRef } from 'react'
 
 import { FingerprintRecordPart } from './types'
 

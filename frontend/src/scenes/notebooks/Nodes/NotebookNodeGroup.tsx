@@ -1,18 +1,21 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { PropertyFilterType, PropertyOperator } from '~/types'
-import { useActions, useValues } from 'kea'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { useEffect } from 'react'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { NotFound } from 'lib/components/NotFound'
-import { groupLogic } from 'scenes/groups/groupLogic'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { GroupCaption } from 'scenes/groups/Group'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { groupLogic } from 'scenes/groups/groupLogic'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { urls } from 'scenes/urls'
+
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex } = attributes

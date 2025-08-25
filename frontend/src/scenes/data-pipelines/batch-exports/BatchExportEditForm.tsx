@@ -1,3 +1,5 @@
+import React from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import {
     LemonCalendarSelectInput,
@@ -9,8 +11,8 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import React from 'react'
 
 import { BatchExportConfigurationForm } from './types'
 

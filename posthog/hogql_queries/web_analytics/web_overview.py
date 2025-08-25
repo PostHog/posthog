@@ -1,37 +1,36 @@
-from typing import Optional, Union
 import math
+from typing import Optional, Union
+
+import structlog
+
+from posthog.schema import (
+    CachedWebOverviewQueryResponse,
+    HogQLQueryModifiers,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-)
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import (
-    WebOverviewPreAggregatedQueryBuilder,
-)
+
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import (
-    CachedWebOverviewQueryResponse,
-    WebOverviewQueryResponse,
-    WebOverviewQuery,
-    HogQLQueryModifiers,
-)
-from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
-import structlog
 
 logger = structlog.get_logger(__name__)
 
 
-class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
+class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
     query: WebOverviewQuery
-    response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
     preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.use_v2_tables = use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
@@ -74,7 +73,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
-    def calculate(self) -> WebOverviewQueryResponse:
+    def _calculate(self) -> WebOverviewQueryResponse:
         pre_aggregated_response = self.get_pre_aggregated_response()
 
         response = (

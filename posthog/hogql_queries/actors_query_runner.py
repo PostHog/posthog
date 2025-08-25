@@ -1,20 +1,8 @@
-import itertools
-from typing import Any, Optional
-from collections.abc import Sequence, Iterator
 import re
+import itertools
+from collections.abc import Iterator, Sequence
+from typing import Any, Optional
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.printer import print_ast
-from posthog.hogql.property import has_aggregation
-from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
@@ -23,12 +11,25 @@ from posthog.schema import (
     InsightActorsQuery,
     TrendsQuery,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.printer import print_ast
+from posthog.hogql.property import has_aggregation
+from posthog.hogql.resolver_utils import extract_select_queries
+
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 
 
-class ActorsQueryRunner(QueryRunner):
+class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
     query: ActorsQuery
-    response: ActorsQueryResponse
     cached_response: CachedActorsQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -41,6 +42,17 @@ class ActorsQueryRunner(QueryRunner):
         if self.query.source:
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
             self.modifiers = self.source_query_runner.modifiers
+        else:
+            # For direct person queries (no source), ensure we use V2 to get latest person data only
+            # This fixes the issue where deleted person properties still show up from old person rows
+            from posthog.schema import PersonsArgMaxVersion
+
+            if (
+                self.modifiers.personsArgMaxVersion is None
+                or self.modifiers.personsArgMaxVersion == PersonsArgMaxVersion.AUTO
+            ):
+                self.modifiers = self.modifiers.model_copy()
+                self.modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
 
         self.strategy = self.determine_strategy()
         self.calculating = False
@@ -108,7 +120,7 @@ class ActorsQueryRunner(QueryRunner):
         matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
-    def _calculate(self) -> ActorsQueryResponse:
+    def _calculate_internal(self) -> ActorsQueryResponse:
         # Funnel queries require the experimental analyzer to run correctly
         # Can remove once clickhouse moves to version 24.3 or above
         settings = None
@@ -176,10 +188,10 @@ class ActorsQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def calculate(self) -> ActorsQueryResponse:
+    def _calculate(self) -> ActorsQueryResponse:
         try:
             self.calculating = True
-            return self._calculate()
+            return self._calculate_internal()
         finally:
             self.calculating = False
 

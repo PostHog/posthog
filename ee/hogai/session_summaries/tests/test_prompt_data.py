@@ -1,8 +1,10 @@
-from typing import Any
-import pytest
 from datetime import datetime
+from typing import Any
+
+import pytest
+
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
-from ee.hogai.session_summaries.utils import prepare_datetime, get_column_index
+from ee.hogai.session_summaries.utils import get_column_index, prepare_datetime
 
 
 @pytest.mark.parametrize(

@@ -1,17 +1,21 @@
 from datetime import datetime, timedelta
 
+from posthog.test.base import APIBaseTest
+
+from posthog.schema import IntervalType, RevenueAnalyticsRevenueQuery
+
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
+
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
     RevenueAnalyticsQueryRunner,
 )
-from posthog.schema import RevenueAnalyticsRevenueQuery, IntervalType
-from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 
 
 # This is required because we can't instantiate the base class directly
 # since it doesn't implement two abstract methods
 class RevenueAnalyticsQueryRunnerImpl(RevenueAnalyticsQueryRunner):
-    def calculate(self):
+    def _calculate(self):
         raise NotImplementedError()
 
     def to_query(self):
@@ -22,7 +26,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     query = RevenueAnalyticsRevenueQuery(groupBy=[], properties=[], interval=IntervalType.MONTH)
     date = datetime(2025, 1, 1)
 
-    def assertDiff(self, diff: timedelta | None):
+    def assertDiff(self, diff: timedelta):
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
         self.assertEqual(runner.cache_target_age(self.date), self.date + diff)
 
@@ -43,7 +47,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -67,7 +71,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -103,7 +107,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -138,7 +142,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -184,7 +188,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.POSTGRES,  # Not Stripe
+            source_type=ExternalDataSourceType.POSTGRES,  # Not Stripe
             revenue_analytics_enabled=True,
         )
 
@@ -210,7 +214,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=False,  # Disabled
         )
 
@@ -236,7 +240,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -262,7 +266,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -298,7 +302,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 

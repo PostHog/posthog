@@ -1,5 +1,4 @@
 // Postgres
-
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { PluginsServerConfig } from '../../types'
@@ -161,6 +160,10 @@ export class PostgresRouter {
                 clearTimeout(timeout)
             }
         })
+    }
+
+    public async connect(usage: PostgresUse): Promise<PoolClient> {
+        return await this.pools.get(usage)!.connect()
     }
 
     async end(): Promise<void> {

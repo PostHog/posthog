@@ -30,6 +30,7 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.early_access_features",
+    "products.tasks",
     "products.links",
     "products.revenue_analytics",
     "products.user_interviews",
@@ -64,6 +65,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "oauth2_provider",
     "mcp_server",
+    "django_admin_inline_paginator",
 ]
 
 MIDDLEWARE = [
@@ -88,6 +90,7 @@ MIDDLEWARE = [
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

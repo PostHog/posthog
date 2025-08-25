@@ -1,35 +1,37 @@
 import re
 from typing import cast
+
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
     SourceFieldInputConfig,
+    SourceFieldInputConfigType,
     SourceFieldSelectConfig,
-    Type4,
-    Option,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.vitally.vitally import (
-    validate_credentials as validate_vitally_credentials,
-    vitally_source,
-)
+from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
+from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
 from posthog.temporal.data_imports.sources.vitally.settings import (
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
-from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.temporal.data_imports.sources.vitally.vitally import (
+    validate_credentials as validate_vitally_credentials,
+    vitally_source,
+)
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class VitallySource(BaseSource[VitallySourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.VITALLY
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.VITALLY
 
     def get_schemas(self, config: VitallySourceConfig, team_id: int) -> list[SourceSchema]:
         return [
@@ -71,7 +73,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.VITALLY,
+            name=SchemaExternalDataSourceType.VITALLY,
             caption="",
             fields=cast(
                 list[FieldType],
@@ -79,7 +81,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
                     SourceFieldInputConfig(
                         name="secret_token",
                         label="Secret token",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="sk_live_...",
                     ),
@@ -99,7 +101,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
                                         SourceFieldInputConfig(
                                             name="subdomain",
                                             label="Vitally subdomain",
-                                            type=Type4.TEXT,
+                                            type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="",
                                         )

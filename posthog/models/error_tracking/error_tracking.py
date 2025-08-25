@@ -1,21 +1,23 @@
-from django.db import models, transaction
-from django.contrib.postgres.fields import ArrayField
-from django.conf import settings
-from rest_framework.exceptions import ValidationError
-from django_deprecate_fields import deprecate_field
+from uuid import UUID
 
-from posthog.models.utils import UUIDModel
-from ee.models.rbac.role import Role
-from posthog.models.team import Team
-from posthog.models.user import User
-from posthog.models.user_group import UserGroup
-from posthog.models.integration import Integration
-from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
-from posthog.storage import object_storage
+from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
+from django.db import models, transaction
+
+from django_deprecate_fields import deprecate_field
+from rest_framework.exceptions import ValidationError
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
-from uuid import UUID
+from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+from posthog.models.integration import Integration
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.models.user_group import UserGroup
+from posthog.models.utils import UUIDTModel
+from posthog.storage import object_storage
+
+from ee.models.rbac.role import Role
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -23,7 +25,7 @@ class ErrorTrackingIssueManager(models.Manager):
         return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
 
 
-class ErrorTrackingIssue(UUIDModel):
+class ErrorTrackingIssue(UUIDTModel):
     class Status(models.TextChoices):
         ARCHIVED = "archived", "Archived"
         ACTIVE = "active", "Active"
@@ -64,7 +66,7 @@ class ErrorTrackingIssue(UUIDModel):
         update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
 
-class ErrorTrackingExternalReference(UUIDModel):
+class ErrorTrackingExternalReference(UUIDTModel):
     issue = models.ForeignKey(
         ErrorTrackingIssue,
         on_delete=models.CASCADE,
@@ -83,7 +85,7 @@ class ErrorTrackingExternalReference(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class ErrorTrackingIssueAssignment(UUIDModel):
+class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     # DEPRECATED: issues can only be assigned to users or roles
@@ -92,7 +94,7 @@ class ErrorTrackingIssueAssignment(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class ErrorTrackingIssueFingerprintV2(UUIDModel):
+class ErrorTrackingIssueFingerprintV2(UUIDTModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="fingerprints")
     fingerprint = models.TextField(null=False, blank=False)
@@ -105,7 +107,7 @@ class ErrorTrackingIssueFingerprintV2(UUIDModel):
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
 
 
-class ErrorTrackingRelease(UUIDModel):
+class ErrorTrackingRelease(UUIDTModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
     # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
@@ -129,7 +131,7 @@ class ErrorTrackingRelease(UUIDModel):
         ]
 
 
-class ErrorTrackingSymbolSet(UUIDModel):
+class ErrorTrackingSymbolSet(UUIDTModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -176,7 +178,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
         ]
 
 
-class ErrorTrackingAssignmentRule(UUIDModel):
+class ErrorTrackingAssignmentRule(UUIDTModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     # DEPRECATED: issues can only be assigned to users or roles
@@ -210,7 +212,7 @@ class ErrorTrackingAssignmentRule(UUIDModel):
 #
 # This means "custom issues" can still be merged and otherwise handled as you'd expect, just that
 # the set of events that end up in them will be different from the default grouping rules.
-class ErrorTrackingGroupingRule(UUIDModel):
+class ErrorTrackingGroupingRule(UUIDTModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
@@ -244,7 +246,7 @@ class ErrorTrackingGroupingRule(UUIDModel):
         # ]
 
 
-class ErrorTrackingSuppressionRule(UUIDModel):
+class ErrorTrackingSuppressionRule(UUIDTModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
     created_at = models.DateTimeField(auto_now_add=True)
@@ -263,7 +265,7 @@ class ErrorTrackingSuppressionRule(UUIDModel):
         # ]
 
 
-class ErrorTrackingStackFrame(UUIDModel):
+class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -285,7 +287,7 @@ class ErrorTrackingStackFrame(UUIDModel):
 
 
 # DEPRECATED: Use ErrorTrackingIssue instead
-class ErrorTrackingGroup(UUIDModel):
+class ErrorTrackingGroup(UUIDTModel):
     class Status(models.TextChoices):
         ARCHIVED = "archived", "Archived"
         ACTIVE = "active", "Active"

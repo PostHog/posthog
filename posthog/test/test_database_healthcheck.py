@@ -1,6 +1,8 @@
-from django.test import TestCase
 from freezegun import freeze_time
 from unittest import mock
+
+from django.test import TestCase
+
 from posthog.database_healthcheck import DatabaseHealthcheck
 
 

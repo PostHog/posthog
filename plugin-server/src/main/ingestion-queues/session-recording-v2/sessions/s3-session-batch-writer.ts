@@ -5,7 +5,12 @@ import { PassThrough } from 'stream'
 
 import { logger } from '../../../../utils/logger'
 import { SessionBatchMetrics } from './metrics'
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
+import {
+    SessionBatchFileStorage,
+    SessionBatchFileWriter,
+    SessionData,
+    WriteSessionResult,
+} from './session-batch-file-storage'
 
 class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private stream: PassThrough
@@ -102,8 +107,9 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
     }
 
-    public async writeSession(buffer: Buffer): Promise<WriteSessionResult> {
+    public async writeSession(sessionData: SessionData): Promise<WriteSessionResult> {
         return await this.withErrorBarrier(async () => {
+            const buffer = sessionData.buffer
             const startOffset = this.currentOffset
 
             // Write and handle backpressure
@@ -149,6 +155,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private generateKey(): string {
         const timestamp = Date.now()
         const suffix = randomBytes(8).toString('hex')
+
         return `${this.prefix}/${timestamp}-${suffix}`
     }
 }

@@ -1,9 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { GroupsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { groupsListLogic } from './groupsListLogic'
-import { NodeKind, GroupsQuery } from '~/queries/schema/schema-general'
 import { AppContext, GroupPropertyFilter, PropertyFilterType } from '~/types'
+
+import { groupsListLogic } from './groupsListLogic'
 
 describe('groupsListLogic', () => {
     let logic: ReturnType<typeof groupsListLogic.build>

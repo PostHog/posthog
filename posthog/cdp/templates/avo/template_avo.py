@@ -1,7 +1,9 @@
 import dataclasses
 from copy import deepcopy
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+
 from posthog.hogql.escape_sql import escape_hogql_string
+
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",

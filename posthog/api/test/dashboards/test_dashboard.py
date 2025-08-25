@@ -1,12 +1,15 @@
 import json
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
-from dateutil.parser import isoparse
 from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
-from freezegun import freeze_time
+
+from dateutil.parser import isoparse
 from rest_framework import status
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
@@ -15,18 +18,13 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import (
-    APIBaseTest,
-    FuzzyInt,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
 from ee.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
@@ -58,6 +56,7 @@ valid_template: dict = {
 }
 
 
+@override_settings(IN_UNIT_TESTING=True)
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
@@ -527,7 +526,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two_after_delete["tiles"]) == 1
 
     def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
-        group_type = GroupTypeMapping.objects.create(
+        group_type = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 

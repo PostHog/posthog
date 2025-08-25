@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

@@ -10,6 +10,15 @@ pub enum CaptureMode {
     Recordings,
 }
 
+impl CaptureMode {
+    pub fn as_tag(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "events",
+            CaptureMode::Recordings => "recordings",
+        }
+    }
+}
+
 impl std::str::FromStr for CaptureMode {
     type Err = String;
 

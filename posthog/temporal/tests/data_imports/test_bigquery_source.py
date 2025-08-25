@@ -1,14 +1,16 @@
-import collections.abc
-import datetime as dt
-import json
 import os
+import json
 import uuid
+import datetime as dt
 import warnings
+import collections.abc
 
-import boto3
 import pytest
+
 from django.conf import settings
 from django.test import override_settings
+
+import boto3
 from google.cloud import bigquery
 
 from posthog.clickhouse.client import sync_execute
@@ -22,7 +24,7 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.types import IncrementalFieldType
+from posthog.warehouse.types import ExternalDataSourceType, IncrementalFieldType
 
 SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
     "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
@@ -239,7 +241,7 @@ def setup_bigquery(
         source_id="source_id",
         connection_id="connection_id",
         status=ExternalDataSource.Status.COMPLETED,
-        source_type=ExternalDataSource.Type.BIGQUERY,
+        source_type=ExternalDataSourceType.BIGQUERY,
         job_inputs={
             "dataset_id": bigquery_dataset.dataset_id,
             "temporary_dataset_id": None,

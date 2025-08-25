@@ -1,23 +1,23 @@
 from typing import cast
+
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
-from posthog.temporal.data_imports.sources.hubspot.hubspot import hubspot
-from posthog.temporal.data_imports.sources.hubspot.settings import (
-    ENDPOINTS as HUBSPOT_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
+from posthog.temporal.data_imports.sources.hubspot.hubspot import hubspot
+from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @config.config
@@ -29,13 +29,13 @@ class HubspotSourceOldConfig(config.Config):
 @SourceRegistry.register
 class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.HUBSPOT
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.HUBSPOT
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.HUBSPOT,
+            name=SchemaExternalDataSourceType.HUBSPOT,
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             fields=cast(
                 list[FieldType],

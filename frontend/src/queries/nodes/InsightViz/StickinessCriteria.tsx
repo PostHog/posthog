@@ -1,5 +1,7 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

@@ -1,20 +1,14 @@
 import json
 from typing import Optional, Union
+
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import (
-    ActivityLog,
-    EventDefinition,
-    EventProperty,
-    Organization,
-    PropertyDefinition,
-    Team,
-)
+from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
 from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
-from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
@@ -413,7 +407,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             },
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(
+            scope="PropertyDefinition", activity="deleted"
+        ).first()
         assert activity_log is not None
         assert activity_log.detail["type"] == "event"
         assert activity_log.item_id == str(property_definition.id)

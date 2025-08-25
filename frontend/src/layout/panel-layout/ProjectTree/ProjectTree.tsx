@@ -1,6 +1,9 @@
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { RefObject, useEffect, useRef, useState } from 'react'
+
+import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
@@ -10,7 +13,6 @@ import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import {
     ContextMenuGroup,
     ContextMenuItem,
@@ -28,23 +30,23 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
-import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
+import { TreeSearchField } from './TreeSearchField'
+import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { BrowserLikeMenuItems } from './menus/BrowserLikeMenuItems'
 import { ProductAnalyticsMenuItems } from './menus/ProductAnalyticsMenuItems'
 import { SessionReplayMenuItems } from './menus/SessionReplayMenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
-import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
-import { TreeSearchField } from './TreeSearchField'
-import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -58,6 +60,10 @@ export interface ProjectTreeProps {
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
+
+export const isExternalLinkItem = (item: TreeDataItem): boolean => {
+    return item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
+}
 
 export function ProjectTree({
     logicKey,
@@ -166,6 +172,9 @@ export function ProjectTree({
             return true
         }
         if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+            return true
+        }
+        if (item.name === 'Messaging' && currentPath.startsWith('/messaging/')) {
             return true
         }
 
@@ -419,9 +428,14 @@ export function ProjectTree({
                     return
                 }
                 if (item?.record?.href) {
-                    router.actions.push(
+                    const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
-                    )
+                    // Check if it's an external link
+                    if (typeof href === 'string' && href.startsWith('https://')) {
+                        window.open(href, '_blank')
+                    } else {
+                        router.actions.push(href)
+                    }
                 }
 
                 if (item?.record?.path) {
@@ -508,9 +522,10 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.id.startsWith('project-folder-empty/')) {
+                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
                     return undefined
                 }
+
                 return (
                     <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
                         {renderMenuItems(item, 'context')}
@@ -518,9 +533,10 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                if (item.id.startsWith('project-folder-empty/')) {
+                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
                     return undefined
                 }
+
                 return (
                     <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
                         {renderMenuItems(item, 'dropdown')}
@@ -723,6 +739,7 @@ export function ProjectTree({
             }}
             renderItem={(item) => {
                 const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
+
                 return (
                     <span className="truncate">
                         <span
@@ -758,6 +775,8 @@ export function ProjectTree({
                                 ))}
                             </>
                         )}
+
+                        {isExternalLinkItem(item) && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}

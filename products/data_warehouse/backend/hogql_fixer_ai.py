@@ -4,10 +4,6 @@ from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
-from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
-from ee.hogai.tool import MaxTool
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
@@ -15,7 +11,13 @@ from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+
 from posthog.warehouse.models import Database
+
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from ee.hogai.tool import MaxTool
 
 _hogql_functions: str | None = None
 
@@ -253,7 +255,5 @@ The newly updated query gave us this error:
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
-        except Exception as e:
-            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
 
         return result.query

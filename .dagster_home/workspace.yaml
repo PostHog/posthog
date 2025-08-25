@@ -2,11 +2,12 @@
 
 load_from:
     ## Most dags are not loaded in local dev, but feel free to edit this list
-    #    - python_module: dags.locations.clickhouse
     #    - python_module: dags.locations.error_tracking
     #    - python_module: dags.locations.growth
     #    - python_module: dags.locations.revenue_analytics
     #    - python_module: dags.locations.shared
     # These dags are loaded in local dev
+    - python_module: dags.locations.max_ai
     - python_module: dags.locations.web_analytics
     - python_module: dags.locations.experiments
+    - python_module: dags.locations.clickhouse

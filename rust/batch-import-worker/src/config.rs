@@ -65,8 +65,7 @@ impl Config {
             "historical" => Ok(self.kafka_topic_historical.clone()),
             "overflow" => Ok(self.kafka_topic_overflow.clone()),
             _ => Err(anyhow::Error::msg(format!(
-                "Unknown kafka topic: {}",
-                logical_topic
+                "Unknown kafka topic: {logical_topic}"
             ))),
         }
     }

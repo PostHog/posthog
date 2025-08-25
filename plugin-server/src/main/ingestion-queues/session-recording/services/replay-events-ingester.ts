@@ -13,7 +13,7 @@ import { logger } from '../../../../utils/logger'
 import { captureException } from '../../../../utils/posthog'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
-import { createSessionReplayEvent, RRWebEventType } from '../process-event'
+import { RRWebEventType, createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 

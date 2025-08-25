@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import path from 'path'
 
 import { KafkaConsumer } from '~/kafka/consumer'

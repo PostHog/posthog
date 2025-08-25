@@ -1,11 +1,13 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 interface FixModalProps {
     isOpen: boolean

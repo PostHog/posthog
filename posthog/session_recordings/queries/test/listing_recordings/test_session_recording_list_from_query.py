@@ -1,19 +1,29 @@
 from datetime import datetime, timedelta
 from typing import Literal
-from unittest.mock import ANY
 from uuid import uuid4
 
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import ANY
+
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
-from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
-from posthog.models import GroupTypeMapping, Person
+from posthog.models import Person
 from posthog.models.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -23,25 +33,15 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
-    create_event,
     assert_query_matches_session_ids,
+    create_event,
     filter_recordings_by,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.session_recordings.sql.session_replay_event_sql import (
-    TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-from posthog.models.cohort import Cohort
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -3576,7 +3576,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
         )
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=0
         )
         create_group(
@@ -3586,7 +3586,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "project one"},
         )
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=1
         )
         create_group(

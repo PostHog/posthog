@@ -1,18 +1,19 @@
 import './Paths.scss'
 
 import { useActions, useValues } from 'kea'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useRef, useState } from 'react'
+
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { PathNodeCard } from './PathNodeCard'
-import { pathsDataLogic } from './pathsDataLogic'
 import type { PathNodeData } from './pathUtils'
+import { pathsDataLogic } from './pathsDataLogic'
 import { renderPaths } from './renderPaths'
 
 const DEFAULT_PATHS_ID = 'default_paths'

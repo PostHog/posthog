@@ -1,16 +1,11 @@
-from functools import cached_property
 from datetime import datetime
+from functools import cached_property
+from typing import Literal, cast
+
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.schema import (
+    CachedMarketingAnalyticsTableQueryResponse,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
@@ -19,11 +14,20 @@ from posthog.schema import (
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
-    CachedMarketingAnalyticsTableQueryResponse,
 )
-from typing import cast, Literal
-from .conversion_goal_processor import ConversionGoalProcessor
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models.team.team import DEFAULT_CURRENCY
+
+from .adapters.base import MarketingSourceAdapter, QueryContext
+from .adapters.factory import MarketingSourceFactory
 from .constants import (
     BASE_COLUMN_MAPPING,
     CAMPAIGN_COST_CTE_NAME,
@@ -33,18 +37,14 @@ from .constants import (
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
 )
-from .utils import (
-    convert_team_conversion_goals_to_objects,
-)
-from .adapters.factory import MarketingSourceFactory
-from .adapters.base import QueryContext, MarketingSourceAdapter
+from .conversion_goal_processor import ConversionGoalProcessor
+from .utils import convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
 
 
-class MarketingAnalyticsTableQueryRunner(QueryRunner):
+class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsTableQueryResponse]):
     query: MarketingAnalyticsTableQuery
-    response: MarketingAnalyticsTableQueryResponse
     cached_response: CachedMarketingAnalyticsTableQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -143,7 +143,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         return main_query
 
-    def calculate(self) -> MarketingAnalyticsTableQueryResponse:
+    def _calculate(self) -> MarketingAnalyticsTableQueryResponse:
         """Execute the query and return results with pagination support"""
         from posthog.hogql.query import execute_hogql_query
 
