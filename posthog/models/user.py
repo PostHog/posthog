@@ -274,8 +274,15 @@ class User(AbstractUser, UUIDTClassicModel):
                     self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
                 else:
                     # New access control
-                    accessible_teams = self.teams.filter(organization=organization)
-                    self.current_team = accessible_teams.first()
+                    from posthog.rbac.user_access_control import UserAccessControl
+
+                    uac = UserAccessControl(user=self, organization_id=str(organization.id))
+                    self.current_team = (
+                        uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+                        .order_by("id")
+                        .first()
+                        or organization.teams.order_by("id").first()  # fallback if user has NO access to any project
+                    )
             self.save()
 
         # Auto-assign default role if configured
