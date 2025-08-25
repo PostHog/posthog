@@ -1,5 +1,8 @@
+from typing import Any, Optional
+
 from django.db import connection
 from django.db.models import Sum
+from django.db.models.functions import TruncDate
 
 import structlog
 from dateutil import parser
@@ -25,6 +28,26 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "INTERNAL"
 
+    def _get_billing_period(self) -> tuple[bool, Optional[Any], Optional[Any]]:
+        """
+        Helper method to retrieve billing period information.
+        Returns: (billing_available, billing_period_start, billing_period_end)
+        """
+        try:
+            billing_manager = BillingManager(get_cached_instance_license())
+            org_billing = billing_manager.get_billing(organization=self.team.organization)
+
+            if org_billing and org_billing.get("billing_period"):
+                billing_period = org_billing["billing_period"]
+                billing_period_start = parser.parse(billing_period["current_period_start"])
+                billing_period_end = parser.parse(billing_period["current_period_end"])
+                return True, billing_period_start, billing_period_end
+            else:
+                return False, None, None
+        except Exception as e:
+            logger.exception("Error retrieving billing period", exc_info=e)
+            raise
+
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
         """
@@ -43,18 +66,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         sources = ExternalDataSource.objects.filter(team_id=self.team_id, deleted=False)
 
         try:
-            billing_manager = BillingManager(get_cached_instance_license())
-            org_billing = billing_manager.get_billing(organization=self.team.organization)
+            billing_available, billing_period_start, billing_period_end = self._get_billing_period()
 
-            if org_billing and org_billing.get("billing_period"):
+            if billing_available:
+                billing_manager = BillingManager(get_cached_instance_license())
+                org_billing = billing_manager.get_billing(organization=self.team.organization)
                 billing_period = org_billing["billing_period"]
-                billing_period_start = parser.parse(billing_period["current_period_start"])
-                billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_interval = billing_period.get("interval", "month")
 
                 usage_summary = org_billing.get("usage_summary", {})
                 billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
-                billing_available = True
 
                 all_external_jobs = ExternalDataJob.objects.filter(
                     team_id=self.team_id,
@@ -177,4 +198,94 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "next": next_url,
                 "previous": prev_url,
             }
+        )
+
+    @action(methods=["GET"], detail=False)
+    def breakdown_of_rows_synced_by_day_in_billing_period(self, request: Request, **kwargs) -> Response:
+        """
+        Returns daily breakdown of rows synced within the current billing period.
+        Used by the frontend data warehouse scene to display sync activity trends.
+        """
+        log = structlog.get_logger()
+        billing_period_start = billing_period_end = None
+        billing_available = False
+        breakdown_of_rows_by_day = []
+
+        try:
+            billing_available, billing_period_start, billing_period_end = self._get_billing_period()
+
+            if billing_available:
+                base_external_data_jobs = ExternalDataJob.objects.filter(
+                    team_id=self.team_id,
+                    created_at__gte=billing_period_start,
+                    created_at__lt=billing_period_end,
+                    status="Completed",
+                    rows_synced__gt=0,
+                )
+
+                daily_totals = (
+                    base_external_data_jobs.annotate(sync_date=TruncDate("created_at"))
+                    .values("sync_date")
+                    .annotate(total_rows_synced=Sum("rows_synced"))
+                    .order_by("sync_date")
+                )
+
+                per_job = (
+                    base_external_data_jobs.annotate(sync_date=TruncDate("created_at"))
+                    .values(
+                        "id",
+                        "sync_date",
+                        "rows_synced",
+                        "status",
+                        "created_at",
+                        "finished_at",
+                        "workflow_run_id",
+                        "schema__name",
+                        "pipeline__source_type",
+                    )
+                    .order_by("created_at")
+                )
+
+                jobs_by_date: dict[str, list[dict[str, Any]]] = {}
+                for j in per_job:
+                    key = j["sync_date"].strftime("%Y-%m-%d")
+                    jobs_by_date.setdefault(key, []).append(
+                        {
+                            "id": j["id"],
+                            "rows_synced": j["rows_synced"],
+                            "status": j["status"],
+                            "created_at": j["created_at"].isoformat() if j["created_at"] else None,
+                            "finished_at": j["finished_at"].isoformat() if j["finished_at"] else None,
+                            "workflow_run_id": j["workflow_run_id"],
+                            "schema_name": j["schema__name"],
+                            "source_type": j["pipeline__source_type"],
+                        }
+                    )
+
+                breakdown_of_rows_by_day = [
+                    {
+                        "date": row["sync_date"].strftime("%Y-%m-%d"),
+                        "rows_synced": row["total_rows_synced"] or 0,
+                        "runs": jobs_by_date.get(row["sync_date"].strftime("%Y-%m-%d"), []),
+                    }
+                    for row in daily_totals
+                ]
+            else:
+                log.info("no_billing_period_for_daily_breakdown")
+
+        except Exception as e:
+            log.exception("daily_breakdown_error", exc_info=e)
+            return Response(
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                data={"error": "An error occurred retrieving daily breakdown"},
+            )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "billing_available": billing_available,
+                "billing_period_start": billing_period_start.isoformat() if billing_period_start else None,
+                "billing_period_end": billing_period_end.isoformat() if billing_period_end else None,
+                "breakdown_of_rows_by_day": breakdown_of_rows_by_day,
+            },
         )

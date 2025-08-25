@@ -5674,6 +5674,26 @@ export interface DataWarehouseSourceRowCount {
     pending_billing_rows: number
 }
 
+export interface DataWarehouseDailyRowsBreakdown {
+    billing_available: boolean
+    billing_period_start: string | null
+    billing_period_end: string | null
+    breakdown_of_rows_by_day: Array<{
+        date: string
+        rows_synced: number
+        runs: Array<{
+            id: string
+            rows_synced: number
+            status: string
+            created_at: string
+            finished_at: string | null
+            schema_name: string
+            source_type: string
+            workflow_run_id: string
+        }>
+    }>
+}
+
 export interface DataWarehouseActivityRecord {
     id: string
     type: string
@@ -5684,6 +5704,22 @@ export interface DataWarehouseActivityRecord {
     finished_at: string | null
     latest_error: string | null
     workflow_run_id?: string
+}
+
+export interface DataWarehouseDailyRowsSyncedData {
+    date: string
+    rows_synced: number | null
+}
+
+export interface DataWarehouseSyncJobRun {
+    id: string
+    rows_synced: number
+    status: string
+    created_at: string
+    finished_at: string | null
+    workflow_run_id: string
+    schema_name: string
+    source_type: string
 }
 
 export interface DataWarehouseDashboardDataSource {
