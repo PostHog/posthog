@@ -60,7 +60,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
-            ['billingPeriodUTC'],
+            ['billingPeriodUTC', 'billing'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMapById'],
         ],
