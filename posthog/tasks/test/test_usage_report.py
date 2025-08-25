@@ -2787,8 +2787,8 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
     def test_ai_events_not_double_counted(self) -> None:
         """Test that AI events are excluded from billable event counts and counted separately."""
         from posthog.tasks.usage_report import (
-            get_teams_with_billable_event_count_in_period,
             get_teams_with_ai_event_count_in_period,
+            get_teams_with_billable_event_count_in_period,
         )
 
         # First, get the baseline billable count with existing events
