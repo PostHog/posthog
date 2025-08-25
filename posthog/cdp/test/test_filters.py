@@ -82,7 +82,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                     }
                 ]
             }
-        ) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29, 3, 0, 4, 2])
+        ) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 33, 1])
 
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(
@@ -125,8 +125,6 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 18,
                 3,
                 2,
-                4,
-                1,
             ]
         )
 
@@ -154,10 +152,6 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 17,
                 3,
                 2,
-                3,
-                1,
-                4,
-                1,
             ]
         )
 
@@ -266,46 +260,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 1,
                 18,
                 3,
-                5,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
                 2,
-                "toString",
-                1,
-                20,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                2,
-                "toString",
-                1,
-                18,
-                32,
-                "ben",
-                32,
-                "name",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                11,
                 32,
                 "$pageview",
                 32,
@@ -324,9 +279,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 17,
                 3,
                 2,
-                3,
-                4,
                 4,
                 2,
+                3,
+                4,
             ]
         )
