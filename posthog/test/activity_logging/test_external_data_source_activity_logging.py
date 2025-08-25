@@ -46,12 +46,14 @@ class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):
 
     def test_external_data_source_update_activity_logging(self):
         external_data_source = self.create_external_data_source()
+        db_obj = ExternalDataSource.objects.get(id=external_data_source["id"])
+
+        current_value = db_obj.revenue_analytics_enabled
+        new_value = not current_value
 
         self.clear_activity_logs()
 
-        self.update_external_data_source(
-            external_data_source["id"], {"job_inputs": {"stripe_account_id": "acct_updated123"}}
-        )
+        self.update_external_data_source(external_data_source["id"], {"revenue_analytics_enabled": new_value})
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSource", external_data_source["id"])
         self.assertEqual(len(activity_logs), 1)
