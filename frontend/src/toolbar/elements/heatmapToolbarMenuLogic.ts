@@ -468,6 +468,37 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             document.addEventListener('wheel', cache.onScroll, { capture: true, passive: true })
 
             document.addEventListener('touchmove', cache.onScroll, { capture: true, passive: true })
+
+            // Find and track all scrollable elements for nested scroll support
+            cache.scrollableElementPositions = new Map()
+            const findScrollableElements = () => {
+                const allElements = document.querySelectorAll('*')
+                allElements.forEach((element) => {
+                    const computedStyle = window.getComputedStyle(element)
+                    if (computedStyle.overflow === 'auto' || computedStyle.overflow === 'scroll' ||
+                        computedStyle.overflowY === 'auto' || computedStyle.overflowY === 'scroll') {
+                        const rect = element.getBoundingClientRect()
+                        cache.scrollableElementPositions.set(element, {
+                            rect: { top: rect.top, bottom: rect.bottom },
+                            scrollTop: element.scrollTop || 0
+                        })
+                        
+                        // Add scroll listener to this specific element
+                        element.addEventListener('scroll', () => {
+                            const currentRect = element.getBoundingClientRect()
+                            const scrollInfo = cache.scrollableElementPositions.get(element)
+                            if (scrollInfo) {
+                                scrollInfo.rect = { top: currentRect.top, bottom: currentRect.bottom }
+                                scrollInfo.scrollTop = element.scrollTop || 0
+                            }
+                            // Trigger heatmap update when nested element scrolls
+                            actions.updateElementMetrics([])
+                        }, { passive: true })
+                    }
+                })
+            }
+            
+            findScrollableElements()
         }
 
         // Remove all scroll listeners
@@ -476,6 +507,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             window.removeEventListener('scroll', cache.onScroll, { capture: true })
             document.removeEventListener('wheel', cache.onScroll, { capture: true })
             document.removeEventListener('touchmove', cache.onScroll, { capture: true })
+
+            // Remove nested scroll listeners
+            if (cache.scrollableElementPositions) {
+                cache.scrollableElementPositions.forEach((scrollInfo, element) => {
+                    element.removeEventListener('scroll', cache.onScroll, { passive: true })
+                })
+                cache.scrollableElementPositions.clear()
+            }
         }
 
         // Initial setup of scroll listeners
