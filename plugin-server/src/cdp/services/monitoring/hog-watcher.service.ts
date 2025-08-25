@@ -5,7 +5,7 @@ import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
-import { CdpRedis } from '../../redis'
+import { CdpRedis, getRedisPipelineResults } from '../../redis'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -64,13 +64,6 @@ export const effectiveState = (state: HogWatcherState) => {
         return HogWatcherState.disabled
     }
     return state
-}
-
-type PipelineResults = [Error | null, any][]
-
-const getPipelineResults = (res: PipelineResults, index: number, numOperations: number) => {
-    // pipeline results are just a big array of operation results so we need to slice out the correct parts
-    return res.slice(index * numOperations, index * numOperations + numOperations)
 }
 
 export class HogWatcherService {
@@ -321,7 +314,7 @@ export class HogWatcherService {
 
         await Promise.all(
             changes.map(async ([hogFunction, state], index) => {
-                const [stateResult] = getPipelineResults(res, index, numOperations)
+                const [stateResult] = getRedisPipelineResults(res, index, numOperations)
                 const previousState = Number(stateResult[1] ?? HogWatcherState.healthy)
                 if (previousState !== state) {
                     await this.onStateChange({
@@ -392,7 +385,7 @@ export class HogWatcherService {
 
         // Calculate all those that have changed state
         Object.values(functionCosts).map((functionCost, index) => {
-            const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
+            const [stateResult, lockResult, tokenResult] = getRedisPipelineResults(res, index, 3)
 
             const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
             const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
