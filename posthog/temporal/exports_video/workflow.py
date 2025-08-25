@@ -1,15 +1,13 @@
 import datetime as dt
-import temporalio.workflow as wf
-from temporalio import common
 from dataclasses import dataclass
 from typing import Any
+
+import temporalio.workflow as wf
+from temporalio import common
+
 from posthog.temporal.common.base import PostHogWorkflow  # matches repo conventions
 
-from .activities import (
-    build_export_context_activity,
-    record_replay_video_activity,
-    persist_exported_asset_activity,
-)
+from .activities import build_export_context_activity, persist_exported_asset_activity, record_replay_video_activity
 
 
 @dataclass(frozen=True)
