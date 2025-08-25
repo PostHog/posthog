@@ -127,6 +127,10 @@ class QueryEventsExtractor:
         elif kind == "EventsNode":
             events = self._get_series_events(self._ensure_model_instance(query, EventsNode))
 
+        elif kind == "WebTrendsQuery":
+            # WebTrendsQuery works on pre-aggregated page view data, so no specific events to extract
+            events = []
+
         return list(set(events))
 
     def _extract_events_from_series(self, series: list) -> list[str]:
