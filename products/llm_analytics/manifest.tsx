@@ -14,7 +14,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/start-here',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
