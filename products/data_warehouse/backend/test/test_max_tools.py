@@ -1,11 +1,12 @@
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
 
-from posthog.schema import AssistantToolCall
+from posthog.schema import AssistantHogQLQuery, AssistantToolCall
 
 from products.data_warehouse.backend.max_tools import FinalAnswerArgs, HogQLGeneratorTool
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.graph.sql.mixins import SQLSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState
 
 
@@ -29,8 +30,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",
-                new_callable=AsyncMock,
-                return_value="SELECT AVG(properties.$session_length) FROM events",
+                return_value=SQLSchemaGeneratorOutput(
+                    query=AssistantHogQLQuery(query="SELECT AVG(properties.$session_length) FROM events")
+                ),
             ),
         ):
             mock_graph = AsyncMock()
@@ -66,8 +68,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",
-                new_callable=AsyncMock,
-                return_value="SELECT properties FROM events WHERE {filters} AND {custom_filter}",
+                return_value=SQLSchemaGeneratorOutput(
+                    query=AssistantHogQLQuery(query="SELECT properties FROM events WHERE {filters} AND {custom_filter}")
+                ),
             ),
         ):
             mock_graph = AsyncMock()
@@ -99,6 +102,11 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
             patch.object(HogQLGeneratorTool, "_quality_check_output") as mock_quality_check,
+            patch.object(
+                HogQLGeneratorTool,
+                "_parse_output",
+                return_value=SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT count() FROM events")),
+            ),
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = {
@@ -125,7 +133,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             # Graph should have been called exactly once (happy path, loop breaks on success)
             mock_graph.ainvoke.assert_called_once()
             # Verify it was called with the expected SQL query
-            call_args = mock_quality_check.call_args[0][0]
+            call_args = mock_quality_check.call_args.kwargs["output"]
             self.assertEqual(call_args.query.query, "SELECT count() FROM events")
 
     async def test_hogql_tool_retry_exhausted_still_returns_result(self):

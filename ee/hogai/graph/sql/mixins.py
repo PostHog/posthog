@@ -13,6 +13,7 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
     ResolutionError,
 )
+from posthog.hogql.functions.mapping import normalize_hogql_function_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
@@ -73,7 +74,8 @@ class HogQLGeneratorMixin(AssistantContextMixin):
 
     def _parse_output(self, output: dict) -> SQLSchemaGeneratorOutput:
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
+        normalized_query = normalize_hogql_function_names(result.query)
+        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=normalized_query))
 
     @database_sync_to_async(thread_sensitive=False)
     def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
@@ -82,6 +84,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         query = output.query.query if output.query else None
         if not query:
             raise PydanticOutputParserException(llm_output="", validation_message=f"Output is empty")
+
         try:
             parsed_query = parse_select(query, placeholders={})
 

@@ -7,7 +7,12 @@ from langchain_openai import ChatOpenAI
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions.mapping import (
+    HOGQL_AGGREGATIONS,
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    HOGQL_POSTHOG_FUNCTIONS,
+    normalize_hogql_function_names,
+)
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -248,7 +253,9 @@ The newly updated query gave us this error:
         # We also ensure the generated SQL is valid
         assert result.query is not None
         try:
-            print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
+            normalized_query = normalize_hogql_function_names(result.query)
+            result.query = normalized_query
+            print_ast(parse_select(normalized_query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

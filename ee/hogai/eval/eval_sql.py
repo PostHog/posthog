@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from asgiref.sync import sync_to_async
@@ -7,6 +9,12 @@ from braintrust_core.score import Scorer
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.functions.mapping import (
+    HOGQL_AGGREGATIONS,
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    HOGQL_POSTHOG_FUNCTIONS,
+    SQL_KEYWORDS,
+)
 
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -41,6 +49,77 @@ class RetryEfficiency(Scorer):
         score = 1.0 if retry_count == 0 else 1 - (retry_count / QUERY_GENERATION_MAX_RETRIES)
 
         return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
+
+
+class SQLFunctionCorrectness(Scorer):
+    """Evaluate if all SQL functions in the generated query are from the allowed list in mapping.py"""
+
+    def _name(self):
+        return "sql_function_correctness"
+
+    def _extract_functions_from_sql(self, sql_query: str) -> set[str]:
+        """Extract all function names from SQL query using regex."""
+        if not sql_query:
+            return set()
+
+        # Pattern to match function calls: word followed by opening parenthesis
+        # This captures the function name before the opening parenthesis
+        function_pattern = r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
+
+        functions = set()
+        for match in re.finditer(function_pattern, sql_query):
+            function_name = match.group(1)
+
+            if function_name.upper() not in SQL_KEYWORDS:
+                functions.add(function_name)
+
+        return functions
+
+    def _is_function_allowed(self, function_name: str) -> bool:
+        """Check if a function is in the allowed list from mapping.py"""
+        # Check in all three function dictionaries
+        return (
+            function_name in HOGQL_CLICKHOUSE_FUNCTIONS
+            or function_name in HOGQL_AGGREGATIONS
+            or function_name in HOGQL_POSTHOG_FUNCTIONS
+        )
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._run_eval_sync(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs) -> Score:
+        """Evaluate SQL function correctness synchronously."""
+        if not output:
+            return Score(
+                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
+            )
+
+        functions = self._extract_functions_from_sql(output)
+        if not functions:
+            return Score(name=self._name(), score=None, metadata={"reason": "No functions found in query"})
+
+        invalid_functions = set()
+        for func in functions:
+            if not self._is_function_allowed(func):
+                invalid_functions.add(func)
+
+        if invalid_functions:
+            score = 0.0
+            metadata = {
+                "reason": f"Invalid functions found: {', '.join(sorted(invalid_functions))}",
+                "invalid_functions": sorted(invalid_functions),
+                "total_functions": len(functions),
+                "valid_functions": len(functions) - len(invalid_functions),
+            }
+        else:
+            score = 1.0
+            metadata = {
+                "reason": f"All functions are valid: {', '.join(sorted(functions))}",
+                "total_functions": len(functions),
+                "valid_functions": len(functions),
+            }
+
+        return Score(name=self._name(), score=score, metadata=metadata)
 
 
 class SQLSyntaxCorrectness(Scorer):
