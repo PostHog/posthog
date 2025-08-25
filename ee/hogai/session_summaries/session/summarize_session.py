@@ -25,6 +25,14 @@ class ExtraSummaryContext:
 
 
 @dataclass(frozen=True)
+class SessionSummaryRunMeta:
+    """Metadata about the run of the summary generation"""
+
+    model_used: str
+    visual_confirmation: bool
+
+
+@dataclass(frozen=True)
 class SessionSummaryDBData:
     session_metadata: RecordingMetadata
     session_events_columns: list[str] | None
