@@ -35,7 +35,7 @@ async def run_quota_limiting_all_orgs(
         try:
             from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-            @sync_to_async
+            @sync_to_async(thread_sensitive=False)
             def async_update_all_orgs_billing_quotas():
                 close_old_connections()
                 update_all_orgs_billing_quotas()
