@@ -23,9 +23,8 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.utils import get_instance_realm
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-
+from posthog.utils import get_instance_realm
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 
