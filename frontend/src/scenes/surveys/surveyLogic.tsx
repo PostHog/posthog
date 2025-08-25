@@ -1758,6 +1758,73 @@ export const surveyLogic = kea<surveyLogicType>([
                 return getDemoDataForSurvey(survey)
             },
         ],
+        formattedOpenEndedResponses: [
+            (s) => [s.consolidatedSurveyResults, s.survey],
+            (consolidatedResults: ConsolidatedSurveyResults, survey: Survey | NewSurvey): any[] => {
+                if (!consolidatedResults?.responsesByQuestion || !survey.questions) {
+                    return []
+                }
+
+                const responsesByQuestion: any[] = []
+
+                Object.entries(consolidatedResults.responsesByQuestion).forEach(([questionId, processedData]) => {
+                    const question = survey.questions.find((q) => q.id === questionId)
+                    if (!question) {
+                        return
+                    }
+
+                    const questionResponses: any[] = []
+
+                    if (processedData.type === SurveyQuestionType.Open) {
+                        // Pure open questions
+                        const openData = processedData as OpenQuestionProcessedResponses
+
+                        openData.data.forEach((response) => {
+                            if (response.response?.trim()) {
+                                const email = response.personProperties?.email || null
+                                questionResponses.push({
+                                    responseText: response.response.trim(),
+                                    userDistinctId: response.distinctId,
+                                    email,
+                                    isOpenEnded: true,
+                                    timestamp: response.timestamp,
+                                })
+                            }
+                        })
+                    } else if (
+                        processedData.type === SurveyQuestionType.SingleChoice ||
+                        processedData.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        // Choice questions with open input (isPredefined = false)
+                        const choiceData = processedData as ChoiceQuestionProcessedResponses
+
+                        choiceData.data.forEach((item) => {
+                            if (!item.isPredefined && item.label?.trim()) {
+                                const email = item.personProperties?.email || null
+                                questionResponses.push({
+                                    responseText: item.label.trim(),
+                                    userDistinctId: item.distinctId,
+                                    email,
+                                    isOpenEnded: true,
+                                    timestamp: item.timestamp,
+                                })
+                            }
+                        })
+                    }
+
+                    // Only add question if it has open-ended responses
+                    if (questionResponses.length > 0) {
+                        responsesByQuestion.push({
+                            questionName: question.question,
+                            questionId,
+                            responses: questionResponses,
+                        })
+                    }
+                })
+
+                return responsesByQuestion
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {

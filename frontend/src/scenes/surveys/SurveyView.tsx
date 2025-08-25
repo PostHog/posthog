@@ -20,6 +20,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { MaxTool } from 'scenes/max/MaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
@@ -432,10 +433,23 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        survey,
+        formattedOpenEndedResponses,
+    } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+
+    const maxToolContext = {
+        survey_id: survey.id,
+        survey_name: survey.name,
+        formatted_responses: formattedOpenEndedResponses,
+    }
 
     return (
         <div className="deprecated-space-y-4">
@@ -443,7 +457,9 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
-                    <SurveyResponsesByQuestionV2 />
+                    <MaxTool identifier="analyze_survey_responses" context={maxToolContext}>
+                        <SurveyResponsesByQuestionV2 />
+                    </MaxTool>
                     <LemonButton
                         type="primary"
                         data-attr="survey-results-explore"
