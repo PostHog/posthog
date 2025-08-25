@@ -1319,7 +1319,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, cache, props }) => ({
+    events(({ actions, cache, props, values }) => ({
         afterMount: () => {
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
