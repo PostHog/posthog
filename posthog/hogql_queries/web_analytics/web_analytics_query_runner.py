@@ -34,6 +34,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
+    WebTrendsQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -44,6 +45,7 @@ WebQueryNode = Union[
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
+    WebTrendsQuery,
 ]
 
 WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
