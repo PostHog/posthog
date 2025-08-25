@@ -30,6 +30,7 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.query_executor.format import (
     FunnelResultsFormatter,
@@ -74,7 +75,7 @@ class AssistantQueryExecutor:
 
     def run_and_format_query(
         self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None
-    ) -> tuple[str, bool]:  # noqa: F821
+    ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
 
@@ -93,7 +94,7 @@ class AssistantQueryExecutor:
             Exception: If query execution fails with descriptive error messages
         """
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-            response_dict = self._execute_query(query, execution_mode)
+            response_dict = self.execute_query(query, execution_mode)
 
         try:
             # Attempt to format results using query-specific formatters
@@ -107,7 +108,30 @@ class AssistantQueryExecutor:
             fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
             return fallback_results, True  # Fallback was used
 
-    def _execute_query(self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None) -> dict:
+    @database_sync_to_async(thread_sensitive=False)
+    def arun_and_format_query(
+        self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None
+    ) -> tuple[str, bool]:
+        """
+        Run a query and format the results with detailed fallback information.
+
+        Args:
+            query: The query object (AssistantTrendsQuery, AssistantFunnelsQuery, etc.)
+            execution_mode: Optional execution mode override. If None, defaults to:
+                          - RECENT_CACHE_CALCULATE_ASYNC_IF_STALE in production
+                          - CALCULATE_BLOCKING_ALWAYS in tests
+
+        Returns:
+            Tuple of (formatted results as string, whether fallback was used)
+            - formatted results: Query results formatted for AI consumption
+            - fallback used: True if JSON fallback was used due to formatting errors
+
+        Raises:
+            Exception: If query execution fails with descriptive error messages
+        """
+        return self.run_and_format_query(query, execution_mode)
+
+    def execute_query(self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None) -> dict:
         """
         Execute a query and return the response dict.
 
