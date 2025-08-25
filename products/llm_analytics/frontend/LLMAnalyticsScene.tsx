@@ -238,7 +238,7 @@ function LLMAnalyticsNoEvents(): JSX.Element {
                 <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
                 <p className="text-sm text-center text-balance">
                     To use the LLM Analytics product, please{' '}
-                    <Link to="https://posthog.com/docs/llm-analytics/start-here">
+                    <Link to="https://posthog.com/docs/llm-analytics/installation">
                         instrument your LLM calls with the PostHog SDK
                     </Link>{' '}
                 </p>
