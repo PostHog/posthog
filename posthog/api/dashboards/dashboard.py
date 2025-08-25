@@ -778,7 +778,7 @@ class DashboardsViewSet(
 
         if request and hasattr(request, "query_params"):
             # Check for both camelCase (from frontend) and snake_case (for compatibility)
-            layout_size = request.query_params.get("layoutSize") or request.query_params.get("layout_size", "sm")
+            layout_size = request.query_params.get("layoutSize") or request.query_params.get("layout_size") or "sm"
             if layout_size not in ["sm", "xs"]:
                 layout_size = "sm"  # fallback to sm if invalid value
 
