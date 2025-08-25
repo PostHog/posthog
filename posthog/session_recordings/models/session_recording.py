@@ -8,13 +8,8 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
-from posthog.session_recordings.models.metadata import (
-    RecordingMatchingEvents,
-    RecordingMetadata,
-)
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
+from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.tasks.tasks import ee_persist_single_recording
 

@@ -2,6 +2,8 @@ import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 
+from django.conf import settings
+
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -15,19 +17,18 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.constants import MAX_AI_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
+from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
-from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
-from django.conf import settings
+from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 
+from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
 

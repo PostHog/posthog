@@ -7,12 +7,9 @@ from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
 from langchain_core.messages import AIMessage as LangchainAIMessage
 
+from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
+
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
-from posthog.schema import (
-    AssistantMessage,
-    AssistantToolCall,
-    NodeKind,
-)
 
 
 class ToolRelevance(ScorerWithPartial):

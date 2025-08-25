@@ -1,14 +1,16 @@
+import uuid
+import random
 import asyncio
 import datetime as dt
-import random
-import uuid
+
+import pytest
+
+from django.conf import settings
 
 import psycopg
-import pytest
 import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
@@ -23,6 +25,7 @@ from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
+
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 
 

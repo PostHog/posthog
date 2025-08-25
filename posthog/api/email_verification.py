@@ -1,9 +1,10 @@
-import posthoganalytics
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from rest_framework import exceptions
-from posthog.exceptions_capture import capture_exception
 
+import posthoganalytics
+from rest_framework import exceptions
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
 

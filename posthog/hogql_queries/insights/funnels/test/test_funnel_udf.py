@@ -1,29 +1,25 @@
 from datetime import datetime
 from typing import cast
-from unittest.mock import patch, Mock
 
 from freezegun import freeze_time
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import Mock, patch
 
-from posthog.constants import FunnelOrderType, INSIGHT_FUNNELS
+from test_funnel import PseudoFunnelActors, funnel_test_factory
+
+from posthog.schema import FunnelsQuery, FunnelsQueryResponse
+
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    funnel_breakdown_test_factory,
     funnel_breakdown_group_test_factory,
+    funnel_breakdown_test_factory,
 )
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action
-from posthog.schema import FunnelsQuery, FunnelsQueryResponse
-from posthog.test.base import (
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 from posthog.test.test_journeys import journeys_for
-from test_funnel import funnel_test_factory, PseudoFunnelActors
-from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
-    funnel_conversion_time_test_factory,
-)
 
 
 def _create_action(**kwargs):

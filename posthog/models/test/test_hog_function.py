@@ -1,15 +1,18 @@
 import json
+
+from posthog.test.base import QueryMatchingTest
+
 from django.test import TestCase
+
 from inline_snapshot import snapshot
 
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import QueryMatchingTest
 
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 to_dict = lambda x: json.loads(json.dumps(x))
 

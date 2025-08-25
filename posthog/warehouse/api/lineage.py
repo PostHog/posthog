@@ -1,13 +1,15 @@
+import logging
+from collections import defaultdict, deque
+from typing import Any
+
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.response import Response
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
-from typing import Any
-from collections import defaultdict, deque
-import logging
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
