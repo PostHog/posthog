@@ -1659,7 +1659,7 @@ export const surveyLogic = kea<surveyLogicType>([
         defaultInterval: [
             (s) => [s.survey],
             (survey: Survey): IntervalType => {
-                const start = getSurveyStartDateForQuery(survey)
+                const start = dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
                 const end = getSurveyEndDateForQuery(survey)
                 const diffInDays = dayjs(end).diff(dayjs(start), 'days')
                 const diffInWeeks = dayjs(end).diff(dayjs(start), 'weeks')
