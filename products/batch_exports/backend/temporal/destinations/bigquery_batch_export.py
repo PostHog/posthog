@@ -1206,7 +1206,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=bigquery_default_fields(),
         )
 
-        if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS:
+        if (
+            str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS
+            or inputs.team_id % 100 < settings.BATCH_EXPORT_BIGQUERY_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+        ):
             await execute_batch_export_using_internal_stage(
                 insert_into_bigquery_activity_from_stage,
                 insert_inputs,
