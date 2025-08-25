@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0828_grouptypemapping_created_at"),
+        ("posthog", "0830_add_evaluation_runtimes_to_featureflags"),
     ]
 
     operations = [
