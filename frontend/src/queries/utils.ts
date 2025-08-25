@@ -513,7 +513,10 @@ export function getResultCustomizations(
 export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.goalLines
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.goalLines
     }
+
     return undefined
 }
 
