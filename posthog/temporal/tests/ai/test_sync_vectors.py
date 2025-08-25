@@ -1019,8 +1019,8 @@ async def test_heartbeat_called_during_embedding_process(azure_mock, summarized_
         )
 
         # Heartbeat should be called at least twice:
-        # 1. At the start of the embedding loop (line 297)
-        # 2. Before syncing vectors (line 321)
+        # 1. At the start of the embedding loop
+        # 2. Before syncing vectors
         assert heartbeat_mock.call_count >= 2
 
 
