@@ -1,16 +1,26 @@
+import os
 import asyncio
 import datetime
-import os
 from collections import namedtuple
 from collections.abc import Generator, Sequence
-from unittest import mock
 
 import pytest
+from unittest import mock
+
+from django.test import override_settings
+
 from _pytest.terminal import TerminalReporter
 from braintrust import EvalAsync, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
-from django.test import override_settings
+
+from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
+
+# We want the PostHog django_db_setup fixture here
+from posthog.conftest import django_db_setup  # noqa: F401
+from posthog.demo.matrix.manager import MatrixManager
+from posthog.models import Team
+from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.scorers import PlanAndQueryOutput
@@ -18,13 +28,6 @@ from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
 from ee.models.assistant import Conversation, CoreMemory
-
-# We want the PostHog django_db_setup fixture here
-from posthog.conftest import django_db_setup  # noqa: F401
-from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Team
-from posthog.schema import HumanMessage, VisualizationMessage, FailureMessage
-from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 handler = BraintrustCallbackHandler()
 if os.environ.get("BRAINTRUST_API_KEY"):

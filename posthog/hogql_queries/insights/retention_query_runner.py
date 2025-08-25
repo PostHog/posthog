@@ -1,42 +1,44 @@
 from datetime import datetime, timedelta
+from math import ceil
+from typing import Any, Optional, cast
 
+from posthog.schema import (
+    Breakdown,
+    CachedRetentionQueryResponse,
+    EntityType,
+    HogQLQueryModifiers,
+    IntervalType,
+    RetentionEntity,
+    RetentionQuery,
+    RetentionQueryResponse,
+    RetentionType,
+)
+
+from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.base import Expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.constants import (
+    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+    HogQLGlobalSettings,
+    LimitContext,
+    get_breakdown_limit_for_context,
+)
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
-from math import ceil
-from typing import Any, cast, Optional
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.property import entity_to_expr, property_to_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.constants import (
-    TREND_FILTER_TYPE_EVENTS,
-    RetentionQueryType,
-)
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import entity_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.models.action.action import Action
-from posthog.hogql.timings import HogQLTimings
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, RetentionQueryType
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
+from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.util import correct_result_for_sampling
-from posthog.schema import (
-    CachedRetentionQueryResponse,
-    HogQLQueryModifiers,
-    RetentionQueryResponse,
-    IntervalType,
-    RetentionEntity,
-    EntityType,
-)
-from posthog.schema import RetentionQuery, RetentionType, Breakdown
-from posthog.hogql.constants import get_breakdown_limit_for_context
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.queries.util import correct_result_for_sampling
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7

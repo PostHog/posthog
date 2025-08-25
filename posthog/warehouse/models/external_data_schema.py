@@ -1,17 +1,18 @@
 import uuid
-from dateutil import parser
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
-import numpy
 from django.conf import settings
 from django.db import models
+
+import numpy
+from dateutil import parser
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
-
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -21,7 +22,6 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.s3 import get_s3_client
 from posthog.warehouse.types import IncrementalFieldType
-from posthog.sync import database_sync_to_async
 
 
 class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):

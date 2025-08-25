@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta
 
-from posthog.schema import IntervalType, RevenueAnalyticsRevenueQuery
 from posthog.test.base import APIBaseTest
+
+from posthog.schema import IntervalType, RevenueAnalyticsRevenueQuery
+
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
+
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
     RevenueAnalyticsQueryRunner,
 )

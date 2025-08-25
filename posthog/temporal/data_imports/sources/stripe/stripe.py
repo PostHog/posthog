@@ -23,9 +23,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
-from posthog.warehouse.models.external_table_definitions import (
-    get_dlt_mapping_for_external_table,
-)
+from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 DEFAULT_LIMIT = 100
 

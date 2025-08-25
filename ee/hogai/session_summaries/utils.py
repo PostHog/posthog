@@ -1,7 +1,9 @@
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
-from django.template import Engine, Context
+
+from django.template import Context, Engine
+
 import tiktoken
 
 from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH

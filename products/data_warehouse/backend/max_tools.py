@@ -1,26 +1,26 @@
 from typing import Optional, cast
 
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
 from asgiref.sync import async_to_sync
+from langchain_core.prompts import ChatPromptTemplate
+from posthoganalytics import capture_exception
+from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantHogQLQuery
+
+from posthog.models import Team, User
+
+from products.data_warehouse.backend.prompts import HOGQL_GENERATOR_USER_PROMPT, SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
+
+from ee.hogai.graph.query_planner.prompts import PROPERTY_FILTERS_EXPLANATION_PROMPT
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
-from ee.hogai.tool import MaxTool
-from posthog.schema import AssistantHogQLQuery
-from products.data_warehouse.backend.prompts import (
-    HOGQL_GENERATOR_USER_PROMPT,
-    SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
-)
-from ee.hogai.graph.query_planner.prompts import PROPERTY_FILTERS_EXPLANATION_PROMPT
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from posthog.models import Team, User
-from posthoganalytics import capture_exception
+from ee.hogai.tool import MaxTool
 
 
 class HogQLGeneratorArgs(BaseModel):

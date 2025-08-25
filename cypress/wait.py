@@ -1,6 +1,8 @@
+# ruff: noqa: T201 allow print statements
+
+import time
 import datetime
 import http.client
-import time
 
 
 def main():

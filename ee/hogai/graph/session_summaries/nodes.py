@@ -1,34 +1,41 @@
-import asyncio
 import time
-from typing import cast, Any
+import asyncio
+from typing import Any, cast
 from uuid import uuid4
-from langgraph.types import StreamWriter
+
 import structlog
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
+from langgraph.types import StreamWriter
 
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
-from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_empty_notebook_for_summary,
-    SummaryNotebookIntermediateState,
-    generate_notebook_content_from_summary,
-    update_notebook_from_summary_content,
+from posthog.schema import (
+    AssistantToolCallMessage,
+    MaxRecordingUniversalFilters,
+    NotebookUpdateMessage,
+    RecordingsQuery,
 )
-from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.hogai.utils.state import prepare_reasoning_progress_message
-from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
+
 from posthog.models.notebook.notebook import Notebook
-from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
-from langgraph.config import get_stream_writer
-from posthog.schema import NotebookUpdateMessage
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.session_summaries.constants import GROUP_SUMMARIES_MIN_SESSIONS, SESSION_SUMMARIES_STREAMING_MODEL
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.session_group.summary_notebooks import (
+    SummaryNotebookIntermediateState,
+    create_empty_notebook_for_summary,
+    generate_notebook_content_from_summary,
+    update_notebook_from_summary_content,
+)
+from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.state import prepare_reasoning_progress_message
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 
 class SessionSummarizationNode(AssistantNode):

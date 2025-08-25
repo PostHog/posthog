@@ -1,19 +1,20 @@
-import asyncio
-import collections.abc
-import contextlib
-import datetime as dt
-import enum
-import json
 import re
 import ssl
-import typing
+import enum
+import json
 import uuid
+import typing
+import asyncio
+import datetime as dt
+import contextlib
+import collections.abc
 from urllib.parse import urljoin
+
+from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
 import requests
-from django.conf import settings
 from structlog import get_logger
 from temporalio import activity
 

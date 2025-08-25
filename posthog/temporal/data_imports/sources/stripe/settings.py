@@ -4,11 +4,11 @@
 # Full list of the Stripe API endpoints you can find here: https://stripe.com/docs/api.
 # These endpoints are converted into ExternalDataSchema objects when a source is linked.
 
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
@@ -18,8 +18,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
-    CREDIT_NOTE_RESOURCE_NAME,
 )
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 ENDPOINTS = (
     BALANCE_TRANSACTION_RESOURCE_NAME,

@@ -1,17 +1,17 @@
 import datetime
+
+from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+
 from django.core.cache import cache
 from django.test import override_settings
+
 from dateutil import parser
 
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.models.team import WeekStartDay
-from posthog.schema import DateRange, IntervalType
-from posthog.test.base import APIBaseTest
+from posthog.schema import DateRange, EventsNode, IntervalType
 
-from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
-from posthog.schema import EventsNode
-from posthog.test.base import _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.models.team import WeekStartDay
 
 
 @override_settings(IN_UNIT_TESTING=True)

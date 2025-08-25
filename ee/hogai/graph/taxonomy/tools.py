@@ -1,4 +1,5 @@
-from typing import Literal, Union, TypeVar, Generic
+from typing import Generic, Literal, TypeVar, Union
+
 from pydantic import BaseModel, Field, create_model
 
 from .types import OutputType

@@ -1,13 +1,13 @@
 from typing import TYPE_CHECKING, Any
+
 from django.db import models
+from django.db.models import QuerySet
 from django.utils import timezone
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from django.db.models import QuerySet
 from posthog.models.utils import RootTeamMixin
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
-
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

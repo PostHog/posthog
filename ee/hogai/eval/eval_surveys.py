@@ -1,15 +1,19 @@
 import pytest
+
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
-from ee.models.assistant import Conversation
-from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+
 from posthog.schema import SurveyCreationSchema
 
-from .conftest import MaxEval
-
 from posthog.models import FeatureFlag
+
+from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.models.assistant import Conversation
+
+from .conftest import MaxEval
 
 
 def validate_survey_output(output, scorer_name):

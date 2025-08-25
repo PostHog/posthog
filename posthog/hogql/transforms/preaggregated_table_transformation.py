@@ -17,18 +17,19 @@ Exports:
 * do_preaggregated_table_transforms
 """
 
-from typing import TypeVar, cast, Optional
+from typing import Optional, TypeVar, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.helpers.timestamp_visitor import (
+    is_end_of_day_constant,
     is_simple_timestamp_field_expression,
     is_start_of_day_constant,
-    is_end_of_day_constant,
 )
 from posthog.hogql.visitor import CloningVisitor
+
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
