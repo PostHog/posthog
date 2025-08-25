@@ -1,6 +1,8 @@
+import datetime as dt
+
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.models import Cohort, FeatureFlag
-import datetime as dt
+
 from .models import SpikeGPTPerson
 
 

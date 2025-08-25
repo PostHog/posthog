@@ -3,32 +3,27 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
-import posthoganalytics
-import structlog
 from django.db import transaction
+from django.dispatch import receiver
 from django.utils.timezone import now
+
+import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework import (
-    filters,
-    mixins,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
-from rest_framework.exceptions import (
-    NotAuthenticated,
-    NotFound,
-    PermissionDenied,
-    ValidationError,
-)
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
+
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
+from posthog.hogql import ast, errors
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from django.dispatch import receiver
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
@@ -46,27 +41,14 @@ from posthog.batch_exports.service import (
     unpause_batch_export,
 )
 from posthog.cdp.validation import has_data_pipelines_addon
-from posthog.hogql import ast, errors
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-    Team,
-    User,
-)
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
+from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
+
 from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
-    SUPPORTED_COMPRESSIONS,
-)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
 
 logger = structlog.get_logger(__name__)
 
@@ -831,8 +813,8 @@ def handle_batch_export_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     from posthog.models.activity_logging.batch_export_utils import (
-        get_batch_export_destination_type,
         get_batch_export_created_by_info,
+        get_batch_export_destination_type,
         get_batch_export_detail_name,
     )
 

@@ -1,28 +1,21 @@
-import datetime
-import hashlib
 import re
-from typing import (
-    Any,
-    Optional,
-    TypeVar,
-    Union,
-    cast,
-)
+import hashlib
+import datetime
 from collections.abc import Callable
+from typing import Any, Optional, TypeVar, Union, cast
 from zoneinfo import ZoneInfo
-from dateutil.relativedelta import relativedelta
-from dateutil import parser
+
 from django.db.models import Exists, OuterRef, Q, Value
+
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort, CohortPeople, CohortOrEmpty
+from posthog.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
-from posthog.models.property import (
-    Property,
-    PropertyGroup,
-)
+from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.property import OperatorType, ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware

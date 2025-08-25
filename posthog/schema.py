@@ -1332,6 +1332,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"
     INSIGHT_CALENDAR_HEATMAP = "insightCalendarHeatmap"
+    CODE = "code"
 
 
 class FileSystemImport(BaseModel):
@@ -10543,18 +10544,6 @@ class VectorSearchQueryResponse(BaseModel):
     )
 
 
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    id: Optional[str] = None
-    initiator: Optional[str] = None
-    plan: Optional[str] = None
-    query: Optional[str] = ""
-    type: Literal["ai/viz"] = "ai/viz"
-
-
 class WebAnalyticsExternalSummaryQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13169,6 +13158,21 @@ class QueryResponseAlternative(
         QueryResponseAlternative69,
         QueryResponseAlternative70,
     ]
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Union[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
+        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+    ]
+    id: Optional[str] = None
+    initiator: Optional[str] = None
+    plan: Optional[str] = None
+    query: Optional[str] = ""
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class DatabaseSchemaQueryResponse(BaseModel):

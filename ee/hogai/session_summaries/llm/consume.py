@@ -1,29 +1,31 @@
-from datetime import datetime
-import json
 import os
+import json
+from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Any
+
 import openai
 import structlog
+from openai.types.chat.chat_completion import ChatCompletion
+from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from prometheus_client import Histogram
 
+from posthog.temporal.ai.session_summary.state import generate_state_id_from_session_ids
+
+from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
 from ee.hogai.session_summaries.session.output_data import (
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
-from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
-from prometheus_client import Histogram
-from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
-from collections.abc import AsyncGenerator
-
+from ee.hogai.session_summaries.session.summarize_session import PatternsPrompt
 from ee.hogai.session_summaries.session_group.patterns import (
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
     load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
 )
-from ee.hogai.session_summaries.session.summarize_session import PatternsPrompt
 
 logger = structlog.get_logger(__name__)
 
@@ -120,7 +122,7 @@ async def get_llm_session_group_patterns_extraction(
     prompt: PatternsPrompt, user_id: int, session_ids: list[str], model_to_use: str, trace_id: str | None = None
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to extract patterns from multiple sessions."""
-    sessions_identifier = ",".join(session_ids)
+    sessions_identifier = generate_state_id_from_session_ids(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
         user_key=user_id,
@@ -142,7 +144,7 @@ async def get_llm_session_group_patterns_assignment(
     prompt: PatternsPrompt, user_id: int, session_ids: list[str], model_to_use: str, trace_id: str | None = None
 ) -> RawSessionGroupPatternAssignmentsList:
     """Call LLM to assign events to extracted patterns."""
-    sessions_identifier = ",".join(session_ids)
+    sessions_identifier = generate_state_id_from_session_ids(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
         user_key=user_id,
@@ -164,7 +166,7 @@ async def get_llm_session_group_patterns_combination(
     prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to combine patterns from multiple chunks."""
-    sessions_identifier = ",".join(session_ids)
+    sessions_identifier = generate_state_id_from_session_ids(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
         user_key=user_id,

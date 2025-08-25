@@ -1,42 +1,8 @@
-from datetime import datetime, timedelta, UTC
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Optional
-from unittest.mock import call, patch
 
-from django.core.cache import cache
-from django.db import connection
-from django.db.utils import OperationalError
-from django.test import TransactionTestCase
-from django.test.client import RequestFactory
-from django.utils.timezone import now
 from freezegun.api import freeze_time
-from parameterized import parameterized
-from rest_framework import status
-
-from posthog import redis
-from posthog.api.cohort import get_cohort_actors_for_feature_flag
-from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.constants import AvailableFeature
-from posthog.models import Experiment, FeatureFlag, User, GroupTypeMapping
-from posthog.models.cohort import Cohort
-from posthog.models.dashboard import Dashboard
-from products.early_access_features.backend.models import EarlyAccessFeature
-from posthog.models.feature_flag import (
-    FeatureFlagDashboards,
-    get_all_feature_flags,
-    get_feature_flags_for_team_in_cache,
-)
-from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
-from posthog.models.group.util import create_group
-from posthog.models.organization import Organization
-from posthog.models.person import Person
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
-from posthog.models.feature_flag.flag_status import (
-    FeatureFlagStatus,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -47,7 +13,42 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
+from unittest.mock import call, patch
+
+from django.core.cache import cache
+from django.db import connection
+from django.db.utils import OperationalError
+from django.test import TransactionTestCase
+from django.test.client import RequestFactory
+from django.utils.timezone import now
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog import redis
+from posthog.api.cohort import get_cohort_actors_for_feature_flag
+from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.constants import AvailableFeature
+from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, User
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag import (
+    FeatureFlagDashboards,
+    get_all_feature_flags,
+    get_feature_flags_for_team_in_cache,
+)
+from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+from posthog.models.feature_flag.flag_status import FeatureFlagStatus
+from posthog.models.group.util import create_group
+from posthog.models.organization import Organization
+from posthog.models.person import Person
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 
 class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):

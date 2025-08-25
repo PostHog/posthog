@@ -1,16 +1,17 @@
 import json
-from temporalio import activity, workflow, common
-from datetime import timedelta
-import dataclasses
-import structlog
 import logging
+import dataclasses
+from datetime import timedelta
 
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.heartbeat import Heartbeater
-from asgiref.sync import sync_to_async
 from django.db import close_old_connections
 
+import structlog
+from asgiref.sync import sync_to_async
+from temporalio import activity, common, workflow
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
 
 logger = structlog.get_logger()
 logging.basicConfig(level=logging.INFO)
