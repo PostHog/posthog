@@ -258,6 +258,9 @@ class Assistant:
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
+                            # Filter out VisualizationMessages when in DeepResearch mode
+                            if isinstance(message, VisualizationMessage) and isinstance(state, DeepResearchState):
+                                continue
                             if isinstance(message, VisualizationMessage):
                                 last_viz_message = message
                             if isinstance(message, AssistantMessage):
