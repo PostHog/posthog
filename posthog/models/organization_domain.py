@@ -1,10 +1,11 @@
 import secrets
 from typing import Optional
 
-import dns.resolver
-import structlog
 from django.db import models
 from django.utils import timezone
+
+import structlog
+import dns.resolver
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization

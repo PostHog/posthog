@@ -1,14 +1,15 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
+
+from django.conf import settings
 
 import psycopg
-import temporalio.activity
 import temporalio.common
+import temporalio.activity
 import temporalio.workflow
-from django.conf import settings
 from structlog import get_logger
 
 from posthog.clickhouse.query_tagging import tag_queries

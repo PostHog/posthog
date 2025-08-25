@@ -1,9 +1,9 @@
 import re
 import logging
-from urllib.parse import urlparse, unquote
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
-from posthog.schema import ProsemirrorJSONContent, Mark
+from posthog.schema import Mark, ProsemirrorJSONContent
 
 logger = logging.getLogger(__name__)
 

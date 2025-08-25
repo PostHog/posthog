@@ -1,18 +1,20 @@
 from typing import Any
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
+
 from django.db import transaction
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import ExperimentHoldout
 from posthog.models.signals import model_activity_signal
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):

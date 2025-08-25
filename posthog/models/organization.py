@@ -2,28 +2,24 @@ import sys
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
-import structlog
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+
+import structlog
 from rest_framework import exceptions
-from posthog.models.personal_api_key import PersonalAPIKey
-from django.db.models.signals import post_save
-from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
-from posthog.models.utils import (
-    LowercaseSlugField,
-    UUIDTModel,
-    create_with_slug,
-    sane_repr,
-)
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -395,8 +391,8 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         }
 
     def delete(self, *args, **kwargs):
-        from posthog.models.signals import model_activity_signal
         from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+        from posthog.models.signals import model_activity_signal
 
         model_activity_signal.send(
             sender=self.__class__,

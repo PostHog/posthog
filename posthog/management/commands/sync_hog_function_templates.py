@@ -1,13 +1,16 @@
-import dataclasses
-from django.core.management.base import BaseCommand
-import structlog
 import time
+import dataclasses
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
+
+import structlog
+
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.plugins.plugin_server_api import get_hog_function_templates
-from posthog.models.hog_functions.hog_function import HogFunctionType, HogFunction
 from posthog.models.hog_function_template import HogFunctionTemplate
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.plugins.plugin_server_api import get_hog_function_templates
 
 logger = structlog.get_logger(__name__)
 

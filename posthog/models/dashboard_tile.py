@@ -135,14 +135,3 @@ class DashboardTile(models.Model):
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )
-
-
-def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> list[DashboardTile]:
-    tiles = list(
-        dashboard.tiles.select_related("insight", "text")
-        .exclude(insight__deleted=True)
-        .order_by("insight__order")
-        .all()
-    )
-    tiles.sort(key=lambda x: (x.layouts.get(size, {}).get("y", 100), x.layouts.get(size, {}).get("x", 100)))
-    return tiles

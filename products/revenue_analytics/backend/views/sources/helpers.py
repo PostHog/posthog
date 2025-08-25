@@ -1,7 +1,9 @@
 from posthog.schema import CurrencyCode
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.models.team.team import Team
 
 # Stripe represents most currencies with integer amounts multiplied by 100,
