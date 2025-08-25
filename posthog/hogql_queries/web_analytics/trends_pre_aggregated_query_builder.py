@@ -1,9 +1,11 @@
 from typing import Any
 
+from posthog.schema import IntervalType, WebTrendsMetric
+
 from posthog.hogql import ast
+
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import WEB_ANALYTICS_TRENDS_SUPPORTED_FILTERS
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
-from posthog.schema import IntervalType, WebTrendsMetric
 
 WEB_ANALYTICS_TRENDS_PRE_AGGREGATED_SUPPORTED_METRICS = [
     WebTrendsMetric.UNIQUE_USERS,

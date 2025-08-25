@@ -1,21 +1,16 @@
 from datetime import UTC, datetime
 from typing import Optional, cast
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock
+
+from posthog.schema import HogQLQueryModifiers, IntervalType, WebTrendsMetric, WebTrendsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
+
 from posthog.hogql_queries.web_analytics.trends_pre_aggregated_query_builder import TrendsPreAggregatedQueryBuilder
-from posthog.schema import (
-    HogQLQueryModifiers,
-    IntervalType,
-    WebTrendsMetric,
-    WebTrendsQuery,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-)
 
 
 class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
