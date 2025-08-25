@@ -34,6 +34,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
 
         source_obj = ExternalDataSource.objects.get(id=external_data_source["id"])
         schema = source_obj.schemas.first()
+        assert schema is not None
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
         self.assertEqual(len(activity_logs), 1)
@@ -59,6 +60,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
 
         source_obj = ExternalDataSource.objects.get(id=external_data_source["id"])
         schema = source_obj.schemas.first()
+        assert schema is not None
 
         self.clear_activity_logs()
 
@@ -79,6 +81,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
 
         source_obj = ExternalDataSource.objects.get(id=external_data_source["id"])
         schema = source_obj.schemas.first()
+        assert schema is not None
         schema_id = str(schema.id)
 
         self.clear_activity_logs()
@@ -96,6 +99,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         detail_changes = log_entry.detail.get("changes", [])
         deleted_change = next((change for change in detail_changes if change.get("field") == "deleted"), None)
         self.assertIsNotNone(deleted_change)
+        assert deleted_change is not None
         self.assertEqual(deleted_change["after"], True)
 
     def test_external_data_schema_relationship_logging(self):
@@ -106,6 +110,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
 
         source_obj = ExternalDataSource.objects.get(id=external_data_source["id"])
         schema = source_obj.schemas.first()
+        assert schema is not None
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
         self.assertEqual(len(activity_logs), 1)
