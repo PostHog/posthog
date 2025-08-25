@@ -3,6 +3,7 @@ from typing import Any, TypeVar, Union
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+from django.utils.timezone import now
 
 from pydantic import BaseModel, ConfigDict
 
@@ -34,7 +35,6 @@ from posthog.schema import (
 )
 
 from posthog.cache_utils import cache_for
-from posthog.hogql_queries.query_runner import RunnableQueryNode
 from posthog.models import Action, Team
 from posthog.utils import get_from_dict_or_attr
 
@@ -54,7 +54,7 @@ class QueryEventsExtractor:
         self.team = team
 
     @staticmethod
-    def _ensure_model_instance(query: dict[str, Any] | RunnableQueryNode | BaseModel, model_class: type[T]) -> T:
+    def _ensure_model_instance(query: dict[str, Any] | BaseModel, model_class: type[T]) -> T:
         """
         Ensures the query is an instance of the specified model class.
         """
@@ -62,7 +62,7 @@ class QueryEventsExtractor:
             return query
         return model_class.model_validate(query)
 
-    def extract_events(self, query: dict[str, Any] | RunnableQueryNode | BaseModel) -> list[str]:
+    def extract_events(self, query: dict[str, Any] | BaseModel) -> list[str]:
         """
         Extracts events from a given query dictionary.
 
@@ -228,20 +228,23 @@ class QueryEventsExtractor:
 
 
 def extract_query_metadata(
-    query: dict[str, Any] | RunnableQueryNode | BaseModel,
+    query: dict[str, Any] | BaseModel | None,
     team: Team,
 ) -> InsightQueryMetadata:
     """
     Extracts metadata from a given query, including the events used in the query.
 
     Args:
-        query (dict | RunnableQueryNode | BaseModel): The query to extract metadata from.
+        query (dict) | BaseModel | None: The query to extract metadata from. If None, returns an empty metadata object.
         team (Team): The team associated with the query.
 
     Returns:
         InsightQueryMetadata: An object containing the query metadata
     """
+    if not query:
+        return InsightQueryMetadata(events=[], updated_at=now())
+
     events_extractor = QueryEventsExtractor(team=team)
     events = events_extractor.extract_events(query=query)
 
-    return InsightQueryMetadata(events=events, updated_at=datetime.now())
+    return InsightQueryMetadata(events=events, updated_at=now())
