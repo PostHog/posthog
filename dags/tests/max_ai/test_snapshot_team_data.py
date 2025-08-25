@@ -5,19 +5,27 @@ import dagster
 from dagster import OpExecutionContext
 from dagster_aws.s3.resources import S3Resource
 
-from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
+from posthog.schema import (
+    ActorsPropertyTaxonomyResponse,
+    CachedEventTaxonomyQueryResponse,
+    CachedTeamTaxonomyQueryResponse,
+    EventTaxonomyItem,
+    TeamTaxonomyItem,
+)
 
 from posthog.models import GroupTypeMapping, Organization, Project, Team
 from posthog.models.property_definition import PropertyDefinition
 
-from dags.max_ai.snapshot_project_data import (
+from dags.max_ai.snapshot_team_data import (
+    SnapshotUnrecoverableError,
     snapshot_actors_property_taxonomy,
+    snapshot_clickhouse_team_data,
     snapshot_events_taxonomy,
     snapshot_postgres_model,
-    snapshot_postgres_project_data,
+    snapshot_postgres_team_data,
     snapshot_properties_taxonomy,
 )
-from ee.hogai.eval.schema import PostgresProjectDataSnapshot, TeamSnapshot
+from ee.hogai.eval.schema import PostgresTeamDataSnapshot, TeamSnapshot
 
 
 @pytest.fixture
@@ -58,7 +66,7 @@ def team():
 
 @pytest.fixture
 def mock_dump():
-    with patch("dags.max_ai.snapshot_project_data.dump_model") as mock_dump_model:
+    with patch("dags.max_ai.snapshot_team_data.dump_model") as mock_dump_model:
         mock_dump_context = MagicMock()
         mock_dump_function = MagicMock()
         mock_dump_context.__enter__ = MagicMock(return_value=mock_dump_function)
@@ -67,8 +75,8 @@ def mock_dump():
         yield mock_dump_function
 
 
-@patch("dags.max_ai.snapshot_project_data.compose_postgres_dump_path")
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.compose_postgres_dump_path")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 def test_snapshot_postgres_model_skips_when_file_exists(
     mock_check_dump_exists, mock_compose_path, mock_context, mock_s3
 ):
@@ -78,7 +86,7 @@ def test_snapshot_postgres_model_skips_when_file_exists(
     mock_compose_path.return_value = file_key
     mock_check_dump_exists.return_value = True
 
-    project_id = 123
+    team_id = 123
     file_name = "teams"
     code_version = "v1"
 
@@ -88,19 +96,19 @@ def test_snapshot_postgres_model_skips_when_file_exists(
         model_type=TeamSnapshot,
         file_name=file_name,
         s3=mock_s3,
-        project_id=project_id,
+        team_id=team_id,
         code_version=code_version,
     )
 
     # Verify
     assert result == file_key
-    mock_compose_path.assert_called_once_with(project_id, file_name, code_version)
+    mock_compose_path.assert_called_once_with(team_id, file_name, code_version)
     mock_check_dump_exists.assert_called_once_with(mock_s3, file_key)
     mock_context.log.info.assert_called_once_with(f"Skipping {file_key} because it already exists")
 
 
-@patch("dags.max_ai.snapshot_project_data.compose_postgres_dump_path")
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.compose_postgres_dump_path")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 def test_snapshot_postgres_model_dumps_when_file_not_exists(
     mock_check_dump_exists, mock_compose_path, mock_context, mock_s3, mock_dump
 ):
@@ -110,10 +118,10 @@ def test_snapshot_postgres_model_dumps_when_file_not_exists(
     mock_compose_path.return_value = file_key
     mock_check_dump_exists.return_value = False
 
-    # Mock the serialize_for_project method
+    # Mock the serialize_for_team method
     mock_serialized_data = [{"id": 1, "name": "test"}]
-    with patch.object(TeamSnapshot, "serialize_for_project", return_value=mock_serialized_data):
-        project_id = 123
+    with patch.object(TeamSnapshot, "serialize_for_team", return_value=mock_serialized_data):
+        team_id = 123
         file_name = "teams"
         code_version = "v1"
 
@@ -123,25 +131,25 @@ def test_snapshot_postgres_model_dumps_when_file_not_exists(
             model_type=TeamSnapshot,
             file_name=file_name,
             s3=mock_s3,
-            project_id=project_id,
+            team_id=team_id,
             code_version=code_version,
         )
 
     # Verify
     assert result == file_key
-    mock_compose_path.assert_called_once_with(project_id, file_name, code_version)
+    mock_compose_path.assert_called_once_with(team_id, file_name, code_version)
     mock_check_dump_exists.assert_called_once_with(mock_s3, file_key)
     mock_context.log.info.assert_called_with(f"Dumping {file_key}")
     mock_dump.assert_called_once_with(mock_serialized_data)
 
 
-@patch("dags.max_ai.snapshot_project_data.snapshot_postgres_model")
-def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgres_model, mock_s3):
-    """Test that snapshot_postgres_project_data exports all expected models."""
+@patch("dags.max_ai.snapshot_team_data.snapshot_postgres_model")
+def test_snapshot_postgres_team_data_exports_all_models(mock_snapshot_postgres_model, mock_s3):
+    """Test that snapshot_postgres_team_data exports all expected models."""
     # Setup
-    project_id = 456
+    team_id = 456
     mock_snapshot_postgres_model.side_effect = [
-        "path/to/project.avro",
+        "path/to/team.avro",
         "path/to/property_definitions.avro",
         "path/to/group_type_mappings.avro",
         "path/to/data_warehouse_tables.avro",
@@ -151,11 +159,11 @@ def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgre
     context = dagster.build_op_context()
 
     # Execute
-    result = snapshot_postgres_project_data(context, project_id, mock_s3)
+    result = snapshot_postgres_team_data(context, team_id, mock_s3)
 
     # Verify all expected models are in the result
-    assert isinstance(result, PostgresProjectDataSnapshot)
-    assert result.project == "path/to/project.avro"
+    assert isinstance(result, PostgresTeamDataSnapshot)
+    assert result.team == "path/to/team.avro"
     assert result.property_definitions == "path/to/property_definitions.avro"
     assert result.group_type_mappings == "path/to/group_type_mappings.avro"
     assert result.data_warehouse_tables == "path/to/data_warehouse_tables.avro"
@@ -165,7 +173,7 @@ def test_snapshot_postgres_project_data_exports_all_models(mock_snapshot_postgre
 
 
 @pytest.mark.django_db
-@patch("dags.max_ai.snapshot_project_data.call_query_runner")
+@patch("dags.max_ai.snapshot_team_data.call_query_runner")
 def test_snapshot_properties_taxonomy(mock_call_query_runner, mock_context, mock_s3, team, mock_dump):
     """Test that snapshot_properties_taxonomy correctly processes events and dumps results."""
     # Setup
@@ -190,9 +198,47 @@ def test_snapshot_properties_taxonomy(mock_call_query_runner, mock_context, mock
     mock_dump.assert_called_once()
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
-@patch("dags.max_ai.snapshot_project_data.EventTaxonomyQueryRunner.calculate")
-@patch("dags.max_ai.snapshot_project_data.TeamTaxonomyQueryRunner.calculate")
+@patch("dags.max_ai.snapshot_team_data.snapshot_postgres_model")
+def test_snapshot_postgres_team_data_raises_failure_on_missing_team(mock_snapshot_postgres_model, mock_s3):
+    mock_snapshot_postgres_model.side_effect = Team.DoesNotExist()
+
+    context = dagster.build_op_context()
+
+    with pytest.raises(dagster.Failure) as exc:
+        snapshot_postgres_team_data(context=context, team_id=999999, s3=mock_s3)
+
+    assert getattr(exc.value, "allow_retries", None) is False
+    assert "Team 999999 does not exist" in str(exc.value)
+
+
+@pytest.mark.django_db
+def test_snapshot_clickhouse_team_data_raises_failure_on_missing_team(mock_s3):
+    context = dagster.build_op_context()
+
+    with pytest.raises(dagster.Failure) as exc:
+        snapshot_clickhouse_team_data(context=context, team_id=424242, s3=mock_s3)
+
+    assert getattr(exc.value, "allow_retries", None) is False
+    assert "Team 424242 does not exist" in str(exc.value)
+
+
+@pytest.mark.django_db
+@patch("dags.max_ai.snapshot_team_data.snapshot_events_taxonomy")
+def test_snapshot_clickhouse_team_data_raises_failure_on_unrecoverable_error(
+    mock_snapshot_events_taxonomy, mock_s3, team
+):
+    context = dagster.build_op_context()
+    mock_snapshot_events_taxonomy.side_effect = SnapshotUnrecoverableError("boom")
+
+    with pytest.raises(dagster.Failure) as exc:
+        snapshot_clickhouse_team_data(context=context, team_id=team.id, s3=mock_s3)
+
+    assert getattr(exc.value, "allow_retries", None) is False
+
+
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.EventTaxonomyQueryRunner.run")
+@patch("dags.max_ai.snapshot_team_data.TeamTaxonomyQueryRunner.run")
 @pytest.mark.django_db
 def test_snapshot_events_taxonomy(
     mock_team_taxonomy_query_runner,
@@ -207,16 +253,18 @@ def test_snapshot_events_taxonomy(
     mock_check_dump_exists.return_value = False
 
     mock_team_taxonomy_query_runner.return_value = MagicMock(
+        spec=CachedTeamTaxonomyQueryResponse,
         results=[
             TeamTaxonomyItem(event="pageview", count=2),
             TeamTaxonomyItem(event="click", count=1),
-        ]
+        ],
     )
 
     mock_event_taxonomy_query_runner.return_value = MagicMock(
+        spec=CachedEventTaxonomyQueryResponse,
         results=[
             EventTaxonomyItem(property="$current_url", sample_values=["https://posthog.com"], sample_count=1),
-        ]
+        ],
     )
 
     mock_s3_client = MagicMock()
@@ -228,7 +276,7 @@ def test_snapshot_events_taxonomy(
     assert mock_dump.call_count == 2
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 @pytest.mark.django_db
 def test_snapshot_events_taxonomy_can_be_skipped(mock_check_dump_exists, mock_context, mock_s3, team, mock_dump):
     """est that snapshot_events_taxonomy can be skipped when file already exists."""
@@ -241,7 +289,7 @@ def test_snapshot_events_taxonomy_can_be_skipped(mock_check_dump_exists, mock_co
     assert mock_dump.call_count == 0
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 @pytest.mark.django_db
 def test_snapshot_actors_property_taxonomy_can_be_skipped(
     mock_check_dump_exists, mock_context, mock_s3, team, mock_dump
@@ -263,8 +311,8 @@ def test_snapshot_actors_property_taxonomy_can_be_skipped(
     )
 
 
-@patch("dags.max_ai.snapshot_project_data.check_dump_exists")
-@patch("dags.max_ai.snapshot_project_data.call_query_runner")
+@patch("dags.max_ai.snapshot_team_data.check_dump_exists")
+@patch("dags.max_ai.snapshot_team_data.call_query_runner")
 @pytest.mark.django_db
 def test_snapshot_actors_property_taxonomy_dumps_with_group_type_mapping(
     mock_call_query_runner, mock_check_dump_exists, mock_context, mock_s3, team, mock_dump

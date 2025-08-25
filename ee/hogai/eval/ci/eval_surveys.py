@@ -13,7 +13,7 @@ from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLook
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.models.assistant import Conversation
 
-from .conftest import MaxEval
+from ..base import MaxPublicEval
 
 
 def validate_survey_output(output, scorer_name):
@@ -630,7 +630,7 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
     """
     Evaluation for survey creation functionality.
     """
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="surveys",
         task=call_surveys_max_tool,
         scores=[

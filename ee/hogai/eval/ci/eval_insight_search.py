@@ -11,8 +11,8 @@ from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
-from .conftest import MaxEval
-from .scorers import InsightEvaluationAccuracy, InsightSearchOutput
+from ..base import MaxPublicEval
+from ..scorers import InsightEvaluationAccuracy, InsightSearchOutput
 
 
 def extract_evaluation_info_from_state(state) -> dict:
@@ -144,7 +144,7 @@ def call_insight_search(demo_org_team_user):
 @pytest.mark.django_db
 async def eval_insight_evaluation_accuracy(call_insight_search, pytestconfig):
     """Evaluate the accuracy of the insight evaluation decision."""
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="insight_evaluation_accuracy",
         task=call_insight_search,
         scores=[InsightEvaluationAccuracy()],

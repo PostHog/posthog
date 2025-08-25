@@ -4,6 +4,7 @@ import pytest
 
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
+from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
@@ -12,8 +13,8 @@ from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
-from .conftest import MaxEval
-from .scorers import ToolRelevance
+from ..base import MaxPublicEval
+from ..scorers import ToolRelevance
 
 
 class MemoryContentRelevance(LLMClassifier):
@@ -83,9 +84,12 @@ def call_node(demo_org_team_user, core_memory):
         state = AssistantState.model_validate(raw_state)
         if not state.memory_collection_messages:
             return None
+        last_message = state.memory_collection_messages[-1]
+        if not isinstance(last_message, LangchainAIMessage):
+            return None
         return AssistantMessage(
-            content=state.memory_collection_messages[-1].content,
-            tool_calls=state.memory_collection_messages[-1].tool_calls,
+            content=last_message.content,
+            tool_calls=last_message.tool_calls,
         )
 
     return callable
@@ -93,7 +97,7 @@ def call_node(demo_org_team_user, core_memory):
 
 @pytest.mark.django_db
 async def eval_memory(call_node, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="memory",
         task=call_node,
         scores=[ToolRelevance(semantic_similarity_args={"memory_content", "new_fragment"}), MemoryContentRelevance()],

@@ -11,8 +11,8 @@ from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
-from .conftest import MaxEval
-from .scorers import ToolRelevance
+from ..base import MaxPublicEval
+from ..scorers import ToolRelevance
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def call_root(demo_org_team_user):
 
 @pytest.mark.django_db
 async def eval_root(call_root, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="root",
         task=call_root,
         scores=[ToolRelevance(semantic_similarity_args={"query_description"})],

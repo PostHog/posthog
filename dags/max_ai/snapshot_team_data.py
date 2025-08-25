@@ -9,6 +9,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsPropertyTaxonomyResponse,
+    CachedActorsPropertyTaxonomyQueryResponse,
+    CachedEventTaxonomyQueryResponse,
+    CachedTeamTaxonomyQueryResponse,
     EventTaxonomyQuery,
     TeamTaxonomyItem,
     TeamTaxonomyQuery,
@@ -18,6 +21,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import GroupTypeMapping, Team
 from posthog.models.property_definition import PropertyDefinition
 
@@ -26,10 +30,10 @@ from dags.max_ai.utils import check_dump_exists, compose_clickhouse_dump_path, c
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
     BaseSnapshot,
-    ClickhouseProjectDataSnapshot,
+    ClickhouseTeamDataSnapshot,
     DataWarehouseTableSnapshot,
     GroupTypeMappingSnapshot,
-    PostgresProjectDataSnapshot,
+    PostgresTeamDataSnapshot,
     PropertyDefinitionSnapshot,
     PropertyTaxonomySnapshot,
     TeamSnapshot,
@@ -47,26 +51,35 @@ DEFAULT_RETRY_POLICY = dagster.RetryPolicy(
 SchemaBound = TypeVar("SchemaBound", bound=BaseSnapshot)
 
 
+class SnapshotUnrecoverableError(ValueError):
+    """
+    An error that indicates that the snapshot operation cannot be recovered from.
+    This is used to indicate that the snapshot operation failed and should not be retried.
+    """
+
+    pass
+
+
 def snapshot_postgres_model(
     context: dagster.OpExecutionContext,
     model_type: type[SchemaBound],
     file_name: str,
     s3: S3Resource,
-    project_id: int,
+    team_id: int,
     code_version: str | None = None,
 ) -> str:
-    file_key = compose_postgres_dump_path(project_id, file_name, code_version)
+    file_key = compose_postgres_dump_path(team_id, file_name, code_version)
     if check_dump_exists(s3, file_key):
         context.log.info(f"Skipping {file_key} because it already exists")
         return file_key
     context.log.info(f"Dumping {file_key}")
     with dump_model(s3=s3, schema=model_type, file_key=file_key) as dump:
-        dump(model_type.serialize_for_project(project_id))
+        dump(model_type.serialize_for_team(team_id=team_id))
     return file_key
 
 
 @dagster.op(
-    description="Snapshots Postgres project data (property definitions, DWH schema, etc.)",
+    description="Snapshots Postgres team data (property definitions, DWH schema, etc.)",
     retry_policy=DEFAULT_RETRY_POLICY,
     code_version="v1",
     tags={
@@ -74,29 +87,38 @@ def snapshot_postgres_model(
         "dagster/max_runtime": 60 * 15,  # 15 minutes
     },
 )
-def snapshot_postgres_project_data(
-    context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
-) -> PostgresProjectDataSnapshot:
-    context.log.info(f"Snapshotting Postgres project data for {project_id}")
+def snapshot_postgres_team_data(
+    context: dagster.OpExecutionContext, team_id: int, s3: S3Resource
+) -> PostgresTeamDataSnapshot:
+    context.log.info(f"Snapshotting Postgres team data for {team_id}")
     snapshot_map: dict[str, type[BaseSnapshot]] = {
-        "project": TeamSnapshot,
+        "team": TeamSnapshot,
         "property_definitions": PropertyDefinitionSnapshot,
         "group_type_mappings": GroupTypeMappingSnapshot,
         "data_warehouse_tables": DataWarehouseTableSnapshot,
     }
-    deps = {
-        file_name: snapshot_postgres_model(context, model_type, file_name, s3, project_id, context.op_def.version)
-        for file_name, model_type in snapshot_map.items()
-    }
-    context.log_event(
-        dagster.AssetMaterialization(
-            asset_key="project_postgres_snapshot",
-            description="Avro snapshots of project Postgres data",
-            metadata={"project_id": project_id, **deps},
-            tags={"owner": JobOwners.TEAM_MAX_AI.value},
+
+    try:
+        deps = {
+            file_name: snapshot_postgres_model(context, model_type, file_name, s3, team_id, context.op_def.version)
+            for file_name, model_type in snapshot_map.items()
+        }
+        context.log_event(
+            dagster.AssetMaterialization(
+                asset_key="team_postgres_snapshot",
+                description="Avro snapshots of team Postgres data",
+                metadata={"team_id": team_id, **deps},
+                tags={"owner": JobOwners.TEAM_MAX_AI.value},
+            )
         )
-    )
-    return PostgresProjectDataSnapshot(**deps)
+    except Team.DoesNotExist as e:
+        raise dagster.Failure(
+            description=f"Team {team_id} does not exist",
+            metadata={"team_id": team_id},
+            allow_retries=False,
+        ) from e
+
+    return PostgresTeamDataSnapshot(**deps)
 
 
 C = TypeVar("C")
@@ -120,17 +142,20 @@ def snapshot_properties_taxonomy(
 ):
     results: list[PropertyTaxonomySnapshot] = []
 
-    def snapshot_event(item: TeamTaxonomyItem):
-        return call_query_runner(
-            lambda: EventTaxonomyQueryRunner(
-                query=EventTaxonomyQuery(event=item.event),
-                team=team,
-            ).calculate()
+    def wrapped_query_runner(item: TeamTaxonomyItem):
+        response = EventTaxonomyQueryRunner(query=EventTaxonomyQuery(event=item.event), team=team).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
+        if not isinstance(response, CachedEventTaxonomyQueryResponse):
+            raise SnapshotUnrecoverableError(f"Unexpected response type from event taxonomy query: {type(response)}")
+        return response
+
+    def call_event_taxonomy_query(item: TeamTaxonomyItem):
+        return call_query_runner(lambda: wrapped_query_runner(item))
 
     for item in events:
         context.log.info(f"Snapshotting properties taxonomy for event {item.event} of {team.id}")
-        results.append(PropertyTaxonomySnapshot(event=item.event, results=snapshot_event(item).results))
+        results.append(PropertyTaxonomySnapshot(event=item.event, results=call_event_taxonomy_query(item).results))
 
     context.log.info(f"Dumping properties taxonomy to {file_key}")
     with dump_model(s3=s3, schema=PropertyTaxonomySnapshot, file_key=file_key) as dump:
@@ -152,9 +177,18 @@ def snapshot_events_taxonomy(
 
     context.log.info(f"Snapshotting events taxonomy for {team.id}")
 
-    res = call_query_runner(lambda: TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate())
+    def snapshot_events_taxonomy():
+        response = TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+        if not isinstance(response, CachedTeamTaxonomyQueryResponse):
+            raise SnapshotUnrecoverableError(f"Unexpected response type from events taxonomy query: {type(response)}")
+        return response
+
+    res = call_query_runner(snapshot_events_taxonomy)
+
     if not res.results:
-        raise ValueError("No results from events taxonomy query")
+        raise SnapshotUnrecoverableError("No results from events taxonomy query")
 
     # Dump properties
     snapshot_properties_taxonomy(context, s3, properties_file_key, team, res.results)
@@ -216,18 +250,24 @@ def snapshot_actors_property_taxonomy(
         # Query ClickHouse in batches of 200 properties
         for batch in chunked(property_defs, 200):
 
-            def snapshot(index: int | None, batch: list[str]):
-                return call_query_runner(
-                    lambda: ActorsPropertyTaxonomyQueryRunner(
-                        query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
-                        team=team,
-                    ).calculate()
-                )
+            def wrapped_query_runner(index: int | None, batch: list[str]):
+                response = ActorsPropertyTaxonomyQueryRunner(
+                    query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
+                    team=team,
+                ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
+                    raise SnapshotUnrecoverableError(
+                        f"Unexpected response type from actors property taxonomy query: {type(response)}"
+                    )
+                return response
 
-            res = snapshot(index, batch)
+            def call_actors_property_taxonomy_query(index: int | None, batch: list[str]):
+                return call_query_runner(lambda: wrapped_query_runner(index, batch))
+
+            res = call_actors_property_taxonomy_query(index, batch)
 
             if not res.results:
-                raise ValueError(
+                raise SnapshotUnrecoverableError(
                     f"No results from actors property taxonomy query for group type {index} and properties {batch}"
                 )
 
@@ -244,7 +284,7 @@ def snapshot_actors_property_taxonomy(
 
 
 @dagster.op(
-    description="Snapshots ClickHouse project data",
+    description="Snapshots ClickHouse team data",
     retry_policy=DEFAULT_RETRY_POLICY,
     tags={
         "owner": JobOwners.TEAM_MAX_AI.value,
@@ -252,17 +292,33 @@ def snapshot_actors_property_taxonomy(
     },
     code_version="v1",
 )
-def snapshot_clickhouse_project_data(
-    context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
-) -> ClickhouseProjectDataSnapshot:
-    team = Team.objects.get(id=project_id)
+def snapshot_clickhouse_team_data(
+    context: dagster.OpExecutionContext, team_id: int, s3: S3Resource
+) -> ClickhouseTeamDataSnapshot:
+    try:
+        team = Team.objects.get(id=team_id)
 
-    event_taxonomy_file_key, properties_taxonomy_file_key = snapshot_events_taxonomy(
-        context, s3, team, context.op_def.version
-    )
-    actors_property_taxonomy_file_key = snapshot_actors_property_taxonomy(context, s3, team, context.op_def.version)
+    except Team.DoesNotExist as e:
+        raise dagster.Failure(
+            description=f"Team {team_id} does not exist",
+            metadata={"team_id": team_id},
+            allow_retries=False,
+        ) from e
 
-    materialized_result = ClickhouseProjectDataSnapshot(
+    try:
+        event_taxonomy_file_key, properties_taxonomy_file_key = snapshot_events_taxonomy(
+            context, s3, team, context.op_def.version
+        )
+        actors_property_taxonomy_file_key = snapshot_actors_property_taxonomy(context, s3, team, context.op_def.version)
+
+    except SnapshotUnrecoverableError as e:
+        raise dagster.Failure(
+            description=f"Error snapshotting team {team_id}",
+            metadata={"team_id": team_id},
+            allow_retries=False,
+        ) from e
+
+    materialized_result = ClickhouseTeamDataSnapshot(
         event_taxonomy=event_taxonomy_file_key,
         properties_taxonomy=properties_taxonomy_file_key,
         actors_property_taxonomy=actors_property_taxonomy_file_key,
@@ -270,10 +326,10 @@ def snapshot_clickhouse_project_data(
 
     context.log_event(
         dagster.AssetMaterialization(
-            asset_key="project_clickhouse_snapshot",
-            description="Avro snapshots of project's ClickHouse queries",
+            asset_key="team_clickhouse_snapshot",
+            description="Avro snapshots of team's ClickHouse queries",
             metadata={
-                "project_id": project_id,
+                "team_id": team_id,
                 **materialized_result.model_dump(),
             },
             tags={"owner": JobOwners.TEAM_MAX_AI.value},

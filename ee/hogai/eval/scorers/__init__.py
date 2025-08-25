@@ -1,15 +1,27 @@
 import json
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
-from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyAssistantSupportedQuery
+
+from .sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
+
+__all__ = [
+    "SQLSemanticsCorrectness",
+    "SQLSyntaxCorrectness",
+    "ToolRelevance",
+    "QueryKindSelection",
+    "PlanCorrectness",
+    "QueryAndPlanAlignment",
+    "TimeRangeRelevancy",
+    "InsightEvaluationAccuracy",
+]
 
 
 class ToolRelevance(ScorerWithPartial):
@@ -25,7 +37,7 @@ class ToolRelevance(ScorerWithPartial):
             return Score(name=self._name(), score=0)
         if not isinstance(expected, AssistantToolCall):
             raise TypeError(f"Eval case expected must be an AssistantToolCall, not {type(expected)}")
-        if not isinstance(output, AssistantMessage | LangchainAIMessage):
+        if not isinstance(output, AssistantMessage):
             raise TypeError(f"Eval case output must be an AssistantMessage, not {type(output)}")
         if output.tool_calls and len(output.tool_calls) > 1:
             raise ValueError("Parallel tool calls not supported by this scorer yet")
@@ -52,16 +64,24 @@ class ToolRelevance(ScorerWithPartial):
 
 class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
-    query: AnyAssistantGeneratedQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | None
     query_generation_retry_count: int | None
 
 
-def serialize_output(output: PlanAndQueryOutput | dict | None) -> PlanAndQueryOutput | None:
+class SerializedPlanAndQueryOutput(TypedDict):
+    plan: str | None
+    query: dict[str, Any] | None
+    query_generation_retry_count: int | None
+
+
+def serialize_output(output: PlanAndQueryOutput | dict | None) -> SerializedPlanAndQueryOutput | None:
     if output:
-        return {
+        query = output.get("query")
+        serialized_output = {
             **output,
-            "query": output.get("query").model_dump(exclude_none=True),
+            "query": query.model_dump(exclude_none=True) if query else None,
         }
+        return cast(SerializedPlanAndQueryOutput, serialized_output)
     return None
 
 
@@ -75,13 +95,14 @@ class QueryKindSelection(ScorerWithPartial):
         self._expected = expected
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
-        if not output.get("query"):
+        query = output.get("query")
+        if not query:
             return Score(name=self._name(), score=None, metadata={"reason": "No query present"})
-        score = 1 if output["query"].kind == self._expected else 0
+        score = 1 if query.kind == self._expected else 0
         return Score(
             name=self._name(),
             score=score,
-            metadata={"reason": f"Expected {self._expected}, got {output['query'].kind}"} if not score else {},
+            metadata={"reason": f"Expected {self._expected}, got {query.kind}"} if not score else {},
         )
 
 
@@ -89,22 +110,18 @@ class PlanCorrectness(LLMClassifier):
     """Evaluate if the generated plan correctly answers the user's question."""
 
     async def _run_eval_async(self, output: PlanAndQueryOutput, expected=None, **kwargs):
-        if not output.get("plan"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan present"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
-        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
+        plan = output.get("plan")
+        query = output.get("query")
+        if not plan or not query:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan or query present"})
+        return await super()._run_eval_async(serialize_output(output), serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
-        if not output.get("plan"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan present"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
-        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
+        plan = output.get("plan")
+        query = output.get("query")
+        if not plan or not query:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan or query present"})
+        return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, evaluation_criteria: str, **kwargs):
         super().__init__(
@@ -167,34 +184,30 @@ class QueryAndPlanAlignment(LLMClassifier):
     """Evaluate if the generated SQL query aligns with the plan generated in the previous step."""
 
     async def _run_eval_async(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
-        if not output.get("plan"):
+        plan = output.get("plan")
+        if not plan:
             return Score(
                 name=self._name(),
                 score=None,
                 metadata={"reason": "No plan present in the first place, skipping evaluation"},
             )
-        if not output.get("query"):
+        query = output.get("query")
+        if not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
-        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
+        return await super()._run_eval_async(serialize_output(output), serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
-        if not output.get("plan"):
+        plan = output.get("plan")
+        if not plan:
             return Score(
                 name=self._name(),
                 score=None,
                 metadata={"reason": "No plan present in the first place, skipping evaluation"},
             )
-        if not output.get("query"):
+        query = output.get("query")
+        if not query:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
-        output = PlanAndQueryOutput(
-            plan=output.get("plan"),
-            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
-        )
-        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
+        return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, json_schema: dict, evaluation_criteria: str, **kwargs):
         json_schema_str = json.dumps(json_schema)
@@ -270,15 +283,15 @@ Details matter greatly here - including math types or property types - so be har
 class TimeRangeRelevancy(LLMClassifier):
     """Evaluate if the generated query's time range, interval, or period correctly answers the user's question."""
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
+    async def _run_eval_async(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
         if not output.get("query"):
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
+        return await super()._run_eval_async(serialize_output(output), serialize_output(expected), **kwargs)
 
-    def _run_eval_sync(self, output, expected=None, **kwargs):
+    def _run_eval_sync(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
         if not output.get("query"):
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check"})
-        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
+        return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, **kwargs):
         super().__init__(
@@ -342,78 +355,6 @@ How would you rate the time range relevancy of the generated query? Choose one:
             query_kind=query_kind,
             **kwargs,
         )
-
-
-SQL_SEMANTICS_CORRECTNESS_PROMPT = """
-<system>
-You are an expert ClickHouse SQL auditor.
-Your job is to decide whether two ClickHouse SQL queries are **semantically equivalent for every possible valid database state**, given the same task description and schema.
-
-When you respond, think step-by-step **internally**, but reveal **nothing** except the final verdict:
-• Output **Pass** if the candidate query would always return the same result set (ignoring column aliases, ordering, or trivial formatting) as the reference query.
-• Output **Fail** otherwise, or if you are uncertain.
-Respond with a single word—**Pass** or **Fail**—and no additional text.
-</system>
-
-<input>
-Task / natural-language question:
-```
-{{input}}
-```
-
-Database schema (tables and columns):
-```
-{{database_schema}}
-```
-
-Reference (human-labelled) SQL:
-```sql
-{{expected}}
-```
-
-Candidate (generated) SQL:
-```sql
-{{output}}
-```
-</input>
-
-<reminder>
-Think through edge cases: NULL handling, grouping, filters, joins, HAVING clauses, aggregations, sub-queries, limits, and data-type quirks.
-If any logical difference could yield different outputs under some data scenario, the queries are *not* equivalent.
-</reminder>
-
-When ready, output your verdict—**Pass** or **Fail**—with absolutely no extra characters.
-""".strip()
-
-
-class SQLSemanticsCorrectness(LLMClassifier):
-    """Evaluate if the actual query matches semantically the expected query."""
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="sql_semantics_correctness",
-            prompt_template=SQL_SEMANTICS_CORRECTNESS_PROMPT,
-            choice_scores={
-                "Pass": 1.0,
-                "Fail": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-    async def _run_eval_async(
-        self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
-    ):
-        if not output or output.strip() == "":
-            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return await super()._run_eval_async(output, expected, database_schema=database_schema, **kwargs)
-
-    def _run_eval_sync(
-        self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
-    ):
-        if not output or output.strip() == "":
-            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return super()._run_eval_sync(output, expected, database_schema=database_schema, **kwargs)
 
 
 class InsightSearchOutput(TypedDict, total=False):

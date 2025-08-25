@@ -1,11 +1,11 @@
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Sequence
-from typing import Generic, Self, TypeVar
+from typing import Any, Generic, Self, TypeVar
 
 from django.db.models import Model
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_avro import AvroBase
 
 from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
@@ -18,14 +18,12 @@ T = TypeVar("T", bound=Model)
 class BaseSnapshot(AvroBase, ABC, Generic[T]):
     @classmethod
     @abstractmethod
-    def serialize_for_project(cls, project_id: int) -> Generator[Self, None, None]:
+    def serialize_for_team(cls, *, team_id: int) -> Generator[Self, None, None]:
         raise NotImplementedError
 
     @classmethod
     @abstractmethod
-    def deserialize_for_project(
-        cls, project_id: int, models: Sequence[Self], *, team_id: int
-    ) -> Generator[T, None, None]:
+    def deserialize_for_team(cls, models: Sequence[Self], *, team_id: int, project_id: int) -> Generator[T, None, None]:
         raise NotImplementedError
 
 
@@ -35,15 +33,18 @@ class TeamSnapshot(BaseSnapshot[Team]):
     test_account_filters: str
 
     @classmethod
-    def serialize_for_project(cls, project_id: int):
-        team = Team.objects.get(pk=project_id)
+    def serialize_for_team(cls, *, team_id: int):
+        team = Team.objects.get(pk=team_id)
         yield TeamSnapshot(name=team.name, test_account_filters=json.dumps(team.test_account_filters))
 
     @classmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs) -> Generator[Team, None, None]:
+    def deserialize_for_team(
+        cls, models: Sequence[Self], *, team_id: int, project_id: int
+    ) -> Generator[Team, None, None]:
         for model in models:
             yield Team(
-                id=project_id,
+                id=team_id,
+                project_id=project_id,
                 name=model.name,
                 test_account_filters=json.loads(model.test_account_filters),
             )
@@ -58,8 +59,8 @@ class PropertyDefinitionSnapshot(BaseSnapshot[PropertyDefinition]):
     group_type_index: int | None
 
     @classmethod
-    def serialize_for_project(cls, project_id: int):
-        for prop in PropertyDefinition.objects.filter(project_id=project_id).iterator(500):
+    def serialize_for_team(cls, *, team_id: int):
+        for prop in PropertyDefinition.objects.filter(team_id=team_id).iterator(500):
             yield PropertyDefinitionSnapshot(
                 name=prop.name,
                 is_numerical=prop.is_numerical,
@@ -69,7 +70,7 @@ class PropertyDefinitionSnapshot(BaseSnapshot[PropertyDefinition]):
             )
 
     @classmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs):
+    def deserialize_for_team(cls, models: Sequence[Self], *, team_id: int, project_id: int):
         for model in models:
             yield PropertyDefinition(
                 name=model.name,
@@ -77,7 +78,8 @@ class PropertyDefinitionSnapshot(BaseSnapshot[PropertyDefinition]):
                 property_type=model.property_type,
                 type=model.type,
                 group_type_index=model.group_type_index,
-                team_id=project_id,
+                team_id=team_id,
+                project_id=project_id,
             )
 
 
@@ -89,8 +91,8 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
     name_plural: str | None
 
     @classmethod
-    def serialize_for_project(cls, project_id: int):
-        for mapping in GroupTypeMapping.objects.filter(project_id=project_id).iterator(500):
+    def serialize_for_team(cls, *, team_id: int):
+        for mapping in GroupTypeMapping.objects.filter(team_id=team_id).iterator(500):
             yield GroupTypeMappingSnapshot(
                 group_type=mapping.group_type,
                 group_type_index=mapping.group_type_index,
@@ -99,7 +101,7 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
             )
 
     @classmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], *, team_id: int):
+    def deserialize_for_team(cls, models: Sequence[Self], *, team_id: int, project_id: int):
         for model in models:
             yield GroupTypeMapping(
                 group_type=model.group_type,
@@ -118,8 +120,8 @@ class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
     columns: dict
 
     @classmethod
-    def serialize_for_project(cls, project_id: int):
-        for table in DataWarehouseTable.objects.filter(team_id=project_id).iterator(500):
+    def serialize_for_team(cls, *, team_id: int):
+        for table in DataWarehouseTable.objects.filter(team_id=team_id).iterator(500):
             yield DataWarehouseTableSnapshot(
                 name=table.name,
                 format=table.format,
@@ -127,19 +129,19 @@ class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
             )
 
     @classmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs):
+    def deserialize_for_team(cls, models: Sequence[Self], *, team_id: int, project_id: int):
         for model in models:
             yield DataWarehouseTable(
                 name=model.name,
                 format=model.format,
                 columns=model.columns,
                 url_pattern="http://localhost",  # Hardcoded. It's not important for evaluations what the value is.
-                team_id=project_id,
+                team_id=team_id,
             )
 
 
-class PostgresProjectDataSnapshot(BaseModel):
-    project: str
+class PostgresTeamDataSnapshot(BaseModel):
+    team: str
     property_definitions: str
     group_type_mappings: str
     data_warehouse_tables: str
@@ -163,7 +165,46 @@ class ActorsPropertyTaxonomySnapshot(AvroBase):
     results: ActorsPropertyTaxonomyResponse
 
 
-class ClickhouseProjectDataSnapshot(BaseModel):
+class ClickhouseTeamDataSnapshot(BaseModel):
     event_taxonomy: str
     properties_taxonomy: str
     actors_property_taxonomy: str
+
+
+class TeamEvaluationSnapshot(BaseModel):
+    team_id: int
+    postgres: PostgresTeamDataSnapshot
+    clickhouse: ClickhouseTeamDataSnapshot
+
+
+class DatasetInput(BaseModel):
+    team_id: int
+    input: dict[str, Any]
+    expected: dict[str, Any]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvalsDockerImageConfig(BaseModel):
+    class Config:
+        extra = "allow"
+
+    aws_bucket_name: str
+    """
+    AWS S3 bucket name for the raw snapshots for all projects.
+    """
+    aws_endpoint_url: str
+    """
+    AWS S3 endpoint URL for the raw snapshots for all projects.
+    """
+    team_snapshots: list[TeamEvaluationSnapshot]
+    """
+    Raw snapshots for all projects.
+    """
+    experiment_name: str
+    """
+    Name of the experiment.
+    """
+    dataset: list[DatasetInput]
+    """
+    Parsed dataset.
+    """
