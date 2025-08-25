@@ -4607,7 +4607,7 @@ class StickinessFilter(BaseModel):
     hiddenLegendIndexes: Optional[list[int]] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
         default=ResultCustomizationBy.VALUE,
-        description="Wether result datasets are associated by their values or by their order.",
+        description="Whether result datasets are associated by their values or by their order.",
     )
     resultCustomizations: Optional[
         Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]

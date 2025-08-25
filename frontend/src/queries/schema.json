@@ -23233,7 +23233,7 @@
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
-                    "description": "Wether result datasets are associated by their values or by their order."
+                    "description": "Whether result datasets are associated by their values or by their order."
                 },
                 "resultCustomizations": {
                     "anyOf": [
