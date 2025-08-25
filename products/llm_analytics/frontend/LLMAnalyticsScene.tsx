@@ -303,7 +303,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 }
             />
 
-            {hasSentAiGenerationEventLoading ? null : !hasSentAiGenerationEvent ? <IngestionStatusCheck /> : null}
+            {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} />
         </BindLogic>
     )
