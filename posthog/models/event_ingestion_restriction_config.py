@@ -1,11 +1,13 @@
+import json
+
+from django.contrib.postgres.fields import ArrayField
+from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
+
 from posthog.models.utils import UUIDTModel
 from posthog.redis import get_client
 from posthog.settings import PLUGINS_RELOAD_REDIS_URL
-from django.db.models.signals import post_save, post_delete
-from django.db import models
-from django.dispatch import receiver
-from django.contrib.postgres.fields import ArrayField
-import json
 
 DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
 

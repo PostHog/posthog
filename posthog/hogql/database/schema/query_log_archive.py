@@ -2,16 +2,16 @@ from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    IntegerDatabaseField,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    LazyTable,
-    FieldOrTable,
-    LazyTableToAdd,
     BooleanDatabaseField,
     DatabaseField,
-    Table,
     DateDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
+    Table,
 )
 
 QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {

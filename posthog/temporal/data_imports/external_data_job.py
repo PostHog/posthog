@@ -1,11 +1,12 @@
-import dataclasses
-import datetime as dt
-import json
 import re
+import json
 import typing
+import datetime as dt
+import dataclasses
+
+from django.db import close_old_connections
 
 import posthoganalytics
-from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -40,9 +41,7 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import (
-    create_warehouse_templates_for_source,
-)
+from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync

@@ -1,48 +1,37 @@
 import json
 from typing import Any, Optional, cast
 
-import posthoganalytics
-import structlog
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
+
+import structlog
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
-from posthog.api.documentation import extend_schema
-from posthog.api.utils import action
 
+from posthog.schema import RecordingsQuery
+
+from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import (
-    SessionRecording,
-    SessionRecordingPlaylist,
-    SessionRecordingPlaylistItem,
-    User,
-)
-from posthog.models.activity_logging.activity_log import (
-    Change,
-    Detail,
-    changes_between,
-    log_activity,
-)
+from posthog.api.utils import action
+from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.rate_limit import (
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-)
-from posthog.schema import RecordingsQuery
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
+    list_recordings_from_query,
     list_recordings_response,
     query_as_params_to_dict,
-    list_recordings_from_query,
 )
-from posthog.redis import get_client
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)

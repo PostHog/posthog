@@ -1,20 +1,23 @@
 from decimal import Decimal
+
+import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from parameterized import parameterized
+from django.core.cache import cache
 from django.test import RequestFactory
+from django.utils import timezone
+
 from inline_snapshot import snapshot
-import pytest
+from parameterized import parameterized
+
 from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
-from posthog.test.base import BaseTest
-from django.core.cache import cache
-from django.utils import timezone
+from posthog.models.surveys.survey import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 5
 

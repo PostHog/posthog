@@ -1,18 +1,19 @@
-from typing import Any, Literal, Union, cast
 import re
+from typing import Any, Literal, Union, cast
 
-import jwt
-from jwt.algorithms import RSAAlgorithm
-
-import posthoganalytics
-import structlog
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
-from rest_framework.decorators import api_view
-from rest_framework.exceptions import PermissionDenied, AuthenticationFailed
+
+import jwt
+import structlog
+import posthoganalytics
+from jwt.algorithms import RSAAlgorithm
 from rest_framework import authentication
+from rest_framework.decorators import api_view
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
+from social_core.backends.google import GoogleOAuth2
 from social_core.backends.saml import (
     OID_COMMON_NAME,
     OID_GIVEN_NAME,
@@ -22,17 +23,17 @@ from social_core.backends.saml import (
     SAMLAuth,
     SAMLIdentityProvider,
 )
-from social_core.backends.google import GoogleOAuth2
 from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_django.models import UserSocialAuth
 from social_django.utils import load_backend, load_strategy
 
-from ee import settings
-from ee.api.vercel.utils import get_vercel_jwks
-from ee.api.vercel.types import VercelClaims, VercelUser, VercelUserClaims, VercelSystemClaims
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from social_django.models import UserSocialAuth
+
+from ee import settings
+from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
+from ee.api.vercel.utils import get_vercel_jwks
 
 
 @api_view(["GET"])
