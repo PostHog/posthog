@@ -1,3 +1,4 @@
+import threading
 from datetime import timedelta
 from typing import Any
 
@@ -29,6 +30,8 @@ from posthog.settings.temporal import (
 from posthog.tasks import exporter
 from posthog.temporal.common.client import connect as temporal_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+
+VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
 
 logger = structlog.get_logger(__name__)
 
@@ -155,10 +158,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     )
 
                 import asyncio
-                import threading
 
                 def _spawn_workflow():
-                    asyncio.run(_start())
+                    with VIDEO_EXPORT_SEMAPHORE:
+                        asyncio.run(_start())
 
                 threading.Thread(target=_spawn_workflow, daemon=True).start()
             else:

@@ -68,15 +68,26 @@ def record_replay_to_file(
                 pass
             measured_width: Optional[int] = None
             try:
-                final_height = page.evaluate(
-                    "() => { const el = document.querySelector('.replayer-wrapper'); if (el) { const r = el.getBoundingClientRect(); return Math.max(r.height, document.body.scrollHeight);} return document.body.scrollHeight; }"
-                )
-                width_candidate = (
-                    page.evaluate(
-                        "() => { const r = document.querySelector('.replayer-wrapper'); if (r) return r.offsetWidth || 0; const t = document.querySelector('table'); if (t) return Math.floor((t.offsetWidth || 0) * 1.5); return 0; }"
-                    )
-                    or width
-                )
+                dimensions = page.evaluate("""
+                    () => {
+                        const replayer = document.querySelector('.replayer-wrapper');
+                        if (replayer) {
+                            const rect = replayer.getBoundingClientRect();
+                            return {
+                                height: Math.max(rect.height, document.body.scrollHeight),
+                                width: replayer.offsetWidth || 0
+                            };
+                        }
+                        // Fallback for tables if no replayer
+                        const table = document.querySelector('table');
+                        return {
+                            height: document.body.scrollHeight,
+                            width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0
+                        };
+                    }
+                """)
+                final_height = dimensions["height"]
+                width_candidate = dimensions["width"] or width
                 measured_width = max(width, min(1800, int(width_candidate)))
                 page.set_viewport_size({"width": measured_width, "height": int(final_height) + HEIGHT_OFFSET})
             except Exception:
@@ -97,7 +108,7 @@ def record_replay_to_file(
                 raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")
 
             pre_roll = max(0.0, ready_at - record_started)
-            tmp_webm = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.webm")
+            tmp_webm = os.path.join(record_dir, f"{uuid.uuid4()}.webm")
             if hasattr(video, "save_as"):
                 video.save_as(tmp_webm)
             else:
@@ -137,7 +148,13 @@ def record_replay_to_file(
                     if video_filter:
                         cmd.extend(["-vf", video_filter])
                     cmd.append(image_path)
-                    subprocess.run(cmd, check=True)
+                    try:
+                        subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    except subprocess.CalledProcessError as e:
+                        error_msg = f"ffmpeg failed with exit code {e.returncode}"
+                        if e.stderr:
+                            error_msg += f": {e.stderr.strip()}"
+                        raise RuntimeError(error_msg) from e
                 elif ext == ".gif":
                     vf_parts = ["fps=12"]
                     if measured_width is not None:

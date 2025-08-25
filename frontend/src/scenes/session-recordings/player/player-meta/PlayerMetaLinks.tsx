@@ -172,7 +172,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 label: () => <AddToNotebookButton fullWidth={true} />,
             },
             isStandardMode && {
-                label: 'posthog .json',
+                label: 'PostHog .json',
                 status: 'default',
                 icon: <IconDownload />,
                 onClick: () => exportRecordingToFile(),
@@ -182,9 +182,9 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
             isStandardMode && featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_FULL_VIDEO]
                 ? {
                       label: (
-                          <div className="flex w-full deprecated-space-x-2 justify-between items-center">
+                          <div className="flex w-full gap-x-2 justify-between items-center">
                               Export to MP4{' '}
-                              <LemonTag type="warning" size="small" className="ml-2">
+                              <LemonTag type="warning" size="small">
                                   BETA
                               </LemonTag>
                           </div>
