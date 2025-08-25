@@ -10,25 +10,31 @@ from posthog.models.team.team import Team
 
 
 def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
-    common_filters_expr: list[ast.Expr] = []
+    # Build test account filters that should exclude events
+    test_account_filters: list[ast.Expr] = []
     if filters.get("filter_test_accounts", False):
-        common_filters_expr = [property_to_expr(property, team) for property in team.test_account_filters]
+        test_account_filters = [property_to_expr(property, team) for property in team.test_account_filters]
 
-    all_filters = filters.get("events", []) + filters.get("actions", [])
-    all_filters_exprs: list[ast.Expr] = []
-
-    # Properties
+    # Build global property filters
+    global_property_filters: list[ast.Expr] = []
     if filters.get("properties"):
         for prop in filters["properties"]:
-            common_filters_expr.append(property_to_expr(prop, team))
+            global_property_filters.append(property_to_expr(prop, team))
 
-    if not all_filters and common_filters_expr:
-        # Always return test filters if set and no other filters
-        return ast.And(exprs=common_filters_expr)
+    all_filters = filters.get("events", []) + filters.get("actions", [])
+
+    # If no event/action filters, just return the filters we have
+    if not all_filters:
+        combined_filters = test_account_filters + global_property_filters
+        if combined_filters:
+            return ast.And(exprs=combined_filters)
+        return ast.Constant(value=True)
+
+    # Build event/action filters
+    event_action_exprs: list[ast.Expr] = []
 
     for filter in all_filters:
         exprs: list[ast.Expr] = []
-        exprs.extend(common_filters_expr)
 
         # Events
         if filter.get("type") == "events" and filter.get("id"):
@@ -51,19 +57,37 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
             except KeyError:
                 exprs.append(parse_expr("1 = 2"))  # No events match
 
-        # Properties
+        # Per-filter properties (if any)
         if filter.get("properties"):
             exprs.append(property_to_expr(filter.get("properties"), team))
 
         if len(exprs) == 0:
-            all_filters_exprs.append(ast.Constant(value=True))
+            event_action_exprs.append(ast.Constant(value=True))
+        elif len(exprs) == 1:
+            event_action_exprs.append(exprs[0])
+        else:
+            event_action_exprs.append(ast.And(exprs=exprs))
 
-        all_filters_exprs.append(ast.And(exprs=exprs))
+    # Combine event/action filters with OR
+    combined_events_expr = ast.Or(exprs=event_action_exprs) if len(event_action_exprs) > 1 else event_action_exprs[0]
 
-    if all_filters_exprs:
-        return ast.Or(exprs=all_filters_exprs)
+    # Now combine everything: test account filters, global properties, and events
+    # Structure: (test_account_filter1 AND test_account_filter2 AND ...) AND global_properties AND (event1 OR event2 OR ...)
+    final_exprs: list[ast.Expr] = []
 
-    return ast.Constant(value=True)
+    # Add test account filters (these exclude matching events)
+    final_exprs.extend(test_account_filters)
+
+    # Add global property filters
+    final_exprs.extend(global_property_filters)
+
+    # Add the event/action expression
+    final_exprs.append(combined_events_expr)
+
+    if len(final_exprs) == 1:
+        return final_exprs[0]
+
+    return ast.And(exprs=final_exprs)
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
