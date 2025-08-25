@@ -1,7 +1,9 @@
-from unittest.mock import patch, MagicMock
-import snappy
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
 from django.test import override_settings
 
+import snappy
 from botocore.client import Config
 
 from posthog.settings.session_replay_v2 import (
@@ -11,12 +13,7 @@ from posthog.settings.session_replay_v2 import (
     SESSION_RECORDING_V2_S3_REGION,
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
 )
-from posthog.storage.session_recording_v2_object_storage import (
-    client,
-    SessionRecordingV2ObjectStorage,
-    BlockFetchError,
-)
-from posthog.test.base import APIBaseTest
+from posthog.storage.session_recording_v2_object_storage import BlockFetchError, SessionRecordingV2ObjectStorage, client
 
 TEST_BUCKET = "test_session_recording_v2_bucket"
 

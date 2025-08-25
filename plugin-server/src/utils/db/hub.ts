@@ -84,6 +84,14 @@ export async function createHub(
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
+
+    // Instantiate a second router for the Persons database migration
+    const postgresPersonMigration = new PostgresRouter({
+        ...serverConfig,
+        PERSONS_DATABASE_URL: serverConfig.PERSONS_MIGRATION_DATABASE_URL || serverConfig.PERSONS_DATABASE_URL,
+        PERSONS_READONLY_DATABASE_URL:
+            serverConfig.PERSONS_MIGRATION_READONLY_DATABASE_URL || serverConfig.PERSONS_READONLY_DATABASE_URL,
+    })
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     logger.info('👍', `Postgres Router ready`)
 
@@ -106,6 +114,7 @@ export async function createHub(
 
     const db = new DB(
         postgres,
+        postgresPersonMigration,
         redisPool,
         cookielessRedisPool,
         kafkaProducer,
@@ -137,6 +146,7 @@ export async function createHub(
         capabilities,
         db,
         postgres,
+        postgresPersonMigration,
         redisPool,
         cookielessRedisPool,
         kafka,
@@ -186,7 +196,12 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await Promise.allSettled([
+        hub.kafkaProducer.disconnect(),
+        hub.redisPool.drain(),
+        hub.postgres?.end(),
+        hub.postgresPersonMigration?.end(),
+    ])
     await hub.redisPool.clear()
     await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')

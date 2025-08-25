@@ -1,12 +1,7 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.models.web_preaggregated.sql import (
-    WEB_STATS_COMBINED_VIEW_SQL,
-    WEB_BOUNCES_COMBINED_VIEW_SQL,
-)
-from posthog.models.web_preaggregated.migrations import (
-    add_attribution_fields_to_table,
-)
+from posthog.models.web_preaggregated.migrations import add_attribution_fields_to_table
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_COMBINED_VIEW_SQL, WEB_STATS_COMBINED_VIEW_SQL
 
 operations = [
     run_sql_with_exceptions(

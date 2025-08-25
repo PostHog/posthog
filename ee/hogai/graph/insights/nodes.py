@@ -1,30 +1,30 @@
-import logging
 import re
+import logging
 import warnings
 from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
 
-from asgiref.sync import sync_to_async
 from django.db.models import Max
 from django.utils import timezone
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, AIMessageChunk
+
+from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from langgraph.types import StreamWriter
 from langgraph.config import get_stream_writer
+from langgraph.types import StreamWriter
+
+from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Insight
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
-from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
-from posthog.schema import (
-    AssistantToolCallMessage,
-    VisualizationMessage,
-)
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 from .prompts import (
     EMPTY_DATABASE_ERROR_MESSAGE,
@@ -149,7 +149,7 @@ class InsightSearchNode(AssistantNode):
         try:
             self._current_iteration = 0
 
-            total_count = await sync_to_async(self._get_total_insights_count)()
+            total_count = await database_sync_to_async(self._get_total_insights_count)()
             if total_count == 0:
                 return self._handle_empty_database(state)
 
@@ -163,9 +163,9 @@ class InsightSearchNode(AssistantNode):
             else:
                 self._stream_reasoning(content="No existing insights found, creating a new one", writer=writer)
 
-            evaluation_result = await sync_to_async(self._evaluate_insights_with_tools)(
-                selected_insights, search_query or "", max_selections=1
-            )
+            evaluation_result = await database_sync_to_async(
+                self._evaluate_insights_with_tools, thread_sensitive=False
+            )(selected_insights, search_query or "", max_selections=1)
 
             return self._handle_evaluation_result(evaluation_result, state)
 
@@ -280,8 +280,8 @@ class InsightSearchNode(AssistantNode):
 
     async def _search_insights_iteratively(self, search_query: str) -> list[int]:
         """Execute iterative insight search with LLM and tool calling."""
-        messages = await sync_to_async(self._build_search_messages)(search_query)
-        llm_with_tools = await sync_to_async(self._prepare_llm_with_tools)()
+        messages = await database_sync_to_async(self._build_search_messages)(search_query)
+        llm_with_tools = await database_sync_to_async(self._prepare_llm_with_tools)()
 
         selected_insights = await self._perform_iterative_search(messages, llm_with_tools)
 
@@ -348,7 +348,7 @@ class InsightSearchNode(AssistantNode):
                             page_message = "Finding the most relevant insights"
                             self._stream_reasoning(content=page_message, writer=writer)
 
-                            tool_response = await sync_to_async(self._get_page_content_for_tool)(page_num)
+                            tool_response = await database_sync_to_async(self._get_page_content_for_tool)(page_num)
                             messages.append(
                                 ToolMessage(content=tool_response, tool_call_id=tool_call.get("id", "unknown"))
                             )
@@ -587,10 +587,10 @@ class InsightSearchNode(AssistantNode):
 
             insight_name = insight.name or insight.derived_name or "Unnamed Insight"
 
-            visualization_message = VisualizationMessage.model_construct(
+            visualization_message = VisualizationMessage(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
-                answer=query_obj,  # type: ignore[arg-type]
+                answer=query_obj,
                 id=str(uuid4()),
             )
 

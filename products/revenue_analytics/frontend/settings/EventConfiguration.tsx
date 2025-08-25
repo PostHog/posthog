@@ -12,7 +12,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SceneSection } from '~/layout/scenes/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

@@ -1,16 +1,11 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Any, Literal, Optional, TypedDict, Union, cast
 
 from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
+
+from posthog.schema import ActorsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.hogql_queries.actor_strategies import PersonStrategy
@@ -23,7 +18,6 @@ from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import ActorsQuery
 
 
 class EventInfoForRecording(TypedDict):

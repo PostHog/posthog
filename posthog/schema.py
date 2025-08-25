@@ -1332,6 +1332,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"
     INSIGHT_CALENDAR_HEATMAP = "insightCalendarHeatmap"
+    CODE = "code"
 
 
 class FileSystemImport(BaseModel):
@@ -2742,7 +2743,7 @@ class WebAnalyticsOrderByFields(StrEnum):
     ERRORS = "Errors"
 
 
-class Sampling(BaseModel):
+class WebAnalyticsSampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2762,6 +2763,7 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
     EXIT_CLICK = "ExitClick"
+    PREVIOUS_PAGE = "PreviousPage"
     SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
@@ -4603,6 +4605,13 @@ class StickinessFilter(BaseModel):
     computedAs: Optional[StickinessComputationMode] = None
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
+    resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
+        default=ResultCustomizationBy.VALUE,
+        description="Whether result datasets are associated by their values or by their order.",
+    )
+    resultCustomizations: Optional[
+        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
+    ] = Field(default=None, description="Customizations for the appearance of result datasets.")
     showLegend: Optional[bool] = None
     showMultipleYAxes: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = None
@@ -10542,18 +10551,6 @@ class VectorSearchQueryResponse(BaseModel):
     )
 
 
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    id: Optional[str] = None
-    initiator: Optional[str] = None
-    plan: Optional[str] = None
-    query: Optional[str] = ""
-    type: Literal["ai/viz"] = "ai/viz"
-
-
 class WebAnalyticsExternalSummaryQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10583,7 +10580,7 @@ class WebExternalClicksTableQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebExternalClicksTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
@@ -10608,7 +10605,7 @@ class WebGoalsQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -10631,7 +10628,7 @@ class WebOverviewQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -10655,7 +10652,7 @@ class WebPageURLSearchQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebPageURLSearchQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     searchTerm: Optional[str] = None
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
@@ -10685,7 +10682,7 @@ class WebStatsTableQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -11380,7 +11377,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     )
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[MarketingAnalyticsTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     select: Optional[list[str]] = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
@@ -11794,7 +11791,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     percentile: WebVitalsPercentile
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     tags: Optional[QueryLogTags] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: Optional[bool] = None
@@ -13170,6 +13167,21 @@ class QueryResponseAlternative(
     ]
 
 
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Union[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
+        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+    ]
+    id: Optional[str] = None
+    initiator: Optional[str] = None
+    plan: Optional[str] = None
+    query: Optional[str] = ""
+    type: Literal["ai/viz"] = "ai/viz"
+
+
 class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13264,7 +13276,7 @@ class WebVitalsQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     source: Union[
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")

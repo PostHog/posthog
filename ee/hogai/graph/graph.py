@@ -1,23 +1,23 @@
 from collections.abc import Hashable
-from typing import Literal, Optional, cast, Generic
+from typing import Generic, Literal, Optional, cast
 
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
-from ee.hogai.graph.billing.nodes import BillingNode
-from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
-from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from .funnels.nodes import (
-    FunnelGeneratorNode,
-    FunnelGeneratorToolsNode,
-)
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.billing.nodes import BillingNode
+from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
+from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
+
+from .base import StateType
+from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from .inkeep_docs.nodes import InkeepDocsNode
+from .insights.nodes import InsightSearchNode
 from .memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -30,15 +30,10 @@ from .memory.nodes import (
 )
 from .query_executor.nodes import QueryExecutorNode
 from .rag.nodes import InsightRagContextNode
-from .retention.nodes import (
-    RetentionGeneratorNode,
-    RetentionGeneratorToolsNode,
-)
+from .retention.nodes import RetentionGeneratorNode, RetentionGeneratorToolsNode
 from .root.nodes import RootNode, RootNodeTools
 from .sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
-from .base import StateType
-from .insights.nodes import InsightSearchNode
 
 global_checkpointer = DjangoCheckpointer()
 
