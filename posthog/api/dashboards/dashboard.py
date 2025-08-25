@@ -30,6 +30,7 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
@@ -477,7 +478,12 @@ class DashboardSerializer(DashboardBasicSerializer):
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),
                 to_attr="prefetched_tags",
-            )
+            ),
+            Prefetch(
+                "insight__alertconfiguration_set",
+                queryset=AlertConfiguration.objects.select_related("created_by"),
+                to_attr="_prefetched_alerts",
+            ),
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 

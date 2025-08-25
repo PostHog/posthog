@@ -211,6 +211,7 @@ const insightActionsMapping: Record<
 
         return { description: [addedSentence, removedSentence], suffix: <></> }
     },
+    alerts: () => null,
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,

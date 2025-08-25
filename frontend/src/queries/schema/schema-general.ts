@@ -39,7 +39,6 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
-    QueryBasedInsightModel,
     RecordingPropertyFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
@@ -303,7 +302,6 @@ export type AnyResponseType =
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
-    | Partial<QueryBasedInsightModel>
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {

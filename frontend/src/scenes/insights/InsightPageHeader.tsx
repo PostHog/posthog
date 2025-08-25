@@ -10,7 +10,6 @@ import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import { AlertType } from 'lib/components/Alerts/types'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -205,13 +204,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             alertId={alertId === null || alertId === 'new' ? undefined : alertId}
                             insightShortId={insight.short_id as InsightShortId}
                             insightId={insight.id}
-                            onEditSuccess={(alertId: AlertType['id'] | undefined) => {
+                            onEditSuccess={() => {
                                 loadAlerts()
-                                if (alertId) {
-                                    push(urls.insightAlert(insight.short_id as InsightShortId, alertId))
-                                } else {
-                                    push(urls.insightAlerts(insight.short_id as InsightShortId))
-                                }
+                                push(urls.insightAlerts(insight.short_id as InsightShortId))
                             }}
                             insightLogicProps={insightLogicProps}
                         />
