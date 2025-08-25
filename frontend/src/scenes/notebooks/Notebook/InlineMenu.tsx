@@ -44,7 +44,6 @@ export const InlineMenu = ({
 
                 return state.doc.textBetween(from, to).length > 0
             }}
-            options={{ placement: 'top-start' }}
         >
             <div
                 ref={menuRef}

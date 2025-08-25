@@ -349,7 +349,8 @@ export const maxLogic = kea<maxLogicType>([
             } catch (err: any) {
                 // If conversation is not found, reset the thread completely.
                 if (err.status === 404) {
-                    console.warn(`Chat ${conversationId} has not been found.`)
+                    actions.startNewConversation()
+                    lemonToast.error('The chat has not been found.')
                     return
                 }
 

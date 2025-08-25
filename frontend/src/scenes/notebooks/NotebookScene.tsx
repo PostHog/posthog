@@ -4,11 +4,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Notebook } from './Notebook/Notebook'
@@ -86,57 +86,56 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <div className="NotebookScene">
-            <PageHeader
-                buttons={
-                    <>
-                        <NotebookSyncInfo shortId={notebookId} />
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-primary z-10">
+                <div className="flex gap-2 items-center">
+                    {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
+                    <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
+                </div>
 
-                        <NotebookMenu shortId={notebookId} />
+                <div className="flex gap-2 items-center">
+                    <NotebookSyncInfo shortId={notebookId} />
 
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconInfo />}
-                            size="small"
-                            onClick={() => {
-                                if (
-                                    selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id &&
-                                    visibility === 'visible'
-                                ) {
-                                    closeSidePanel()
-                                } else {
-                                    selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
-                                }
-                            }}
-                            disabledReason={
-                                selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
-                                    ? 'Guide already open'
-                                    : undefined
+                    <NotebookMenu shortId={notebookId} />
+
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconInfo />}
+                        size="small"
+                        onClick={() => {
+                            if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
+                                closeSidePanel()
+                            } else {
+                                selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
                             }
-                        >
-                            Guide
-                        </LemonButton>
-                        <NotebookTableOfContentsButton type="secondary" size="small" />
-                        <NotebookExpandButton type="secondary" size="small" />
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => {
-                                selectNotebook(notebookId)
-                            }}
-                            tooltip={
-                                <>
-                                    Opens the notebook in a side panel, that can be accessed from anywhere in the
-                                    PostHog app. This is great for dragging and dropping elements like insights,
-                                    recordings or even feature flags into your active notebook.
-                                </>
-                            }
-                            sideIcon={<IconOpenSidebar />}
-                        >
-                            Open in side panel
-                        </LemonButton>
-                    </>
-                }
-            />
+                        }}
+                    >
+                        {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
+                            ? 'Close '
+                            : ''}
+                        Guide
+                    </LemonButton>
+                    <NotebookTableOfContentsButton type="secondary" size="small" />
+                    <NotebookExpandButton type="secondary" size="small" />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => {
+                            selectNotebook(notebookId)
+                        }}
+                        tooltip={
+                            <>
+                                Opens the notebook in a side panel, that can be accessed from anywhere in the PostHog
+                                app. This is great for dragging and dropping elements like insights, recordings or even
+                                feature flags into your active notebook.
+                            </>
+                        }
+                        sideIcon={<IconOpenSidebar />}
+                    >
+                        Open in side panel
+                    </LemonButton>
+                </div>
+            </div>
+
             <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
             <NotebookShareModal shortId={notebookId} />
         </div>

@@ -37,7 +37,7 @@ export const RichContentEditor = ({
     })
 
     return (
-        <EditorContent editor={editor} className={cn('RichContentEditor', className)} spellCheck={editor.isFocused}>
+        <EditorContent editor={editor} className={cn('RichContentEditor', className)}>
             {editor && (
                 <BindLogic logic={richContentEditorLogic} props={{ logicKey, editor }}>
                     {children}
