@@ -1490,7 +1490,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.placement !== DashboardPlacement.Export) {
                 // access stored values from dashboardLoadData
                 // as we can't pass them down to this listener
-                const { action } = values.dashboardLoadData
+                const action = values.dashboardLoadData.action!
                 actions.refreshDashboardItems({ action, forceRefresh: false })
             }
 
