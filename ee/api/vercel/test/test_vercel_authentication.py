@@ -1,15 +1,19 @@
-from typing import Any
-from unittest.mock import patch
-from datetime import datetime, UTC
-import jwt
-import base64
 import json
+import base64
+from datetime import UTC, datetime
+from typing import Any
+
+from posthog.test.base import SimpleTestCase
+from unittest.mock import patch
+
+from django.utils import timezone
+
+import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from django.utils import timezone
-from rest_framework.test import APIRequestFactory
 from rest_framework.exceptions import AuthenticationFailed
-from posthog.test.base import SimpleTestCase
+from rest_framework.test import APIRequestFactory
+
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelUser
 

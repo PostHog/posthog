@@ -1,6 +1,8 @@
 from typing import Any
+
 from django.db import models
-from posthog.models.activity_logging.utils import get_changed_fields_local, activity_storage
+
+from posthog.models.activity_logging.utils import activity_storage, get_changed_fields_local
 from posthog.models.signals import model_activity_signal
 
 
@@ -68,8 +70,9 @@ class ModelActivityMixin(models.Model):
         return before_update
 
     def _should_log_activity_for_update(self, **kwargs) -> tuple[bool, Any]:
-        from posthog.models.activity_logging.activity_log import signal_exclusions, ActivityScope
         from typing import cast
+
+        from posthog.models.activity_logging.activity_log import ActivityScope, signal_exclusions
 
         model_name = cast(ActivityScope, self.__class__.__name__)
         signal_excluded_fields = signal_exclusions.get(model_name, [])

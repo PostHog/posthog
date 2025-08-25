@@ -1,10 +1,7 @@
 import dagster
 
 from dags.common import JobOwners
-from dags.max_ai.snapshot_project_data import (
-    snapshot_clickhouse_project_data,
-    snapshot_postgres_project_data,
-)
+from dags.max_ai.snapshot_project_data import snapshot_clickhouse_project_data, snapshot_postgres_project_data
 
 
 class ExportProjectsConfig(dagster.Config):

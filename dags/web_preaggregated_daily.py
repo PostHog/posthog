@@ -1,36 +1,34 @@
-from datetime import datetime, UTC, timedelta
-from collections.abc import Callable
 import os
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import dagster
-from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
-from dags.common import JobOwners, dagster_tags
-from dags.web_preaggregated_utils import (
-    DAGSTER_WEB_JOB_TIMEOUT,
-    HISTORICAL_DAILY_CRON_SCHEDULE,
-    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
-    merge_clickhouse_settings,
-    WEB_ANALYTICS_CONFIG_SCHEMA,
-    web_analytics_retry_policy_def,
-    check_for_concurrent_runs,
-)
+from dagster import BackfillPolicy, DailyPartitionsDefinition
+
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
-
 from posthog.models.web_preaggregated.sql import (
+    DROP_PARTITION_SQL,
     WEB_BOUNCES_EXPORT_SQL,
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
-    DROP_PARTITION_SQL,
 )
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
+from posthog.settings.object_storage import OBJECT_STORAGE_ENDPOINT, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET
+
+from dags.common import JobOwners, dagster_tags
+from dags.web_preaggregated_utils import (
+    DAGSTER_WEB_JOB_TIMEOUT,
+    HISTORICAL_DAILY_CRON_SCHEDULE,
+    WEB_ANALYTICS_CONFIG_SCHEMA,
+    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
+    check_for_concurrent_runs,
+    merge_clickhouse_settings,
+    web_analytics_retry_policy_def,
 )
 
 logger = structlog.get_logger(__name__)

@@ -23230,6 +23230,31 @@
                     },
                     "type": "array"
                 },
+                "resultCustomizationBy": {
+                    "$ref": "#/definitions/ResultCustomizationBy",
+                    "default": "value",
+                    "description": "Whether result datasets are associated by their values or by their order."
+                },
+                "resultCustomizations": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByValue"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Customizations for the appearance of result datasets."
+                },
                 "showLegend": {
                     "type": "boolean"
                 },

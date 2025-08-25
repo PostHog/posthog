@@ -1,8 +1,8 @@
 from django.db import models
-from posthog.models.utils import UUIDTModel
+
 from posthog.models.team import Team
 from posthog.models.user import User
-
+from posthog.models.utils import UUIDTModel
 
 # !!! DEPRECATED !!!
 # Please use the ee.Role model instead

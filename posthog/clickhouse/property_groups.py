@@ -2,7 +2,6 @@ import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
-
 TableName = str
 PropertySourceColumnName = str
 PropertyGroupName = str

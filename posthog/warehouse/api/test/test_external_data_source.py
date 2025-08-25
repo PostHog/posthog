@@ -1,11 +1,14 @@
-import typing as t
 import uuid
+import typing as t
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-import psycopg
 from django.conf import settings
 from django.test import override_settings
-from freezegun import freeze_time
+
+import psycopg
 from rest_framework import status
 
 from posthog.models import Team
@@ -14,25 +17,21 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySour
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME as STRIPE_PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
-    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
-    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
-    INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
-    PAYOUT_RESOURCE_NAME as STRIPE_PAYOUT_RESOURCE_NAME,
-    DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
-from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import (
-    sync_frequency_interval_to_sync_frequency,
-)
+from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -677,9 +676,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
-            from posthog.temporal.data_imports.sources.stripe.stripe import (
-                StripePermissionError,
-            )
+            from posthog.temporal.data_imports.sources.stripe.stripe import StripePermissionError
 
             missing_permissions = {"Account": "Error message for Account", "Invoice": "Error message for Invoice"}
             validate_credentials_mock.side_effect = StripePermissionError(missing_permissions)

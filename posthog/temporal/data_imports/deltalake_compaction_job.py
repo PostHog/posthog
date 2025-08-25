@@ -1,10 +1,11 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 
 from django.db import close_old_connections
+
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity, workflow
@@ -18,9 +19,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 LOGGER = get_logger(__name__)

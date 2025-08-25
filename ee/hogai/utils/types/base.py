@@ -4,13 +4,10 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import (
-    BaseMessage as LangchainBaseMessage,
-)
+from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsQuery,
@@ -21,15 +18,17 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
-    HumanMessage,
-    ReasoningMessage,
-    TrendsQuery,
-    VisualizationMessage,
-    NotebookUpdateMessage,
-    RetentionQuery,
     FunnelsQuery,
     HogQLQuery,
+    HumanMessage,
+    NotebookUpdateMessage,
+    ReasoningMessage,
+    RetentionQuery,
+    TrendsQuery,
+    VisualizationMessage,
 )
+
+from ee.models import Conversation
 
 AIMessageUnion = Union[
     AssistantMessage,

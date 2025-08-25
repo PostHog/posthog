@@ -1,23 +1,8 @@
 import json
 from typing import Optional, cast
-from unittest import mock
-from unittest.mock import patch
 from uuid import uuid4
-from flaky import flaky
 
-from django.utils import timezone
 from freezegun.api import freeze_time
-from rest_framework import status
-
-import posthog.models.person.deletion
-from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Organization, Person, Team, PropertyDefinition
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.person import PersonDistinctId
-from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
-from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -28,6 +13,23 @@ from posthog.test.base import (
     override_settings,
     snapshot_clickhouse_queries,
 )
+from unittest import mock
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from flaky import flaky
+from rest_framework import status
+
+import posthog.models.person.deletion
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person import PersonDistinctId
+from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
+from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):

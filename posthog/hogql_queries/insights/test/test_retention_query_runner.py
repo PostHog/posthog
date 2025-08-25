@@ -1,31 +1,9 @@
-from typing import Optional
-from unittest.mock import MagicMock, patch
 import uuid
 from datetime import datetime
-
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.test import override_settings
 from freezegun import freeze_time
-
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import (
-    RETENTION_FIRST_TIME,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-)
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models import Action, Cohort
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
-from posthog.models.group.util import create_group
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.models.person import Person
-from posthog.schema import RetentionQuery
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -35,8 +13,26 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
+from posthog.schema import RetentionQuery
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import Action, Cohort
+from posthog.models.group.util import create_group
+from posthog.models.person import Person
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def _create_action(**kwargs):

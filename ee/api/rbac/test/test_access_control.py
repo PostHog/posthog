@@ -1,19 +1,22 @@
 import json
+
 from unittest.mock import MagicMock, patch
+
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
-from posthog.models.personal_api_key import hash_key_value, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
+
+from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class BaseAccessControlTest(APILicensedTest):

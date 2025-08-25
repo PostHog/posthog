@@ -1,25 +1,26 @@
 import json
 from typing import Any
 
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 from posthog.test.base import APIBaseTest
 
+from posthog.models.notebook.util import create_task_list
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+
 from ee.hogai.session_summaries.session_group.patterns import (
-    EnrichedSessionGroupSummaryPatternsList,
+    EnrichedPatternAssignedEvent,
     EnrichedSessionGroupSummaryPattern,
+    EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPatternStats,
     PatternAssignedEventSegmentContext,
-    EnrichedPatternAssignedEvent,
     RawSessionGroupSummaryPattern,
 )
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_notebook_from_summary_content,
-    generate_notebook_content_from_summary,
-    format_single_sessions_status,
-    format_extracted_patterns_status,
     SummaryNotebookIntermediateState,
+    create_notebook_from_summary_content,
+    format_extracted_patterns_status,
+    format_single_sessions_status,
+    generate_notebook_content_from_summary,
 )
-from posthog.models.notebook.util import create_task_list
 
 
 class TestNotebookCreation(APIBaseTest):
