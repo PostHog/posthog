@@ -1,12 +1,11 @@
-from django.db import connection
-from django.db.models import Sum
-
-import structlog
 from typing import Any, Optional
-from dateutil import parser
+
+from django.db import connection
 from django.db.models import Sum
 from django.db.models.functions import TruncDate
-from django.db import connection
+
+import structlog
+from dateutil import parser
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
