@@ -13,6 +13,7 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
     ResolutionError,
 )
+from posthog.hogql.functions.mapping import normalize_hogql_function_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
@@ -82,8 +83,13 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         query = output.query.query if output.query else None
         if not query:
             raise PydanticOutputParserException(llm_output="", validation_message=f"Output is empty")
+
+        # Normalize function names to use correct casing
+        normalized_query = normalize_hogql_function_names(query)
+        output.query.query = normalized_query
+
         try:
-            parsed_query = parse_select(query, placeholders={})
+            parsed_query = parse_select(normalized_query, placeholders={})
 
             # Replace placeholders with dummy values to compile the generated query.
             finder = find_placeholders(parsed_query)
@@ -101,4 +107,4 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
-            raise PydanticOutputParserException(llm_output=query, validation_message=err_msg)
+            raise PydanticOutputParserException(llm_output=normalized_query, validation_message=err_msg)

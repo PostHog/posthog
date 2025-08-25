@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
@@ -2045,3 +2046,88 @@ def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
 def is_allowed_parametric_function(name: str) -> bool:
     # No case-insensitivity for parametric functions
     return name in HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS
+
+
+def get_correct_function_name(name: str) -> str:
+    """Get the correct casing for a HogQL function name."""
+    # Check if it's already correctly cased first (fast path)
+    if HOGQL_CLICKHOUSE_FUNCTIONS.get(name) or HOGQL_AGGREGATIONS.get(name) or HOGQL_POSTHOG_FUNCTIONS.get(name):
+        return name
+
+    # Try case-insensitive lookup by checking all keys
+    name_lower = name.lower()
+    for key in HOGQL_CLICKHOUSE_FUNCTIONS:
+        if key.lower() == name_lower:
+            return key
+
+    for key in HOGQL_AGGREGATIONS:
+        if key.lower() == name_lower:
+            return key
+
+    for key in HOGQL_POSTHOG_FUNCTIONS:
+        if key.lower() == name_lower:
+            return key
+
+    # Return original name if no match found
+    return name
+
+
+def normalize_hogql_function_names(query: str) -> str:
+    """Normalize function names in a HogQL query to use correct casing.
+
+    This function uses regex to find function calls and normalizes their casing
+    based on the known HogQL function mappings.
+    """
+    # Pattern to match function calls: word followed by opening parenthesis
+    # This captures the function name before the opening parenthesis
+    function_pattern = r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
+
+    def replace_function_name(match):
+        function_name = match.group(1)
+        # Don't replace SQL keywords that aren't functions
+        sql_keywords = {
+            "SELECT",
+            "FROM",
+            "WHERE",
+            "GROUP",
+            "ORDER",
+            "BY",
+            "HAVING",
+            "JOIN",
+            "LEFT",
+            "RIGHT",
+            "INNER",
+            "OUTER",
+            "ON",
+            "AS",
+            "AND",
+            "OR",
+            "NOT",
+            "IN",
+            "EXISTS",
+            "BETWEEN",
+            "LIKE",
+            "IS",
+            "NULL",
+            "CASE",
+            "WHEN",
+            "THEN",
+            "ELSE",
+            "END",
+            "DISTINCT",
+            "ALL",
+            "UNION",
+            "INTERSECT",
+            "EXCEPT",
+            "LIMIT",
+            "OFFSET",
+        }
+
+        if function_name.upper() in sql_keywords:
+            return match.group(0)
+
+        correct_name = get_correct_function_name(function_name)
+        return match.group(0).replace(function_name, correct_name)
+
+    normalized_query = re.sub(function_pattern, replace_function_name, query)
+    return normalized_query
