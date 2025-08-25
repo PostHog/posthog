@@ -73,7 +73,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.alert import are_alerts_supported_for_insight, AlertConfiguration
+from posthog.models.alert import AlertConfiguration, are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -631,12 +631,12 @@ class InsightSerializer(InsightBasicSerializer):
 
     def get_alerts(self, insight: Insight):
         from posthog.api.alert import AlertSerializer
-        
+
         if not are_alerts_supported_for_insight(insight):
             return []
-        
+
         # Use prefetched alerts data
-        alerts = getattr(insight, '_prefetched_alerts', [])
+        alerts = getattr(insight, "_prefetched_alerts", [])
         return AlertSerializer(alerts, many=True, context=self.context).data
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:

@@ -1,9 +1,7 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
@@ -32,15 +30,18 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     connect((props: InsightAlertsLogicProps) => ({
         actions: [
-            insightVizDataLogic(props.insightLogicProps), ['setQuery'],
-            insightLogic(props.insightLogicProps), ['loadInsight']
+            insightVizDataLogic(props.insightLogicProps),
+            ['setQuery'],
+            insightLogic(props.insightLogicProps),
+            ['loadInsight'],
         ],
         values: [
-            insightVizDataLogic(props.insightLogicProps), ['showAlertThresholdLines'],
-            insightLogic(props.insightLogicProps), ['insight']
+            insightVizDataLogic(props.insightLogicProps),
+            ['showAlertThresholdLines'],
+            insightLogic(props.insightLogicProps),
+            ['insight'],
         ],
     })),
-
 
     reducers({
         shouldShowAlertDeletionWarning: [
@@ -61,8 +62,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         ],
         alertThresholdLines: [
             (s) => [s.effectiveAlerts, s.showAlertThresholdLines],
-            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
-                alerts.flatMap((alert) => {
+            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
+                const result = alerts.flatMap((alert) => {
                     if (
                         !showAlertThresholdLines ||
                         alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
@@ -90,11 +91,13 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     }
 
                     return annotations
-                }),
+                })
+                return result
+            },
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         refreshInsightAlerts: async () => {
             // Refresh the insight data to get updated alerts
             if (values.insight?.short_id) {
@@ -109,5 +112,4 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             }
         },
     })),
-
 ])
