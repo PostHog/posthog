@@ -521,7 +521,6 @@ describe('dashboardLogic', () => {
                     .toDispatchActions([
                         // starts loading
                         'triggerDashboardRefresh',
-                        'loadDashboard',
                         'refreshDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
