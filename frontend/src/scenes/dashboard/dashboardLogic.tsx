@@ -884,7 +884,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ? {
                           template_name: dashboard.name,
                           dashboard_description: dashboard.description,
-                          dashboard_filters: dashboard.effectiveEditBarFilters,
+                          dashboard_filters: dashboard.filters,
                           tags: dashboard.tags || [],
                           tiles: dashboard.tiles
                               .filter((tile) => !tile.error) // Skip error tiles when creating templates
@@ -1396,8 +1396,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         saveEditModeChanges: () => {
             if (
-                values.dashboard?.persisted_filters.date_from !== values.effectiveEditBarFilters.date_from ||
-                values.dashboard?.persisted_filters.date_to !== values.effectiveEditBarFilters.date_to
+                values.dashboard?.persisted_filters?.date_from !== values.effectiveEditBarFilters.date_from ||
+                values.dashboard?.persisted_filters?.date_to !== values.effectiveEditBarFilters.date_to
             ) {
                 eventUsageLogic.actions.reportDashboardDateRangeChanged(
                     values.effectiveEditBarFilters.date_from,
@@ -1405,7 +1405,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
             }
             if (
-                JSON.stringify(values.dashboard?.persisted_filters.properties) !==
+                JSON.stringify(values.dashboard?.persisted_filters?.properties) !==
                 JSON.stringify(values.effectiveEditBarFilters.properties)
             ) {
                 eventUsageLogic.actions.reportDashboardPropertiesChanged()
@@ -1415,7 +1415,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // Note: handled in subscriptions
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
-                // cancel edit mode changes
+                // cancel edit mode changesdashboardLogi
 
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
