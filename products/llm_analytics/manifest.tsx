@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -93,8 +92,6 @@ export const manifest: ProductManifest = {
             category: 'Analytics',
             iconType: 'ai',
             href: urls.llmAnalyticsDashboard(),
-            flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
-            tags: ['beta'],
         },
     ],
 }
