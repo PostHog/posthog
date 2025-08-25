@@ -229,7 +229,6 @@ class TestSingleSessionSummaryBatch(BaseTest):
         )
 
         # Should get sessions 0, 1, 2, 3, 4 (all that have null context summaries)
-        self.assertEqual(result.total_count, 5)
         self.assertEqual(len(result.results), 5)
 
         result_session_ids = {s.session_id for s in result.results}
@@ -248,12 +247,12 @@ class TestSingleSessionSummaryBatch(BaseTest):
             extra_summary_context=self.extra_context,
         )
 
-        # Should get sessions 3, 4, 5, 6, 7 with auth context
-        self.assertEqual(result.total_count, 5)
-        self.assertEqual(len(result.results), 5)
+        # Should get sessions 3, 4, 5, 6 with auth context
+        # Session 7 is excluded because its latest summary has a different context
+        self.assertEqual(len(result.results), 4)
 
         result_session_ids = {s.session_id for s in result.results}
-        expected_session_ids = {self.session_ids[i] for i in [3, 4, 5, 6, 7]}
+        expected_session_ids = {self.session_ids[i] for i in [3, 4, 5, 6]}
         self.assertEqual(result_session_ids, expected_session_ids)
 
         # All results should have the auth context
@@ -261,55 +260,49 @@ class TestSingleSessionSummaryBatch(BaseTest):
             self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
 
     def test_get_bulk_summaries_pagination(self):
-        # Test pagination with page size 2
-        result_page1 = SingleSessionSummary.objects.get_bulk_summaries(
+        # Test pagination with limit 2
+        result_offset_0 = SingleSessionSummary.objects.get_bulk_summaries(
             team=self.team,
             session_ids=self.session_ids,
             extra_summary_context=None,
             limit=2,
-            page=1,
+            offset=0,
         )
 
-        self.assertEqual(result_page1.total_count, 5)  # Sessions 0, 1, 2, 3, 4 have null context
-        self.assertEqual(len(result_page1.results), 2)
-        self.assertTrue(result_page1.has_next)
-        self.assertFalse(result_page1.has_previous)
+        self.assertEqual(len(result_offset_0.results), 2)
+        self.assertTrue(result_offset_0.has_next)  # More records exist
 
-        # Get page 2
-        result_page2 = SingleSessionSummary.objects.get_bulk_summaries(
+        # Get next batch
+        result_offset_2 = SingleSessionSummary.objects.get_bulk_summaries(
             team=self.team,
             session_ids=self.session_ids,
             extra_summary_context=None,
             limit=2,
-            page=2,
+            offset=2,
         )
 
-        self.assertEqual(result_page2.total_count, 5)
-        self.assertEqual(len(result_page2.results), 2)
-        self.assertTrue(result_page2.has_next)
-        self.assertTrue(result_page2.has_previous)
+        self.assertEqual(len(result_offset_2.results), 2)
+        self.assertTrue(result_offset_2.has_next)  # Still more records
 
-        # Get page 3
-        result_page3 = SingleSessionSummary.objects.get_bulk_summaries(
+        # Get last batch
+        result_offset_4 = SingleSessionSummary.objects.get_bulk_summaries(
             team=self.team,
             session_ids=self.session_ids,
             extra_summary_context=None,
             limit=2,
-            page=3,
+            offset=4,
         )
 
-        self.assertEqual(result_page3.total_count, 5)
-        self.assertEqual(len(result_page3.results), 1)
-        self.assertFalse(result_page3.has_next)
-        self.assertTrue(result_page3.has_previous)
+        self.assertEqual(len(result_offset_4.results), 1)  # Only 1 left (5 total)
+        self.assertFalse(result_offset_4.has_next)  # No more records
 
-        # Ensure no overlap between pages
-        page1_ids = {s.session_id for s in result_page1.results}
-        page2_ids = {s.session_id for s in result_page2.results}
-        page3_ids = {s.session_id for s in result_page3.results}
-        self.assertEqual(len(page1_ids & page2_ids), 0)
-        self.assertEqual(len(page2_ids & page3_ids), 0)
-        self.assertEqual(len(page1_ids & page3_ids), 0)
+        # Ensure no overlap between batches
+        offset_0_ids = {s.session_id for s in result_offset_0.results}
+        offset_2_ids = {s.session_id for s in result_offset_2.results}
+        offset_4_ids = {s.session_id for s in result_offset_4.results}
+        self.assertEqual(len(offset_0_ids & offset_2_ids), 0)
+        self.assertEqual(len(offset_2_ids & offset_4_ids), 0)
+        self.assertEqual(len(offset_0_ids & offset_4_ids), 0)
 
     def test_get_bulk_summaries_latest_per_session(self):
         # Create multiple summaries for the same session
@@ -346,7 +339,6 @@ class TestSingleSessionSummaryBatch(BaseTest):
         )
 
         # Should get only the latest summary
-        self.assertEqual(result.total_count, 1)
         self.assertEqual(len(result.results), 1)
         self.assertEqual(result.results[0].id, newer.id)
         self.assertEqual(result.results[0].summary["version"], 2)
@@ -375,7 +367,7 @@ class TestSingleSessionSummaryBatch(BaseTest):
         )
 
         # Should only get summaries for the original team
-        self.assertEqual(result.total_count, 3)
+        self.assertEqual(len(result.results), 3)
         for summary in result.results:
             self.assertEqual(summary.team_id, self.team.id)
 
@@ -390,10 +382,8 @@ class TestSingleSessionSummaryBatch(BaseTest):
         )
 
         # Should return empty results
-        self.assertEqual(result.total_count, 0)
         self.assertEqual(len(result.results), 0)
         self.assertFalse(result.has_next)
-        self.assertFalse(result.has_previous)
 
     def test_get_bulk_summaries_mixed_sessions(self):
         # Test with mix of existing and non-existing session IDs
@@ -406,21 +396,19 @@ class TestSingleSessionSummaryBatch(BaseTest):
         )
 
         # Should only return existing sessions
-        self.assertEqual(result.total_count, 2)
+        self.assertEqual(len(result.results), 2)
         result_session_ids = {s.session_id for s in result.results}
         self.assertEqual(result_session_ids, {self.session_ids[0], self.session_ids[1]})
 
-    def test_get_bulk_summaries_invalid_page(self):
-        # Test with invalid page number
+    def test_get_bulk_summaries_invalid_offset(self):
+        # Test with invalid offset
         result = SingleSessionSummary.objects.get_bulk_summaries(
             team=self.team,
             session_ids=self.session_ids,
             extra_summary_context=None,
-            page=999,
+            offset=999,
         )
 
-        # Should return empty page
-        self.assertEqual(result.total_count, 0)
+        # Should return empty results
         self.assertEqual(len(result.results), 0)
         self.assertFalse(result.has_next)
-        self.assertFalse(result.has_previous)
