@@ -223,6 +223,14 @@ class CookielessServerHashMode(models.IntegerChoices):
     STATEFUL = 2, "Stateful"
 
 
+class SessionRecordingRetentionPeriod(models.TextChoices):
+    LEGACY = "legacy", "Legacy Retention"
+    THIRTY_DAYS = "30d", "30 Days"
+    NINETY_DAYS = "90d", "90 Days"
+    ONE_YEAR = "1y", "1 Year"
+    FIVE_YEARS = "5y", "5 Years"
+
+
 class Team(UUIDClassicModel):
     """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
@@ -390,6 +398,11 @@ class Team(UUIDClassicModel):
 
     # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)
+    session_recording_retention_period = models.CharField(
+        max_length=6,
+        choices=SessionRecordingRetentionPeriod.choices,
+        default=SessionRecordingRetentionPeriod.LEGACY,
+    )
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
