@@ -1,32 +1,39 @@
-from contextlib import asynccontextmanager, contextmanager
-import asyncio
 import json
-from collections.abc import Callable
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
-from temporalio.worker import Worker, UnsandboxedWorkflowRunner
-from temporalio.client import WorkflowExecutionStatus
-import pytest
+import asyncio
 import dataclasses
-from pytest_mock import MockerFixture
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
-from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
-from temporalio.exceptions import ApplicationError
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime, timedelta
+from typing import Any
 
-from ee.hogai.session_summaries.session_group.patterns import (
-    EnrichedSessionGroupSummaryPattern,
-    EnrichedSessionGroupSummaryPatternStats,
-    EnrichedSessionGroupSummaryPatternsList,
-    RawSessionGroupSummaryPatternsList,
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from openai.types.chat.chat_completion import ChatCompletion, ChatCompletionMessage, Choice
+from pytest_mock import MockerFixture
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog import constants
+from posthog.redis import get_async_client
+from posthog.temporal.ai import WORKFLOWS
+from posthog.temporal.ai.session_summary.activities.patterns import (
+    assign_events_to_patterns_activity,
+    combine_patterns_from_chunks_activity,
+    extract_session_group_patterns_activity,
+    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.temporal.ai.session_summary.state import (
-    generate_state_key,
+    StateActivitiesEnum,
+    _compress_redis_data,
     generate_state_id_from_session_ids,
+    generate_state_key,
+    get_redis_state_client,
     store_data_in_redis,
 )
-from posthog.redis import get_async_client
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SummarizeSessionGroupWorkflow,
@@ -34,20 +41,6 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     fetch_session_batch_events_activity,
     get_llm_single_session_summary_activity,
 )
-from posthog.temporal.ai.session_summary.activities.patterns import (
-    assign_events_to_patterns_activity,
-    combine_patterns_from_chunks_activity,
-    extract_session_group_patterns_activity,
-    split_session_summaries_into_chunks_for_patterns_extraction_activity,
-)
-from posthog import constants
-from collections.abc import AsyncGenerator
-from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
-from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
-from datetime import datetime, timedelta
-from temporalio.testing import WorkflowEnvironment
-from posthog.temporal.ai import WORKFLOWS
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
@@ -55,6 +48,17 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionSummaryStreamUpdate,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
+
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from ee.hogai.session_summaries.session_group.patterns import (
+    EnrichedSessionGroupSummaryPattern,
+    EnrichedSessionGroupSummaryPatternsList,
+    EnrichedSessionGroupSummaryPatternStats,
+    RawSessionGroupSummaryPatternsList,
+)
 
 pytestmark = pytest.mark.django_db
 

@@ -2144,6 +2144,8 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     has_more_tiles?: boolean
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
+    persisted_filters?: DashboardFilter | null
+    persisted_variables?: Record<string, HogQLVariable> | null
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
 }
@@ -5662,7 +5664,7 @@ export interface LineageGraph {
 }
 
 export interface DataWarehouseSourceRowCount {
-    breakdownOfRowsBySource: Record<string, number>
+    breakdown_of_rows_by_source: Record<string, number>
     billing_available: boolean
     billing_interval: string
     billing_period_end: string
@@ -5683,6 +5685,15 @@ export interface DataWarehouseActivityRecord {
     finished_at: string | null
     latest_error: string | null
     workflow_run_id?: string
+}
+
+export interface DataWarehouseDashboardDataSource {
+    id: string
+    name: string
+    status: string | null
+    lastSync: string | null
+    rowCount: number | null
+    url: string
 }
 
 export enum OnboardingStepKey {

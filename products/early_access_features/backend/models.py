@@ -1,9 +1,11 @@
 from typing import TYPE_CHECKING
+
 from django.db import models
 from django.db.models import QuerySet
-from posthog.models.utils import UUIDTModel, RootTeamMixin, sane_repr
+
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

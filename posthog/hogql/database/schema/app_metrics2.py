@@ -1,9 +1,9 @@
 from posthog.hogql.database.models import (
-    Table,
-    IntegerDatabaseField,
-    StringDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    Table,
 )
 
 APP_METRICS2_FIELDS: dict[str, FieldOrTable] = {

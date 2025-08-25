@@ -1,10 +1,12 @@
-from unittest.mock import ANY, patch, AsyncMock
+import asyncio
 
-from posthog.redis import TEST_clear_clients, get_client, get_async_client, _client_map, _loop_clients
+from unittest.mock import ANY, AsyncMock, patch
 
 from django.test.testcases import TestCase
-import asyncio
+
 import fakeredis
+
+from posthog.redis import TEST_clear_clients, _client_map, _loop_clients, get_async_client, get_client
 
 
 class TestRedis(TestCase):

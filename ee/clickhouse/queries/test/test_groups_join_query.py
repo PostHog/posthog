@@ -1,5 +1,6 @@
-from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.models.filters import Filter
+
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 
 
 def test_groups_join_query_blank():

@@ -1,6 +1,6 @@
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from posthog.hogql import ast
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -9,16 +9,16 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
 )
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from posthog.hogql import ast
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
+from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.marketing_analytics.backend.hogql_queries.constants import (
-    DEFAULT_LIMIT,
-)
-from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):

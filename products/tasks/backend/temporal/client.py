@@ -1,9 +1,11 @@
 import asyncio
 from typing import Optional
-from temporalio.common import WorkflowIDReusePolicy, RetryPolicy
 
-from posthog.temporal.common.client import async_connect
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+
 from posthog.constants import TASKS_TASK_QUEUE
+from posthog.temporal.common.client import async_connect
+
 from .inputs import TaskProcessingInputs
 
 
