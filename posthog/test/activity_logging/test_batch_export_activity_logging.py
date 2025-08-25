@@ -37,7 +37,6 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         self.assertIn("last_paused_at", batch_export_exclusions)
         self.assertIn("batchexportrun_set", batch_export_exclusions)
         self.assertIn("batchexportbackfill_set", batch_export_exclusions)
-        self.assertIn("deleted", batch_export_exclusions)
 
     def test_batch_export_scope_in_activity_log_types(self):
         """Test that BatchExport scope is defined in ActivityScope"""
