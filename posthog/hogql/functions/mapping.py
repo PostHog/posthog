@@ -101,6 +101,8 @@ def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantTy
     )
 
 
+# The pattern would capture any of these keywords
+# when they appear in the format KEYWORD(...) or KEYWORD (...) in SQL code
 SQL_KEYWORDS = {
     "SELECT",
     "FROM",
@@ -116,6 +118,7 @@ SQL_KEYWORDS = {
     "OUTER",
     "ON",
     "AS",
+    "IF",
     "AND",
     "OR",
     "NOT",
