@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, PipelineTab } from '~/types'
 
+import { DataWarehouseRowsSyncedGraph } from './DataWarehouseRowsSyncedGraph'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
@@ -187,8 +188,8 @@ export function DataWarehouseScene(): JSX.Element {
         )
     }
 
-    const materializedCount = materializedViews.length
-    const runningCount = materializedViews.filter((v: any) => v.status?.toLowerCase() === 'running').length
+    const materializedCount = materializedViews?.length || 0
+    const runningCount = materializedViews?.filter((v) => v.status?.toLowerCase() === 'running').length || 0
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
         return <NotFound object="Data Warehouse" />
@@ -232,6 +233,8 @@ export function DataWarehouseScene(): JSX.Element {
                     {runningCount > 0 && <div className="text-xs text-muted">{runningCount} running</div>}
                 </LemonCard>
             </div>
+
+            <DataWarehouseRowsSyncedGraph />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div className="lg:col-span-2 space-y-2">
