@@ -160,7 +160,6 @@ function HeadingToggle({ collapsed, onClick }: { collapsed: boolean; onClick?: (
             type="tertiary"
             size="xxsmall"
             tooltip={collapsed ? 'Click to expand' : 'Click to collapse'}
-            aria-expanded={!collapsed}
             onClick={onClick}
             icon={collapsed ? <IconTriangleRightFilled /> : <IconTriangleDownFilled />}
         />
