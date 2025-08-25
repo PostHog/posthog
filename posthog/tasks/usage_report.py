@@ -58,6 +58,15 @@ from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionTy
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
 
+EXCLUDED_AI_EVENTS = [
+    "$ai_generation",
+    "$ai_embedding",
+    "$ai_span",
+    "$ai_trace",
+    "$ai_metric",
+    "$ai_feedback",
+]
+
 
 class Period(TypedDict):
     start_inclusive: str
@@ -473,17 +482,25 @@ def get_teams_with_billable_event_count_in_period(
         distinct_expression = "1"
 
     # We are excluding $exception events during the beta
-    # We also exclude $ai_* events as they are billed separately through ai_event_count_in_period
+    # We also exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *EXCLUDED_AI_EVENTS,
+    ]
+
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
-            AND event NOT LIKE '$ai_%'
+            AND event NOT IN %(excluded_events)s
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -502,18 +519,26 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    # We exclude $ai_* events as they are billed separately through ai_event_count_in_period
+    # We exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *EXCLUDED_AI_EVENTS,
+    ]
+
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
-            AND event NOT LIKE '$ai_%'
+            AND event NOT IN %(excluded_events)s
             AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -856,10 +881,10 @@ def get_teams_with_ai_event_count_in_period(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event LIKE '$ai_%%' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end},
+        {"begin": begin, "end": end, "ai_events": EXCLUDED_AI_EVENTS},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
