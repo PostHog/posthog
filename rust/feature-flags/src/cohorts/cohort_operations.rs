@@ -244,7 +244,8 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check with negation
-                    let cohort_result = apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
+                    let cohort_result =
+                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
                     // Apply negation if specified
                     let final_result = if filter.negation.unwrap_or(false) {
                         !cohort_result

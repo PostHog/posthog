@@ -5686,7 +5686,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
 async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_user_and_cohort".to_string();
-    
+
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -5709,7 +5709,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     .unwrap();
 
     let mut conn = pg_client.get_connection().await.unwrap();
-    
+
     // Create cohort 1001: matches "admin@posthog.com" (for exclusion)
     let excluded_cohort_filters = json!({
         "properties": {
@@ -5819,10 +5819,10 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
-    
+
     assert_eq!(res.status(), StatusCode::OK);
     let json_data = res.json::<Value>().await?;
-    
+
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -5858,10 +5858,10 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let admin_res = server
         .send_flags_request(admin_payload.to_string(), Some("2"), None)
         .await;
-    
+
     assert_eq!(admin_res.status(), StatusCode::OK);
     let admin_json = admin_res.json::<Value>().await?;
-    
+
     assert_json_include!(
         actual: admin_json,
         expected: json!({
@@ -5897,10 +5897,10 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let external_res = server
         .send_flags_request(external_payload.to_string(), Some("2"), None)
         .await;
-    
+
     assert_eq!(external_res.status(), StatusCode::OK);
     let external_json = external_res.json::<Value>().await?;
-    
+
     assert_json_include!(
         actual: external_json,
         expected: json!({
