@@ -387,3 +387,116 @@ class IsEndOfDayConstantVisitor(Visitor[bool]):
 
     def visit_array(self, node: ast.Array) -> bool:
         return False
+
+
+def has_todate_timestamp_condition(expr: ast.Expr, context: HogQLContext) -> bool:
+    """
+    Check if the expression contains a toDate(timestamp) condition.
+    Used to verify if timestamp optimization is already present.
+    """
+    return HasToDateTimestampConditionVisitor(context).visit(expr)
+
+
+class HasToDateTimestampConditionVisitor(Visitor[bool]):
+    """Visitor to check for toDate(timestamp) conditions."""
+
+    def __init__(self, context: HogQLContext):
+        self.context = context
+
+    def visit_and(self, node: ast.And) -> bool:
+        return any(self.visit(expr) for expr in node.exprs)
+
+    def visit_or(self, node: ast.Or) -> bool:
+        return any(self.visit(expr) for expr in node.exprs)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
+        return self._check_for_todate_timestamp(node.left) or self._check_for_todate_timestamp(node.right)
+
+    def _check_for_todate_timestamp(self, expr: ast.Expr) -> bool:
+        """Check if expression is toDate applied to a timestamp field."""
+        if not isinstance(expr, ast.Call) or expr.name != "toDate":
+            return False
+
+        if not expr.args or len(expr.args) != 1:
+            return False
+
+        arg = expr.args[0]
+        # Check if the argument is a timestamp field
+        if isinstance(arg, ast.Field):
+            # Check field name
+            field_name = arg.chain[-1] if arg.chain else None
+            return field_name == "timestamp"
+
+        return False
+
+    def visit_call(self, node: ast.Call) -> bool:
+        # Recursively check arguments
+        return any(self.visit(arg) for arg in node.args if isinstance(arg, ast.Expr))
+
+    def visit_field(self, node: ast.Field) -> bool:
+        return False
+
+    def visit_constant(self, node: ast.Constant) -> bool:
+        return False
+
+    def visit_alias(self, node: ast.Alias) -> bool:
+        return self.visit(node.expr)
+
+
+def create_optimized_todate_condition(
+    timestamp_field: ast.Field,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None
+) -> Optional[ast.Expr]:
+    """
+    Create an optimized toDate condition for the given timestamp field and date range.
+    
+    Args:
+        timestamp_field: The timestamp field to apply toDate to
+        start_date: Optional start date for the range
+        end_date: Optional end date for the range
+    
+    Returns:
+        An AST expression with the toDate conditions, or None if no dates provided
+    """
+    from datetime import timedelta
+
+    from posthog.hogql.ast import And, Call, CompareOperation, CompareOperationOp, Constant
+    from posthog.hogql.visitor import clone_expr
+
+    if not start_date and not end_date:
+        # Default to last 30 days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+
+    conditions = []
+
+    # Create toDate(timestamp) expression
+    todate_expr = Call(name="toDate", args=[timestamp_field])
+
+    # Add start date condition
+    if start_date:
+        start_date_str = start_date.date().isoformat()
+        start_condition = CompareOperation(
+            op=CompareOperationOp.GtEq,
+            left=clone_expr(todate_expr),
+            right=Call(name="toDate", args=[Constant(value=start_date_str)])
+        )
+        conditions.append(start_condition)
+
+    # Add end date condition
+    if end_date:
+        end_date_str = end_date.date().isoformat()
+        end_condition = CompareOperation(
+            op=CompareOperationOp.LtEq,
+            left=clone_expr(todate_expr),
+            right=Call(name="toDate", args=[Constant(value=end_date_str)])
+        )
+        conditions.append(end_condition)
+
+    if len(conditions) == 1:
+        return conditions[0]
+    elif len(conditions) == 2:
+        return And(exprs=conditions)
+    else:
+        return None
