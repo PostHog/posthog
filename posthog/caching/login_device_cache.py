@@ -5,7 +5,7 @@ from posthog.redis import get_client
 TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 
-def check_and_cache_login_device(user_id: int, ip_address: str, short_user_agent: str) -> bool:
+def check_and_cache_login_device(user_id: int, location: str, short_user_agent: str) -> bool:
     """Check if this is a new device and cache it for 30 days"""
 
     # Create a unique device identifier based on location + user agent
