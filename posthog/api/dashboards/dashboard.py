@@ -192,6 +192,8 @@ class DashboardSerializer(DashboardBasicSerializer):
     breakdown_colors = serializers.JSONField(required=False)
     data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    persisted_filters = serializers.SerializerMethodField()
+    persisted_variables = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -221,6 +223,8 @@ class DashboardSerializer(DashboardBasicSerializer):
             "access_control_version",
             "_create_in_folder",
             "last_refresh",
+            "persisted_filters",
+            "persisted_variables",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
@@ -513,6 +517,12 @@ class DashboardSerializer(DashboardBasicSerializer):
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
         return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
+
+    def get_persisted_filters(self, dashboard: Dashboard) -> dict | None:
+        return dashboard.filters if dashboard.filters else None
+
+    def get_persisted_variables(self, dashboard: Dashboard) -> dict | None:
+        return dashboard.variables if dashboard.variables else None
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):

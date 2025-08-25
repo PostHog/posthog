@@ -2143,6 +2143,8 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
+    persisted_filters?: DashboardFilter | null
+    persisted_variables?: Record<string, HogQLVariable> | null
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
 }
