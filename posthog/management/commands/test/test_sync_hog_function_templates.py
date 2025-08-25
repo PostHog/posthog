@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 from django.core.management import call_command
 
 from posthog.models.hog_function_template import HogFunctionTemplate
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.management.commands.sync_hog_function_templates import (
     TEST_INCLUDE_PYTHON_TEMPLATE_IDS,
@@ -190,3 +191,96 @@ class TestSyncHogFunctionTemplates:
 
         # Clear any existing templates
         HogFunctionTemplate.objects.all().delete()
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_delete_unused_templates(self, mock_get_hog_function_templates):
+        """Test that unused templates are properly deleted when they're no longer in use."""
+
+        # Mock the Node.js API to avoid external dependencies
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get_hog_function_templates.return_value = mock_response
+
+        # Clear any existing templates
+        HogFunctionTemplate.objects.all().delete()
+
+        # First, create some templates that will be in the current sync
+        call_command("sync_hog_function_templates")
+
+        # Verify initial state - should have Python test templates
+        initial_count = HogFunctionTemplate.objects.count()
+        assert initial_count > 0
+
+        # Create a template that does not exist anymore
+        HogFunctionTemplate.objects.create(
+            template_id="old_template_that_does_not_exist_anymore",
+            name="Old Template",
+            description="This template has been deleted",
+            type="destination",
+            code="return event",
+            inputs_schema=[],
+            status="beta",
+            free=True,
+            category=["Custom"],
+            code_language="hog",
+        )
+
+        # Verify the old template was created
+        assert HogFunctionTemplate.objects.filter(template_id="old_template_that_does_not_exist_anymore").exists()
+
+        # Run sync again - should detect and delete the old template
+        call_command("sync_hog_function_templates")
+
+        # Verify the old template was deleted
+        assert not HogFunctionTemplate.objects.filter(template_id="old_template_that_does_not_exist_anymore").exists()
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_delete_unused_templates_skips_in_use(self, mock_get_hog_function_templates, team, user):
+        """Test that templates in use are not deleted."""
+
+        # Mock the Node.js API to avoid external dependencies
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get_hog_function_templates.return_value = mock_response
+
+        # Clear any existing templates and functions
+        HogFunctionTemplate.objects.all().delete()
+        HogFunction.objects.all().delete()
+
+        # First, create some templates that will be in the current sync
+        call_command("sync_hog_function_templates")
+
+        # Create a template that has since been deleted
+        HogFunctionTemplate.objects.create(
+            template_id="old_template_in_use",
+            name="Old Template In Use",
+            description="This template has been deleted",
+            type="destination",
+            code="return event",
+            inputs_schema=[],
+            status="beta",
+            free=True,
+            category=["Custom"],
+            code_language="hog",
+        )
+
+        # Create a HogFunction that uses this template
+        HogFunction.objects.create(
+            name="Test Function",
+            template_id="old_template_in_use",
+            hog="return event",
+            team_id=team.id,
+            created_by_id=user.id,
+        )
+
+        # Verify the old template and function were created
+        assert HogFunctionTemplate.objects.filter(template_id="old_template_in_use").exists()
+        assert HogFunction.objects.filter(template_id="old_template_in_use").exists()
+
+        # Run sync again - should NOT delete the old template since it's in use
+        call_command("sync_hog_function_templates")
+
+        # Verify the old template was NOT deleted
+        assert HogFunctionTemplate.objects.filter(template_id="old_template_in_use").exists()
