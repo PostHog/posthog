@@ -1471,6 +1471,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[
             ((IntervalType(), DateTimeType(), DateTimeType()), DateTimeType()),
         ],
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
     ),
     "date_add": HogQLFunctionMeta(
         "date_add",
