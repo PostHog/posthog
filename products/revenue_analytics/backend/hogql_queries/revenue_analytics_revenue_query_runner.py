@@ -22,8 +22,10 @@ from .revenue_analytics_query_runner import (
     RevenueAnalyticsQueryRunner,
 )
 
-LOOKBACK_PERIOD_DAYS = 30
+LOOKBACK_PERIOD_DAYS = 60
 LOOKBACK_PERIOD = timedelta(days=LOOKBACK_PERIOD_DAYS)
+
+MRR_EXPIRY_DAYS = 45
 
 ZERO_IN_DECIMAL_PRECISION = ast.Call(
     name="toDecimal",
@@ -36,6 +38,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
     query: RevenueAnalyticsRevenueQuery
     cached_response: CachedRevenueAnalyticsRevenueQueryResponse
 
+    # TODO: FIX THIS ONE, JUST NEED TO GROUP BY DATE AND SUM THE VALUES AND THAT'S It
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
             subquery = self._get_subquery()
@@ -91,80 +94,31 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
         )
 
     def _get_subquery(self) -> ast.SelectQuery | None:
-        revenue_item_subquery = self._revenue_item_subquery()
-        if revenue_item_subquery is None:
-            return None
+        with self.timings.measure("mrr_per_day_subquery"):
+            mrr_per_day_subquery = self._mrr_per_day_subquery()
+            if mrr_per_day_subquery is None:
+                return None
 
         query = ast.SelectQuery(
             select=[
+                ast.Field(chain=["breakdown_by"]),
+                ast.Field(chain=["customer_id"]),
+                ast.Field(chain=["subscription_id"]),
+                ast.Field(chain=["date"]),
+                ast.Field(chain=["value"]),
+                # Then here compute the changes in MRR
                 ast.Alias(
-                    alias="breakdown_by",
-                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
-                ),
-                # Using the subscription_id to group all subscriptions together,
-                # or falling back to the `id` so that they're all kept separate
-                # to properly account it as `new` revenue everytime
-                ast.Alias(
-                    alias="subscription_id",
-                    expr=ast.Call(
-                        name="nullIf",  # Convert empty string to null to make coalesce work as expected
-                        args=[
-                            ast.Field(
-                                chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]
-                            ),
-                            ast.Constant(value=""),
-                        ],
-                    ),
-                ),
-                ast.Alias(
-                    alias="group_identifier",
-                    expr=ast.Call(
-                        name="coalesce",
-                        args=[
-                            ast.Field(chain=["subscription_id"]),
-                            # Convert empty string to null to make coalesce work as expected
-                            # NOTE: Don't turn into a field because it'll require grouping by it
-                            # but we wanna keep all of the revenue items from the same sub/day together
-                            #
-                            # It's fine to group by `group_identifier` though because it'll be the subscription
-                            # when we care about it
-                            ast.Call(
-                                name="nullIf",
-                                args=[
-                                    ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "id"]),
-                                    ast.Constant(value=""),
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
-                ast.Alias(
-                    alias="is_recurring",
-                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "is_recurring"]),
-                ),
-                ast.Alias(
-                    alias="day_start",
-                    expr=ast.Call(
-                        name=f"toStartOfDay",
-                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
-                    ),
-                ),
-                ast.Alias(
-                    alias="period_start",
-                    expr=ast.Call(
-                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=["day_start"])],
-                    ),
-                ),
-                ast.Alias(alias="total_amount", expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])])),
-                ast.Alias(
-                    alias="previous_amount",  # lagInFrame(total_amount) OVER (PARTITION BY group_identifier ORDER BY day_start ASC)
+                    alias="previous_value",  # lagInFrame(value) OVER (PARTITION BY breakdown_by, customer_id, subscription_id ORDER BY date ASC)
                     expr=ast.WindowFunction(
                         name="lagInFrame",
-                        args=[ast.Field(chain=["total_amount"]), ast.Constant(value=1), ast.Constant(value=None)],
+                        args=[ast.Field(chain=["value"]), ast.Constant(value=1), ast.Constant(value=None)],
                         over_expr=ast.WindowExpr(
-                            partition_by=[ast.Field(chain=["group_identifier"])],
-                            order_by=[ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC")],
+                            partition_by=[
+                                ast.Field(chain=["breakdown_by"]),
+                                ast.Field(chain=["customer_id"]),
+                                ast.Field(chain=["subscription_id"]),
+                            ],
+                            order_by=[ast.OrderExpr(expr=ast.Field(chain=["date"]), order="ASC")],
                             frame_method="ROWS",
                             frame_start=ast.WindowFrameExpr(frame_type="PRECEDING"),
                             frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING"),
@@ -173,21 +127,19 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                 ),
                 ast.Alias(
                     alias="new_amount",
-                    expr=parse_expr(
-                        "if(isNull(previous_amount), total_amount, {zero})", placeholders=ZERO_PLACEHOLDERS
-                    ),
+                    expr=parse_expr("if(isNull(previous_value), value, {zero})", placeholders=ZERO_PLACEHOLDERS),
                 ),
                 ast.Alias(
                     alias="expansion_amount",
                     expr=parse_expr(
-                        "if(isNotNull(previous_amount) AND total_amount > previous_amount, total_amount - previous_amount, {zero})",
+                        "if(isNotNull(previous_value) AND value > previous_value, value - previous_value, {zero})",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),
                 ast.Alias(
                     alias="contraction_amount",
                     expr=parse_expr(
-                        "negate(if(isNotNull(previous_amount) AND total_amount < previous_amount AND total_amount > 0, previous_amount - total_amount, {zero}))",
+                        "negate(if(isNotNull(previous_value) AND value < previous_value AND value > 0, previous_value - value, {zero}))",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),
@@ -197,48 +149,181 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                     # Else, if the amount went to zero, then assume the previous amount is the churned amount
                     # Else, just use 0, it's an ongoing subscription
                     expr=parse_expr(
-                        "negate(multiIf(isNull(subscription_id), total_amount, total_amount = 0, coalesce(previous_amount, {zero}), {zero}))",
+                        "negate(multiIf(isNull(subscription_id), value, value = 0, coalesce(previous_value, {zero}), {zero}))",
                         placeholders=ZERO_PLACEHOLDERS,
                     ),
                 ),
             ],
-            select_from=self._append_joins(
-                ast.JoinExpr(
-                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                    table=revenue_item_subquery,
-                ),
-                self.joins_for_properties(RevenueAnalyticsRevenueItemView),
-            ),
-            where=ast.And(
+            select_from=ast.JoinExpr(alias="mrr_per_day_subquery", table=mrr_per_day_subquery),
+            where=ast.Or(
                 exprs=[
-                    self.timestamp_where_clause(
-                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"],
-                        extra_days_before=LOOKBACK_PERIOD_DAYS,  # Add extra days to ensure MRR calculations are correct
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["date"]),
+                        right=ast.Call(name="toLastDayOfMonth", args=[ast.Field(chain=["date"])]),
                     ),
-                    *self.where_property_exprs,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["date"]),
+                        right=ast.Call(name="today", args=[]),
+                    ),
                 ]
             ),
-            group_by=[
-                ast.Field(chain=["breakdown_by"]),
-                ast.Field(chain=["is_recurring"]),
-                ast.Field(chain=["subscription_id"]),
-                ast.Field(chain=["group_identifier"]),
-                ast.Field(chain=["day_start"]),
-            ],
             order_by=[
                 ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),
-                ast.OrderExpr(expr=ast.Field(chain=["group_identifier"]), order="ASC"),
-                ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["customer_id"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["subscription_id"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["date"]), order="ASC"),
             ],
         )
 
-        # Limit to 2 group bys at most for performance reasons
-        # This is also implemented in the frontend, but let's guarantee it here as well
-        with self.timings.measure("append_group_by"):
-            for group_by in self.query.groupBy[:2]:
-                query = self._append_group_by(query, RevenueAnalyticsRevenueItemView, group_by)
-
         return query
+
+    # Create a list of (date, customer_id, subscription_id, last_charge, last_charge_date)
+    # so that we can know what's our MRR on each day (by summing up the values on each day)
+    # This is extremely memory-intensive, but it's the best way to get the MRR to work
+    # We'll need to improve this and materialize it in the future
+    def _mrr_per_day_subquery(self) -> ast.SelectQuery | None:
+        with self.timings.measure("mrr_per_day_subquery"):
+            map_query = self._revenue_map_subquery()
+            if map_query is None:
+                return None
+
+        # Get all of the days in the date range,
+        # this is useful because we can use it to know what's the MRR on each day
+        start_date = self.query_date_range.date_from()
+        end_date = self.query_date_range.date_to()
+
+        return ast.SelectQuery(
+            select=[
+                # Just copy breakdown_by, customer, subscription id over
+                ast.Alias(alias="breakdown_by", expr=ast.Field(chain=["breakdown_by"])),
+                ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="subscription_id", expr=ast.Field(chain=["subscription_id"])),
+                # Create a list of dates from the start to the end of the date range
+                # This is useful because we can use it to know what's the MRR on each day
+                ast.Alias(
+                    alias="date",
+                    expr=ast.Call(
+                        name="arrayJoin",
+                        args=[
+                            parse_expr(
+                                "toStartOfDay(arrayMap(x -> addDays({start_date}, x), range(-{lookback_period_days}, dateDiff('day', {start_date}, {end_date}) + 1)))",
+                                placeholders={
+                                    "lookback_period_days": ast.Constant(value=LOOKBACK_PERIOD_DAYS),
+                                    "start_date": ast.Constant(value=start_date),
+                                    "end_date": ast.Constant(value=end_date),
+                                },
+                            ),
+                        ],
+                    ),
+                ),
+                # Get the current day's charge from map (if any)
+                ast.Alias(
+                    alias="current_charge",
+                    expr=parse_expr(
+                        "CASE WHEN mapContains(period_start_map, date) THEN period_start_map[date] ELSE NULL END"
+                    ),
+                ),
+                # Date when the value last changed
+                ast.Alias(
+                    alias="date_value_changed",
+                    expr=parse_expr(
+                        "nullIf(maxIf(date, mapContains(period_start_map, date)) OVER (PARTITION BY customer_id, subscription_id ORDER BY date ROWS UNBOUNDED PRECEDING), toDate('1970-01-01'))"
+                    ),
+                ),
+                # Last known value with a custom expiry
+                # We need to expiry it eventually because we don't wanna keep counting
+                # someone who might have stopped paying us
+                # We wouldn't need this if people tidied up their invoice charges
+                # and made sure they all included an end day for that charge
+                ast.Alias(
+                    alias="value",
+                    expr=parse_expr(
+                        "CASE WHEN date_value_changed IS NULL THEN 0 WHEN dateDiff('day', date_value_changed, date) > {mrr_expiry_days} THEN 0 ELSE coalesce(last_value(current_charge) OVER (PARTITION BY customer_id, subscription_id ORDER BY date ROWS UNBOUNDED PRECEDING), 0) END",
+                        placeholders={"mrr_expiry_days": ast.Constant(value=MRR_EXPIRY_DAYS)},
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(), table=map_query),
+        )
+
+    # Create a map of (date, amount) for each customer and subscription
+    # This is useful because we can use it to know what's the MRR on each day
+    def _revenue_map_subquery(self) -> ast.SelectQuery | None:
+        with self.timings.measure("revenue_item_subquery"):
+            subquery = self._revenue_item_subquery()
+            if subquery is None:
+                return None
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    name="breakdown_by",
+                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
+                ),
+                ast.Alias(
+                    name="customer_id",
+                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]),
+                ),
+                ast.Alias(
+                    name="subscription_id",
+                    expr=ast.Call(
+                        name="nullIf",
+                        args=[
+                            ast.Field(
+                                chain=[
+                                    RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                                    "subscription_id",
+                                ]
+                            ),
+                            ast.Constant(value=""),
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    name="period_start",
+                    expr=ast.Call(
+                        name="toStartOfDay",
+                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
+                    ),
+                ),
+                ast.Alias(
+                    name="period_start_map",
+                    expr=ast.Call(
+                        name="mapFromArrays",
+                        args=[
+                            ast.Call(
+                                name="groupArray",
+                                args=[
+                                    ast.Field(
+                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "period_start"]
+                                    )
+                                ],
+                            ),
+                            ast.Call(
+                                name="groupArray",
+                                args=[
+                                    ast.Field(
+                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]
+                                    )
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                table=subquery,
+            ),
+            group_by=[
+                ast.Field(chain=["breakdown_by"]),
+                ast.Field(chain=["customer_id"]),
+                ast.Field(chain=["subscription_id"]),
+                ast.Field(chain=["period_start"]),
+            ],
+        )
 
     # This is slightly more complicated than normal because we need to include some extra 0-revenue
     # items at the end of the query for all of the subscriptions which ended in this period
@@ -247,9 +332,21 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
         if self.revenue_subqueries.revenue_item is None:
             return None
 
+        revenue_item_subquery = ast.SelectQuery(
+            select=[ast.Field(chain=["*"])],
+            select_from=ast.JoinExpr(
+                alias="inner_revenue_item",
+                table=self.revenue_subqueries.revenue_item,
+            ),
+            where=self.timestamp_where_clause(
+                chain=["inner_revenue_item", "ended_at"],
+                extra_days_before=LOOKBACK_PERIOD_DAYS,
+            ),
+        )
+
         # If there's no subscription subquery, we can just return the revenue item subquery
         if self.revenue_subqueries.subscription is None:
-            return self.revenue_subqueries.revenue_item
+            return revenue_item_subquery
 
         # This should mimic the same structure as RevenueAnalyticsRevenueItemView, but with hardcoded 0 amount
         # It doesn't NEED to include actual values for all fields, so we're only making effort to include the ones we need above
@@ -295,18 +392,18 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                 ast.Alias(alias="amount", expr=ZERO_IN_DECIMAL_PRECISION),
             ],
             select_from=ast.JoinExpr(
-                alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
+                alias="inner_subscription",
                 table=self.revenue_subqueries.subscription,
             ),
             where=self.timestamp_where_clause(
-                chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "ended_at"],
+                chain=["inner_subscription", "ended_at"],
                 extra_days_before=LOOKBACK_PERIOD_DAYS,  # Add extra days to ensure MRR calculations are correct
             ),
         )
 
         # Join the revenue items with the newly created churn items
         return ast.SelectSetQuery.create_from_queries(
-            [self.revenue_subqueries.revenue_item, churn_revenue_items_select],
+            [revenue_item_subquery, churn_revenue_items_select],
             set_operator="UNION ALL",
         )
 
