@@ -1,22 +1,15 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import TypeVar
-from collections.abc import Iterator
+
+from posthog.schema import CachedWebGoalsQueryResponse, WebAnalyticsOrderByFields, WebGoalsQuery, WebGoalsQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr, get_property_type, action_to_expr
+from posthog.hogql.property import action_to_expr, get_property_type, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-)
-from posthog.models import Action
-from posthog.schema import (
-    WebGoalsQueryResponse,
-    WebGoalsQuery,
-    CachedWebGoalsQueryResponse,
-    WebAnalyticsOrderByFields,
-)
 
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.models import Action
 
 # Returns an array `seq` split into chunks of size `size`
 # Example:

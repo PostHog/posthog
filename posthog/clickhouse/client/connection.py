@@ -1,16 +1,19 @@
-import logging
 import os
+import logging
+from collections.abc import Mapping
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
-from collections.abc import Mapping
 
-from clickhouse_connect import get_client
-from clickhouse_connect.driver import Client as HttpClient, httputil
-from clickhouse_driver import Client as SyncClient
-from clickhouse_pool import ChPool
 from django.conf import settings
 
+from clickhouse_connect import get_client
+from clickhouse_connect.driver import (
+    Client as HttpClient,
+    httputil,
+)
+from clickhouse_driver import Client as SyncClient
+from clickhouse_pool import ChPool
 
 from posthog.settings import data_stores
 from posthog.utils import patchable

@@ -274,6 +274,7 @@ select = [
     "DJ012",
     "E",
     "F",
+    "I",
     "RUF005",
     "RUF013",
     "RUF015",
@@ -291,44 +292,36 @@ max-complexity = 10
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-
-[tool.ruff.lint.per-file-ignores]
-"./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]
-"./posthog/migrations/0027_move_elements_to_group.py" = ["T201"]
-"./posthog/queries/cohort_query.py" = ["F401"]
-"./posthog/client.py" = ["T201"]
-"./posthog/async_migrations/test/test_migrations_not_required.py" = ["T201"]
-"__init__.py" = ["F401"]
-"./posthog/api/capture.py" = ["T201"]
-"./ee/clickhouse/generate_local.py" = ["T201"]
-"./posthog/management/commands/merge_distinct_emails.py" = ["T201"]
-"./posthog/demo/matrix/matrix.py" = ["T201"]
-"./posthog/migrations/0038_migrate_actions_to_precalculate_events.py" = ["T201"]
-"./posthog/settings/overrides.py" = ["T201"]
-"./bin/hobby-ci.py" = ["T201"]
-"./posthog/management/commands/migrate_elementgroup.py" = ["T201"]
-"./posthog/models/plugin.py" = ["T201"]
-"./docker-compose-config.py" = ["T201"]
-"./posthog/management/commands/backfill_persons_and_groups_on_events.py" = [
-    "T201",
+force-wrap-aliases = true
+length-sort-straight = true
+split-on-trailing-comma = false
+section-order = [
+    "future",
+    "standard-library",
+    "testing",
+    "django",
+    "third-party",
+    "posthog.schema",
+    "posthog.hogql",
+    "posthog",
+    "products",
+    "first-party",
+    "local-folder",
 ]
-"./posthog/management/commands/generate_demo_data.py" = ["T201"]
-"./posthog/apps.py" = ["T201"]
-"./posthog/management/commands/partition.py" = ["T201"]
-"./posthog/management/commands/migrate_clickhouse.py" = ["T201"]
-"./posthog/email.py" = ["T201"]
-"./posthog/hogql/grammar/HogQLParser.py" = ["F401", "F841", "E711"]
-"./posthog/celery.py" = ["T201"]
-"./posthog/hogql/grammar/HogQLLexer.py" = ["F401"]
-"./posthog/utils.py" = ["T201"]
-"./posthog/management/commands/sync_feature_flags.py" = ["T201"]
-"./cypress/wait.py" = ["T201"]
-"./posthog/management/commands/notify_helm_install.py" = ["T201", "T203"]
-"./gunicorn.config.py" = ["T201"]
-"./posthog/management/commands/run_async_migrations.py" = ["T201"]
-"./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
-"./posthog/management/commands/api_keys.py" = ["T201"]
-"./posthog/demo/matrix/manager.py" = ["T201"]
+
+[tool.ruff.lint.isort.sections]
+"django" = ["django"] # Group all Django imports into a separate section.
+"testing" = [ # Group all testing imports into a separate section.
+    "freezegun",
+    "pytest",
+    "unittest",
+    "posthog.test.base",
+]
+# Separate groups for our own stuff
+"posthog.schema" = ["posthog.schema"]
+"posthog.hogql" = ["posthog.hogql"]
+"posthog" = ["posthog"]
+"products" = ["products"]
 
 [tool.dagster]
 python_version = "3.11"

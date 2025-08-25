@@ -1,11 +1,11 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.cluster import NodeRole
 from posthog.models.exchange_rate.sql import (
-    DROP_EXCHANGE_RATE_TABLE_SQL,
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_TABLE_SQL,
+    DROP_EXCHANGE_RATE_TABLE_SQL,
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
 )
 
 # This is the exact same thing as 0101_add_exchange_rates.py,

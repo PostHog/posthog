@@ -4,18 +4,15 @@ from typing import Optional
 
 from django.db import IntegrityError
 
-from posthog.constants import (
-    PAGEVIEW_EVENT,
-)
-from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.demo.matrix.randomization import Industry
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownFilter,
-    PropertyOperator,
+    BreakdownType,
     ChartDisplayType,
     CompareFilter,
     DateRange,
+    EntityType,
     EventPropertyFilter,
     EventsNode,
     FunnelsFilter,
@@ -24,11 +21,13 @@ from posthog.schema import (
     IntervalType,
     LifecycleFilter,
     LifecycleQuery,
-    PathType,
     PathsFilter,
     PathsQuery,
+    PathType,
     PersonPropertyFilter,
     PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
     RetentionEntity,
     RetentionFilter,
     RetentionPeriod,
@@ -36,37 +35,28 @@ from posthog.schema import (
     RetentionType,
     TrendsFilter,
     TrendsQuery,
-    BaseMathType,
-    BreakdownType,
-    EntityType,
-    PropertyMathType,
 )
-from posthog.models import (
-    Action,
-    Cohort,
-    Dashboard,
-    DashboardTile,
-    Experiment,
-    FeatureFlag,
-    Insight,
-    InsightViewed,
-)
+
+from posthog.constants import PAGEVIEW_EVENT
+from posthog.demo.matrix.matrix import Cluster, Matrix
+from posthog.demo.matrix.randomization import Industry
+from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
     COMPANY_CLUSTERS_PROPORTION,
-    EVENT_SIGNED_UP,
-    EVENT_UPLOADED_FILE,
-    EVENT_DOWNLOADED_FILE,
     EVENT_DELETED_FILE,
-    EVENT_SHARED_FILE_LINK,
-    EVENT_UPGRADED_PLAN,
+    EVENT_DOWNLOADED_FILE,
     EVENT_PAID_BILL,
-    URL_HOME,
-    URL_SIGNUP,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_SIGNED_UP,
+    EVENT_UPGRADED_PLAN,
+    EVENT_UPLOADED_FILE,
     FILE_PREVIEWS_FLAG_KEY,
     NEW_SIGNUP_PAGE_FLAG_KEY,
     NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    URL_HOME,
+    URL_SIGNUP,
 )
 
 

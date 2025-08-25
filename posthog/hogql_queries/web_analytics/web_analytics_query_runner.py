@@ -8,18 +8,6 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.cache import cache
 
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionConversionGoal,
     CustomEventConversionGoal,
@@ -35,6 +23,20 @@ from posthog.schema import (
     WebTrendsQuery,
     WebVitalsPathBreakdownQuery,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models import Action
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import generate_cache_key, get_safe_cache
 
 WebQueryNode = Union[

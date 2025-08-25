@@ -1,10 +1,12 @@
 import json
-from typing import Optional
 from collections.abc import Callable
+from typing import Optional
+
 from django.core.cache import cache
+
+import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
-import structlog
 
 from posthog.models.team.team import Team
 from posthog.storage import object_storage

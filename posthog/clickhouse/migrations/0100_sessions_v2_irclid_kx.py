@@ -7,8 +7,8 @@ from posthog.models.raw_sessions.migrations import (
 )
 from posthog.models.raw_sessions.sql import (
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
+    RAW_SESSIONS_TABLE_MV_SQL,
 )
 
 operations = [
