@@ -34,10 +34,10 @@ async def run_quota_limiting_all_orgs(
             from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
             @database_sync_to_async(thread_sensitive=False)
-            def update_quotas():
+            def async_update_all_orgs_billing_quotas():
                 return update_all_orgs_billing_quotas()
 
-            await update_quotas()
+            await async_update_all_orgs_billing_quotas()
         except ImportError:
             pass
         except Exception as e:
