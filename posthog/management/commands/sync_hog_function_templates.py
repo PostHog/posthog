@@ -9,7 +9,7 @@ import structlog
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.models.hog_functions.hog_function import HogFunctionType
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 
 logger = structlog.get_logger(__name__)
@@ -103,22 +103,19 @@ class Command(BaseCommand):
         try:
             existing_templates = HogFunctionTemplate.objects.values_list("template_id", flat=True).distinct()
 
-            for existing_template_id in existing_templates:
-                if existing_template_id not in current_template_ids:
-                    hog_functions_using_template = HogFunction.objects.filter(template_id=existing_template_id).exists()
+            candidates_for_deletion = {
+                tid for tid in existing_templates if tid.startswith("coming-soon-")
+            } - current_template_ids
 
-                    if not hog_functions_using_template:
-                        templates_to_delete = HogFunctionTemplate.objects.filter(template_id=existing_template_id)
-                        delete_count = templates_to_delete.count()
-                        templates_to_delete.delete()
-                        deleted_count += delete_count
+            if candidates_for_deletion:
+                templates_to_delete = HogFunctionTemplate.objects.filter(template_id__in=candidates_for_deletion)
+                delete_count = templates_to_delete.count()
+                templates_to_delete.delete()
+                deleted_count += delete_count
 
-                        self.stdout.write(self.style.WARNING(f"Deleted unused template: {existing_template_id}"))
-
-                    else:
-                        self.stdout.write(
-                            self.style.WARNING(f"Template {existing_template_id} is still in use, skipping deletion")
-                        )
+                self.stdout.write(
+                    self.style.WARNING(f"Deleted {delete_count} unused templates: {', '.join(candidates_for_deletion)}")
+                )
         except Exception as e:
             logger.error("Error checking for unused templates", error=str(e), exc_info=True)
 
