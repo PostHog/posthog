@@ -18,6 +18,20 @@ import { VariableCalendar } from './VariableCalendar'
 import { variableDataLogic } from './variableDataLogic'
 import { variableModalLogic } from './variableModalLogic'
 
+const getCodeName = (name: string): string => {
+    /*
+        1. Trim
+        2. Filter out all characters that is not a letter, number or space
+        3. Replace all spaces with '_'
+        4. Lower case it
+    */
+    return name
+        .trim()
+        .replace(/[^a-zA-Z0-9\s]/g, '')
+        .replace(/\s/g, '_')
+        .toLowerCase()
+}
+
 const renderVariableSpecificFields = (
     variable: Variable,
     updateVariable: (variable: Variable) => void,
@@ -176,7 +190,7 @@ export const NewVariableModal = (): JSX.Element => {
                         onChange={(value) => updateVariable({ ...variable, name: value })}
                     />
                     {modalType === 'new' && variable.name.length > 0 && (
-                        <span className="text-xs">{`Use this variable by referencing {variables.${variable.name.replaceAll(' ', '_')}}.`}</span>
+                        <span className="text-xs">{`Use this variable by referencing {variables.${getCodeName(variable.name)}}.`}</span>
                     )}
                 </LemonField.Pure>
                 <LemonField.Pure label="Type" className="gap-1">
