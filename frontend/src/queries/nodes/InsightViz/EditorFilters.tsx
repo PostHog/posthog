@@ -377,8 +377,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           label: 'Goal lines',
                           tooltip: (
                               <>
-                                  Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
-                                  limits (Web Vitals, etc.)
+                                  Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits
+                                  (Web Vitals, etc.)
                               </>
                           ),
                           component: GoalLines,

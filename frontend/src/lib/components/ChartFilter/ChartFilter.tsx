@@ -122,6 +122,11 @@ export function ChartFilter(): JSX.Element {
                     label: 'Table',
                     labelInMenu: <ChartFilterOptionLabel label="Table" description="Total values in a table view." />,
                 },
+            ],
+        },
+        {
+            title: 'Space & time',
+            options: [
                 {
                     value: ChartDisplayType.WorldMap,
                     icon: <IconGlobe />,

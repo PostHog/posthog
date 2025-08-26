@@ -102,7 +102,7 @@ DISPLAY_TYPES = Literal[
     "ActionsBarValue",
     "WorldMap",
     "BoldNumber",
-    "CalendarrHeatmap",
+    "CalendarHeatmap",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
