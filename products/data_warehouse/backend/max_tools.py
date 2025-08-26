@@ -14,7 +14,7 @@ from products.data_warehouse.backend.prompts import HOGQL_GENERATOR_USER_PROMPT,
 from ee.hogai.graph.query_planner.prompts import PROPERTY_FILTERS_EXPLANATION_PROMPT
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
+from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
@@ -133,7 +133,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             **self.context,
         }
 
-        final_result: SchemaGeneratorOutput[str] | None = None  # type: ignore
+        final_result: SchemaGeneratorOutput[AssistantHogQLQuery] | None = None
         final_error: Optional[PydanticOutputParserException] = None
         for _ in range(GENERATION_ATTEMPTS_ALLOWED):
             try:
@@ -144,12 +144,13 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                     else:
                         return "I need more information to generate the query.", ""
                 else:
-                    final_result = result_so_far["output"]
-                    assert final_result is not None
+                    output = result_so_far["output"]
+                    assert output is not None
+                    final_result = self._parse_output(output)
                     # If quality check raises, we will still iterate if we've got any attempts left,
                     # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
                     await self._quality_check_output(
-                        SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=final_result.query))
+                        output=final_result,
                     )
                     final_error = None
                     break  # All good, let's go
@@ -165,4 +166,4 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             # Well, better that that nothing - let's just capture the error and send what we've got
             capture_exception(final_error)
 
-        return "```sql\n" + final_result.query + "\n```", final_result.query
+        return "```sql\n" + final_result.query.query + "\n```", final_result.query.query
