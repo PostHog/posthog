@@ -307,9 +307,8 @@ function shouldBePreFilteredBasedOnEventName(
     // If event filter is present check for a match
     if (filters?.events?.length) {
         const eventMatches = filters.events.some((eventFilter) => {
-            if (eventFilter.name) {
-                return eventFilter.name === filterGlobals.event
-            }
+            // We need to test if the id is null (all events) or if it is in the list of event matchers
+            return eventFilter.id === null  || eventFilter.id === filterGlobals.event
         })
 
         // If none of the event filters match, we can early exit
