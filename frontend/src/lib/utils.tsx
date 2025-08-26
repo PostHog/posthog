@@ -1128,8 +1128,12 @@ export function dateStringToComponents(date: string | null): DateComponents | nu
     return { amount, unit, clip: clip as 'Start' | 'End' }
 }
 
-export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset?: Dayjs): Dayjs {
-    const dayjsInstance = offset ?? dayjs()
+export function componentsToDayJs(
+    { amount, unit, clip }: DateComponents,
+    offset?: Dayjs,
+    timezone: string = 'UTC'
+): Dayjs {
+    const dayjsInstance = offset ?? dayjs().tz(timezone)
     let response: dayjs.Dayjs
     switch (unit) {
         case 'year':
@@ -1166,16 +1170,16 @@ export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset
 }
 
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
-export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+export function dateStringToDayJs(date: string | null, timezone: string = 'UTC'): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
-        return dayjs(date)
+        return dayjs(date).tz(timezone)
     }
     const dateComponents = dateStringToComponents(date)
     if (!dateComponents) {
         return null
     }
-    const offset: dayjs.Dayjs = dayjs().startOf('day')
-    const response = componentsToDayJs(dateComponents, offset)
+    const offset: dayjs.Dayjs = dayjs().tz(timezone).startOf('day')
+    const response = componentsToDayJs(dateComponents, offset, timezone)
     return response
 }
 
