@@ -309,5 +309,24 @@ describe('hog-function-filtering', () => {
             // Should return true immediately without executing bytecode (optimization instead of running bytecode)
             expect(result.match).toBe(true)
         })
+
+        it('should execute bytecode when properties filters are present', async () => {
+            // Real database scenario with properties filters
+            mockHogFunction.filters = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                properties: [{ key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' }],
+                filter_test_accounts: true,
+                bytecode: ['_H', 1, 29], // Simple bytecode that returns true
+            }
+
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+
+            // Should execute bytecode because properties filters are present
+            expect(result.match).toBe(true)
+        })
     })
 })

@@ -352,7 +352,7 @@ export async function filterFunctionInstrumented(options: {
 
     try {
         // If there are no filters, everything matches no need to execute bytecode (lets save those cpu cycles)
-        if (!filters?.actions && !filters?.events && !filters?.filter_test_accounts) {
+        if (!filters?.actions && !filters?.events && !filters?.filter_test_accounts && !filters?.properties) {
             result.match = true
             return result
         }
