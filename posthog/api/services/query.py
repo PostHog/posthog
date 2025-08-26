@@ -103,6 +103,80 @@ def process_query_dict(
     )
 
 
+def _handle_recursive_query(query: BaseModel, team: Team, **kwargs) -> dict | BaseModel:
+    """Handle queries with nested source attributes."""
+    return process_query_model(team, query.source, **kwargs)
+
+
+def _handle_hog_query(query: HogQuery, team: Team, user: Optional[User] = None) -> HogQueryResponse:
+    """Handle HogQuery execution."""
+    if is_cloud() and (user is None or not user.is_staff):
+        return HogQueryResponse(results="Hog queries currently require staff user privileges.")
+
+    try:
+        hog_result = execute_hog(query.code or "", team=team)
+        bytecode = hog_result.bytecodes.get("root", None)
+        return HogQueryResponse(
+            results=hog_result.result,
+            bytecode=bytecode,
+            coloredBytecode=color_bytecode(bytecode) if bytecode else None,
+            stdout="\n".join(hog_result.stdout),
+        )
+    except Exception as e:
+        return HogQueryResponse(results=f"ERROR: {str(e)}")
+
+
+def _handle_database_schema_query(query: DatabaseSchemaQuery, team: Team) -> DatabaseSchemaQueryResponse:
+    """Handle DatabaseSchemaQuery execution."""
+    joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+    database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
+    context = HogQLContext(team_id=team.pk, team=team, database=database)
+    return DatabaseSchemaQueryResponse(
+        tables=serialize_database(context),
+        joins=[
+            DataWarehouseViewLink.model_validate(
+                {
+                    "id": str(join.id),
+                    "source_table_name": join.source_table_name,
+                    "source_table_key": join.source_table_key,
+                    "joining_table_name": join.joining_table_name,
+                    "joining_table_key": join.joining_table_key,
+                    "field_name": join.field_name,
+                    "configuration": join.configuration,
+                    "created_at": join.created_at.isoformat(),
+                }
+            )
+            for join in joins
+        ],
+    )
+
+
+def _handle_non_runner_query(
+    query: BaseModel,
+    team: Team,
+    execution_mode: ExecutionMode,
+    user: Optional[User] = None,
+    **kwargs,
+) -> dict | BaseModel:
+    """Handle queries that don't use QueryRunner pattern."""
+    if hasattr(query, "source") and isinstance(query.source, BaseModel):
+        return _handle_recursive_query(query, team, execution_mode=execution_mode, user=user, **kwargs)
+    elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+        # Caching is handled by query runners, so in this case we can only return a cache miss
+        return CacheMissResponse(cache_key=None)
+    elif isinstance(query, HogQuery):
+        return _handle_hog_query(query, team, user)
+    elif isinstance(query, HogQLAutocomplete):
+        return get_hogql_autocomplete(query=query, team=team)
+    elif isinstance(query, HogQLMetadata):
+        metadata_query = HogQLMetadata.model_validate(query)
+        return get_hogql_metadata(query=metadata_query, team=team)
+    elif isinstance(query, DatabaseSchemaQuery):
+        return _handle_database_schema_query(query, team)
+    else:
+        raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+
+
 def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
@@ -117,85 +191,32 @@ def process_query_model(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
 ) -> dict | BaseModel:
-    result: dict | BaseModel
-
     try:
         query_runner = get_query_runner(query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
-        if hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(
-                team,
-                query.source,
-                dashboard_filters=dashboard_filters,
-                variables_override=variables_override,
-                limit_context=limit_context,
-                execution_mode=execution_mode,
-                user=user,
-                query_id=query_id,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
-                is_query_service=is_query_service,
-            )
-        elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-            # Caching is handled by query runners, so in this case we can only return a cache miss
-            result = CacheMissResponse(cache_key=None)
-        elif isinstance(query, HogQuery):
-            if is_cloud() and (user is None or not user.is_staff):
-                return {"results": "Hog queries currently require staff user privileges."}
-
-            try:
-                hog_result = execute_hog(query.code or "", team=team)
-                bytecode = hog_result.bytecodes.get("root", None)
-                result = HogQueryResponse(
-                    results=hog_result.result,
-                    bytecode=bytecode,
-                    coloredBytecode=color_bytecode(bytecode) if bytecode else None,
-                    stdout="\n".join(hog_result.stdout),
-                )
-            except Exception as e:
-                result = HogQueryResponse(results=f"ERROR: {str(e)}")
-        elif isinstance(query, HogQLAutocomplete):
-            result = get_hogql_autocomplete(query=query, team=team)
-        elif isinstance(query, HogQLMetadata):
-            metadata_query = HogQLMetadata.model_validate(query)
-            metadata_response = get_hogql_metadata(query=metadata_query, team=team)
-            result = metadata_response
-        elif isinstance(query, DatabaseSchemaQuery):
-            joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-            database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
-            context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = DatabaseSchemaQueryResponse(
-                tables=serialize_database(context),
-                joins=[
-                    DataWarehouseViewLink.model_validate(
-                        {
-                            "id": str(join.id),
-                            "source_table_name": join.source_table_name,
-                            "source_table_key": join.source_table_key,
-                            "joining_table_name": join.joining_table_name,
-                            "joining_table_key": join.joining_table_key,
-                            "field_name": join.field_name,
-                            "configuration": join.configuration,
-                            "created_at": join.created_at.isoformat(),
-                        }
-                    )
-                    for join in joins
-                ],
-            )
-        else:
-            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+        return _handle_non_runner_query(
+            query=query,
+            team=team,
+            dashboard_filters=dashboard_filters,
+            variables_override=variables_override,
+            limit_context=limit_context,
+            execution_mode=execution_mode,
+            user=user,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            is_query_service=is_query_service,
+        )
     else:  # Query runner available - it will handle execution as well as caching
         if dashboard_filters:
             query_runner.apply_dashboard_filters(dashboard_filters)
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
         query_runner.is_query_service = is_query_service
-        result = query_runner.run(
+        return query_runner.run(
             execution_mode=execution_mode,
             user=user,
             query_id=query_id,
             insight_id=insight_id,
             dashboard_id=dashboard_id,
         )
-
-    return result

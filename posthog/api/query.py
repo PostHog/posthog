@@ -63,10 +63,10 @@ QUERY_EXECUTOR = ThreadPoolExecutor(
 )
 
 
-def _process_query_request(
+def prepare_query_execution(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
 ) -> tuple[BaseModel, str, ExecutionMode]:
-    """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
+    """Prepare query for execution by applying filters, variables, and determining execution mode."""
     query = request_data.query
 
     if request_data.filters_override is not None:
@@ -103,7 +103,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if (
             self.team_id in settings.API_QUERIES_PER_TEAM
-            or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
+            or (settings.API_QUERIES_ENABLED and self.get_team_concurrency_limit())
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
@@ -112,7 +112,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
-    def check_team_api_queries_concurrency(self):
+    def get_team_concurrency_limit(self):
+        """Get the team's API queries concurrency limit from cache or feature flags."""
         cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -134,10 +135,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
-            query, client_query_id, execution_mode = _process_query_request(
+            query, client_query_id, execution_mode = prepare_query_execution(
                 data, self.team, data.client_query_id, request.user
             )
-            self._tag_client_query_id(client_query_id)
+            if client_query_id is not None:
+                tag_queries(client_query_id=client_query_id)
             query_dict = query.model_dump()
 
             result = process_query_model(
@@ -266,12 +268,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     match.group(0) + ". Note: While in beta, not all column types may be fully supported"
                 )
         return
-
-    def _tag_client_query_id(self, query_id: str | None):
-        if query_id is None:
-            return
-
-        tag_queries(client_query_id=query_id)
 
 
 MAX_QUERY_TIMEOUT = 600

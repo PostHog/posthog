@@ -862,6 +862,73 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
+    def _analytics_tags_context(self, cache_key: str, insight_id: Optional[int], dashboard_id: Optional[int]):
+        """Context manager for query execution analytics tracking."""
+
+        class AnalyticsContext:
+            def __enter__(self):
+                posthoganalytics.tag("cache_key", cache_key)
+                posthoganalytics.tag("query_type", getattr(self.query, "kind", "Other"))
+
+                if insight_id:
+                    posthoganalytics.tag("insight_id", str(insight_id))
+                if dashboard_id:
+                    posthoganalytics.tag("dashboard_id", str(dashboard_id))
+                if tags := getattr(self.query, "tags", None):
+                    if tags.productKey:
+                        posthoganalytics.tag("product_key", tags.productKey)
+                    if tags.scene:
+                        posthoganalytics.tag("scene", tags.scene)
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        return AnalyticsContext()
+
+    def _execute_with_rate_limiting(
+        self,
+        dashboard_id: Optional[int],
+        last_refresh: datetime,
+        cache_key: str,
+        target_age: Optional[datetime],
+    ) -> dict:
+        """Execute calculation with proper rate limiting applied."""
+        concurrency_limit = self.get_api_queries_concurrency_limit()
+        with get_api_personal_rate_limiter().run(
+            is_api=self.is_query_service,
+            team_id=self.team.pk,
+            org_id=self.team.organization_id,
+            task_id=self.query_id,
+            limit=concurrency_limit,
+        ):
+            if self.is_query_service:
+                tag_queries(chargeable=1)
+
+            with get_app_org_rate_limiter().run(
+                org_id=self.team.organization_id,
+                task_id=self.query_id,
+                team_id=self.team.id,
+                is_api=get_query_tag_value("access_method") == "personal_api_key",
+                limit=get_org_app_concurrency_limit(self.team.organization_id),
+            ):
+                with get_app_dashboard_queries_rate_limiter().run(
+                    org_id=self.team.organization_id,
+                    dashboard_id=dashboard_id,
+                    task_id=self.query_id,
+                    team_id=self.team.id,
+                    is_api=get_query_tag_value("access_method") == "personal_api_key",
+                ):
+                    return {
+                        **self.calculate().model_dump(),
+                        "is_cached": False,
+                        "last_refresh": last_refresh,
+                        "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                        "cache_key": cache_key,
+                        "timezone": self.team.timezone,
+                        "cache_target_age": target_age,
+                    }
+
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -872,20 +939,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         cache_key = self.get_cache_key()
 
-        with posthoganalytics.new_context():
-            posthoganalytics.tag("cache_key", cache_key)
-            posthoganalytics.tag("query_type", getattr(self.query, "kind", "Other"))
-
-            if insight_id:
-                posthoganalytics.tag("insight_id", str(insight_id))
-            if dashboard_id:
-                posthoganalytics.tag("dashboard_id", str(dashboard_id))
-            if tags := getattr(self.query, "tags", None):
-                if tags.productKey:
-                    posthoganalytics.tag("product_key", tags.productKey)
-                if tags.scene:
-                    posthoganalytics.tag("scene", tags.scene)
-
+        with posthoganalytics.new_context(), self._analytics_tags_context(cache_key, insight_id, dashboard_id):
             trigger: str | None = get_query_tag_value("trigger")
 
             self.query_id = query_id or self.query_id
@@ -933,40 +987,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
                 self.modifiers.useMaterializedViews = True
 
-            concurrency_limit = self.get_api_queries_concurrency_limit()
-            with get_api_personal_rate_limiter().run(
-                is_api=self.is_query_service,
-                team_id=self.team.pk,
-                org_id=self.team.organization_id,
-                task_id=self.query_id,
-                limit=concurrency_limit,
-            ):
-                if self.is_query_service:
-                    tag_queries(chargeable=1)
-
-                with get_app_org_rate_limiter().run(
-                    org_id=self.team.organization_id,
-                    task_id=self.query_id,
-                    team_id=self.team.id,
-                    is_api=get_query_tag_value("access_method") == "personal_api_key",
-                    limit=get_org_app_concurrency_limit(self.team.organization_id),
-                ):
-                    with get_app_dashboard_queries_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        dashboard_id=dashboard_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=get_query_tag_value("access_method") == "personal_api_key",
-                    ):
-                        fresh_response_dict = {
-                            **self.calculate().model_dump(),
-                            "is_cached": False,
-                            "last_refresh": last_refresh,
-                            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                            "cache_key": cache_key,
-                            "timezone": self.team.timezone,
-                            "cache_target_age": target_age,
-                        }
+            fresh_response_dict = self._execute_with_rate_limiting(
+                dashboard_id=dashboard_id,
+                last_refresh=last_refresh,
+                cache_key=cache_key,
+                target_age=target_age,
+            )
 
             try:
                 query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
