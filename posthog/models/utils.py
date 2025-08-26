@@ -1,19 +1,18 @@
-import datetime
 import re
-import secrets
-import string
 import uuid
+import string
+import secrets
+import datetime
 from collections import defaultdict, namedtuple
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
-from collections.abc import Iterable
-from collections.abc import Callable, Iterator
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
-from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
+from django.db.backends.utils import CursorWrapper
 from django.db.models import Q, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
@@ -393,8 +392,9 @@ def validate_rate_limit(value):
 
 class RootTeamQuerySet(models.QuerySet):
     def filter(self, *args, **kwargs):
-        from posthog.models.team import Team
         from django.db.models import Q, Subquery
+
+        from posthog.models.team import Team
 
         # TODO: Handle team as a an object as well
 

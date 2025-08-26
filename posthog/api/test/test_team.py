@@ -1,13 +1,15 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from datetime import UTC, datetime
 from typing import Any, Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
 from django.core.cache import cache
 from django.http import HttpResponse
-from freezegun import freeze_time
+
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
@@ -26,7 +28,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.test.base import APIBaseTest
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
 from ee.models.rbac.access_control import AccessControl
@@ -210,9 +212,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -224,9 +228,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -462,10 +468,7 @@ def team_api_test_factory():
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             from posthog.models.cohort import Cohort, CohortPeople
-            from posthog.models.feature_flag.feature_flag import (
-                FeatureFlag,
-                FeatureFlagHashKeyOverride,
-            )
+            from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
@@ -1604,6 +1607,56 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
+        @parameterized.expand(
+            [
+                (
+                    "app_urls_mixed_nulls",
+                    "app_urls",
+                    ["https://example.com", None, "https://test.com", None],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("app_urls_all_nulls", "app_urls", [None, None, None], [], None),
+                (
+                    "app_urls_mixed_valid_and_null",
+                    "app_urls",
+                    ["https://new.com", None, "https://another.com"],
+                    ["https://new.com", "https://another.com"],
+                    ["https://existing.com"],
+                ),
+                (
+                    "recording_domains_mixed_nulls",
+                    "recording_domains",
+                    [None, "https://example.com", None, "https://test.com"],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("recording_domains_none_field", "recording_domains", None, None, None),
+            ]
+        )
+        def test_filters_null_values(self, name, field_name, input_data, expected_output, setup_data):
+            if setup_data is not None:
+                setattr(self.team, field_name, setup_data)
+                self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {field_name: input_data})
+
+            assert response.status_code == status.HTTP_200_OK
+            response_data = response.json()
+
+            if expected_output is None:
+                assert response_data[field_name] is None
+            else:
+                assert response_data[field_name] == expected_output
+
+            self.team.refresh_from_db()
+            actual_value = getattr(self.team, field_name)
+
+            if expected_output is None:
+                assert actual_value is None
+            else:
+                assert actual_value == expected_output
+
     return TestTeamAPI
 
 
@@ -1727,9 +1780,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response_data = response.json()
         self.assertEqual(
             response_data.get("detail"),
-            "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-            if self.client_class is not EnvironmentToProjectRewriteClient
-            else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+            (
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+            ),
         )
         self.assertEqual(response_data.get("type"), "authentication_error")
         self.assertEqual(response_data.get("code"), "permission_denied")

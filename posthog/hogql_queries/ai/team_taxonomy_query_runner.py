@@ -1,9 +1,3 @@
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     CachedTeamTaxonomyQueryResponse,
     TeamTaxonomyItem,
@@ -11,20 +5,27 @@ from posthog.schema import (
     TeamTaxonomyQueryResponse,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+
 try:
     from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 except ImportError:
     CORE_FILTER_DEFINITIONS_BY_GROUP = {}
 
 
-class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner):
+class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
     Calculates the top events for a team sorted by count. The EventDefinition model doesn't store the count of events,
     so this query mitigates that.
     """
 
     query: TeamTaxonomyQuery
-    response: TeamTaxonomyQueryResponse
     cached_response: CachedTeamTaxonomyQueryResponse
 
     def _calculate(self):

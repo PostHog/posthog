@@ -16,6 +16,7 @@ common-types = { path = "../common/types" }
 dashmap = "6.1"
 envconfig = { workspace = true }
 futures = { workspace = true }
+health = { path = "../common/health" }
 metrics = { workspace = true }
 num_cpus = "1.17.0"
 rdkafka = { workspace = true }

@@ -6,9 +6,8 @@ from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.experiments import (
-    CONTROL_VARIANT_KEY,
-)
+from posthog.schema import ExperimentSignificanceCode
+
 from posthog.constants import (
     ACTIONS,
     EVENTS,
@@ -28,7 +27,8 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
-from posthog.schema import ExperimentSignificanceCode
+
+from ee.clickhouse.queries.experiments import CONTROL_VARIANT_KEY
 
 Probability = float
 

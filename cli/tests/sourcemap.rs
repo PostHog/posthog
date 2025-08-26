@@ -28,7 +28,7 @@ fn test_ignore() {
     let pairs = read_pairs(&get_case_path(""), &Vec::new()).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 4);
 
-    let pairs = read_pairs(&get_case_path(""), &vec!["**/search/**".to_string()])
+    let pairs = read_pairs(&get_case_path(""), &["**/search/**".to_string()])
         .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 2);
 }

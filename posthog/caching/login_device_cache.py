@@ -1,4 +1,5 @@
 import hashlib
+
 from posthog.redis import get_client
 
 TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days

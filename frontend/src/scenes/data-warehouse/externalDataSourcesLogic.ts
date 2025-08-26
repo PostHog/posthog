@@ -36,7 +36,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                     return {
                         ...values.dataWarehouseSources,
                         results:
-                            values.dataWarehouseSources?.results.map((s) =>
+                            values.dataWarehouseSources?.results.map((s: ExternalDataSource) =>
                                 s.id === updatedSource.id ? updatedSource : s
                             ) || [],
                     }

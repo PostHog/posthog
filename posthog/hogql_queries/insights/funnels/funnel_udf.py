@@ -1,16 +1,16 @@
-from typing import cast, Optional, runtime_checkable
+from typing import Optional, Protocol, cast, runtime_checkable
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.schema import BreakdownAttributionType, BreakdownType, StepOrderValue
+
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
-from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql_queries.insights.funnels.base import FunnelBase, JOIN_ALGOS
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.schema import BreakdownType, BreakdownAttributionType, StepOrderValue
-from posthog.utils import DATERANGE_MAP
+from posthog.hogql.parser import parse_expr, parse_select
 
-from typing import Protocol
+from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.utils import DATERANGE_MAP
 
 
 @runtime_checkable

@@ -162,6 +162,10 @@ export class PostgresRouter {
         })
     }
 
+    public async connect(usage: PostgresUse): Promise<PoolClient> {
+        return await this.pools.get(usage)!.connect()
+    }
+
     async end(): Promise<void> {
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())

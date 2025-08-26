@@ -1,10 +1,30 @@
 from datetime import date, datetime, timedelta
 from typing import cast
-
 from zoneinfo import ZoneInfo
 
 from freezegun.api import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
+
 from parameterized import parameterized
+
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelExclusionEventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    IntervalType,
+    PropertyOperator,
+)
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType, FunnelVizType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -12,25 +32,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.schema import (
-    FunnelsQuery,
-    FunnelsQueryResponse,
-    DateRange,
-    EventsNode,
-    FunnelExclusionEventsNode,
-    EventPropertyFilter,
-    PropertyOperator,
-    FunnelConversionWindowTimeUnit,
-    IntervalType,
-    FunnelsFilter,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    snapshot_clickhouse_queries,
-    _create_event,
-)
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"

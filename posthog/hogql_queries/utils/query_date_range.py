@@ -1,19 +1,17 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import cast, Literal, Optional
+from typing import Literal, Optional, cast
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.schema import DateRange, IntervalType
+
 from posthog.hogql.parser import ast
+
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
-from posthog.schema import DateRange, IntervalType
-from posthog.utils import (
-    DEFAULT_DATE_FROM_DAYS,
-    relative_date_parse,
-    relative_date_parse_with_delta_mapping,
-)
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
 ORDERED_INTERVALS = [IntervalType.MINUTE, IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH]
@@ -319,6 +317,23 @@ class QueryDateRange:
     def date_from_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
 
+    def date_from_with_adjusted_start_of_interval_hogql(self) -> ast.Call:
+        if self.interval_name == "week":
+            # in `where` queries with week intervals, we need to return the date_from instead of the start of the week
+            # this ensures that we only fetch records after the date_from
+            return ast.Call(
+                name="toStartOfInterval",
+                args=[
+                    self.date_from_as_hogql(),
+                    ast.Call(
+                        name=f"toIntervalDay",
+                        args=[ast.Constant(value=1)],
+                    ),
+                ],
+            )
+
+        return self.date_from_to_start_of_interval_hogql()
+
     def date_to_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_to_as_hogql())
 
@@ -339,7 +354,7 @@ class QueryDateRange:
             "date_from_start_of_interval": self.date_from_to_start_of_interval_hogql(),
             "date_to_start_of_interval": self.date_to_to_start_of_interval_hogql(),
             "date_from_with_adjusted_start_of_interval": (
-                self.date_from_to_start_of_interval_hogql()
+                self.date_from_with_adjusted_start_of_interval_hogql()
                 if self.use_start_of_interval()
                 else self.date_from_as_hogql()
             ),
