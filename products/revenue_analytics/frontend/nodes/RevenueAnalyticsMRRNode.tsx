@@ -1,8 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+import { IconGraph } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -18,7 +21,8 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { AlphaTag, RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
+import { mrrBreakdownModalLogic } from './modals'
+import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 const MODE_OPTIONS: LemonSegmentedButtonOption<'mrr' | 'arr'>[] = [
     { value: 'mrr', label: 'MRR' },
@@ -65,7 +69,10 @@ const Tile = ({
     context,
 }: TileProps<RevenueAnalyticsMRRQueryResponse>): JSX.Element => {
     const { baseCurrency, groupBy, mrrMode } = useValues(revenueAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const { setMRRMode } = useActions(revenueAnalyticsLogic)
+    const { openModal } = useActions(mrrBreakdownModalLogic)
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
@@ -84,15 +91,36 @@ const Tile = ({
         }) as GraphDataset['data'], // Dumb type assertion because TS can't infer the type of the data
     }))
 
+    const handleBreakdownClick = (): void => {
+        if (response) {
+            openModal(response.results)
+        }
+    }
+
     return (
         <TileWrapper
             title={mrrMode === 'mrr' ? 'MRR' : 'ARR'}
             tooltip="MRR is the total amount of recurring revenue generated from all sources, including all products and services in the last 30 days. ARR is that value multiplied by 12."
             extra={
                 <div className="flex items-center gap-1 text-muted-alt">
-                    <span className="flex items-center">
-                        <AlphaTag />
-                    </span>
+                    {featureFlags[FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS] && (
+                        <LemonButton
+                            icon={<IconGraph />}
+                            onClick={handleBreakdownClick}
+                            tooltip="View MRR breakdown"
+                            type="secondary"
+                            size="small"
+                            disabledReason={
+                                responseLoading
+                                    ? 'Waiting for data...'
+                                    : datasets.length === 0
+                                      ? 'No MRR data available'
+                                      : undefined
+                            }
+                        >
+                            MRR Breakdown
+                        </LemonButton>
+                    )}
 
                     <LemonSegmentedButton value={mrrMode} onChange={setMRRMode} options={MODE_OPTIONS} size="small" />
                 </div>
