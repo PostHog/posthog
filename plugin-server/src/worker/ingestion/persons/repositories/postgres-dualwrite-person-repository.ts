@@ -15,8 +15,6 @@ import { PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import type { PostgresPersonRepositoryOptions } from './postgres-person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
-import type { PostgresPersonRepositoryOptions } from './postgres-person-repository'
-import { PostgresPersonRepository } from './postgres-person-repository'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export interface PostgresDualWritePersonRepositoryOptions extends PostgresPersonRepositoryOptions {
