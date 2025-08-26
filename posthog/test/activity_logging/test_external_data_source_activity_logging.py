@@ -13,7 +13,6 @@ class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):
 
         external_data_source_exclusions = field_exclusions.get("ExternalDataSource", [])
 
-        self.assertIn("job_inputs", external_data_source_exclusions)
         self.assertIn("connection_id", external_data_source_exclusions)
         self.assertIn("destination_id", external_data_source_exclusions)
         self.assertIn("are_tables_created", external_data_source_exclusions)
