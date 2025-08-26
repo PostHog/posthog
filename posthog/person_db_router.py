@@ -19,17 +19,18 @@ class PersonDBRouter:
         "groups",  # Assuming app_label 'posthog'
         "grouptypemapping",  # Assuming app_label 'posthog'
     }
-    PERSONS_APP_LABEL = "posthog"
+    PERSONS_DB_APP_LABEL = "persons_database"
+    POSTHOG_APP_LABEL = "posthog"
 
     def db_for_read(self, model, **hints):
         """
         Attempts to read person models go to persons_db_writer.
         """
         # All models from persons_database app go to persons_db_writer
-        if model._meta.app_label == "persons_database":
+        if model._meta.app_label == self.PERSONS_DB_APP_LABEL:
             return "persons_db_writer"
         # For backward compatibility, check if it's a person model in posthog app
-        if model._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(model._meta.model_name):
+        if model._meta.app_label == self.POSTHOG_APP_LABEL and self.is_persons_model(model._meta.model_name):
             return "persons_db_writer"
         return None  # Allow default db selection
 
@@ -38,10 +39,10 @@ class PersonDBRouter:
         Attempts to write person models go to persons_db_writer.
         """
         # All models from persons_database app go to persons_db_writer
-        if model._meta.app_label == "persons_database":
+        if model._meta.app_label == self.PERSONS_DB_APP_LABEL:
             return "persons_db_writer"
         # For backward compatibility, check if it's a person model in posthog app
-        if model._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(model._meta.model_name):
+        if model._meta.app_label == self.POSTHOG_APP_LABEL and self.is_persons_model(model._meta.model_name):
             return "persons_db_writer"
         return None  # Allow default db selection
 
@@ -80,17 +81,16 @@ class PersonDBRouter:
         Make sure the person models only appear in the 'persons_db'
         database. All other models migrate normally on 'default'.
         """
-        # persons_database app should only migrate to persons_db_writer
-        if app_label == "persons_database":
+        # persons_database app migrations should only migrate against persons_db_writer
+        if app_label == self.PERSONS_DB_APP_LABEL:
             return db == "persons_db_writer"
 
-        # explicitly deny all other apps from migrating to persons_db_write
+        # explicitly deny all other apps from migrating to persons_db_writer
         if db == "persons_db_writer":
             return False
 
-        # For all other databases (like 'default'), allow non-persons_database apps
-        if app_label != self.PERSONS_APP_LABEL:
-            return db == "default"
+        # default db will handle all other apps
+        return db == "default"
 
     def is_persons_model(self, model_name):
         # Check if the model name belongs to the persons_db models
